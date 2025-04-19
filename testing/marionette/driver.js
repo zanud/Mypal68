@@ -98,8 +98,6 @@ const SUPPORTED_STRATEGIES = new Set([
   element.Strategy.ID,
   element.Strategy.TagName,
   element.Strategy.XPath,
-  element.Strategy.Anon,
-  element.Strategy.AnonAttribute,
 ]);
 
 // Timeout used to abort fullscreen, maximize, and minimize
@@ -1800,37 +1798,6 @@ GeckoDriver.prototype.switchToFrame = async function(cmd) {
         return;
       }
 
-      // Check if the frame is XBL anonymous
-      let parent = curWindow.document.getBindingParent(wantedFrame);
-      // Shadow nodes also show up in getAnonymousNodes, we should
-      // ignore them.
-      if (
-        parent &&
-        !(parent.shadowRoot && parent.shadowRoot.contains(wantedFrame))
-      ) {
-        const doc = curWindow.document;
-        let anonNodes = [...(doc.getAnonymousNodes(parent) || [])];
-        if (anonNodes.length > 0) {
-          let el = wantedFrame;
-          while (el) {
-            if (anonNodes.indexOf(el) > -1) {
-              curWindow = wantedFrame.contentWindow;
-              this.curFrame = curWindow;
-              if (focus) {
-                this.curFrame.focus();
-              }
-              checkTimer.initWithCallback(
-                checkLoad.bind(this),
-                100,
-                Ci.nsITimer.TYPE_ONE_SHOT
-              );
-              return;
-            }
-            el = el.parentNode;
-          }
-        }
-      }
-
       // else, assume iframe
       let frames = curWindow.document.getElementsByTagName("iframe");
       let numFrames = frames.length;
@@ -2656,7 +2623,7 @@ GeckoDriver.prototype.clearElement = async function(cmd) {
     case Context.Chrome:
       // the selenium atom doesn't work here
       let el = this.curBrowser.seenEls.get(webEl);
-      if (el.nodeName == "textbox") {
+      if (el.nodeName == "input" && el.type == "text") {
         el.value = "";
       } else if (el.nodeName == "checkbox") {
         el.checked = false;
@@ -2997,16 +2964,13 @@ GeckoDriver.prototype.deleteSession = function() {
  * @param {string=} id
  *     Optional web element reference to take a screenshot of.
  *     If undefined, a screenshot will be taken of the document element.
- * @param {Array.<string>=} highlights
- *     List of web elements to highlight.
- * @param {boolean} full
- *     True to take a screenshot of the entire document element. Is not
+ * @param {boolean=} full
+ *     True to take a screenshot of the entire document element. Is only
  *     considered if <var>id</var> is not defined. Defaults to true.
  * @param {boolean=} hash
- *     True if the user requests a hash of the image data.
+ *     True if the user requests a hash of the image data. Defaults to false.
  * @param {boolean=} scroll
- *     Scroll to element if |id| is provided.  If undefined, it will
- *     scroll to the element.
+ *     Scroll to element if |id| is provided. Defaults to true.
  *
  * @return {string}
  *     If <var>hash</var> is false, PNG image encoded as Base64 encoded
@@ -3016,23 +2980,21 @@ GeckoDriver.prototype.deleteSession = function() {
 GeckoDriver.prototype.takeScreenshot = function(cmd) {
   let win = assert.open(this.getCurrentWindow());
 
-  let { id, highlights, full, hash } = cmd.parameters;
-  highlights = highlights || [];
+  let { id, full, hash, scroll } = cmd.parameters;
   let format = hash ? capture.Format.Hash : capture.Format.Base64;
+
+  full = typeof full == "undefined" ? true : full;
+  scroll = typeof scroll == "undefined" ? true : scroll;
+
+  // Only consider full screenshot if no element has been specified
+  full = id ? false : full;
 
   switch (this.context) {
     case Context.Chrome:
-      let highlightEls = highlights
-        .map(ref => WebElement.fromUUID(ref, Context.Chrome))
-        .map(webEl => this.curBrowser.seenEls.get(webEl));
-
-      // viewport
       let canvas;
-      if (!id && !full) {
-        canvas = capture.viewport(win, highlightEls);
 
-        // element or full document element
-      } else {
+      // element or full document element
+      if (id || full) {
         let node;
         if (id) {
           let webEl = WebElement.fromUUID(id, Context.Chrome);
@@ -3041,7 +3003,11 @@ GeckoDriver.prototype.takeScreenshot = function(cmd) {
           node = win.document.documentElement;
         }
 
-        canvas = capture.element(node, highlightEls);
+        canvas = capture.element(node);
+
+        // viewport
+      } else {
+        canvas = capture.viewport(win);
       }
 
       switch (format) {
@@ -3054,7 +3020,11 @@ GeckoDriver.prototype.takeScreenshot = function(cmd) {
       break;
 
     case Context.Content:
-      return this.listener.takeScreenshot(format, cmd.parameters);
+      return this.listener.takeScreenshot(format, {
+        id,
+        full,
+        scroll,
+      });
   }
 
   throw new TypeError(`Unknown context: ${this.context}`);

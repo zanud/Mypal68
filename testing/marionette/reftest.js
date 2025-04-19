@@ -137,7 +137,7 @@ reftest.Runner = class {
     assert.positiveInteger(height);
 
     let reftestWin = this.parentWindow.open(
-      "chrome://marionette/content/reftest.xul",
+      "chrome://marionette/content/reftest.xhtml",
       "reftest",
       `chrome,height=${height},width=${width}`
     );
@@ -157,7 +157,6 @@ reftest.Runner = class {
       browser = reftestWin.document.createElementNS(XUL_NS, "xul:browser");
       browser.permanentKey = {};
       browser.setAttribute("id", "browser");
-      browser.setAttribute("anonid", "initialBrowser");
       browser.setAttribute("type", "content");
       browser.setAttribute("primary", "true");
       if (this.remote) {

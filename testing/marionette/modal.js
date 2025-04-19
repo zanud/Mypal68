@@ -8,7 +8,7 @@ const { Services } = ChromeUtils.import("resource://gre/modules/Services.jsm");
 
 this.EXPORTED_SYMBOLS = ["modal"];
 
-const COMMON_DIALOG = "chrome://global/content/commonDialog.xul";
+const COMMON_DIALOG = "chrome://global/content/commonDialog.xhtml";
 
 const isFirefox = () =>
   Services.appinfo.ID == "{ec8030f7-c20a-464f-9b0e-13a3a9e97384}";

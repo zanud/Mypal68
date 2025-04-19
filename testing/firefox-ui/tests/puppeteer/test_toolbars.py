@@ -85,26 +85,12 @@ class TestLocationBar(PuppeteerMixin, MarionetteTestCase):
         self.locationbar = self.browser.navbar.locationbar
 
     def test_elements(self):
-        self.assertEqual(self.locationbar.urlbar.get_property('localName'), 'textbox')
-        self.assertIn('urlbar-input', self.locationbar.urlbar_input.get_property('className'))
+        self.assertEqual(self.locationbar.urlbar_input.get_property('id'), 'urlbar-input')
 
-        self.assertEqual(self.locationbar.connection_icon.get_property('localName'), 'image')
-        self.assertEqual(self.locationbar.identity_box.get_property('localName'), 'box')
-        self.assertEqual(self.locationbar.identity_country_label.get_property('localName'),
-                         'label')
-        self.assertEqual(self.locationbar.identity_organization_label.get_property('localName'),
-                         'label')
-        self.assertEqual(self.locationbar.identity_icon.get_property('localName'), 'image')
-        self.assertEqual(self.locationbar.history_drop_marker.get_property('localName'),
-                         'dropmarker')
         self.assertEqual(self.locationbar.reload_button.get_property('localName'),
                          'toolbarbutton')
         self.assertEqual(self.locationbar.stop_button.get_property('localName'),
                          'toolbarbutton')
-
-        self.assertEqual(self.locationbar.contextmenu.get_property('localName'), 'menupopup')
-        self.assertEqual(self.locationbar.get_contextmenu_entry('paste').get_attribute('cmd'),
-                         'cmd_paste')
 
     def test_reload(self):
         event_types = ["shortcut", "shortcut2", "button"]
@@ -131,83 +117,3 @@ class TestLocationBar(PuppeteerMixin, MarionetteTestCase):
 
         with self.marionette.using_context('content'):
             Wait(self.marionette).until(lambda mn: mn.get_url() == data_uri)
-
-
-class TestIdentityPopup(PuppeteerMixin, MarionetteTestCase):
-    def setUp(self):
-        super(TestIdentityPopup, self).setUp()
-
-        self.locationbar = self.browser.navbar.locationbar
-        self.identity_popup = self.locationbar.identity_popup
-
-        self.url = 'https://extended-validation.badssl.com'
-
-        with self.marionette.using_context('content'):
-            self.marionette.navigate(self.url)
-
-    def tearDown(self):
-        try:
-            self.identity_popup.close(force=True)
-        finally:
-            super(TestIdentityPopup, self).tearDown()
-
-    def test_elements(self):
-        self.locationbar.open_identity_popup()
-
-        # Test main view elements
-        main = self.identity_popup.view.main
-        self.assertEqual(main.element.get_property('localName'), 'panelview')
-
-        self.assertEqual(main.expander.get_property('localName'), 'button')
-        self.assertEqual(main.host.get_property('localName'), 'label')
-        self.assertEqual(main.insecure_connection_label.get_property('localName'),
-                         'description')
-        self.assertEqual(main.internal_connection_label.get_property('localName'),
-                         'description')
-        self.assertEqual(main.secure_connection_label.get_property('localName'),
-                         'description')
-
-        self.assertEqual(main.permissions.get_property('localName'), 'vbox')
-
-        # Test security view elements
-        security = self.identity_popup.view.security
-        self.assertEqual(security.element.get_property('localName'), 'panelview')
-
-        self.assertEqual(security.host.get_property('localName'), 'label')
-        self.assertEqual(security.insecure_connection_label.get_property('localName'),
-                         'description')
-        self.assertEqual(security.secure_connection_label.get_property('localName'),
-                         'description')
-
-        self.assertEqual(security.owner.get_property('localName'), 'description')
-        self.assertEqual(security.owner_location.get_property('localName'), 'description')
-        self.assertEqual(security.verifier.get_property('localName'), 'description')
-
-        self.assertEqual(security.disable_mixed_content_blocking_button.get_property('localName'),
-                         'button')
-        self.assertEqual(security.enable_mixed_content_blocking_button.get_property('localName'),
-                         'button')
-
-        self.assertEqual(security.more_info_button.get_property('localName'), 'button')
-
-    def test_open_close(self):
-        with self.marionette.using_context('content'):
-            self.marionette.navigate(self.url)
-
-        self.assertFalse(self.identity_popup.is_open)
-
-        self.locationbar.open_identity_popup()
-
-        self.identity_popup.close()
-        self.assertFalse(self.identity_popup.is_open)
-
-    def test_force_close(self):
-        with self.marionette.using_context('content'):
-            self.marionette.navigate(self.url)
-
-        self.assertFalse(self.identity_popup.is_open)
-
-        self.locationbar.open_identity_popup()
-
-        self.identity_popup.close(force=True)
-        self.assertFalse(self.identity_popup.is_open)

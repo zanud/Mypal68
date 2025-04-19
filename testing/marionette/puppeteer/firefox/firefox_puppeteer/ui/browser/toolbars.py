@@ -79,7 +79,6 @@ class LocationBar(UIBaseLib):
     def __init__(self, *args, **kwargs):
         super(LocationBar, self).__init__(*args, **kwargs)
 
-        self._autocomplete_results = None
         self._identity_popup = None
 
     def clear(self):
@@ -89,29 +88,6 @@ class LocationBar(UIBaseLib):
         Wait(self.marionette).until(
             lambda _: self.value == '',
             message='Contents of location bar could not be cleared.')
-
-    def close_context_menu(self):
-        """Closes the Location Bar context menu by a key event."""
-        # TODO: This method should be implemented via the menu API.
-        self.contextmenu.send_keys(keys.Keys.ESCAPE)
-
-    @property
-    def connection_icon(self):
-        """ Provides access to the urlbar connection icon.
-
-        :returns: Reference to the connection icon element.
-        """
-        return self.marionette.find_element(By.ID, 'connection-icon')
-
-    @property
-    def contextmenu(self):
-        """Provides access to the urlbar context menu.
-
-        :returns: Reference to the urlbar context menu.
-        """
-        # TODO: This method should be implemented via the menu API.
-        parent = self.urlbar.find_element(By.ANON_ATTRIBUTE, {'anonid': 'moz-input-box'})
-        return parent.find_element(By.ANON_ATTRIBUTE, {'anonid': 'input-box-contextmenu'})
 
     @property
     def focused(self):
@@ -146,27 +122,6 @@ class LocationBar(UIBaseLib):
         Wait(self.marionette).until(
             lambda _: self.focused,
             message='Location bar has not be focused.')
-
-    def get_contextmenu_entry(self, action):
-        """Retrieves the urlbar context menu entry corresponding
-        to the given action.
-
-        :param action: The action corresponding to the retrieved value.
-        :returns: Reference to the urlbar contextmenu entry.
-        """
-        # TODO: This method should be implemented via the menu API.
-        entries = self.contextmenu.find_elements(By.CSS_SELECTOR, 'menuitem')
-        filter_on = 'cmd_%s' % action
-        found = [e for e in entries if e.get_attribute('cmd') == filter_on]
-        return found[0] if len(found) else None
-
-    @property
-    def history_drop_marker(self):
-        """Provides access to the history drop marker.
-
-        :returns: Reference to the history drop marker.
-        """
-        return self.urlbar.find_element(By.ANON_ATTRIBUTE, {'anonid': 'historydropmarker'})
 
     @property
     def identity_box(self):
@@ -279,7 +234,7 @@ class LocationBar(UIBaseLib):
 
         :returns: Reference to the urlbar input.
         """
-        return self.urlbar.find_element(By.ANON_ATTRIBUTE, {'anonid': 'input'})
+        return self.marionette.find_element(By.ID, 'urlbar-input')
 
     @property
     def value(self):
@@ -287,113 +242,7 @@ class LocationBar(UIBaseLib):
 
         :returns: The urlbar value.
         """
-        return self.urlbar.get_property('value')
-
-
-class AutocompleteResults(UIBaseLib):
-    """Wraps DOM elements and methods for interacting with autocomplete results."""
-
-    def close(self, force=False):
-        """Closes the urlbar autocomplete popup.
-
-        :param force: If true, the popup is closed by its own hide function,
-                      otherwise a key event is sent to close the popup.
-        """
-        if not self.is_open:
-            return
-
-        if force:
-            self.marionette.execute_script("""
-              arguments[0].hidePopup();
-            """, script_args=[self.element])
-        else:
-            self.element.send_keys(keys.Keys.ESCAPE)
-
-        Wait(self.marionette).until(
-            lambda _: not self.is_open,
-            message='Autocomplete popup has not been closed.')
-
-    def get_matching_text(self, result, match_type):
-        """Returns an array of strings of the matching text within an autocomplete
-        result in the urlbar.
-
-        :param result: The result to inspect for matches.
-        :param match_type: The type of match to search for (one of `title` or `url`).
-        """
-
-        if match_type not in ('title', 'url'):
-            raise ValueError('match_type provided must be one of'
-                             '"title" or "url", not %s' % match_type)
-
-        # Search for nodes of the given type with emphasized text
-        emphasized_nodes = result.find_elements(
-            By.ANON_ATTRIBUTE,
-            {'class': 'ac-emphasize-text ac-emphasize-text-%s' % match_type}
-        )
-
-        return [node.get_property('textContent') for node in emphasized_nodes]
-
-    @property
-    def visible_results(self):
-        """Supplies the list of visible autocomplete result nodes.
-
-        :returns: The list of visible results.
-        """
-        match_count = self.element.get_property('matchCount')
-
-        return self.marionette.execute_script("""
-          let rv = [];
-          let node = arguments[0];
-          let count = arguments[1];
-
-          for (let i = 0; i < count; ++i) {
-            rv.push(node.getItemAtIndex(i));
-          }
-
-          return rv;
-        """, script_args=[self.results, match_count])
-
-    @property
-    def is_open(self):
-        """Returns whether this popup is currently open.
-
-        :returns: True when the popup is open, otherwise false.
-        """
-        return self.element.get_property('state') == 'open'
-
-    @property
-    def is_complete(self):
-        """Returns when this popup is open and autocomplete results are complete.
-
-        :returns: True, when autocomplete results have been populated.
-        """
-        return self.marionette.execute_script("""
-          Components.utils.import("resource://gre/modules/Services.jsm");
-
-          let win = Services.focus.activeWindow;
-          if (win) {
-            return win.gURLBar.controller.searchStatus >=
-                   Components.interfaces.nsIAutoCompleteController.STATUS_COMPLETE_NO_MATCH;
-          }
-
-          return null;
-        """)
-
-    @property
-    def results(self):
-        """
-        :returns: The autocomplete result container node.
-        """
-        return self.element.find_element(By.ANON_ATTRIBUTE,
-                                         {'anonid': 'richlistbox'})
-
-    @property
-    def selected_index(self):
-        """Provides the index of the selected item in the autocomplete list.
-
-        :returns: The index.
-        """
-        return self.results.get_property('selectedIndex')
+        return self.urlbar_input.get_property('value')
 
 
 class IdentityPopup(UIBaseLib):

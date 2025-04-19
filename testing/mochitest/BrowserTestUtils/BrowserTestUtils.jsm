@@ -780,7 +780,7 @@ var BrowserTestUtils = {
     return new Promise(resolve => {
       async function observer(subject, topic, data) {
         if (topic == "domwindowopened" && (!win || subject === win)) {
-          let observedWindow = subject.QueryInterface(Ci.nsIDOMWindow);
+          let observedWindow = subject;
           if (checkFn && !(await checkFn(observedWindow))) {
             return;
           }
@@ -806,7 +806,7 @@ var BrowserTestUtils = {
       function observer(subject, topic, data) {
         if (topic == "domwindowclosed" && (!win || subject === win)) {
           Services.ww.unregisterNotification(observer);
-          resolve(subject.QueryInterface(Ci.nsIDOMWindow));
+          resolve(subject);
         }
       }
       Services.ww.registerNotification(observer);
@@ -2123,7 +2123,7 @@ var BrowserTestUtils = {
    */
   async promiseAlertDialogOpen(
     buttonAction,
-    uri = "chrome://global/content/commonDialog.xul",
+    uri = "chrome://global/content/commonDialog.xhtml",
     func
   ) {
     let win = await this.domWindowOpened(null, async win => {
@@ -2140,8 +2140,8 @@ var BrowserTestUtils = {
       return win;
     }
 
-    let doc = win.document.documentElement;
-    doc.getButton(buttonAction).click();
+    let dialog = win.document.querySelector("dialog");
+    dialog.getButton(buttonAction).click();
 
     return win;
   },
@@ -2161,7 +2161,7 @@ var BrowserTestUtils = {
    */
   async promiseAlertDialog(
     buttonAction,
-    uri = "chrome://global/content/commonDialog.xul",
+    uri = "chrome://global/content/commonDialog.xhtml",
     func
   ) {
     let win = await this.promiseAlertDialogOpen(buttonAction, uri, func);

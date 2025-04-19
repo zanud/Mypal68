@@ -1631,19 +1631,14 @@ function switchToFrame(msg) {
  *
  * Accepted values for |opts|:
  *
- *     @param {UUID=} id
- *         Optional web element reference of an element to take a screenshot
- *         of.
- *     @param {boolean=} full
- *         True to take a screenshot of the entire document element.  Is not
- *         considered if {@code id} is not defined.  Defaults to true.
- *     @param {Array.<UUID>=} highlights
- *         Draw a border around the elements found by their web element
- *         references.
- *     @param {boolean=} scroll
- *         When |id| is given, scroll it into view before taking the
- *         screenshot.  Defaults to true.
- *
+ * @param {UUID=} id
+ *     Optional web element reference of an element to take a screenshot of.
+ * @param {boolean=} full
+ *     True to take a screenshot of the entire document element. Is only
+ *     considered if <var>id</var> is not defined. Defaults to true.
+ * @param {boolean=} scroll
+ *     When <var>id</var> is given, scroll it into view before taking the
+ *     screenshot.  Defaults to true.
  * @param {capture.Format} format
  *     Format to return the screenshot in.
  * @param {Object.<string, ?>} opts
@@ -1652,25 +1647,13 @@ function switchToFrame(msg) {
  * @return {string}
  *     Base64 encoded string or a SHA-256 hash of the screenshot.
  */
-function takeScreenshot(format, opts = {}) {
-  let id = opts.id;
-  let full = !!opts.full;
-  let highlights = opts.highlights || [];
-  let scroll = !!opts.scroll;
-
+function takeScreenshot(format, { id, full = true, scroll = true } = {}) {
   let win = curContainer.frame;
 
   let canvas;
-  let highlightEls = highlights
-    .map(ref => WebElement.fromUUID(ref, "content"))
-    .map(webEl => seenEls.get(webEl, win));
 
-  // viewport
-  if (!id && !full) {
-    canvas = capture.viewport(win, highlightEls);
-
-    // element or full document element
-  } else {
+  // element or full document element
+  if (id || full) {
     let el;
     if (id) {
       let webEl = WebElement.fromUUID(id, "content");
@@ -1682,7 +1665,11 @@ function takeScreenshot(format, opts = {}) {
       el = win.document.documentElement;
     }
 
-    canvas = capture.element(el, highlightEls);
+    canvas = capture.element(el);
+
+    // viewport
+  } else {
+    canvas = capture.viewport(win);
   }
 
   switch (format) {
