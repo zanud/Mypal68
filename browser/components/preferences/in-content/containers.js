@@ -16,11 +16,15 @@ let gContainersPane = {
     this._list = document.getElementById("containersView");
 
     document
-      .getElementById("backContainersLink")
-      .addEventListener("click", function(event) {
-        if (event.button == 0) {
-          gotoPref("general");
-        }
+      .getElementById("backContainersButton")
+      .addEventListener("command", function() {
+        gotoPref("general");
+      });
+
+    document
+      .getElementById("containersAdd")
+      .addEventListener("command", function() {
+        gContainersPane.onAddButtonCommand();
       });
 
     this._rebuildView();
@@ -43,6 +47,7 @@ let gContainersPane = {
       userContextIcon.className = "userContext-icon";
       userContextIcon.setAttribute("width", 24);
       userContextIcon.setAttribute("height", 24);
+      userContextIcon.classList.add("userContext-icon-inprefs");
       userContextIcon.classList.add("identity-icon-" + container.icon);
       userContextIcon.classList.add("identity-color-" + container.color);
       outer.appendChild(userContextIcon);
@@ -57,24 +62,20 @@ let gContainersPane = {
 
       let containerButtons = document.createXULElement("hbox");
       containerButtons.className = "container-buttons";
-      containerButtons.setAttribute("flex", 1);
-      containerButtons.setAttribute("align", "right");
       item.appendChild(containerButtons);
 
       let prefsButton = document.createXULElement("button");
-      prefsButton.setAttribute(
-        "oncommand",
-        "gContainersPane.onPreferenceCommand(event.originalTarget)"
-      );
+      prefsButton.addEventListener("command", function(event) {
+        gContainersPane.onPreferenceCommand(event.originalTarget);
+      });
       prefsButton.setAttribute("value", container.userContextId);
       document.l10n.setAttributes(prefsButton, "containers-preferences-button");
       containerButtons.appendChild(prefsButton);
 
       let removeButton = document.createXULElement("button");
-      removeButton.setAttribute(
-        "oncommand",
-        "gContainersPane.onRemoveCommand(event.originalTarget)"
-      );
+      removeButton.addEventListener("command", function(event) {
+        gContainersPane.onRemoveCommand(event.originalTarget);
+      });
       removeButton.setAttribute("value", container.userContextId);
       document.l10n.setAttributes(removeButton, "containers-remove-button");
       containerButtons.appendChild(removeButton);
@@ -151,7 +152,7 @@ let gContainersPane = {
 
     const params = { userContextId, identity };
     gSubDialog.open(
-      "chrome://browser/content/preferences/containers.xul",
+      "chrome://browser/content/preferences/containers.xhtml",
       null,
       params
     );

@@ -37,20 +37,12 @@ class UrlbarValueFormatter {
     this.window.addEventListener("resize", this);
   }
 
-  uninit() {
-    this.window.removeEventListener("resize", this);
-  }
-
   get inputField() {
     return this.urlbarInput.inputField;
   }
 
   get scheme() {
-    return this.document.getAnonymousElementByAttribute(
-      this.urlbarInput.textbox,
-      "anonid",
-      "scheme"
-    );
+    return this.urlbarInput.querySelector("#urlbar-scheme");
   }
 
   update() {

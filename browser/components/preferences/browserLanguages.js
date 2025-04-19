@@ -20,10 +20,9 @@ ChromeUtils.defineModuleGetter(
   "resource:///modules/SelectionChangedMenulist.jsm"
 );
 
-document.documentElement.addEventListener(
-  "dialoghelp",
-  window.top.openPrefsHelp
-);
+document
+  .getElementById("BrowserLanguagesDialog")
+  .addEventListener("dialoghelp", window.top.openPrefsHelp);
 
 /* This dialog provides an interface for managing what language the browser is
  * displayed in.
@@ -178,11 +177,11 @@ class OrderedListBox {
   }
 
   createItem({ id, label, value }) {
-    let listitem = document.createElement("richlistitem");
+    let listitem = document.createXULElement("richlistitem");
     listitem.id = id;
     listitem.setAttribute("value", value);
 
-    let labelEl = document.createElement("label");
+    let labelEl = document.createXULElement("label");
     labelEl.textContent = label;
     listitem.appendChild(labelEl);
 
@@ -259,7 +258,7 @@ class SortedItemSelectList {
   }
 
   createItem({ label, value, className, disabled }) {
-    let item = document.createElement("menuitem");
+    let item = document.createXULElement("menuitem");
     item.setAttribute("label", label);
     if (value) {
       item.value = value;
@@ -364,9 +363,9 @@ var gBrowserLanguagesDialog = {
   },
 
   async onLoad() {
-    document.documentElement.addEventListener("beforeaccept", () =>
-      this.beforeAccept()
-    );
+    document
+      .getElementById("BrowserLanguagesDialog")
+      .addEventListener("beforeaccept", () => this.beforeAccept());
     // Maintain the previously selected locales even if we cancel out.
     let { telemetryId, selected, search } = window.arguments[0];
     this.telemetryId = telemetryId;
@@ -492,7 +491,7 @@ var gBrowserLanguagesDialog = {
 
   async loadLocalesFromInstalled(available) {
     let items;
-    if (available.length > 0) {
+    if (available.length) {
       items = await getLocaleDisplayInfo(available);
       items.push(await this.createInstalledLabel());
     } else {

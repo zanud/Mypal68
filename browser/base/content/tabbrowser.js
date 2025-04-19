@@ -39,6 +39,7 @@
       window.addEventListener("occlusionstatechange", this);
       window.addEventListener("framefocusrequested", this);
 
+      this.tabContainer.init();
       this._setupInitialBrowserAndTab();
 
       if (Services.prefs.getBoolPref("browser.display.use_system_colors")) {
@@ -83,6 +84,7 @@
       );
 
       this._setupEventListeners();
+      this._initialized = true;
     },
 
     ownerGlobal: window,
@@ -92,6 +94,8 @@
     closingTabsEnum: { ALL: 0, OTHER: 1, TO_END: 2, MULTI_SELECTED: 3 },
 
     _visibleTabs: null,
+
+    _tabs: null,
 
     _lastRelatedTabMap: new WeakMap(),
 
@@ -253,8 +257,10 @@
     },
 
     get tabs() {
-      delete this.tabs;
-      return (this.tabs = this.tabContainer.children);
+      if (!this._tabs) {
+        this._tabs = this.tabContainer.allTabs;
+      }
+      return this._tabs;
     },
 
     get tabbox() {
@@ -267,25 +273,16 @@
       return (this.tabpanels = document.getElementById("tabbrowser-tabpanels"));
     },
 
-    get addEventListener() {
-      delete this.addEventListener;
-      return (this.addEventListener = this.tabpanels.addEventListener.bind(
-        this.tabpanels
-      ));
+    addEventListener(...args) {
+      this.tabpanels.addEventListener(...args);
     },
 
-    get removeEventListener() {
-      delete this.removeEventListener;
-      return (this.removeEventListener = this.tabpanels.removeEventListener.bind(
-        this.tabpanels
-      ));
+    removeEventListener(...args) {
+      this.tabpanels.removeEventListener(...args);
     },
 
-    get dispatchEvent() {
-      delete this.dispatchEvent;
-      return (this.dispatchEvent = this.tabpanels.dispatchEvent.bind(
-        this.tabpanels
-      ));
+    dispatchEvent(...args) {
+      return this.tabpanels.dispatchEvent(...args);
     },
 
     get visibleTabs() {
@@ -305,19 +302,6 @@
         }
       }
       return i;
-    },
-
-    get popupAnchor() {
-      if (this.selectedTab._popupAnchor) {
-        return this.selectedTab._popupAnchor;
-      }
-      let stack = this.selectedBrowser.parentNode;
-      // Create an anchor for the popup
-      let popupAnchor = document.createXULElement("hbox");
-      popupAnchor.className = "popup-anchor";
-      popupAnchor.hidden = true;
-      stack.appendChild(popupAnchor);
-      return (this.selectedTab._popupAnchor = popupAnchor);
     },
 
     set selectedTab(val) {
@@ -572,6 +556,11 @@
       return this.selectedBrowser.userTypedValue;
     },
 
+    _invalidateCachedTabs() {
+      this._tabs = null;
+      this._visibleTabs = null;
+    },
+
     _setFindbarData() {
       // Ensure we know what the find bar key is in the content process:
       let { sharedData } = Services.ppmm;
@@ -723,19 +712,15 @@
 
     syncThrobberAnimations(aTab) {
       aTab.ownerGlobal.promiseDocumentFlushed(() => {
-        if (!aTab.parentNode) {
+        if (!aTab.container) {
           return;
         }
 
         const animations = Array.from(
-          aTab.parentNode.getElementsByTagName("tab")
+          aTab.container.getElementsByTagName("tab")
         )
           .map(tab => {
-            const throbber = document.getAnonymousElementByAttribute(
-              tab,
-              "anonid",
-              "tab-throbber"
-            );
+            const throbber = tab.throbber;
             return throbber ? throbber.getAnimations({ subtree: true }) : [];
           })
           .reduce((a, b) => a.concat(b))
@@ -989,7 +974,7 @@
 
       var modifier = docElement.getAttribute("titlemodifier");
       if (docTitle) {
-        newTitle += docElement.getAttribute("titlepreface");
+        newTitle += docElement.getAttribute("titlepreface") || "";
         newTitle += docTitle;
         if (modifier) {
           newTitle += sep;
@@ -1002,14 +987,25 @@
       // XXX https://bugzilla.mozilla.org/show_bug.cgi?id=22183#c239
       try {
         if (docElement.getAttribute("chromehidden").includes("location")) {
-          var uri = Services.io.createExposableURI(aBrowser.currentURI);
-          if (uri.scheme == "about") {
-            newTitle = uri.spec + sep + newTitle;
+          const uri = Services.io.createExposableURI(aBrowser.currentURI);
+          if (uri.scheme === "about") {
+            newTitle = `${uri.spec}${sep}${newTitle}`;
+          } else if (uri.scheme === "moz-extension") {
+            const ext = WebExtensionPolicy.getByHostname(uri.host);
+            if (ext && ext.name) {
+              const prefix = document.querySelector("#urlbar-label-extension")
+                .value;
+              newTitle = `${prefix} (${ext.name})${sep}${newTitle}`;
+            } else {
+              newTitle = `${uri.prePath}${sep}${newTitle}`;
+            }
           } else {
-            newTitle = uri.prePath + sep + newTitle;
+            newTitle = `${uri.prePath}${sep}${newTitle}`;
           }
         }
-      } catch (e) {}
+      } catch (e) {
+        // ignored
+      }
 
       return newTitle;
     },
@@ -1245,6 +1241,7 @@
         if (!gMultiProcessBrowser) {
           this._adjustFocusBeforeTabSwitch(oldTab, newTab);
           this._adjustFocusAfterTabSwitch(newTab);
+          gURLBar.afterTabSwitchFocusChange();
         }
       }
 
@@ -1338,9 +1335,6 @@
       // In full screen mode, only bother making the location bar visible
       // if the tab is a blank one.
       if (newBrowser._urlbarFocused && gURLBar) {
-        // Explicitly close the popup if the URL bar retains focus
-        gURLBar.view.close();
-
         // If the user happened to type into the URL bar for this browser
         // by the time we got here, focusing will cause the text to be
         // selected which could cause them to overwrite what they've
@@ -1367,10 +1361,7 @@
 
       // Don't focus the content area if something has been focused after the
       // tab switch was initiated.
-      if (
-        gMultiProcessBrowser &&
-        document.activeElement != document.documentElement
-      ) {
+      if (gMultiProcessBrowser && document.activeElement != document.body) {
         return;
       }
 
@@ -2574,8 +2565,7 @@
         (openerBrowser && this.getTabForBrowser(openerBrowser)) ||
         (relatedToCurrent && this.selectedTab);
 
-      var t = document.createXULElement("tab");
-
+      var t = document.createXULElement("tab", { is: "tabbrowser-tab" });
       t.openerTab = openerTab;
 
       aURI = aURI || "about:blank";
@@ -2648,9 +2638,6 @@
         );
       }
 
-      // invalidate cache
-      this._visibleTabs = null;
-
       let usingPreloadedContent = false;
       let b;
 
@@ -2702,9 +2689,11 @@
           index = Math.min(index, this.tabs.length);
         }
 
-        // Use .item() instead of [] because we need .item() to return null in
-        // order to append the tab at the end in case index == tabs.length.
-        let tabAfter = this.tabs.item(index);
+        let tabAfter = this.tabs[index] || null;
+        this._invalidateCachedTabs();
+        // Prevent a flash of unstyled content by setting up the tab content
+        // and inherited attributes before appending it (see Bug 1592054):
+        t.initialize();
         this.tabContainer.insertBefore(t, tabAfter);
         if (tabAfter) {
           this._updateTabsAfterInsert();
@@ -3192,7 +3181,7 @@
       setTimeout(
         function(tab, tabbrowser) {
           if (
-            tab.parentNode &&
+            tab.container &&
             window.getComputedStyle(tab).maxWidth == "0.1px"
           ) {
             console.assert(
@@ -3335,7 +3324,7 @@
 
       aTab.closing = true;
       this._removingTabs.push(aTab);
-      this._visibleTabs = null; // invalidate cache
+      this._invalidateCachedTabs();
 
       // Invalidate hovered tab state tracking for this closing tab.
       if (this.tabContainer._hoveredTab == aTab) {
@@ -3474,6 +3463,7 @@
 
       // Remove the tab ...
       aTab.remove();
+      this._invalidateCachedTabs();
 
       // Update hashiddentabs if this tab was hidden.
       if (aTab.hidden) {
@@ -3588,17 +3578,16 @@
       }
 
       // Try to find a remaining tab that comes after the given tab
-      let tab = aTab;
-      do {
-        tab = tab.nextElementSibling;
-      } while (tab && !remainingTabs.includes(tab));
+      let tab = this.tabContainer.findNextTab(aTab, {
+        direction: 1,
+        filter: _tab => remainingTabs.includes(_tab),
+      });
 
       if (!tab) {
-        tab = aTab;
-
-        do {
-          tab = tab.previousElementSibling;
-        } while (tab && !remainingTabs.includes(tab));
+        tab = this.tabContainer.findNextTab(aTab, {
+          direction: -1,
+          filter: _tab => remainingTabs.includes(_tab),
+        });
       }
 
       return tab;
@@ -3972,7 +3961,7 @@
     showTab(aTab) {
       if (aTab.hidden) {
         aTab.removeAttribute("hidden");
-        this._visibleTabs = null; // invalidate cache
+        this._invalidateCachedTabs();
 
         this.tabContainer._updateCloseButtons();
         this.tabContainer._updateHiddenTabsStatus();
@@ -3995,7 +3984,7 @@
         !aTab._sharingState
       ) {
         aTab.setAttribute("hidden", "true");
-        this._visibleTabs = null; // invalidate cache
+        this._invalidateCachedTabs();
 
         this.tabContainer._updateCloseButtons();
         this.tabContainer._updateHiddenTabsStatus();
@@ -4179,12 +4168,9 @@
 
       aIndex = aIndex < aTab._tPos ? aIndex : aIndex + 1;
 
-      // invalidate cache
-      this._visibleTabs = null;
-
-      // use .item() instead of [] because dragging to the end of the strip goes out of
-      // bounds: .item() returns null (so it acts like appendChild), but [] throws
-      this.tabContainer.insertBefore(aTab, this.tabs.item(aIndex));
+      let neighbor = this.tabs[aIndex] || null;
+      this._invalidateCachedTabs();
+      this.tabContainer.insertBefore(aTab, neighbor);
       this._updateTabsAfterInsert();
 
       if (wasFocused) {
@@ -4205,10 +4191,10 @@
     },
 
     moveTabForward() {
-      let nextTab = this.selectedTab.nextElementSibling;
-      while (nextTab && nextTab.hidden) {
-        nextTab = nextTab.nextElementSibling;
-      }
+      let nextTab = this.tabContainer.findNextTab(this.selectedTab, {
+        direction: 1,
+        filter: tab => !tab.hidden,
+      });
 
       if (nextTab) {
         this.moveTabTo(this.selectedTab, nextTab._tPos);
@@ -4253,7 +4239,7 @@
       let newTab = this.addWebTab("about:blank", params);
       let newBrowser = this.getBrowserForTab(newTab);
 
-      aTab.parentNode._finishAnimateTabMove();
+      aTab.container._finishAnimateTabMove();
 
       if (!createLazyBrowser) {
         // Stop the about:blank load.
@@ -4276,10 +4262,10 @@
     },
 
     moveTabBackward() {
-      let previousTab = this.selectedTab.previousElementSibling;
-      while (previousTab && previousTab.hidden) {
-        previousTab = previousTab.previousElementSibling;
-      }
+      let previousTab = this.tabContainer.findNextTab(this.selectedTab, {
+        direction: -1,
+        filter: tab => !tab.hidden,
+      });
 
       if (previousTab) {
         this.moveTabTo(this.selectedTab, previousTab._tPos);
@@ -4355,7 +4341,7 @@
         return;
       }
 
-      const tabs = this._visibleTabs;
+      const tabs = this.visibleTabs;
       const indexOfTab1 = tabs.indexOf(aTab1);
       const indexOfTab2 = tabs.indexOf(aTab2);
 
@@ -4704,10 +4690,46 @@
       }
     },
 
+    getTabTooltip(tab, includeLabel = true) {
+      let label = "";
+      if (includeLabel) {
+        label = tab._fullLabel || tab.getAttribute("label");
+      }
+      if (AppConstants.NIGHTLY_BUILD) {
+        if (
+          tab.linkedBrowser &&
+          tab.linkedBrowser.isRemoteBrowser &&
+          tab.linkedBrowser.frameLoader
+        ) {
+          label +=
+            " (pid " + tab.linkedBrowser.frameLoader.remoteTab.osPid + ")";
+
+          if (
+            window.docShell.QueryInterface(Ci.nsILoadContext)
+              .useRemoteSubframes
+          ) {
+            label += " [F]";
+          }
+        }
+      }
+      if (tab.userContextId) {
+        label = gTabBrowserBundle.formatStringFromName(
+          "tabs.containers.tooltip",
+          [
+            label,
+            ContextualIdentityService.getUserContextLabel(tab.userContextId),
+          ]
+        );
+      }
+      return label;
+    },
+
     createTooltip(event) {
       event.stopPropagation();
-      var tab = document.tooltipNode;
-      if (!tab || tab.localName != "tab") {
+      let tab = document.tooltipNode
+        ? document.tooltipNode.closest("tab")
+        : null;
+      if (!tab) {
         event.preventDefault();
         return;
       }
@@ -4766,33 +4788,7 @@
           ).replace("#1", affectedTabsLength);
         }
       } else {
-        label = tab._fullLabel || tab.getAttribute("label");
-        if (AppConstants.NIGHTLY_BUILD) {
-          if (
-            tab.linkedBrowser &&
-            tab.linkedBrowser.isRemoteBrowser &&
-            tab.linkedBrowser.frameLoader
-          ) {
-            label +=
-              " (pid " + tab.linkedBrowser.frameLoader.remoteTab.osPid + ")";
-
-            if (
-              window.docShell.QueryInterface(Ci.nsILoadContext)
-                .useRemoteSubframes
-            ) {
-              label += " [F]";
-            }
-          }
-        }
-        if (tab.userContextId) {
-          label = gTabBrowserBundle.formatStringFromName(
-            "tabs.containers.tooltip",
-            [
-              label,
-              ContextualIdentityService.getUserContextLabel(tab.userContextId),
-            ]
-          );
-        }
+        label = this.getTabTooltip(tab);
       }
 
       event.target.setAttribute("label", label);
@@ -5000,6 +4996,7 @@
     },
 
     destroy() {
+      this.tabContainer.destroy();
       Services.obs.removeObserver(this, "contextual-identity-updated");
 
       for (let tab of this.tabs) {
@@ -5185,6 +5182,25 @@
         let browser = contentWin.docShell.chromeEventHandler;
         var tab = this.getTabForBrowser(browser);
         if (!tab || tab.hasAttribute("pending")) {
+          return;
+        }
+
+        if (!browser.docShell) {
+          return;
+        }
+        // Ensure `docShell.document` (an nsIWebNavigation idl prop) is there:
+        browser.docShell.QueryInterface(Ci.nsIWebNavigation);
+        if (event.target != browser.docShell.document) {
+          return;
+        }
+
+        // Ignore empty title changes on internal pages. This prevents the title
+        // from changing while Fluent is populating the (initially-empty) title
+        // element.
+        if (
+          !browser.contentTitle &&
+          browser.contentPrincipal.isSystemPrincipal
+        ) {
           return;
         }
 
@@ -5806,45 +5822,50 @@
           gBrowser._tabAttrModified(this.mTab, ["busy"]);
         }
 
-        // If the browser was playing audio, we should remove the playing state.
-        if (this.mTab.hasAttribute("soundplaying") && !isSameDocument) {
-          clearTimeout(this.mTab._soundPlayingAttrRemovalTimer);
-          this.mTab._soundPlayingAttrRemovalTimer = 0;
-          this.mTab.removeAttribute("soundplaying");
-          gBrowser._tabAttrModified(this.mTab, ["soundplaying"]);
-        }
-
-        // If the browser was previously muted, we should restore the muted state.
-        if (this.mTab.hasAttribute("muted")) {
-          this.mTab.linkedBrowser.mute();
-        }
-
-        if (gBrowser.isFindBarInitialized(this.mTab)) {
-          let findBar = gBrowser.getCachedFindBar(this.mTab);
-
-          // Close the Find toolbar if we're in old-style TAF mode
-          if (findBar.findMode != findBar.FIND_NORMAL) {
-            findBar.close();
+        if (!isSameDocument) {
+          // If the browser was playing audio, we should remove the playing state.
+          if (this.mTab.hasAttribute("soundplaying")) {
+            clearTimeout(this.mTab._soundPlayingAttrRemovalTimer);
+            this.mTab._soundPlayingAttrRemovalTimer = 0;
+            this.mTab.removeAttribute("soundplaying");
+            gBrowser._tabAttrModified(this.mTab, ["soundplaying"]);
           }
-        }
 
-        if (!isReload) {
-          gBrowser.setTabTitle(this.mTab);
-        }
+          // If the browser was previously muted, we should restore the muted state.
+          if (this.mTab.hasAttribute("muted")) {
+            this.mTab.linkedBrowser.mute();
+          }
 
-        // Don't clear the favicon if this tab is in the pending
-        // state, as SessionStore will have set the icon for us even
-        // though we're pointed at an about:blank. Also don't clear it
-        // if onLocationChange was triggered by a pushState or a
-        // replaceState (bug 550565) or a hash change (bug 408415).
-        if (
-          !this.mTab.hasAttribute("pending") &&
-          aWebProgress.isLoadingDocument &&
-          !isSameDocument
-        ) {
-          // Removing the tab's image here causes flickering, wait until the load
-          // is complete.
-          this.mBrowser.mIconURL = null;
+          if (gBrowser.isFindBarInitialized(this.mTab)) {
+            let findBar = gBrowser.getCachedFindBar(this.mTab);
+
+            // Close the Find toolbar if we're in old-style TAF mode
+            if (findBar.findMode != findBar.FIND_NORMAL) {
+              findBar.close();
+            }
+          }
+
+          // Note that we're not updating for same-document loads, despite
+          // the `title` argument to `history.pushState/replaceState`. For
+          // context, see https://bugzilla.mozilla.org/show_bug.cgi?id=585653
+          // and https://github.com/whatwg/html/issues/2174
+          if (!isReload) {
+            gBrowser.setTabTitle(this.mTab);
+          }
+
+          // Don't clear the favicon if this tab is in the pending
+          // state, as SessionStore will have set the icon for us even
+          // though we're pointed at an about:blank. Also don't clear it
+          // if onLocationChange was triggered by a pushState or a
+          // replaceState (bug 550565) or a hash change (bug 408415).
+          if (
+            !this.mTab.hasAttribute("pending") &&
+            aWebProgress.isLoadingDocument
+          ) {
+            // Removing the tab's image here causes flickering, wait until the
+            // load is complete.
+            this.mBrowser.mIconURL = null;
+          }
         }
 
         let userContextId = this.mBrowser.getAttribute("usercontextid") || 0;
@@ -6124,10 +6145,9 @@ var TabContextMenu = {
     });
   },
   updateContextMenu(aPopupMenu) {
-    this.contextTab =
-      aPopupMenu.triggerNode.localName == "tab"
-        ? aPopupMenu.triggerNode
-        : gBrowser.selectedTab;
+    let tab = aPopupMenu.triggerNode && aPopupMenu.triggerNode.closest("tab");
+    this.contextTab = tab || gBrowser.selectedTab;
+
     let disabled = gBrowser.tabs.length == 1;
     let multiselectionContext = this.contextTab.multiselected;
 
@@ -6200,10 +6220,12 @@ var TabContextMenu = {
     let lastVisibleTab = visibleTabs[visibleTabs.length - 1];
     let tabsToMove = contextTabIsSelected ? selectedTabs : [this.contextTab];
     let lastTabToMove = tabsToMove[tabsToMove.length - 1];
-    let isLastPinnedTab =
-      lastTabToMove.pinned &&
-      (!lastTabToMove.nextElementSibling ||
-        !lastTabToMove.nextElementSibling.pinned);
+
+    let isLastPinnedTab = false;
+    if (lastTabToMove.pinned) {
+      let sibling = gBrowser.tabContainer.findNextTab(lastTabToMove);
+      isLastPinnedTab = !sibling || !sibling.pinned;
+    }
     contextMoveTabToEnd.disabled =
       (lastTabToMove == lastVisibleTab || isLastPinnedTab) &&
       allSelectedTabsAdjacent;

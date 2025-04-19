@@ -158,7 +158,6 @@ class PluginChild extends ActorChild {
     let pluginHost = Cc["@mozilla.org/plugin/host;1"].getService(
       Ci.nsIPluginHost
     );
-    pluginElement.QueryInterface(Ci.nsIObjectLoadingContent);
 
     let tagMimetype;
     let pluginName = gNavigatorBundle.GetStringFromName(
@@ -577,8 +576,8 @@ class PluginChild extends ActorChild {
           "openPluginUpdatePage",
           pluginTag
         );
-      /* FALLTHRU */
 
+      /* FALLTHRU */
       case "PluginVulnerableNoUpdate":
       case "PluginClickToPlay":
         this._handleClickToPlayEvent(plugin);
@@ -763,14 +762,13 @@ class PluginChild extends ActorChild {
     let pluginHost = Cc["@mozilla.org/plugin/host;1"].getService(
       Ci.nsIPluginHost
     );
-    let objLoadingContent = plugin.QueryInterface(Ci.nsIObjectLoadingContent);
     // guard against giving pluginHost.getPermissionStringForType a type
     // not associated with any known plugin
-    if (!this.isKnownPlugin(objLoadingContent)) {
+    if (!this.isKnownPlugin(plugin)) {
       return;
     }
     let permissionString = pluginHost.getPermissionStringForType(
-      objLoadingContent.actualType
+      plugin.actualType
     );
     let principal = doc.defaultView.top.document.nodePrincipal;
     let pluginPermission = Services.perms.testPermissionFromPrincipal(
@@ -797,8 +795,7 @@ class PluginChild extends ActorChild {
   }
 
   onOverlayClick(event) {
-    let document = event.target.ownerDocument;
-    let plugin = document.getBindingParent(event.target);
+    let plugin = event.target.containingShadowRoot.host;
     let overlay = this.getPluginUI(plugin, "main");
     // Have to check that the target is not the link to update the plugin
     if (
@@ -826,8 +823,7 @@ class PluginChild extends ActorChild {
       if (overlay) {
         overlay.removeEventListener("click", this, true);
       }
-      let objLoadingContent = plugin.QueryInterface(Ci.nsIObjectLoadingContent);
-      if (this.canActivatePlugin(objLoadingContent)) {
+      if (this.canActivatePlugin(plugin)) {
         this._handleClickToPlayEvent(plugin);
       }
     }
@@ -847,7 +843,6 @@ class PluginChild extends ActorChild {
 
     let pluginFound = false;
     for (let plugin of plugins) {
-      plugin.QueryInterface(Ci.nsIObjectLoadingContent);
       if (!this.isKnownPlugin(plugin)) {
         continue;
       }
@@ -1110,8 +1105,6 @@ class PluginChild extends ActorChild {
   }
 
   setCrashedNPAPIPluginState({ plugin, state, message }) {
-    // Force a layout flush so the binding is attached.
-    plugin.clientTop;
     let overlay = this.getPluginUI(plugin, "main");
     let statusDiv = this.getPluginUI(plugin, "submitStatus");
     let optInCB = this.getPluginUI(plugin, "submitURLOptIn");

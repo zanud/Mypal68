@@ -724,43 +724,6 @@ var Policies = {
     },
   },
 
-  EnableTrackingProtection: {
-    onBeforeUIStartup(manager, param) {
-      if (param.Value) {
-        setDefaultPref(
-          "privacy.trackingprotection.enabled",
-          true,
-          param.Locked
-        );
-        setDefaultPref(
-          "privacy.trackingprotection.pbmode.enabled",
-          true,
-          param.Locked
-        );
-      } else {
-        setAndLockPref("privacy.trackingprotection.enabled", false);
-        setAndLockPref("privacy.trackingprotection.pbmode.enabled", false);
-      }
-      if ("Cryptomining" in param) {
-        setDefaultPref(
-          "privacy.trackingprotection.cryptomining.enabled",
-          param.Cryptomining,
-          param.Locked
-        );
-      }
-      if ("Fingerprinting" in param) {
-        setDefaultPref(
-          "privacy.trackingprotection.fingerprinting.enabled",
-          param.Fingerprinting,
-          param.Locked
-        );
-      }
-      if ("Exceptions" in param) {
-        addAllowDenyPermissions("trackingprotection", param.Exceptions);
-      }
-    },
-  },
-
   Extensions: {
     onBeforeUIStartup(manager, param) {
       let uninstallingPromise = Promise.resolve();
@@ -1130,7 +1093,7 @@ var Policies = {
       if (!param) {
         // Passing no pages simply initializes the blocker
         blockAboutPage(manager);
-        gBlockedChromePages.push("passwordManager.xul");
+        gBlockedChromePages.push("passwordManager.xhtml");
         setAndLockPref("pref.privacy.disable_button.view_passwords", true);
       }
       setAndLockPref("signon.rememberSignons", param);
@@ -1879,7 +1842,7 @@ function blockAboutPage(manager, feature, neededOnContentProcess = false) {
   gBlockedChromePages.push(fileName);
   if (feature == "about:config") {
     // Hide old page until it is removed
-    gBlockedChromePages.push("config.xul");
+    gBlockedChromePages.push("config.xhtml");
   }
 }
 

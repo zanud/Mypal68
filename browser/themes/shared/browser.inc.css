@@ -82,6 +82,26 @@
   min-height: 22px;
 }
 
+#PlacesToolbarDropIndicator {
+  list-style-image: url(chrome://browser/skin/toolbar-drag-indicator.svg);
+  pointer-events: none;
+}
+
+/* rules for menupopup drop indicators */
+menupopup::part(drop-indicator-bar) {
+  position: relative;
+  /* these two margins must together compensate the indicator's height */
+  margin-block: -1px;
+}
+
+menupopup::part(drop-indicator) {
+  list-style-image: none;
+  height: 2px;
+  margin-inline-end: -4em;
+  background-color: Highlight;
+  pointer-events: none;
+}
+
 /* Required for Library animation */
 
 #navigator-toolbox {
@@ -172,6 +192,7 @@
 
 #widget-overflow .webextension-popup-browser {
   background: #fff;
+  min-height: 100%;
 }
 
 #addon-progress-notification-progressmeter {

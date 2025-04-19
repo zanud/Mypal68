@@ -150,6 +150,8 @@ var gSync = {
       return;
     }
 
+    MozXULElement.insertFTLIfNeeded("browser/sync.ftl");
+
     this._generateNodeGetters();
 
     // Label for the sync buttons.
@@ -158,11 +160,8 @@ var gSync = {
       // setting this._initialized, so we don't attempt to remove observers.
       return;
     }
-    let syncNow = document.getElementById("PanelUI-remotetabs-syncnow");
-    let label = this.syncStrings.GetStringFromName("syncnow.label");
-    syncNow.setAttribute("label", label);
     // We start with every menuitem hidden (except for the "setup sync" state),
-    // so that we don't need to init the sync UI on windows like pageInfo.xul
+    // so that we don't need to init the sync UI on windows like pageInfo.xhtml
     // (see bug 1384856).
     // maybeUpdateUIState() also optimizes for this - if we should be in the
     // "setup sync" state, that function assumes we are already in it and
@@ -548,7 +547,7 @@ var gSync = {
   },
 
   updateSyncStatus(state) {
-    let syncNow = document.getElementById("PanelUI-remotetabs-syncnow");
+    let syncNow = document.querySelector(".syncNowBtn");
     const syncingUI = syncNow.getAttribute("syncstatus") == "active";
     if (state.syncing != syncingUI) {
       // Do we need to update the UI?
@@ -1033,26 +1032,11 @@ var gSync = {
   onActivityStart() {
     clearTimeout(this._syncAnimationTimer);
     this._syncStartTime = Date.now();
-
-    let label = this.syncStrings.GetStringFromName("syncingtabs.label");
-    let remotetabsSyncNowEl = document.getElementById(
-      "PanelUI-remotetabs-syncnow"
-    );
-    let fxaMenuSyncNowEl = document.getElementById(
-      "PanelUI-fxa-menu-syncnow-button"
-    );
-    let syncElements = [remotetabsSyncNowEl, fxaMenuSyncNowEl];
-
-    syncElements.forEach(el => {
+    document.querySelectorAll(".syncNowBtn").forEach(el => {
       el.setAttribute("syncstatus", "active");
       el.setAttribute("disabled", "true");
+      document.l10n.setAttributes(el, el.getAttribute("syncinglabel"));
     });
-
-    remotetabsSyncNowEl.setAttribute("label", label);
-    fxaMenuSyncNowEl.setAttribute(
-      "label",
-      fxaMenuSyncNowEl.getAttribute("syncinglabel")
-    );
   },
 
   _onActivityStop() {
@@ -1060,16 +1044,10 @@ var gSync = {
       return;
     }
 
-    let label = this.syncStrings.GetStringFromName("syncnow.label");
-    let syncElements = [
-      document.getElementById("PanelUI-remotetabs-syncnow"),
-      document.getElementById("PanelUI-fxa-menu-syncnow-button"),
-    ];
-
-    syncElements.forEach(el => {
+    document.querySelectorAll(".syncNowBtn").forEach(el => {
       el.removeAttribute("syncstatus");
       el.removeAttribute("disabled");
-      el.setAttribute("label", label);
+      document.l10n.setAttributes(el, "fxa-toolbar-sync-now");
     });
 
     Services.obs.notifyObservers(null, "test:browser-sync:activity-stop");
@@ -1089,6 +1067,54 @@ var gSync = {
     } else {
       this._onActivityStop();
     }
+  },
+
+  // Disconnect from sync, and optionally disconnect from the FxA account.
+  // Returns true if the disconnection happened (ie, if the user didn't decline
+  // when asked to confirm)
+  async disconnect({ confirm = true, disconnectAccount = true } = {}) {
+    if (confirm && !(await this._confirmDisconnect(disconnectAccount))) {
+      return false;
+    }
+    await Weave.Service.promiseInitialized;
+    await Weave.Service.startOver();
+    if (disconnectAccount) {
+      await fxAccounts.signOut();
+    }
+    return true;
+  },
+
+  /**
+   * Prompts the user whether or not they want to proceed with
+   * disconnecting from their Firefox Account or Sync.
+   * @param {Boolean} disconnectAccount True if we are disconnecting both Sync and FxA.
+   * @returns {Boolean} True if the user confirmed.
+   */
+  async _confirmDisconnect(disconnectAccount) {
+    const l10nPrefix = `${
+      disconnectAccount ? "fxa" : "sync"
+    }-disconnect-dialog`;
+    const [title, body, button] = await document.l10n.formatValues([
+      { id: `${l10nPrefix}-title` },
+      { id: `${l10nPrefix}-body` },
+      { id: "sync-disconnect-dialog-button" },
+    ]);
+    // buttonPressed will be 0 for disconnect, 1 for cancel.
+    const flags =
+      Services.prompt.BUTTON_TITLE_IS_STRING * Services.prompt.BUTTON_POS_0 +
+      Services.prompt.BUTTON_TITLE_CANCEL * Services.prompt.BUTTON_POS_1;
+    const buttonPressed = Services.prompt.confirmEx(
+      window,
+      title,
+      body,
+      flags,
+      button,
+      null,
+      null,
+      null,
+      {}
+    );
+    return buttonPressed == 0;
   },
 
   // doSync forces a sync - it *does not* return a promise as it is called
@@ -1191,14 +1217,13 @@ var gSync = {
       tooltiptext = this.formatLastSyncDate(state.lastSync);
     }
 
-    if (this.appMenuLabel) {
-      let syncNow = document.getElementById("PanelUI-remotetabs-syncnow");
+    document.querySelectorAll(".syncNowBtn").forEach(el => {
       if (tooltiptext) {
-        syncNow.setAttribute("tooltiptext", tooltiptext);
+        el.setAttribute("tooltiptext", tooltiptext);
       } else {
-        syncNow.removeAttribute("tooltiptext");
+        el.removeAttribute("tooltiptext");
       }
-    }
+    });
   },
 
   get relativeTimeFormat() {

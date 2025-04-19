@@ -166,11 +166,7 @@ async function runTests(options) {
     );
 
     if (details.badge) {
-      let badge = button.ownerDocument.getAnonymousElementByAttribute(
-        button,
-        "class",
-        "toolbarbutton-badge"
-      );
+      let badge = button.badgeLabel;
       let style = window.getComputedStyle(badge);
       let expected = {
         backgroundColor: serializeColor(details.badgeBackgroundColor),
@@ -508,11 +504,7 @@ add_task(async function testBadgeColorPersistence() {
 
   function getBadgeForWindow(win) {
     const widget = getBrowserActionWidget(extension).forWindow(win).node;
-    return document.getAnonymousElementByAttribute(
-      widget,
-      "class",
-      "toolbarbutton-badge"
-    );
+    return widget.badgeLabel;
   }
 
   let badge = getBadgeForWindow(window);
@@ -526,7 +518,7 @@ add_task(async function testBadgeColorPersistence() {
 
   await badgeChanged;
 
-  is(badge.value, "hi", "badge text is set in first window");
+  is(badge.textContent, "hi", "badge text is set in first window");
   is(
     badge.style.backgroundColor,
     "rgb(0, 255, 0)",
@@ -538,7 +530,7 @@ add_task(async function testBadgeColorPersistence() {
   await windowOpenedPromise;
 
   badge = getBadgeForWindow(win);
-  is(badge.value, "hi", "badge text is set in new window");
+  is(badge.textContent, "hi", "badge text is set in new window");
   is(
     badge.style.backgroundColor,
     "rgb(0, 255, 0)",

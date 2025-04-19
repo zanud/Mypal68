@@ -309,8 +309,8 @@ var PlacesUIUtils = {
       !("hiddenRows" in aInfo) || !aInfo.hiddenRows.includes("folderPicker");
     // Use a different chrome url to persist different sizes.
     let dialogURL = hasFolderPicker
-      ? "chrome://browser/content/places/bookmarkProperties2.xul"
-      : "chrome://browser/content/places/bookmarkProperties.xul";
+      ? "chrome://browser/content/places/bookmarkProperties2.xhtml"
+      : "chrome://browser/content/places/bookmarkProperties.xhtml";
 
     let features = "centerscreen,chrome,modal,resizable=yes";
 
@@ -390,9 +390,9 @@ var PlacesUIUtils = {
     if (
       node.localName == "menu" &&
       !node._placesNode &&
-      node.lastChild._placesView
+      node.menupopup._placesView
     ) {
-      return node.lastChild._placesView;
+      return node.menupopup._placesView;
     }
 
     while (Element.isInstance(node)) {
@@ -919,7 +919,7 @@ var PlacesUIUtils = {
           return Ci.nsINavHistoryResultNode.RESULT_TYPE_FOLDER;
         }
 
-        if (this.uri.length == 0) {
+        if (!this.uri.length) {
           throw new Error("Unexpected item type");
         }
 
@@ -1128,7 +1128,7 @@ var PlacesUIUtils = {
     // unload event happens after the browser's one.  In this case
     // top.XULBrowserWindow has been nullified already.
     if (win.top.XULBrowserWindow) {
-      win.top.XULBrowserWindow.setOverLink(url, null);
+      win.top.XULBrowserWindow.setOverLink(url);
     }
   },
 };

@@ -22,8 +22,8 @@ var RemotePrompt = {
   receiveMessage(message) {
     switch (message.name) {
       case "Prompt:Open":
-        const COMMON_DIALOG = "chrome://global/content/commonDialog.xul";
-        const SELECT_DIALOG = "chrome://global/content/selectDialog.xul";
+        const COMMON_DIALOG = "chrome://global/content/commonDialog.xhtml";
+        const SELECT_DIALOG = "chrome://global/content/selectDialog.xhtml";
 
         if (message.data.tabPrompt) {
           this.openTabPrompt(message.data, message.target);

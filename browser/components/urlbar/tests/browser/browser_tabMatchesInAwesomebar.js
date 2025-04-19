@@ -160,11 +160,7 @@ function ensure_opentabs_match_db() {
       continue;
     }
 
-    for (
-      let i = 0;
-      i < browserWin.gBrowser.tabContainer.childElementCount;
-      i++
-    ) {
+    for (let i = 0; i < browserWin.gBrowser.tabs.length; i++) {
       let browser = browserWin.gBrowser.getBrowserAtIndex(i);
       let url = browser.currentURI.spec;
       if (browserWin.isBlankPageURL(url)) {

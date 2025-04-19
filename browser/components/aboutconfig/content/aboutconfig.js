@@ -58,6 +58,11 @@ let gPrefInEdit = null;
 let gFilterString = null;
 
 /**
+ * RegExp that should be matched to the preference name.
+ */
+let gFilterPattern = null;
+
+/**
  * True if we were requested to show all preferences.
  */
 let gFilterShowAll = false;
@@ -132,6 +137,7 @@ class PrefRow {
   get matchesFilter() {
     return (
       gFilterShowAll ||
+      (gFilterPattern && gFilterPattern.test(this.name)) ||
       (gFilterString && this.name.toLowerCase().includes(gFilterString))
     );
   }
@@ -381,6 +387,11 @@ if (!Preferences.get("browser.aboutConfig.showWarning")) {
     },
     { once: true }
   );
+} else {
+  document.addEventListener("DOMContentLoaded", function() {
+    let warningButton = document.getElementById("warningButton");
+    warningButton.addEventListener("click", onWarningButtonClick);
+  });
 }
 
 function onWarningButtonClick() {
@@ -392,7 +403,6 @@ function onWarningButtonClick() {
 }
 
 function loadPrefs() {
-  document.body.className = "config-background";
   [...document.styleSheets].find(s => s.title == "infop").disabled = true;
 
   let { content } = document.getElementById("main");
@@ -479,8 +489,14 @@ function filterPrefs(options = {}) {
   gFilterString = searchName.toLowerCase();
   gFilterShowAll = !!options.showAll;
 
-  let showResults = gFilterString || gFilterShowAll;
-  document.getElementById("show-all").classList.toggle("hidden", showResults);
+  gFilterPattern = null;
+  if (gFilterString.includes("*")) {
+    gFilterPattern = new RegExp(gFilterString.replace(/\*+/g, ".*"), "i");
+    gFilterString = "";
+  }
+
+  let showResults = gFilterString || gFilterPattern || gFilterShowAll;
+  document.body.classList.toggle("table-shown", showResults);
 
   let prefArray = [];
   if (showResults) {
@@ -570,9 +586,4 @@ function filterPrefs(options = {}) {
       { once: true }
     );
   }
-
-  document.body.classList.toggle(
-    "config-warning",
-    location.href.split(":").every(l => gFilterString.includes(l))
-  );
 }

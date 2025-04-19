@@ -77,13 +77,6 @@ permissions-capabilities-listitem-allow-session =
 permissions-invalid-uri-title = Invalid Hostname Entered
 permissions-invalid-uri-label = Please enter a valid hostname
 
-## Exceptions - Tracking Protection
-
-permissions-exceptions-content-blocking-window =
-    .title = Exceptions - Content Blocking
-    .style = { permissions-window.style }
-permissions-exceptions-content-blocking-desc = You have disabled content blocking on these websites.
-
 ## Exceptions - Cookies
 
 permissions-exceptions-cookie-window =

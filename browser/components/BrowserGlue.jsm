@@ -20,6 +20,12 @@ ChromeUtils.defineModuleGetter(
   "resource://gre/modules/ActorManagerParent.jsm"
 );
 
+ChromeUtils.defineModuleGetter(
+  this,
+  "CustomizableUI",
+  "resource:///modules/CustomizableUI.jsm"
+);
+
 const PREF_PDFJS_ISDEFAULT_CACHE_STATE = "pdfjs.enabledCache.state";
 
 let ACTORS = {
@@ -72,19 +78,6 @@ let LEGACY_ACTORS = {
         pagehide: { mozSystemGroup: true },
       },
       messages: ["Reader:ToggleReaderMode", "Reader:PushState"],
-    },
-  },
-
-  BlockedSite: {
-    child: {
-      module: "resource:///actors/BlockedSiteChild.jsm",
-      events: {
-        AboutBlockedLoaded: { wantUntrusted: true },
-        click: {},
-      },
-      matches: ["about:blocked?*"],
-      allFrames: true,
-      messages: ["DeceptiveBlockedDetails"],
     },
   },
 
@@ -367,11 +360,11 @@ let LEGACY_ACTORS = {
     // Set the size to use when the user leaves the maximized mode.
     // The persisted size is the outer size, but the height/width
     // attributes set the inner size.
-    let xulWin = win.docShell.treeOwner
+    let appWin = win.docShell.treeOwner
       .QueryInterface(Ci.nsIInterfaceRequestor)
-      .getInterface(Ci.nsIXULWindow);
-    height -= xulWin.outerToInnerHeightDifferenceInCSSPixels;
-    width -= xulWin.outerToInnerWidthDifferenceInCSSPixels;
+      .getInterface(Ci.nsIAppWindow);
+    height -= appWin.outerToInnerHeightDifferenceInCSSPixels;
+    width -= appWin.outerToInnerWidthDifferenceInCSSPixels;
     docElt.setAttribute("height", height);
     docElt.setAttribute("width", width);
   } else {
@@ -423,7 +416,6 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   BrowserWindowTracker: "resource:///modules/BrowserWindowTracker.jsm",
   ContextualIdentityService:
     "resource://gre/modules/ContextualIdentityService.jsm",
-  Corroborate: "resource://gre/modules/Corroborate.jsm",
   DateTimePickerParent: "resource://gre/modules/DateTimePickerParent.jsm",
   ExtensionsUI: "resource:///modules/ExtensionsUI.jsm",
   FxAccounts: "resource://gre/modules/FxAccounts.jsm",
@@ -670,6 +662,7 @@ BrowserGlue.prototype = {
   _saveSession: false,
   _migrationImportsDefaultBookmarks: false,
   _placesBrowserInitComplete: false,
+  _isNewProfile: undefined,
 
   _setPrefToSaveSession: function BG__setPrefToSaveSession(aForce) {
     if (!this._saveSession && !aForce) {
@@ -1007,27 +1000,6 @@ BrowserGlue.prototype = {
     os.removeObserver(this, "browser-search-engine-modified");
     os.removeObserver(this, "xpi-signature-changed");
     os.removeObserver(this, "sync-ui-state:update");
-
-    Services.prefs.removeObserver(
-      "privacy.trackingprotection",
-      this._matchCBCategory
-    );
-    Services.prefs.removeObserver(
-      "network.cookie.cookieBehavior",
-      this._matchCBCategory
-    );
-    Services.prefs.removeObserver(
-      ContentBlockingCategoriesPrefs.PREF_CB_CATEGORY,
-      this._updateCBCategory
-    );
-    Services.prefs.removeObserver(
-      "privacy.trackingprotection",
-      this._setPrefExpectations
-    );
-    Services.prefs.removeObserver(
-      "browser.contentblocking.features.strict",
-      this._setPrefExpectationsAndUpdate
-    );
   },
 
   // runs on startup, before the first command line handler is invoked
@@ -1039,7 +1011,7 @@ BrowserGlue.prototype = {
     if (Services.appinfo.inSafeMode) {
       Services.ww.openWindow(
         null,
-        "chrome://browser/content/safeMode.xul",
+        "chrome://browser/content/safeMode.xhtml",
         "_blank",
         "chrome,centerscreen,modal,resizable=no",
         null
@@ -1457,139 +1429,16 @@ BrowserGlue.prototype = {
     PlacesUtils.favicons.setDefaultIconURIPreferredSize(
       16 * aWindow.devicePixelRatio
     );
-    this._setPrefExpectationsAndUpdate();
-    this._matchCBCategory();
 
     // This observes the entire privacy.trackingprotection.* pref tree.
     Services.prefs.addObserver(
-      "privacy.trackingprotection",
-      this._matchCBCategory
-    );
-    Services.prefs.addObserver(
-      "network.cookie.cookieBehavior",
-      this._matchCBCategory
-    );
-    Services.prefs.addObserver(
-      ContentBlockingCategoriesPrefs.PREF_CB_CATEGORY,
-      this._updateCBCategory
-    );
-    Services.prefs.addObserver(
       "media.autoplay.default",
       this._updateAutoplayPref
-    );
-    Services.prefs.addObserver(
-      "privacy.trackingprotection",
-      this._setPrefExpectations
-    );
-    Services.prefs.addObserver(
-      "browser.contentblocking.features.strict",
-      this._setPrefExpectationsAndUpdate
     );
   },
 
   _updateAutoplayPref() {
     let blocked = Services.prefs.getIntPref("media.autoplay.default", 1);
-    Services.telemetry.scalarSet("media.autoplay_default_blocked", blocked);
-  },
-
-  _setPrefExpectations() {
-    ContentBlockingCategoriesPrefs.setPrefExpectations();
-  },
-
-  _setPrefExpectationsAndUpdate() {
-    ContentBlockingCategoriesPrefs.setPrefExpectations();
-    ContentBlockingCategoriesPrefs.updateCBCategory();
-  },
-
-  _matchCBCategory() {
-    ContentBlockingCategoriesPrefs.matchCBCategory();
-  },
-
-  _updateCBCategory() {
-    ContentBlockingCategoriesPrefs.updateCBCategory();
-  },
-
-  _recordContentBlockingTelemetry() {
-    let recordIdentityPopupEvents = Services.prefs.getBoolPref(
-      "security.identitypopup.recordEventElemetry"
-    );
-    Services.telemetry.setEventRecordingEnabled(
-      "security.ui.identitypopup",
-      recordIdentityPopupEvents
-    );
-
-    let tpEnabled = Services.prefs.getBoolPref(
-      "privacy.trackingprotection.enabled"
-    );
-    Services.telemetry
-      .getHistogramById("TRACKING_PROTECTION_ENABLED")
-      .add(tpEnabled);
-
-    let tpPBDisabled = Services.prefs.getBoolPref(
-      "privacy.trackingprotection.pbmode.enabled"
-    );
-    Services.telemetry
-      .getHistogramById("TRACKING_PROTECTION_PBM_DISABLED")
-      .add(!tpPBDisabled);
-
-    let cookieBehavior = Services.prefs.getIntPref(
-      "network.cookie.cookieBehavior"
-    );
-    Services.telemetry.getHistogramById("COOKIE_BEHAVIOR").add(cookieBehavior);
-
-    let exceptions = 0;
-    for (let permission of Services.perms.all) {
-      if (permission.type == "trackingprotection") {
-        exceptions++;
-      }
-    }
-    Services.telemetry.scalarSet("contentblocking.exceptions", exceptions);
-
-    let fpEnabled = Services.prefs.getBoolPref(
-      "privacy.trackingprotection.fingerprinting.enabled"
-    );
-    let cmEnabled = Services.prefs.getBoolPref(
-      "privacy.trackingprotection.cryptomining.enabled"
-    );
-    let categoryPref;
-    switch (
-      Services.prefs.getStringPref("browser.contentblocking.category", null)
-    ) {
-      case "standard":
-        categoryPref = 0;
-        break;
-      case "strict":
-        categoryPref = 1;
-        break;
-      case "custom":
-        categoryPref = 2;
-        break;
-      default:
-        // Any other value is unsupported.
-        categoryPref = 3;
-        break;
-    }
-
-    Services.telemetry.scalarSet(
-      "contentblocking.fingerprinting_blocking_enabled",
-      fpEnabled
-    );
-    Services.telemetry.scalarSet(
-      "contentblocking.cryptomining_blocking_enabled",
-      cmEnabled
-    );
-    Services.telemetry.scalarSet("contentblocking.category", categoryPref);
-  },
-
-  _sendMediaTelemetry() {
-    let win = Services.wm.getMostRecentWindow("navigator:browser");
-    if (win) {
-      let v = win.document.createElementNS(
-        "http://www.w3.org/1999/xhtml",
-        "video"
-      );
-      v.reportCanPlayTelemetry();
-    }
   },
 
   /**
@@ -1646,7 +1495,7 @@ BrowserGlue.prototype = {
 
       Services.ww.openWindow(
         win,
-        "chrome://browser/content/newInstall.xul",
+        "chrome://browser/content/newInstall.xhtml",
         "_blank",
         "chrome,modal,resizable=no,centerscreen",
         null
@@ -1693,10 +1542,6 @@ BrowserGlue.prototype = {
       LATE_TASKS_IDLE_TIME_SEC
     );
 
-    if (Services.prefs.getBoolPref("corroborator.enabled", true)) {
-      Corroborate.init().catch(Cu.reportError);
-    }
-
     let pService = Cc["@mozilla.org/toolkit/profile-service;1"].getService(
       Ci.nsIToolkitProfileService
     );
@@ -1728,21 +1573,6 @@ BrowserGlue.prototype = {
   _scheduleStartupIdleTasks() {
     Services.tm.idleDispatchToMainThread(async () => {
       await ContextualIdentityService.load();
-    });
-
-    Services.tm.idleDispatchToMainThread(() => {
-      let enableCertErrorUITelemetry = Services.prefs.getBoolPref(
-        "security.certerrors.recordEventTelemetry",
-        false
-      );
-      Services.telemetry.setEventRecordingEnabled(
-        "security.ui.certerror",
-        enableCertErrorUITelemetry
-      );
-    });
-
-    Services.tm.idleDispatchToMainThread(() => {
-      this._recordContentBlockingTelemetry();
     });
 
     // Load the Login Manager data from disk off the main thread, some time
@@ -1852,25 +1682,6 @@ BrowserGlue.prototype = {
    * value, this is unlikely.
    */
   _scheduleArbitrarilyLateIdleTasks() {
-    Services.tm.idleDispatchToMainThread(() => {
-      this._sendMediaTelemetry();
-    });
-
-    Services.tm.idleDispatchToMainThread(() => {
-      // Telemetry for master-password - we do this after a delay as it
-      // can cause IO if NSS/PSM has not already initialized.
-      let tokenDB = Cc["@mozilla.org/security/pk11tokendb;1"].getService(
-        Ci.nsIPK11TokenDB
-      );
-      let token = tokenDB.getInternalKeyToken();
-      let mpEnabled = token.hasPassword;
-      if (mpEnabled) {
-        Services.telemetry
-          .getHistogramById("MASTER_PASSWORD_ENABLED")
-          .add(mpEnabled);
-      }
-    });
-
     Services.tm.idleDispatchToMainThread(() => {
       let obj = {};
       ChromeUtils.import("resource://gre/modules/GMPInstallManager.jsm", obj);
@@ -2350,6 +2161,17 @@ BrowserGlue.prototype = {
         }
         this._idleService.addIdleObserver(this, this._bookmarksBackupIdleTime);
       }
+
+      if (this._isNewProfile) {
+        try {
+          // New profiles may have existing bookmarks (imported from another browser or
+          // copied into the profile) and we want to show the bookmark toolbar for them
+          // in some cases.
+          this._maybeToggleBookmarkToolbarVisibility();
+        } catch (ex) {
+          Cu.reportError(ex);
+        }
+      }
     })()
       .catch(ex => {
         Cu.reportError(ex);
@@ -2491,41 +2313,43 @@ BrowserGlue.prototype = {
         toolbarIsCustomized ||
         getToolbarFolderCount() > NUM_TOOLBAR_BOOKMARKS_TO_UNHIDE
       ) {
-        xulStore.setValue(
-          BROWSER_DOCURL,
-          "PersonalToolbar",
-          "collapsed",
-          "false"
+        CustomizableUI.setToolbarVisibility(
+          CustomizableUI.AREA_BOOKMARKS,
+          true
         );
       }
     }
+  },
+
+  _migrateXULStoreForDocument(fromURL, toURL) {
+    Array.from(Services.xulStore.getIDsEnumerator(fromURL)).forEach(id => {
+      Array.from(Services.xulStore.getAttributeEnumerator(fromURL, id)).forEach(
+        attr => {
+          let value = Services.xulStore.getValue(fromURL, id, attr);
+          Services.xulStore.setValue(toURL, id, attr, value);
+        }
+      );
+    });
   },
 
   // eslint-disable-next-line complexity
   _migrateUI: function BG__migrateUI() {
     // Use an increasing number to keep track of the current migration state.
     // Completely unrelated to the current Firefox release number.
-    const UI_VERSION = 81;
+    const UI_VERSION = 94;
     const BROWSER_DOCURL = AppConstants.BROWSER_CHROME_URL;
 
-    let currentUIVersion;
-    if (Services.prefs.prefHasUserValue("browser.migration.version")) {
-      currentUIVersion = Services.prefs.getIntPref("browser.migration.version");
-    } else {
+    if (!Services.prefs.prefHasUserValue("browser.migration.version")) {
       // This is a new profile, nothing to migrate.
       Services.prefs.setIntPref("browser.migration.version", UI_VERSION);
-
-      try {
-        // New profiles may have existing bookmarks (imported from another browser or
-        // copied into the profile) and we want to show the bookmark toolbar for them
-        // in some cases.
-        this._maybeToggleBookmarkToolbarVisibility();
-      } catch (ex) {
-        Cu.reportError(ex);
-      }
+      this._isNewProfile = true;
       return;
     }
 
+    this._isNewProfile = false;
+    let currentUIVersion = Services.prefs.getIntPref(
+      "browser.migration.version"
+    );
     if (currentUIVersion >= UI_VERSION) {
       return;
     }
@@ -2604,11 +2428,8 @@ BrowserGlue.prototype = {
           return;
         }
 
-        if (currentEngine._loadPath.startsWith("[https]")) {
-          Services.prefs.setCharPref("browser.search.reset.status", "pending");
-        } else {
+        if (!currentEngine._loadPath.startsWith("[https]")) {
           Services.search.resetToOriginalDefaultEngine();
-          Services.prefs.setCharPref("browser.search.reset.status", "silent");
         }
       });
 
@@ -2848,6 +2669,34 @@ BrowserGlue.prototype = {
           }
         }
       }
+    }
+
+    if (currentUIVersion < 82) {
+      this._migrateXULStoreForDocument("chrome://browser/content/browser.xul",
+                                       "chrome://browser/content/browser.xhtml");
+    }
+
+    if (currentUIVersion < 89) {
+      // This file was renamed in https://bugzilla.mozilla.org/show_bug.cgi?id=1595636.
+      this._migrateXULStoreForDocument(
+        "chrome://devtools/content/framework/toolbox-window.xul",
+        "chrome://devtools/content/framework/toolbox-window.xhtml"
+      );
+    }
+
+    if (currentUIVersion < 90) {
+      this._migrateXULStoreForDocument(
+        "chrome://browser/content/places/historySidebar.xul",
+        "chrome://browser/content/places/historySidebar.xhtml"
+      );
+      this._migrateXULStoreForDocument(
+        "chrome://browser/content/places/places.xul",
+        "chrome://browser/content/places/places.xhtml"
+      );
+      this._migrateXULStoreForDocument(
+        "chrome://browser/content/places/bookmarksSidebar.xul",
+        "chrome://browser/content/places/bookmarksSidebar.xhtml"
+      );
     }
 
     // Update the migration version.
@@ -3264,212 +3113,6 @@ BrowserGlue.prototype = {
   ]),
 };
 
-var ContentBlockingCategoriesPrefs = {
-  PREF_CB_CATEGORY: "browser.contentblocking.category",
-  PREF_STRICT_DEF: "browser.contentblocking.features.strict",
-  switchingCategory: false,
-
-  setPrefExpectations() {
-    // The prefs inside CATEGORY_PREFS are initial values.
-    // If the pref remains null, then it will expect the default value.
-    // The "standard" category is defined as expecting all 5 default values.
-    this.CATEGORY_PREFS = {
-      strict: {
-        "network.cookie.cookieBehavior": null,
-        "privacy.trackingprotection.pbmode.enabled": null,
-        "privacy.trackingprotection.enabled": null,
-        "privacy.trackingprotection.fingerprinting.enabled": null,
-        "privacy.trackingprotection.cryptomining.enabled": null,
-      },
-      standard: {
-        "network.cookie.cookieBehavior": null,
-        "privacy.trackingprotection.pbmode.enabled": null,
-        "privacy.trackingprotection.enabled": null,
-        "privacy.trackingprotection.fingerprinting.enabled": null,
-        "privacy.trackingprotection.cryptomining.enabled": null,
-      },
-    };
-    let type = "strict";
-    let rulesArray = Services.prefs
-      .getStringPref(this.PREF_STRICT_DEF)
-      .split(",");
-    for (let item of rulesArray) {
-      switch (item) {
-        case "tp":
-          this.CATEGORY_PREFS[type][
-            "privacy.trackingprotection.enabled"
-          ] = true;
-          break;
-        case "-tp":
-          this.CATEGORY_PREFS[type][
-            "privacy.trackingprotection.enabled"
-          ] = false;
-          break;
-        case "tpPrivate":
-          this.CATEGORY_PREFS[type][
-            "privacy.trackingprotection.pbmode.enabled"
-          ] = true;
-          break;
-        case "-tpPrivate":
-          this.CATEGORY_PREFS[type][
-            "privacy.trackingprotection.pbmode.enabled"
-          ] = false;
-          break;
-        case "fp":
-          this.CATEGORY_PREFS[type][
-            "privacy.trackingprotection.fingerprinting.enabled"
-          ] = true;
-          break;
-        case "-fp":
-          this.CATEGORY_PREFS[type][
-            "privacy.trackingprotection.fingerprinting.enabled"
-          ] = false;
-          break;
-        case "cm":
-          this.CATEGORY_PREFS[type][
-            "privacy.trackingprotection.cryptomining.enabled"
-          ] = true;
-          break;
-        case "-cm":
-          this.CATEGORY_PREFS[type][
-            "privacy.trackingprotection.cryptomining.enabled"
-          ] = false;
-          break;
-        case "cookieBehavior0":
-          this.CATEGORY_PREFS[type]["network.cookie.cookieBehavior"] =
-            Ci.nsICookieService.BEHAVIOR_ACCEPT;
-          break;
-        case "cookieBehavior1":
-          this.CATEGORY_PREFS[type]["network.cookie.cookieBehavior"] =
-            Ci.nsICookieService.BEHAVIOR_REJECT_FOREIGN;
-          break;
-        case "cookieBehavior2":
-          this.CATEGORY_PREFS[type]["network.cookie.cookieBehavior"] =
-            Ci.nsICookieService.BEHAVIOR_REJECT;
-          break;
-        case "cookieBehavior3":
-          this.CATEGORY_PREFS[type]["network.cookie.cookieBehavior"] =
-            Ci.nsICookieService.BEHAVIOR_LIMIT_FOREIGN;
-          break;
-        case "cookieBehavior4":
-          this.CATEGORY_PREFS[type]["network.cookie.cookieBehavior"] =
-            Ci.nsICookieService.BEHAVIOR_REJECT_TRACKER;
-          break;
-        case "cookieBehavior5":
-          this.CATEGORY_PREFS[type]["network.cookie.cookieBehavior"] =
-            Ci.nsICookieService.BEHAVIOR_REJECT_TRACKER_AND_PARTITION_FOREIGN;
-          break;
-        default:
-          Cu.reportError(`Error: Unknown rule observed ${item}`);
-      }
-    }
-  },
-
-  /**
-   * Checks if CB prefs match perfectly with one of our pre-defined categories.
-   */
-  prefsMatch(category) {
-    // The category pref must be either unset, or match.
-    if (
-      Services.prefs.prefHasUserValue(this.PREF_CB_CATEGORY) &&
-      Services.prefs.getStringPref(this.PREF_CB_CATEGORY) != category
-    ) {
-      return false;
-    }
-    for (let pref in this.CATEGORY_PREFS[category]) {
-      let value = this.CATEGORY_PREFS[category][pref];
-      if (value == null) {
-        if (Services.prefs.prefHasUserValue(pref)) {
-          return false;
-        }
-      } else {
-        let prefType = Services.prefs.getPrefType(pref);
-        if (
-          (prefType == Services.prefs.PREF_BOOL &&
-            Services.prefs.getBoolPref(pref) != value) ||
-          (prefType == Services.prefs.PREF_INT &&
-            Services.prefs.getIntPref(pref) != value) ||
-          (prefType == Services.prefs.PREF_STRING &&
-            Services.prefs.getStringPref(pref) != value)
-        ) {
-          return false;
-        }
-      }
-    }
-    return true;
-  },
-
-  matchCBCategory() {
-    if (this.switchingCategory) {
-      return;
-    }
-    // If PREF_CB_CATEGORY is not set match users to a Content Blocking category. Check if prefs fit
-    // perfectly into strict or standard, otherwise match with custom. If PREF_CB_CATEGORY has previously been set,
-    // a change of one of these prefs necessarily puts us in "custom".
-    if (this.prefsMatch("standard")) {
-      Services.prefs.setStringPref(this.PREF_CB_CATEGORY, "standard");
-    } else if (this.prefsMatch("strict")) {
-      Services.prefs.setStringPref(this.PREF_CB_CATEGORY, "strict");
-    } else {
-      Services.prefs.setStringPref(this.PREF_CB_CATEGORY, "custom");
-    }
-
-    // If there is a custom policy which changes a related pref, then put the user in custom so
-    // they still have access to other content blocking prefs, and to keep our default definitions
-    // from changing.
-    let policy = Services.policies.getActivePolicies();
-    if (policy && (policy.EnableTrackingProtection || policy.Cookies)) {
-      Services.prefs.setStringPref(this.PREF_CB_CATEGORY, "custom");
-    }
-  },
-
-  updateCBCategory() {
-    if (
-      this.switchingCategory ||
-      !Services.prefs.prefHasUserValue(this.PREF_CB_CATEGORY)
-    ) {
-      return;
-    }
-    // Turn on switchingCategory flag, to ensure that when the individual prefs that change as a result
-    // of the category change do not trigger yet another category change.
-    this.switchingCategory = true;
-    let value = Services.prefs.getStringPref(this.PREF_CB_CATEGORY);
-    this.setPrefsToCategory(value);
-    this.switchingCategory = false;
-  },
-
-  /**
-   * Sets all user-exposed content blocking preferences to values that match the selected category.
-   */
-  setPrefsToCategory(category) {
-    // Leave prefs as they were if we are switching to "custom" category.
-    if (category == "custom") {
-      return;
-    }
-
-    for (let pref in this.CATEGORY_PREFS[category]) {
-      let value = this.CATEGORY_PREFS[category][pref];
-      if (!Services.prefs.prefIsLocked(pref)) {
-        if (value == null) {
-          Services.prefs.clearUserPref(pref);
-        } else {
-          switch (Services.prefs.getPrefType(pref)) {
-            case Services.prefs.PREF_BOOL:
-              Services.prefs.setBoolPref(pref, value);
-              break;
-            case Services.prefs.PREF_INT:
-              Services.prefs.setIntPref(pref, value);
-              break;
-            case Services.prefs.PREF_STRING:
-              Services.prefs.setStringPref(pref, value);
-              break;
-          }
-        }
-      }
-    }
-  },
-};
-
 /**
  * ContentPermissionIntegration is responsible for showing the user
  * simple permission prompts when content requests additional
@@ -3651,16 +3294,16 @@ var DefaultBrowserCheck = {
 
   _createPopup(win, notNowStrings, neverStrings) {
     let doc = win.document;
-    let popup = doc.createElement("menupopup");
+    let popup = doc.createXULElement("menupopup");
     popup.id = this.OPTIONPOPUP;
 
-    let notNowItem = doc.createElement("menuitem");
+    let notNowItem = doc.createXULElement("menuitem");
     notNowItem.id = "defaultBrowserNotNow";
     notNowItem.setAttribute("label", notNowStrings.label);
     notNowItem.setAttribute("accesskey", notNowStrings.accesskey);
     popup.appendChild(notNowItem);
 
-    let neverItem = doc.createElement("menuitem");
+    let neverItem = doc.createXULElement("menuitem");
     neverItem.id = "defaultBrowserNever";
     neverItem.setAttribute("label", neverStrings.label);
     neverItem.setAttribute("accesskey", neverStrings.accesskey);

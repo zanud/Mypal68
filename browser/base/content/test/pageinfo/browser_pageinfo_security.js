@@ -13,8 +13,131 @@ const TEST_ORIGIN = "https://example.com";
 const TEST_HTTP_ORIGIN = "http://example.com";
 const TEST_SUB_ORIGIN = "https://test1.example.com";
 const REMOVE_DIALOG_URL =
-  "chrome://browser/content/preferences/siteDataRemoveSelected.xul";
+  "chrome://browser/content/preferences/siteDataRemoveSelected.xhtml";
 const TEST_ORIGIN_CERT_ERROR = "https://expired.example.com";
+
+const TEST_PATH = getRootDirectory(gTestPath).replace(
+  "chrome://mochitests/content",
+  "https://example.com"
+);
+
+// Test opening the correct certificate information when clicking "Show certificate".
+add_task(async function test_ShowCertificate() {
+  SpecialPowers.pushPrefEnv({
+    set: [["security.aboutcertificate.enabled", true]],
+  });
+  let tab1 = await BrowserTestUtils.openNewForegroundTab(gBrowser, TEST_ORIGIN);
+  let tab2;
+  let pageLoaded;
+  await BrowserTestUtils.openNewForegroundTab(
+    gBrowser,
+    () => {
+      gBrowser.selectedTab = BrowserTestUtils.addTab(
+        gBrowser,
+        TEST_ORIGIN_CERT_ERROR
+      );
+      let browser = gBrowser.selectedBrowser;
+      tab2 = gBrowser.selectedTab;
+      pageLoaded = BrowserTestUtils.waitForErrorPage(browser);
+    },
+    false
+  );
+
+  await pageLoaded;
+
+  let pageInfo = BrowserPageInfo(TEST_ORIGIN_CERT_ERROR, "securityTab");
+  await BrowserTestUtils.waitForEvent(pageInfo, "load");
+  let securityTab = pageInfo.document.getElementById("securityTab");
+  await TestUtils.waitForCondition(
+    () => BrowserTestUtils.is_visible(securityTab),
+    "Security tab should be visible."
+  );
+
+  async function openAboutCertificate() {
+    let loaded = BrowserTestUtils.waitForNewTab(gBrowser, null, true);
+    let viewCertButton = pageInfo.document.getElementById("security-view-cert");
+    await TestUtils.waitForCondition(
+      () => BrowserTestUtils.is_visible(viewCertButton),
+      "view cert button should be visible."
+    );
+    viewCertButton.click();
+    await loaded;
+
+    await ContentTask.spawn(gBrowser.selectedBrowser, null, async function() {
+      let certificateSection = await ContentTaskUtils.waitForCondition(() => {
+        return content.document.querySelector("certificate-section");
+      }, "Certificate section found");
+
+      let commonName = certificateSection.shadowRoot
+        .querySelector(".subject-name")
+        .shadowRoot.querySelector(".common-name")
+        .shadowRoot.querySelector(".info").textContent;
+      is(
+        commonName,
+        "expired.example.com",
+        "Should have the same common name."
+      );
+    });
+
+    gBrowser.removeCurrentTab(); // closes about:certificate
+  }
+
+  await openAboutCertificate();
+
+  gBrowser.selectedTab = tab1;
+
+  await openAboutCertificate();
+
+  pageInfo.close();
+  BrowserTestUtils.removeTab(tab1);
+  BrowserTestUtils.removeTab(tab2);
+});
+
+// Test displaying website identity information when loading images.
+add_task(async function test_image() {
+  let url = TEST_PATH + "moz.png";
+  await BrowserTestUtils.openNewForegroundTab(gBrowser, url);
+
+  let pageInfo = BrowserPageInfo(url, "securityTab");
+  await BrowserTestUtils.waitForEvent(pageInfo, "load");
+  let pageInfoDoc = pageInfo.document;
+  let securityTab = pageInfoDoc.getElementById("securityTab");
+
+  await TestUtils.waitForCondition(
+    () => BrowserTestUtils.is_visible(securityTab),
+    "Security tab should be visible."
+  );
+
+  let owner = pageInfoDoc.getElementById("security-identity-owner-value");
+  let verifier = pageInfoDoc.getElementById("security-identity-verifier-value");
+  let domain = pageInfoDoc.getElementById("security-identity-domain-value");
+
+  await TestUtils.waitForCondition(
+    () => owner.value === "This website does not supply ownership information.",
+    `Value of owner should be should be "This website does not supply ownership information." instead got "${
+      owner.value
+    }".`
+  );
+
+  await TestUtils.waitForCondition(
+    () => verifier.value === "Mozilla Testing",
+    `Value of verifier should be "Mozilla Testing", instead got "${
+      verifier.value
+    }".`
+  );
+
+  let browser = gBrowser.selectedBrowser;
+
+  await TestUtils.waitForCondition(
+    () => domain.value === browser.currentURI.displayHost,
+    `Value of domain should be ${
+      browser.currentURI.displayHost
+    }, instead got "${domain.value}".`
+  );
+
+  pageInfo.close();
+  BrowserTestUtils.removeTab(gBrowser.selectedTab);
+});
 
 // Test displaying website identity information on certificate error pages.
 add_task(async function test_CertificateError() {
@@ -52,14 +175,14 @@ add_task(async function test_CertificateError() {
   await TestUtils.waitForCondition(
     () => owner.value === "This website does not supply ownership information.",
     `Value of owner should be should be "This website does not supply ownership information." instead got "${
-      verifier.value
+      owner.value
     }".`
   );
 
   await TestUtils.waitForCondition(
-    () => verifier.textContent === "Not specified",
+    () => verifier.value === "Mozilla Testing",
     `Value of verifier should be "Mozilla Testing", instead got "${
-      verifier.textContent
+      verifier.value
     }".`
   );
 

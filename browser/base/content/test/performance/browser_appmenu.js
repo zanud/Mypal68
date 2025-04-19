@@ -25,8 +25,8 @@ const EXPECTED_APPMENU_OPEN_REFLOWS = [
 
   {
     stack: [
-      "adjustArrowPosition@chrome://global/content/bindings/popup.xml",
-      "onxblpopuppositioned@chrome://global/content/bindings/popup.xml",
+      "adjustArrowPosition@chrome://global/content/elements/panel.js",
+      "on_popuppositioned@chrome://global/content/elements/panel.js",
     ],
 
     maxCount: 22, // This number should only ever go down - never up.
@@ -45,12 +45,13 @@ const EXPECTED_APPMENU_OPEN_REFLOWS = [
 add_task(async function() {
   await ensureNoPreloadedBrowser();
 
-  let textBoxRect = document
-    .getAnonymousElementByAttribute(gURLBar.textbox, "anonid", "moz-input-box")
+  let textBoxRect = gURLBar
+    .querySelector("moz-input-box")
     .getBoundingClientRect();
   let menuButtonRect = document
     .getElementById("PanelUI-menu-button")
     .getBoundingClientRect();
+  let firstTabRect = gBrowser.selectedTab.getBoundingClientRect();
   let frameExpectations = {
     filter: rects =>
       rects.filter(
@@ -73,6 +74,14 @@ add_task(async function() {
           r.x2 <= textBoxRect.right &&
           r.y1 >= textBoxRect.top &&
           r.y2 <= textBoxRect.bottom,
+      },
+      {
+        name: "bug 1547341 - a first tab gets drawn early",
+        condition: r =>
+          r.x1 >= firstTabRect.left &&
+          r.x2 <= firstTabRect.right &&
+          r.y1 >= firstTabRect.top &&
+          r.y2 <= firstTabRect.bottom,
       },
     ],
   };

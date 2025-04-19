@@ -182,7 +182,7 @@ function httpUrl(aFileName) {
 
 function openLibrary(aLeftPaneRoot) {
   let library = window.openDialog(
-    "chrome://browser/content/places/places.xul",
+    "chrome://browser/content/places/places.xhtml",
     "",
     "chrome,toolbar=yes,dialog=no,resizable",
     aLeftPaneRoot

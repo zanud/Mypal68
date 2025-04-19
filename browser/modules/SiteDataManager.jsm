@@ -422,7 +422,7 @@ var SiteDataManager = {
       };
       let features = "centerscreen,chrome,modal,resizable=no";
       win.openDialog(
-        "chrome://browser/content/preferences/siteDataRemoveSelected.xul",
+        "chrome://browser/content/preferences/siteDataRemoveSelected.xhtml",
         "",
         features,
         args

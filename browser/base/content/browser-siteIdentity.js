@@ -36,6 +36,13 @@ var gIdentityHandler = {
   _isSecureInternalUI: false,
 
   /**
+   * Whether the content window is considered a "secure context". This
+   * includes "potentially trustworthy" origins such as file:// URLs or localhost.
+   * https://w3c.github.io/webappsec-secure-contexts/#is-origin-trustworthy
+   */
+  _isSecureContext: false,
+
+  /**
    * nsITransportSecurityInfo metadata provided by gBrowser.securityUI the last
    * time the identity UI was updated, or null if the connection is not secure.
    */
@@ -50,13 +57,25 @@ var gIdentityHandler = {
    * RegExp used to decide if an about url should be shown as being part of
    * the browser UI.
    */
-  _secureInternalUIWhitelist: /^(?:accounts|addons|cache|config|crashes|customizing|downloads|healthreport|license|permissions|preferences|rights|sessionrestore|support)(?:[?#]|$)/i,
+  _secureInternalUIWhitelist: /^(?:accounts|addons|cache|config|crashes|customizing|downloads|license|permissions|preferences|rights|sessionrestore|support)(?:[?#]|$)/i,
 
-  get _isBroken() {
+  /**
+   * Whether the established HTTPS connection is considered "broken".
+   * This could have several reasons, such as mixed content or weak
+   * cryptography. If this is true, _isSecureConnection is false.
+   */
+  get _isBrokenConnection() {
     return this._state & Ci.nsIWebProgressListener.STATE_IS_BROKEN;
   },
 
-  get _isSecure() {
+  /**
+   * Whether the connection to the current site was done via secure
+   * transport. Note that this attribute is not true in all cases that
+   * the site was accessed via HTTPS, i.e. _isSecureConnection will
+   * be false when _isBrokenConnection is true, even though the page
+   * was loaded over HTTPS.
+   */
+  get _isSecureConnection() {
     // If a <browser> is included within a chrome document, then this._state
     // will refer to the security state for the <browser> and not the top level
     // document. In this case, don't upgrade the security state in the UI
@@ -342,14 +361,6 @@ var gIdentityHandler = {
     openPreferences("privacy-permissions");
   },
 
-  recordClick(object) {
-    Services.telemetry.recordEvent(
-      "security.ui.identitypopup",
-      "click",
-      object
-    );
-  },
-
   /**
    * Handler for mouseclicks on the "More Information" button in the
    * "identity-popup" panel.
@@ -372,12 +383,6 @@ var gIdentityHandler = {
   },
 
   disableMixedContentProtection() {
-    // Use telemetry to measure how often unblocking happens
-    const kMIXED_CONTENT_UNBLOCK_EVENT = 2;
-    let histogram = Services.telemetry.getHistogramById(
-      "MIXED_CONTENT_UNBLOCK_COUNTER"
-    );
-    histogram.add(kMIXED_CONTENT_UNBLOCK_EVENT);
     // Reload the page with the content unblocked
     BrowserReloadWithFlags(Ci.nsIWebNavigation.LOAD_FLAGS_ALLOW_MIXED_CONTENT);
     PanelMultiView.hidePopup(this._identityPopup);
@@ -458,6 +463,7 @@ var gIdentityHandler = {
     // the documentation of the individual properties for details.
     this.setURI(uri);
     this._secInfo = gBrowser.securityUI.secInfo;
+    this._isSecureContext = gBrowser.securityUI.isSecureContext;
 
     // Then, update the user interface with the available data.
     this.refreshIdentityBlock();
@@ -587,7 +593,7 @@ var gIdentityHandler = {
     if (this._uriHasHost && this._isEV) {
       return "verifiedIdentity";
     }
-    if (this._uriHasHost && this._isSecure) {
+    if (this._uriHasHost && this._isSecureConnection) {
       return "verifiedDomain";
     }
     return "unknownIdentity";
@@ -607,10 +613,34 @@ var gIdentityHandler = {
   },
 
   /**
+   * Returns whether the current URI results in an "invalid"
+   * URL bar state, which effectively means hidden security
+   * indicators.
+   */
+  _hasInvalidPageProxyState() {
+    return (
+      !this._uriHasHost &&
+      this._uri &&
+      isBlankPageURL(this._uri.spec) &&
+      !this._uri.schemeIs("moz-extension")
+    );
+  },
+
+  /**
    * Updates the identity block user interface with the data from this object.
    */
   refreshIdentityBlock() {
     if (!this._identityBox) {
+      return;
+    }
+
+    // If this condition is true, the URL bar will have an "invalid"
+    // pageproxystate, which will hide the security indicators. Thus, we can
+    // safely avoid updating the security UI.
+    //
+    // This will also filter out intermediate about:blank loads to avoid
+    // flickering the identity block and doing unnecessary work.
+    if (this._hasInvalidPageProxyState()) {
       return;
     }
 
@@ -620,10 +650,12 @@ var gIdentityHandler = {
     let icon_labels_dir = "ltr";
 
     if (this._isSecureInternalUI) {
+      // This is a secure internal Firefox page.
       this._identityBox.className = "chromeUI";
       let brandBundle = document.getElementById("bundle_brand");
       icon_label = brandBundle.getString("brandShorterName");
     } else if (this._uriHasHost && this._isEV) {
+      // This is a secure connection with EV.
       this._identityBox.className = "verifiedIdentity";
       if (this._isMixedActiveContentBlocked) {
         this._identityBox.classList.add("mixedActiveBlocked");
@@ -654,13 +686,15 @@ var gIdentityHandler = {
           : "ltr";
       }
     } else if (this._pageExtensionPolicy) {
+      // This is a WebExtension page.
       this._identityBox.className = "extensionPage";
       let extensionName = this._pageExtensionPolicy.name;
       icon_label = gNavigatorBundle.getFormattedString(
         "identity.extension.label",
         [extensionName]
       );
-    } else if (this._uriHasHost && this._isSecure) {
+    } else if (this._uriHasHost && this._isSecureConnection) {
+      // This is a secure connection.
       this._identityBox.className = "verifiedDomain";
       if (this._isMixedActiveContentBlocked) {
         this._identityBox.classList.add("mixedActiveBlocked");
@@ -672,46 +706,45 @@ var gIdentityHandler = {
           [this.getIdentityData().caOrg]
         );
       }
-    } else if (!this._uriHasHost) {
+    } else if (this._isBrokenConnection) {
+      // This is a secure connection, but something is wrong.
       this._identityBox.className = "unknownIdentity";
+
+      if (this._isMixedActiveContentLoaded) {
+        this._identityBox.classList.add("mixedActiveContent");
+      } else if (this._isMixedActiveContentBlocked) {
+        this._identityBox.classList.add(
+          "mixedDisplayContentLoadedActiveBlocked"
+        );
+      } else if (this._isMixedPassiveContentLoaded) {
+        this._identityBox.classList.add("mixedDisplayContent");
+      } else {
+        this._identityBox.classList.add("weakCipher");
+      }
     } else if (
-      gBrowser.selectedBrowser.documentURI &&
-      (gBrowser.selectedBrowser.documentURI.scheme == "about" ||
-        gBrowser.selectedBrowser.documentURI.scheme == "chrome")
+      this._isSecureContext ||
+      (gBrowser.selectedBrowser.documentURI &&
+        (gBrowser.selectedBrowser.documentURI.scheme == "about" ||
+          gBrowser.selectedBrowser.documentURI.scheme == "chrome"))
     ) {
-      // For net errors we should not show notSecure as it's likely confusing
+      // This is a local resource (and shouldn't be marked insecure).
       this._identityBox.className = "unknownIdentity";
     } else {
-      if (this._isBroken) {
-        this._identityBox.className = "unknownIdentity";
+      // This is an insecure connection.
+      let warnOnInsecure =
+        this._insecureConnectionIconEnabled ||
+        (this._insecureConnectionIconPBModeEnabled &&
+          PrivateBrowsingUtils.isWindowPrivate(window));
+      let className = warnOnInsecure ? "notSecure" : "unknownIdentity";
+      this._identityBox.className = className;
 
-        if (this._isMixedActiveContentLoaded) {
-          this._identityBox.classList.add("mixedActiveContent");
-        } else if (this._isMixedActiveContentBlocked) {
-          this._identityBox.classList.add(
-            "mixedDisplayContentLoadedActiveBlocked"
-          );
-        } else if (this._isMixedPassiveContentLoaded) {
-          this._identityBox.classList.add("mixedDisplayContent");
-        } else {
-          this._identityBox.classList.add("weakCipher");
-        }
-      } else {
-        let warnOnInsecure =
-          this._insecureConnectionIconEnabled ||
-          (this._insecureConnectionIconPBModeEnabled &&
-            PrivateBrowsingUtils.isWindowPrivate(window));
-        let className = warnOnInsecure ? "notSecure" : "unknownIdentity";
-        this._identityBox.className = className;
-
-        let warnTextOnInsecure =
-          this._insecureConnectionTextEnabled ||
-          (this._insecureConnectionTextPBModeEnabled &&
-            PrivateBrowsingUtils.isWindowPrivate(window));
-        if (warnTextOnInsecure) {
-          icon_label = gNavigatorBundle.getString("identity.notSecure.label");
-          this._identityBox.classList.add("notSecureText");
-        }
+      let warnTextOnInsecure =
+        this._insecureConnectionTextEnabled ||
+        (this._insecureConnectionTextPBModeEnabled &&
+          PrivateBrowsingUtils.isWindowPrivate(window));
+      if (warnTextOnInsecure) {
+        icon_label = gNavigatorBundle.getString("identity.notSecure.label");
+        this._identityBox.classList.add("notSecureText");
       }
       if (this._hasInsecureLoginForms) {
         // Insecure login forms can only be present on "unknown identity"
@@ -854,7 +887,7 @@ var gIdentityHandler = {
       connection = "secure-ev";
     } else if (this._isCertUserOverridden) {
       connection = "secure-cert-user-overridden";
-    } else if (this._isSecure) {
+    } else if (this._isSecureConnection) {
       connection = "secure";
       customRoot = this._hasCustomRoot();
     }
@@ -882,7 +915,7 @@ var gIdentityHandler = {
     // cipher.
     let ciphers = "";
     if (
-      this._isBroken &&
+      this._isBrokenConnection &&
       !this._isMixedActiveContentLoaded &&
       !this._isMixedPassiveContentLoaded
     ) {
@@ -906,7 +939,7 @@ var gIdentityHandler = {
       updateAttribute(element, "loginforms", loginforms);
       updateAttribute(element, "ciphers", ciphers);
       updateAttribute(element, "mixedcontent", mixedcontent);
-      updateAttribute(element, "isbroken", this._isBroken);
+      updateAttribute(element, "isbroken", this._isBrokenConnection);
       updateAttribute(element, "customroot", customRoot);
     }
 
@@ -917,7 +950,7 @@ var gIdentityHandler = {
     let owner = "";
 
     // Fill in the CA name if we have a valid TLS certificate.
-    if (this._isSecure || this._isCertUserOverridden) {
+    if (this._isSecureConnection || this._isCertUserOverridden) {
       verifier = this._identityIconLabels.tooltipText;
     }
 
@@ -957,8 +990,6 @@ var gIdentityHandler = {
 
     // Update per-site permissions section.
     this.updateSitePermissions();
-
-    ContentBlocking.toggleReportBreakageButton();
   },
 
   setURI(uri) {
@@ -1034,6 +1065,40 @@ var gIdentityHandler = {
       return;
     }
 
+    // If we are in DOM full-screen, exit it before showing the identity popup
+    if (document.fullscreen) {
+      // Open the identity popup after DOM full-screen exit
+      // We need to wait for the exit event and after that wait for the fullscreen exit transition to complete
+      // If we call _openPopup before the full-screen transition ends it can get cancelled
+      // Only waiting for painted is not sufficient because we could still be in the full-screen enter transition.
+      let exitedEventReceived = false;
+      window.messageManager.addMessageListener(
+        "DOMFullscreen:Painted",
+        function listener() {
+          if (!exitedEventReceived) {
+            return;
+          }
+          window.messageManager.removeMessageListener(
+            "DOMFullscreen:Painted",
+            listener
+          );
+          gIdentityHandler._openPopup(event);
+        }
+      );
+      window.addEventListener(
+        "MozDOMFullscreen:Exited",
+        () => {
+          exitedEventReceived = true;
+        },
+        { once: true }
+      );
+      document.exitFullscreen();
+      return;
+    }
+    this._openPopup(event);
+  },
+
+  _openPopup(event) {
     // Make sure that the display:none style we set in xul is removed now that
     // the popup is actually needed
     this._identityPopup.hidden = false;
@@ -1058,12 +1123,6 @@ var gIdentityHandler = {
     if (event.target == this._identityPopup) {
       window.addEventListener("focus", this, true);
     }
-
-    Services.telemetry.recordEvent(
-      "security.ui.identitypopup",
-      "open",
-      "identity_popup"
-    );
   },
 
   onPopupHidden(event) {
@@ -1124,11 +1183,7 @@ var gIdentityHandler = {
     let ctx = canvas.getContext("2d");
     ctx.font = `${14 * scale}px sans-serif`;
     ctx.fillText(`${value}`, 20 * scale, 14 * scale);
-    let tabIcon = document.getAnonymousElementByAttribute(
-      gBrowser.selectedTab,
-      "anonid",
-      "tab-icon-image"
-    );
+    let tabIcon = gBrowser.selectedTab.iconImage;
     let image = new Image();
     image.src = tabIcon.src;
     ctx.drawImage(image, 0, 0, 16 * scale, 16 * scale);
@@ -1139,6 +1194,9 @@ var gIdentityHandler = {
     dt.setData("text/plain", value);
     dt.setData("text/html", htmlString);
     dt.setDragImage(canvas, 16, 16);
+
+    // Don't cover potential drop targets on the toolbars or in content.
+    gURLBar.view.close();
   },
 
   onLocationChange() {
@@ -1249,7 +1307,10 @@ var gIdentityHandler = {
     } else {
       img.classList.add(aPermission.id + "-icon");
     }
-    if (aPermission.state == SitePermissions.BLOCK) {
+    if (
+      aPermission.state == SitePermissions.BLOCK ||
+      aPermission.state == SitePermissions.AUTOPLAY_BLOCKED_ALL
+    ) {
       img.classList.add("blocked-permission-icon");
     }
 

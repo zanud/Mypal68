@@ -70,6 +70,11 @@ add_task(async function test_returnAfterSuggestion() {
     // Alt+Down to select the first one-off.
     EventUtils.synthesizeKey("KEY_ArrowDown", { altKey: true });
     assertState(2, 0, "foobar");
+    let heuristicResult = await UrlbarTestUtils.getDetailsOfResultAt(window, 0);
+    Assert.ok(
+      !BrowserTestUtils.is_visible(heuristicResult.element.action),
+      "The heuristic action should not be visible"
+    );
 
     let resultsPromise = BrowserTestUtils.browserLoaded(
       gBrowser.selectedBrowser,
@@ -145,6 +150,12 @@ add_task(async function test_selectOneOffThenSuggestion() {
     EventUtils.synthesizeKey("KEY_ArrowDown", { altKey: true });
     assertState(0, 1, "foo");
 
+    let heuristicResult = await UrlbarTestUtils.getDetailsOfResultAt(window, 0);
+    Assert.ok(
+      BrowserTestUtils.is_visible(heuristicResult.element.action),
+      "The heuristic action should be visible because the result is selected"
+    );
+
     // Now click the second suggestion.
     await withHttpServer(serverInfo, async () => {
       let result = await UrlbarTestUtils.getDetailsOfResultAt(window, 2);
@@ -204,6 +215,6 @@ function assertState(result, oneOff, textValue = undefined) {
     "Expected one-off should be selected"
   );
   if (textValue !== undefined) {
-    Assert.equal(gURLBar.textValue, textValue, "Expected textValue");
+    Assert.equal(gURLBar.value, textValue, "Expected textValue");
   }
 }

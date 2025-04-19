@@ -6,6 +6,7 @@
 
 %define fieldBorderColor hsla(240,5%,5%,.25)
 %define fieldHoverBorderColor hsla(240,5%,5%,.35)
+%define urlbarMarginInline 5px
 
 :root {
   --toolbar-field-focus-border-color: Highlight;
@@ -24,34 +25,45 @@
   --urlbar-icon-padding: 7px;
 }
 
+#urlbar-container,
+#search-container {
+  padding-block: 3px;
+  margin-inline: @urlbarMarginInline@;
+}
+
 #urlbar,
 #searchbar {
-  appearance: none;
   background-color: -moz-Field;
   color: -moz-FieldText;
-  background-clip: content-box;
+  background-clip: padding-box;
   border: 1px solid @fieldBorderColor@;
   border-radius: var(--toolbarbutton-border-radius);
   box-shadow: 0 1px 4px rgba(0,0,0,.05);
   outline: none;
-  padding: 0;
-  margin: 3px 5px;
   min-height: 30px;
-  cursor: default;
   overflow: clip;
+  text-shadow: none;
 }
 
 .searchbar-textbox {
-  -moz-appearance: none;
+  appearance: none;
+  -moz-box-flex: 1;
   background: none;
   color: inherit;
-  margin: 0;
+  border: none;
+  font: inherit;
+  margin: 0 !important; /* override autocomplete.css */
 }
 
-#urlbar:hover,
-#searchbar:hover {
+#urlbar:not([focused="true"]):hover,
+#searchbar:not(:focus-within):hover {
   border-color: @fieldHoverBorderColor@;
   box-shadow: 0 1px 6px rgba(0,0,0,.1);
+}
+
+#urlbar[focused="true"],
+#searchbar:focus-within {
+  border-color: var(--toolbar-field-focus-border-color);
 }
 
 #urlbar:-moz-lwtheme,
@@ -61,13 +73,11 @@
 }
 
 #urlbar:not([focused="true"]):-moz-lwtheme,
-#urlbar.hidden-focus:-moz-lwtheme,
 #navigator-toolbox #searchbar:not(:focus-within):-moz-lwtheme {
   border-color: var(--lwt-toolbar-field-border-color, @fieldBorderColor@);
 }
 
 #urlbar:not([focused="true"]):-moz-lwtheme:hover,
-#urlbar.hidden-focus:-moz-lwtheme:hover,
 #navigator-toolbox #searchbar:not(:focus-within):-moz-lwtheme:hover {
   border-color: var(--lwt-toolbar-field-border-color, @fieldHoverBorderColor@);
 }
@@ -77,28 +87,69 @@
   background-color: var(--lwt-toolbar-field-background-color, white);
 }
 
-#urlbar:not(.hidden-focus)[focused="true"],
-#searchbar:focus-within {
-  border-color: var(--toolbar-field-focus-border-color);
+#urlbar-container[breakout] {
+  position: relative;
+  min-height: var(--urlbar-container-height);
 }
 
-#urlbar:not(.hidden-focus):-moz-lwtheme[focused="true"],
+#urlbar[breakout] {
+  display: block;
+  position: absolute;
+  width: 100%;
+  height: var(--urlbar-height);
+  top: calc((var(--urlbar-toolbar-height) - var(--urlbar-height)) / 2);
+}
+
+#urlbar[breakout] > #urlbar-input-container {
+  width: 100%;
+  height: 100%;
+}
+
+#urlbar:not([open]) > .urlbarView,
+#urlbar.megabar:not([breakout]) > .urlbarView {
+  display: none;
+}
+
+#urlbar[breakout][breakout-extend],
+#urlbar[breakout][breakout-extend-disabled][open] {
+  /* The z-index needs to be big enough to trump other positioned UI pieces
+     that we want to overlay. 3 is used in the tab bar. */
+  z-index: 3;
+  height: auto;
+}
+
+#urlbar[breakout][breakout-extend] {
+  top: 0;
+  left: -@urlbarMarginInline@;
+  width: calc(100% + 2 * @urlbarMarginInline@);
+  box-shadow: 0 5px 18px rgba(0, 0, 0, .2);
+}
+
+#urlbar[breakout][breakout-extend] > #urlbar-input-container {
+  height: var(--urlbar-toolbar-height);
+  padding-block: calc((var(--urlbar-toolbar-height) - var(--urlbar-height)) / 2);
+  padding-inline: @urlbarMarginInline@;
+}
+
+#urlbar[focused="true"]:-moz-lwtheme,
 #navigator-toolbox #searchbar:focus-within:-moz-lwtheme {
   background-color: var(--lwt-toolbar-field-focus, var(--lwt-toolbar-field-background-color, white));
   color: var(--lwt-toolbar-field-focus-color, var(--lwt-toolbar-field-color, black));
 }
 
-:root[lwt-selection] .urlbar-input:-moz-lwtheme::selection,
+:root[lwt-selection] #urlbar-input:-moz-lwtheme::selection,
 :root[lwt-selection] .searchbar-textbox:-moz-lwtheme::selection {
   background-color: var(--lwt-toolbar-field-highlight, Highlight);
   color: var(--lwt-toolbar-field-highlight-text, HighlightText);
 }
 
+#urlbar:not([focused="true"]) {
+  caret-color: transparent;
+}
+
 :root[uidensity=compact] #urlbar,
 :root[uidensity=compact] #searchbar {
   min-height: 26px;
-  margin-top: 3px;
-  margin-bottom: 3px;
 }
 
 :root[uidensity=touch] #urlbar,
@@ -106,19 +157,23 @@
   min-height: 32px;
 }
 
-:root[chromehidden~="toolbar"] #urlbar {
+:root[chromehidden~="toolbar"] #urlbar-container {
   /* Remove excess space between the address bar and the menu button in popups. */
-  margin-inline-end: 0;
+  padding-inline-end: 0;
 }
 
 :root[customizing] .urlbar-input-box {
   visibility: hidden;
 }
 
-.urlbar-input {
-  /* Remove the 1px padding-left (and padding-right) so that the titles in the
-     urlbar popup align with the text in the input. */
+#urlbar-input,
+#urlbar-scheme {
+  -moz-box-flex: 1;
+  background-color: transparent;
+  color: inherit;
+  border: none;
   padding: 0;
+  margin: 0;
 }
 
 #urlbar-container {
@@ -229,7 +284,7 @@
 }
 
 #pageActionSeparator {
-  /* This draws the separator the same way that #urlbar-display-box draws its
+  /* This draws the separator the same way that #urlbar-label-box draws its
      left and right borders, which end up looking like separators.  It might not
      be the best way in this case, but it makes sure that all these vertical
      lines in the urlbar look the same: same height, vertical position, etc. */
@@ -285,22 +340,16 @@
   height: 30px;
 }
 
-.urlbar-icon:not([disabled]):hover,
+:not(.urlbar-icon-wrapper) > .urlbar-icon:not([disabled]):hover,
 .urlbar-icon-wrapper:not([disabled]):hover {
   background-color: hsla(0,0%,70%,.2);
 }
 
-.urlbar-icon[open],
-.urlbar-icon-wrapper[open],
-.urlbar-icon:not([disabled]):hover:active,
-.urlbar-icon-wrapper:hover:active {
+:not(.urlbar-icon-wrapper) > .urlbar-icon:not([disabled])[open],
+:not(.urlbar-icon-wrapper) > .urlbar-icon:not([disabled]):hover:active,
+.urlbar-icon-wrapper:not([disabled])[open],
+.urlbar-icon-wrapper:not([disabled]):hover:active {
   background-color: hsla(0,0%,70%,.3);
-}
-
-.urlbar-icon-wrapper[open] > .urlbar-icon,
-.urlbar-icon-wrapper > .urlbar-icon:hover,
-.urlbar-icon-wrapper > .urlbar-icon:hover:active {
-  background-color: transparent;
 }
 
 .urlbar-icon:-moz-focusring,
@@ -309,25 +358,12 @@
   outline-offset: -2px;
 }
 
-.urlbar-display {
-  margin-top: 0;
-  margin-bottom: 0;
-}
-
-.urlbar-display:not(:-moz-lwtheme) {
-  color: GrayText;
-}
-
-.urlbar-display:-moz-lwtheme {
-  opacity: 0.5;
-}
-
-.urlbar-go-button,
+#urlbar-go-button,
 .search-go-button {
   list-style-image: url("chrome://browser/skin/forward.svg");
 }
 
-.urlbar-go-button:-moz-locale-dir(rtl),
+#urlbar-go-button:-moz-locale-dir(rtl),
 .search-go-button:-moz-locale-dir(rtl) {
   transform: scaleX(-1);
 }
@@ -337,21 +373,11 @@
   transition: opacity 0.15s ease;
 }
 
-#urlbar[hidedropmarker] > .urlbar-history-dropmarker {
-  display: none;
-}
-
-/* Avoid re-opening the popup when the dropmarker is clicked while the popup is still open. */
-#urlbar[quantumbar="false"] > .urlbar-history-dropmarker[open] {
-  pointer-events: none;
-}
-
-#urlbar[switchingtabs] > .urlbar-history-dropmarker {
+#urlbar[switchingtabs] > #urlbar-input-container > .urlbar-history-dropmarker {
   transition: none;
 }
 
-#nav-bar:not([customizing="true"]) > #nav-bar-customization-target > #urlbar-container:not(:hover) > #urlbar:not([focused]) > .urlbar-history-dropmarker,
-#nav-bar:not([customizing="true"]) > #nav-bar-customization-target > #urlbar-container:not(:hover) > #urlbar.hidden-focus > .urlbar-history-dropmarker {
+#nav-bar:not([customizing="true"]) > #nav-bar-customization-target > #urlbar-container:not(:hover) > #urlbar:not([focused]) > #urlbar-input-container > .urlbar-history-dropmarker {
   opacity: 0;
 }
 
@@ -560,8 +586,4 @@
 
 .searchbar-search-button:hover:not([addengines=true]) > .searchbar-search-icon-overlay:-moz-locale-dir(rtl) {
   margin-inline: -26px 20px;
-}
-
-#urlbar.hidden-focus[focused="true"] {
-  caret-color: transparent;
 }

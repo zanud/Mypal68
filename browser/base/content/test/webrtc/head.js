@@ -92,7 +92,7 @@ function promiseIndicatorWindow() {
     return Promise.resolve();
   }
 
-  return promiseWindow("chrome://browser/content/webrtcIndicator.xul");
+  return promiseWindow("chrome://browser/content/webrtcIndicator.xhtml");
 }
 
 async function assertWebRTCIndicatorStatus(expected) {

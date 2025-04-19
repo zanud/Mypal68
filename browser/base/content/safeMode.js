@@ -30,7 +30,7 @@ function showResetDialog() {
     reset: false,
   };
   window.openDialog(
-    "chrome://global/content/resetProfile.xul",
+    "chrome://global/content/resetProfile.xhtml",
     null,
     "chrome,modal,centerscreen,titlebar,dialog=yes",
     retVals
@@ -68,6 +68,7 @@ function onExtra1() {
 }
 
 function onLoad() {
+  const dialog = document.getElementById("safeModeDialog");
   if (appStartup.automaticSafeModeNecessary) {
     document.getElementById("autoSafeMode").hidden = false;
     document.getElementById("safeMode").hidden = true;
@@ -75,11 +76,11 @@ function onLoad() {
       document.getElementById("resetProfile").hidden = false;
     } else {
       // Hide the reset button is it's not supported.
-      document.documentElement.getButton("extra1").hidden = true;
+      dialog.getButton("extra1").hidden = true;
     }
   } else if (!ResetProfile.resetSupported()) {
     // Hide the reset button and text if it's not supported.
-    document.documentElement.getButton("extra1").hidden = true;
+    dialog.getButton("extra1").hidden = true;
     document.getElementById("resetProfileInstead").hidden = true;
   }
   document.addEventListener("dialogaccept", onDefaultButton);

@@ -25,8 +25,10 @@ pref("app.update.checkInstallTime.days", 2);
 // button. default=immediately
 pref("app.update.badgeWaitTime", 0);
 
-// Number of usages of the web console or scratchpad.
-// If this is less than 5, then pasting code into the web console or scratchpad is disabled
+// Number of usages of the web console.
+// If this is less than 5, then pasting code into the web console is disabled
 pref("devtools.selfxss.count", 5);
 
 pref("general.useragent.override.challenges.cloudflare.com", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:78.0) Gecko/20100101 Firefox/78.0");
+pref("general.useragent.override.yandex.ru", "Mozilla/5.0 (Windows NT 5.1; rv:102.0) Gecko/20100101 Firefox/102.0");
+pref("general.useragent.override.yandex.eu", "Mozilla/5.0 (Windows NT 5.1; rv:102.0) Gecko/20100101 Firefox/102.0");

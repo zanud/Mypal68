@@ -60,7 +60,7 @@ var whitelist = [
   { file: "chrome://pdf.js/locale/viewer.properties" },
 
   // security/manager/pki/resources/content/device_manager.js
-  { file: "chrome://pippki/content/load_device.xul" },
+  { file: "chrome://pippki/content/load_device.xhtml" },
 
   // The l10n build system can't package string files only for some platforms.
   // See bug 1339424 for why this is hard to fix.
@@ -162,9 +162,9 @@ var whitelist = [
   // Bug 1356031 (only used by devtools)
   { file: "chrome://global/skin/icons/error-16.png" },
   // Bug 1344267
-  { file: "chrome://marionette/content/test_anonymous_content.xul" },
+  { file: "chrome://marionette/content/test.xhtml" },
   { file: "chrome://marionette/content/test_dialog.properties" },
-  { file: "chrome://marionette/content/test_dialog.xul" },
+  { file: "chrome://marionette/content/test_dialog.xhtml" },
   // Bug 1348533
   {
     file: "chrome://mozapps/skin/downloads/buttons.png",
@@ -175,13 +175,11 @@ var whitelist = [
     platforms: ["linux", "win"],
   },
   // Bug 1348559
-  { file: "chrome://pippki/content/resetpassword.xul" },
+  { file: "chrome://pippki/content/resetpassword.xhtml" },
   // Bug 1337345
   { file: "resource://gre/modules/Manifest.jsm" },
-  // Bug 1351097
-  { file: "resource://gre/modules/accessibility/AccessFu.jsm" },
   // Bug 1356045
-  { file: "chrome://global/content/test-ipc.xul" },
+  { file: "chrome://global/content/test-ipc.xhtml" },
   // Bug 1378173 (warning: still used by devtools)
   { file: "resource://gre/modules/Promise.jsm" },
   // Bug 1494170
@@ -828,7 +826,7 @@ add_task(async function checkAllTheFiles() {
   }
 
   if (isDevtools) {
-    // chrome://devtools/skin/devtools-browser.css is included from browser.xul
+    // chrome://devtools/skin/devtools-browser.css is included from browser.xhtml
     gReferencesFromCode.set(AppConstants.BROWSER_CHROME_URL, null);
     // devtools' css is currently included from browser.css, see bug 1204810.
     gReferencesFromCode.set("chrome://browser/skin/browser.css", null);

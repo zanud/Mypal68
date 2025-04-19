@@ -4,25 +4,31 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 %endif
 
+%filter substitution
+%define identityBoxPaddingInline 6px
+%define identityBoxMarginInlineEnd 2px
+
 #identity-box {
-  padding-inline-start: 8px;
-  padding-inline-end: 4px;
-  margin-inline-end: 4px;
+  padding-inline: @identityBoxPaddingInline@;
+  margin-inline-end: @identityBoxMarginInlineEnd@;
   /* Set default fill for icons in the identity block.
      Individual icons can override this. */
   fill: currentColor;
   fill-opacity: .6;
+  /* This is needed in order to position the permission indicator. */
+  position: relative;
   /* This is for tracking-protection-icon's slide-in animation. */
   overflow: hidden;
 }
 
-#urlbar[pageproxystate="invalid"] > #identity-box > #blocked-permissions-container,
-#urlbar[pageproxystate="invalid"] > #identity-box > #notification-popup-box,
-#urlbar[pageproxystate="invalid"] > #identity-box > #identity-icon-labels {
+#identity-box[pageproxystate="invalid"] > #permissions-granted-icon,
+#identity-box[pageproxystate="invalid"] > #blocked-permissions-container,
+#identity-box[pageproxystate="invalid"] > #notification-popup-box,
+#identity-box[pageproxystate="invalid"] > #identity-icon-labels {
   display: none;
 }
 
-#urlbar[pageproxystate="invalid"] > #identity-box {
+#identity-box[pageproxystate="invalid"] {
   pointer-events: none;
   -moz-user-focus: ignore;
 }
@@ -43,20 +49,17 @@
   outline-offset: -2px;
 }
 
-#urlbar[pageproxystate="valid"] > #identity-box.verifiedIdentity > #identity-icon-labels {
+#identity-box[pageproxystate="valid"].verifiedIdentity > #identity-icon-labels {
   color: #058B00;
 }
 
-:root[lwt-toolbar-field-brighttext] #urlbar[pageproxystate="valid"] > #identity-box.verifiedIdentity > #identity-icon-labels {
+:root[lwt-toolbar-field-brighttext] #identity-box[pageproxystate="valid"].verifiedIdentity > #identity-icon-labels {
   color: #30e60b;
 }
 
-#urlbar[pageproxystate="valid"] > #identity-box.chromeUI > #identity-icon-labels {
-%ifdef MOZ_OFFICIAL_BRANDING
-  color: rgb(229,115,0);
-%else
+#identity-box[pageproxystate="valid"].chromeUI > #identity-icon-labels,
+.urlbar-label {
   color: inherit;
-%endif
 }
 
 #identity-icon-labels:-moz-locale-dir(ltr) {
@@ -68,37 +71,40 @@
 #identity-box:not(.chromeUI):not(.extensionPage):not(.notSecureText) {
   --urlbar-separator-color: transparent;
 }
-#urlbar[pageproxystate=valid] > #identity-box.verifiedIdentity {
+#identity-box[pageproxystate="valid"].verifiedIdentity {
   --urlbar-separator-color: rgba(18, 188, 0, .5);
 }
 
-#urlbar[pageproxystate=valid] > #identity-box.notSecureText,
-#urlbar[pageproxystate=valid] > #identity-box.verifiedIdentity,
-#urlbar[pageproxystate=valid] > #identity-box.chromeUI,
-#urlbar[pageproxystate=valid] > #identity-box.extensionPage,
-#urlbar-display-box {
+#identity-box[pageproxystate="valid"].notSecureText,
+#identity-box[pageproxystate="valid"].verifiedIdentity,
+#identity-box[pageproxystate="valid"].chromeUI,
+#identity-box[pageproxystate="valid"].extensionPage,
+#urlbar-label-box {
   margin-inline-end: 8px;
   border-inline-end: 1px solid var(--urlbar-separator-color);
   border-image: linear-gradient(transparent 15%, var(--urlbar-separator-color) 15%, var(--urlbar-separator-color) 85%, transparent 85%);
   border-image-slice: 1;
 }
 
-#urlbar[pageproxystate=valid] > #identity-box.notSecureText,
-#urlbar[pageproxystate=valid] > #identity-box.verifiedIdentity,
-#urlbar[pageproxystate=valid] > #identity-box.chromeUI,
-#urlbar[pageproxystate=valid] > #identity-box.extensionPage {
+#identity-box[pageproxystate="valid"].notSecureText,
+#identity-box[pageproxystate="valid"].verifiedIdentity,
+#identity-box[pageproxystate="valid"].chromeUI,
+#identity-box[pageproxystate="valid"].extensionPage {
   padding-inline-end: 8px;
 }
 
-#urlbar-display-box {
-  padding-inline-start: 4px;
+#urlbar-label-box {
+  padding-inline: 4px;
   border-inline-start: 1px solid var(--urlbar-separator-color);
-  border-image: linear-gradient(transparent 15%, var(--urlbar-separator-color) 15%, var(--urlbar-separator-color) 85%, transparent 85%);
-  border-image-slice: 1;
+}
+
+.urlbar-label {
+  margin: 0;
 }
 
 #sharing-icon,
 #identity-icon,
+#permissions-granted-icon,
 #tracking-protection-icon,
 #connection-icon,
 .notification-anchor-icon,
@@ -120,13 +126,36 @@
   list-style-image: url(chrome://browser/skin/identity-icon-notice.svg);
 }
 
-#urlbar[pageproxystate="invalid"] > #identity-box > #identity-icon {
+#identity-box[pageproxystate="invalid"] > #identity-icon {
   list-style-image: url(chrome://browser/skin/search-glass.svg);
   fill-opacity: .4;
 }
 
-#urlbar[actiontype="extension"] > #identity-box > #identity-icon {
+#urlbar[actiontype="extension"] > #urlbar-input-container > #identity-box > #identity-icon {
   list-style-image: url(chrome://mozapps/skin/extensions/extensionGeneric-16.svg);
+}
+
+#urlbar[pageproxystate="valid"] > #identity-box.grantedPermissions::before {
+  background: url(chrome://browser/skin/badge-blue.svg);
+  content: "";
+  position: absolute;
+  bottom: 15px;
+  left: 14px;
+  height: 14px;
+  width: 14px;
+}
+
+#urlbar[pageproxystate="valid"] > #identity-box.grantedPermissions:-moz-locale-dir(rtl)::before {
+  left: unset;
+  right: 16px;
+}
+
+#permissions-granted-icon {
+  list-style-image: url(chrome://browser/skin/permissions.svg);
+}
+
+#identity-box:not(.grantedPermissions) > #permissions-granted-icon {
+  display: none;
 }
 
 /* SHARING ICON */
@@ -228,8 +257,8 @@
   list-style-image: url(chrome://browser/skin/tracking-protection-disabled.svg);
 }
 
-#urlbar[pageproxystate="invalid"] > #identity-box > #extension-icon,
-#urlbar[pageproxystate="invalid"] > #identity-box > #tracking-protection-icon-box {
+#identity-box[pageproxystate="invalid"].#extension-icon,
+#identity-box[pageproxystate="invalid"].#tracking-protection-icon-box {
   visibility: collapse;
 }
 
@@ -258,27 +287,25 @@
 #remote-control-icon {
   visibility: collapse;
 }
-#urlbar[pageproxystate="valid"] > #identity-box.verifiedDomain > #connection-icon,
-#urlbar[pageproxystate="valid"] > #identity-box.verifiedIdentity > #connection-icon,
-#urlbar[pageproxystate="valid"] > #identity-box.mixedActiveBlocked > #connection-icon {
+#identity-box[pageproxystate="valid"].verifiedDomain > #connection-icon,
+#identity-box[pageproxystate="valid"].verifiedIdentity > #connection-icon,
+#identity-box[pageproxystate="valid"].mixedActiveBlocked > #connection-icon {
   list-style-image: url(chrome://browser/skin/connection-secure.svg);
   visibility: visible;
-  -moz-context-properties: fill;
   fill: #12BC00;
 }
-#urlbar[pageproxystate="valid"] > #identity-box.weakCipher > #connection-icon,
-#urlbar[pageproxystate="valid"] > #identity-box.mixedDisplayContent > #connection-icon,
-#urlbar[pageproxystate="valid"] > #identity-box.mixedDisplayContentLoadedActiveBlocked > #connection-icon,
-#urlbar[pageproxystate="valid"] > #identity-box.certUserOverridden > #connection-icon {
+#identity-box[pageproxystate="valid"].weakCipher > #connection-icon,
+#identity-box[pageproxystate="valid"].mixedDisplayContent > #connection-icon,
+#identity-box[pageproxystate="valid"].mixedDisplayContentLoadedActiveBlocked > #connection-icon,
+#identity-box[pageproxystate="valid"].certUserOverridden > #connection-icon {
   list-style-image: url(chrome://browser/skin/connection-mixed-passive-loaded.svg);
   visibility: visible;
   fill: unset;
-  -moz-context-properties: fill, fill-opacity;
 }
 
-#urlbar[pageproxystate="valid"] > #identity-box.notSecure > #connection-icon,
-#urlbar[pageproxystate="valid"] > #identity-box.insecureLoginForms > #connection-icon,
-#urlbar[pageproxystate="valid"] > #identity-box.mixedActiveContent > #connection-icon {
+#identity-box[pageproxystate="valid"].notSecure > #connection-icon,
+#identity-box[pageproxystate="valid"].insecureLoginForms > #connection-icon,
+#identity-box[pageproxystate="valid"].mixedActiveContent > #connection-icon {
   list-style-image: url(chrome://browser/skin/connection-mixed-active-loaded.svg);
   visibility: visible;
 }

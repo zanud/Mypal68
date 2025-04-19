@@ -113,8 +113,8 @@ add_task(async function inputDoesntMatchHeuristicResult() {
   gURLBar.value = `${ALIAS}xxx`;
 
   // The alias substring should not be highlighted.
-  Assert.equal(gURLBar.value, value);
-  Assert.ok(gURLBar.value.includes(ALIAS));
+  Assert.equal(gURLBar.untrimmedValue, value);
+  Assert.ok(gURLBar.untrimmedValue.includes(ALIAS));
   assertHighlighted(false, ALIAS);
 
   // Do another search using the alias.
@@ -134,8 +134,8 @@ add_task(async function inputDoesntMatchHeuristicResult() {
   gURLBar.value = `bbb ${ALIAS}`;
 
   // The alias substring should not be highlighted.
-  Assert.equal(gURLBar.value, value);
-  Assert.ok(gURLBar.value.includes(ALIAS));
+  Assert.equal(gURLBar.untrimmedValue, value);
+  Assert.ok(gURLBar.untrimmedValue.includes(ALIAS));
   assertHighlighted(false, ALIAS);
 
   // Reset for the next test.
@@ -232,7 +232,7 @@ add_task(async function clickAndFillAlias() {
 
   // The urlbar input value should be the alias followed by a space so that it's
   // ready for the user to start typing.
-  Assert.equal(gURLBar.textValue, `${ALIAS} `);
+  Assert.equal(gURLBar.value, `${ALIAS} `);
 
   // Press the enter key a couple of times.  Nothing should happen except a new
   // search will start and its result should be the alias again.  The urlbar
@@ -243,7 +243,7 @@ add_task(async function clickAndFillAlias() {
     await promiseSearchComplete();
     await waitForAutocompleteResultAt(0);
     await assertAlias(true);
-    Assert.equal(gURLBar.textValue, `${ALIAS} `);
+    Assert.equal(gURLBar.value, `${ALIAS} `);
   }
 
   await UrlbarTestUtils.promisePopupClose(window, () =>
@@ -280,7 +280,7 @@ add_task(async function enterAndFillAlias() {
 
   // The urlbar input value should be the alias followed by a space so that it's
   // ready for the user to start typing.
-  Assert.equal(gURLBar.textValue, `${ALIAS} `);
+  Assert.equal(gURLBar.value, `${ALIAS} `);
 
   // Press the enter key a couple of times.  Nothing should happen except a new
   // search will start and its result should be the alias again.  The urlbar
@@ -291,7 +291,7 @@ add_task(async function enterAndFillAlias() {
     await promiseSearchComplete();
     await waitForAutocompleteResultAt(0);
     await assertAlias(true);
-    Assert.equal(gURLBar.textValue, `${ALIAS} `);
+    Assert.equal(gURLBar.value, `${ALIAS} `);
   }
 
   await UrlbarTestUtils.promisePopupClose(window, () =>
@@ -319,7 +319,7 @@ add_task(async function enterAutofillsAlias() {
 
     // The urlbar input value should be the alias followed by a space so that it's
     // ready for the user to start typing.
-    Assert.equal(gURLBar.textValue, expectedString);
+    Assert.equal(gURLBar.value, expectedString);
     Assert.equal(gURLBar.selectionStart, expectedString.length);
     Assert.equal(gURLBar.selectionEnd, expectedString.length);
     await assertAlias(true);
@@ -434,13 +434,111 @@ function assertHighlighted(highlighted, expectedAlias) {
     return;
   }
   Assert.equal(selection.rangeCount, 1);
-  let index = gURLBar.textValue.indexOf(expectedAlias);
+  let index = gURLBar.value.indexOf(expectedAlias);
   Assert.ok(
     index >= 0,
-    `gURLBar.textValue="${gURLBar.textValue}" expectedAlias="${expectedAlias}"`
+    `gURLBar.value="${gURLBar.value}" expectedAlias="${expectedAlias}"`
   );
   let range = selection.getRangeAt(0);
   Assert.ok(range);
   Assert.equal(range.startOffset, index);
   Assert.equal(range.endOffset, index + expectedAlias.length);
 }
+
+/**
+ * This test checks that if an engine is marked as hidden then
+ * it should not appear in the popup when using the "@" token alias in the search bar.
+ */
+add_task(async function hiddenEngine() {
+  await promiseAutocompleteResultPopup("@", window, true);
+
+  const defaultEngine = await Services.search.getDefault();
+
+  let foundDefaultEngineInPopup = false;
+
+  // Checks that the default engine appears in the urlbar's popup.
+  for (let i = 0; i < UrlbarTestUtils.getResultCount(window); i++) {
+    let details = await UrlbarTestUtils.getDetailsOfResultAt(window, i);
+    if (defaultEngine.name == details.searchParams.engine) {
+      foundDefaultEngineInPopup = true;
+      break;
+    }
+  }
+  Assert.ok(foundDefaultEngineInPopup, "Default engine appears in the popup.");
+
+  await UrlbarTestUtils.promisePopupClose(window, () =>
+    EventUtils.synthesizeKey("KEY_Escape")
+  );
+
+  // Checks that a hidden default engine (i.e. an engine removed from
+  // a user's search settings) does not appear in the urlbar's popup.
+  defaultEngine.hidden = true;
+  await promiseAutocompleteResultPopup("@", window, true);
+  foundDefaultEngineInPopup = false;
+  for (let i = 0; i < UrlbarTestUtils.getResultCount(window); i++) {
+    let details = await UrlbarTestUtils.getDetailsOfResultAt(window, i);
+    if (defaultEngine.name == details.searchParams.engine) {
+      foundDefaultEngineInPopup = true;
+      break;
+    }
+  }
+  Assert.ok(
+    !foundDefaultEngineInPopup,
+    "Hidden default engine does not appear in the popup"
+  );
+
+  await UrlbarTestUtils.promisePopupClose(window, () =>
+    EventUtils.synthesizeKey("KEY_Escape")
+  );
+
+  defaultEngine.hidden = false;
+});
+
+/**
+ * This test checks that if an engine is marked as hidden then
+ * it should not appear in the popup when using the "@" token alias in the search bar.
+ */
+add_task(async function hiddenEngine() {
+  await promiseAutocompleteResultPopup("@", window, true);
+
+  const defaultEngine = await Services.search.getDefault();
+
+  let foundDefaultEngineInPopup = false;
+
+  // Checks that the default engine appears in the urlbar's popup.
+  for (let i = 0; i < UrlbarTestUtils.getResultCount(window); i++) {
+    let details = await UrlbarTestUtils.getDetailsOfResultAt(window, i);
+    if (defaultEngine.name == details.searchParams.engine) {
+      foundDefaultEngineInPopup = true;
+      break;
+    }
+  }
+  Assert.ok(foundDefaultEngineInPopup, "Default engine appears in the popup.");
+
+  await UrlbarTestUtils.promisePopupClose(window, () =>
+    EventUtils.synthesizeKey("KEY_Escape")
+  );
+
+  // Checks that a hidden default engine (i.e. an engine removed from
+  // a user's search settings) does not appear in the urlbar's popup.
+  defaultEngine.hidden = true;
+  await promiseAutocompleteResultPopup("@", window, true);
+  foundDefaultEngineInPopup = false;
+  for (let i = 0; i < UrlbarTestUtils.getResultCount(window); i++) {
+    let details = await UrlbarTestUtils.getDetailsOfResultAt(window, i);
+    if (defaultEngine.name == details.searchParams.engine) {
+      foundDefaultEngineInPopup = true;
+      break;
+    }
+  }
+  Assert.ok(
+    !foundDefaultEngineInPopup,
+    "Hidden default engine does not appear in the popup"
+  );
+
+  await UrlbarTestUtils.promisePopupClose(window, () =>
+    EventUtils.synthesizeKey("KEY_Escape")
+  );
+
+  defaultEngine.hidden = false;
+});

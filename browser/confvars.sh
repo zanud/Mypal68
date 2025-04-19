@@ -26,11 +26,7 @@ if test "$OS_ARCH" = "WINNT"; then
   fi
 fi
 
-if [ "${MOZ_BROWSER_XHTML}" = "1" ]; then
-  BROWSER_CHROME_URL=chrome://browser/content/browser.xhtml
-else
-  BROWSER_CHROME_URL=chrome://browser/content/browser.xul
-fi
+BROWSER_CHROME_URL=chrome://browser/content/browser.xhtml
 
 # MOZ_APP_DISPLAYNAME will be set by branding/configure.sh
 # MOZ_BRANDING_DIRECTORY is the default branding directory used when none is

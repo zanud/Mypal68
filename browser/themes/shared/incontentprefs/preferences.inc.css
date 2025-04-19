@@ -15,8 +15,37 @@
   }
 }
 
+#preferences-root {
+  text-rendering: optimizeLegibility;
+}
+
+#preferences-root,
+#preferences-body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+#preferences-body {
+  vertical-align: top; /* See bug 1606130 */
+  display: -moz-box;
+  -moz-box-orient: vertical;
+}
+
 * {
   -moz-user-select: text;
+}
+
+/*
+  The stack has some very tall content but it shouldn't be taller than the
+  viewport (and we know the tall content will still be accessible via scrollbars
+  regardless if the stack has a shorter height). So we use min-height: 0 to allow
+  the stack to be smaller than its content height so it can fit the viewport size.
+*/
+#preferences-stack {
+  min-height: 0;
 }
 
 .main-content {
@@ -272,15 +301,12 @@ button > hbox > label {
   margin: 0;
 }
 
-#activeLanguages {
-  height: 16em;
-}
-
 #activeLanguages > richlistitem {
   padding: 0.3em;
 }
 
 #downloadFolder {
+  -moz-box-flex: 1;
   margin-inline-start: 0;
   padding-inline-start: 30px;
   background-repeat: no-repeat;
@@ -359,20 +385,32 @@ button > hbox > label {
 }
 
 /* Home Pane */
+
 #homepageGroup menulist,
-#homepageGroup textbox {
+#homepageGroup html|input {
   margin: 5px 0;
 }
+
+#homepageGroup html|input {
+  text-align: match-parent;
+}
+
+#homepageGroup:-moz-locale-dir(rtl) html|input {
+  unicode-bidi: plaintext;
+}
+
 #homepageAndNewWindowsOption {
   margin-top: 20px;
 }
-#homepageGroup:-moz-locale-dir(rtl) input {
-  unicode-bidi: plaintext;
+
+#homepageGroup:-moz-locale-dir(rtl) panel[type="autocomplete-richlistbox"] {
   direction: rtl;
 }
+
 .homepage-button:first-of-type {
   margin-inline-start: 0;
 }
+
 .homepage-button:last-of-type {
   margin-inline-end: 0;
 }
@@ -601,6 +639,7 @@ button > hbox > label {
 }
 
 #fxaSyncComputerName {
+  -moz-box-flex: 1;
   margin-inline-start: 0;
   margin-bottom: 4px;
 }
@@ -890,10 +929,6 @@ menulist[indicator=true] > menupopup menuitem[indicator=true]:not([image]) > .me
   min-width: 20em;
 }
 
-#selectedLocales {
-  height: 150px;
-}
-
 #selectedLocales > richlistitem {
   padding-inline-start: 13px;
 }
@@ -958,4 +993,21 @@ richlistitem .text-link {
 
 richlistitem .text-link:hover {
   color: inherit;
+}
+
+#proxy-grid,
+#dnsOverHttps-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+}
+
+#proxy-grid > .thin {
+  grid-column-end: 3;
+  height: 20px;
+}
+
+#dnsOverHttps-grid.custom-container-hidden #networkCustomDnsOverHttpsInputLabelContainer,
+#dnsOverHttps-grid.custom-container-hidden #networkCustomDnsOverHttpsInput {
+  display: none;
 }

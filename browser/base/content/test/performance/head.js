@@ -276,7 +276,7 @@ function forceImmediateToolbarOverflowHandling(win) {
     // in the middle of a reflow test, we record the reflows deterministically.
     let dwu = win.windowUtils;
     dwu.ensureDirtyRootFrame();
-    overflowableToolbar._onLazyResize();
+    overflowableToolbar._checkOverflow();
   }
 }
 
@@ -291,26 +291,26 @@ async function prepareSettledWindow() {
 // Use this function to avoid catching a reflow related to calling focus on the
 // urlbar and changed rects for its dropmarker when opening new tabs.
 async function ensureFocusedUrlbar() {
-  // The switchingtabs attribute prevents the historydropmarker opacity
-  // transition, so if we expect a transitionend event when this attribute
-  // is set, we wait forever. (it's removed off a MozAfterPaint event listener)
-  await BrowserTestUtils.waitForCondition(
-    () => !gURLBar.hasAttribute("switchingtabs")
-  );
+  let opacityPromise;
+  if (!gURLBar.dropmarker.hidden) {
+    // The switchingtabs attribute prevents the historydropmarker opacity
+    // transition, so if we expect a transitionend event when this attribute
+    // is set, we wait forever. (it's removed off a MozAfterPaint event listener)
+    await BrowserTestUtils.waitForCondition(
+      () => !gURLBar.hasAttribute("switchingtabs")
+    );
 
-  let dropmarker = document.getAnonymousElementByAttribute(
-    gURLBar.textbox,
-    "anonid",
-    "historydropmarker"
-  );
-  let opacityPromise = BrowserTestUtils.waitForEvent(
-    dropmarker,
-    "transitionend",
-    false,
-    e => e.propertyName === "opacity"
-  );
+    opacityPromise = BrowserTestUtils.waitForEvent(
+      gURLBar.dropmarker,
+      "transitionend",
+      false,
+      e => e.propertyName === "opacity"
+    );
+  }
   gURLBar.focus();
-  await opacityPromise;
+  if (opacityPromise) {
+    await opacityPromise;
+  }
 }
 
 /**
@@ -323,11 +323,7 @@ async function ensureFocusedUrlbar() {
  */
 function computeMaxTabCount() {
   let currentTabCount = gBrowser.tabs.length;
-  let newTabButton = document.getAnonymousElementByAttribute(
-    gBrowser.tabContainer,
-    "anonid",
-    "tabs-newtab-button"
-  );
+  let newTabButton = gBrowser.tabContainer.newTabButton;
   let newTabRect = newTabButton.getBoundingClientRect();
   let tabStripRect = gBrowser.tabContainer.arrowScrollbox.getBoundingClientRect();
   let availableTabStripWidth = tabStripRect.width - newTabRect.width;
@@ -718,9 +714,6 @@ async function withPerfObserver(testFn, exceptions = {}, win = window) {
  * uninterruptible reflows when typing into the URL bar
  * with the default values in Places.
  *
- * @param {bool} useAwesomebar
- *        Pass true if the legacy awesomebar is enabled.  Pass false if the
- *        quantumbar is enabled.
  * @param {bool} keyed
  *        Pass true to synthesize typing the search string one key at a time.
  * @param {array} expectedReflowsFirstOpen
@@ -730,7 +723,6 @@ async function withPerfObserver(testFn, exceptions = {}, win = window) {
  *        opened, if you're testing opening the panel twice.
  */
 async function runUrlbarTest(
-  useAwesomebar,
   keyed,
   expectedReflowsFirstOpen,
   expectedReflowsSecondOpen = null
@@ -745,51 +737,23 @@ async function runUrlbarTest(
   URLBar.focus();
   URLBar.value = SEARCH_TERM;
   let testFn = async function() {
-    if (useAwesomebar) {
-      let popup = URLBar.popup;
-      let oldInvalidate = popup.invalidate.bind(popup);
-      let oldResultsAdded = popup.onResultsAdded.bind(popup);
-      let oldSetTimeout = win.setTimeout;
+    let popup = URLBar.view;
+    let oldOnQueryResults = popup.onQueryResults.bind(popup);
+    let oldOnQueryFinished = popup.onQueryFinished.bind(popup);
 
-      // We need to invalidate the frame tree outside of the normal
-      // mechanism since invalidations and result additions to the
-      // URL bar occur without firing JS events (which is how we
-      // normally know to dirty the frame tree).
-      popup.invalidate = reason => {
-        dirtyFrame(win);
-        oldInvalidate(reason);
-      };
+    // We need to invalidate the frame tree outside of the normal
+    // mechanism since invalidations and result additions to the
+    // URL bar occur without firing JS events (which is how we
+    // normally know to dirty the frame tree).
+    popup.onQueryResults = context => {
+      dirtyFrame(win);
+      oldOnQueryResults(context);
+    };
 
-      popup.onResultsAdded = () => {
-        dirtyFrame(win);
-        oldResultsAdded();
-      };
-
-      win.setTimeout = (fn, ms) => {
-        return oldSetTimeout(() => {
-          dirtyFrame(win);
-          fn();
-        }, ms);
-      };
-    } else {
-      let popup = URLBar.view;
-      let oldOnQueryResults = popup.onQueryResults.bind(popup);
-      let oldOnQueryFinished = popup.onQueryFinished.bind(popup);
-
-      // We need to invalidate the frame tree outside of the normal
-      // mechanism since invalidations and result additions to the
-      // URL bar occur without firing JS events (which is how we
-      // normally know to dirty the frame tree).
-      popup.onQueryResults = context => {
-        dirtyFrame(win);
-        oldOnQueryResults(context);
-      };
-
-      popup.onQueryFinished = context => {
-        dirtyFrame(win);
-        oldOnQueryFinished(context);
-      };
-    }
+    popup.onQueryFinished = context => {
+      dirtyFrame(win);
+      oldOnQueryFinished(context);
+    };
 
     let waitExtra = async () => {
       // There are several setTimeout(fn, 0); calls inside autocomplete.xml
@@ -825,39 +789,61 @@ async function runUrlbarTest(
     await UrlbarTestUtils.promisePopupClose(win);
   };
 
-  let dropmarkerRect = win.document
-    .getAnonymousElementByAttribute(
-      URLBar.textbox,
-      "anonid",
-      "historydropmarker"
-    )
-    .getBoundingClientRect();
-  let textBoxRect = win.document
-    .getAnonymousElementByAttribute(URLBar.textbox, "anonid", "moz-input-box")
-    .getBoundingClientRect();
-  let expectedRects = {
-    filter: rects =>
-      rects.filter(
-        r =>
-          !// We put text into the urlbar so expect its textbox to change.
-          (
-            (r.x1 >= textBoxRect.left &&
-              r.x2 <= textBoxRect.right &&
-              r.y1 >= textBoxRect.top &&
-              r.y2 <= textBoxRect.bottom) ||
-            // The dropmarker is displayed as active during some of the test.
-            // dropmarkerRect.left isn't always an integer, hence the - 1 and + 1
-            (r.x1 >= dropmarkerRect.left - 1 &&
-              r.x2 <= dropmarkerRect.right + 1 &&
-              r.y1 >= dropmarkerRect.top &&
-              r.y2 <= dropmarkerRect.bottom)
-          )
-        // XXX For some reason the awesomebar panel isn't in our screenshots,
-        // but that's where we actually expect many changes.
-      ),
-  };
+  let expectedRects;
+  if (URLBar.megabar) {
+    let urlbarRect = URLBar.textbox.getBoundingClientRect();
+    const SHADOW_SIZE = 4;
+    expectedRects = {
+      filter: rects => {
+        // We put text into the urlbar so expect its textbox to change.
+        // The dropmarker is displayed as active during some of the test.
+        // We expect many changes in the results view.
+        // So we just whitelist the whole urlbar. We don't check the bottom of
+        // the rect because the result view height varies depending on the
+        // results.
+        // We use floor/ceil because the Urlbar dimensions aren't always
+        // integers.
+        return rects.filter(
+          r =>
+            !(
+              r.x1 >= Math.floor(urlbarRect.left) - SHADOW_SIZE &&
+              r.x2 <= Math.ceil(urlbarRect.right) + SHADOW_SIZE &&
+              r.y1 >= Math.floor(urlbarRect.top) - SHADOW_SIZE
+            )
+        );
+      },
+    };
+  } else {
+    // Hide the results as we expect many changes there that we don't want to
+    // detect here.
+    URLBar.view.panel.style.visibility = "hidden";
 
-  info(`First opening, useAwesomebar=${useAwesomebar}`);
+    let dropmarkerRect = URLBar.dropmarker.getBoundingClientRect();
+    let textBoxRect = URLBar.querySelector(
+      "moz-input-box"
+    ).getBoundingClientRect();
+    expectedRects = {
+      filter: rects =>
+        rects.filter(
+          r =>
+            !// We put text into the urlbar so expect its textbox to change.
+            (
+              (r.x1 >= Math.floor(textBoxRect.left) &&
+                r.x2 <= Math.ceil(textBoxRect.right) &&
+                r.y1 >= Math.floor(textBoxRect.top) &&
+                r.y2 <= Math.ceil(textBoxRect.bottom)) ||
+              // The dropmarker is displayed as active during some of the test.
+              // dropmarkerRect.left isn't always an integer.
+              (r.x1 >= Math.floor(dropmarkerRect.left) &&
+                r.x2 <= Math.ceil(dropmarkerRect.right) &&
+                r.y1 >= Math.floor(dropmarkerRect.top) &&
+                r.y2 <= Math.ceil(dropmarkerRect.bottom))
+            )
+        ),
+    };
+  }
+
+  info("First opening");
   await withPerfObserver(
     testFn,
     { expectedReflows: expectedReflowsFirstOpen, frames: expectedRects },
@@ -865,7 +851,7 @@ async function runUrlbarTest(
   );
 
   if (expectedReflowsSecondOpen) {
-    info(`Second opening, useAwesomebar=${useAwesomebar}`);
+    info("Second opening");
     await withPerfObserver(
       testFn,
       { expectedReflows: expectedReflowsSecondOpen, frames: expectedRects },

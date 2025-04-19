@@ -12,11 +12,6 @@ ChromeUtils.defineModuleGetter(
 );
 ChromeUtils.defineModuleGetter(
   this,
-  "ExtensionTelemetry",
-  "resource://gre/modules/ExtensionTelemetry.jsm"
-);
-ChromeUtils.defineModuleGetter(
-  this,
   "setTimeout",
   "resource://gre/modules/Timer.jsm"
 );
@@ -185,8 +180,9 @@ this.browserAction = class extends ExtensionAPI {
       },
 
       onCreated: node => {
-        node.classList.add("badged-button");
+        node.classList.add("panel-no-padding");
         node.classList.add("webextension-browser-action");
+        node.setAttribute("badged", "true");
         node.setAttribute("constrain-size", "true");
         node.setAttribute("data-extensionid", this.extension.id);
 
@@ -200,10 +196,6 @@ this.browserAction = class extends ExtensionAPI {
       onViewShowing: async event => {
         const { extension } = this;
 
-        ExtensionTelemetry.browserActionPopupOpen.stopwatchStart(
-          extension,
-          this
-        );
         let document = event.target.ownerDocument;
         let tabbrowser = document.defaultView.gBrowser;
 
@@ -220,30 +212,14 @@ this.browserAction = class extends ExtensionAPI {
             let attachPromise = popup.attach(event.target);
             event.detail.addBlocker(attachPromise);
             await attachPromise;
-            ExtensionTelemetry.browserActionPopupOpen.stopwatchFinish(
-              extension,
-              this
-            );
             if (this.eventQueue.length) {
-              ExtensionTelemetry.browserActionPreloadResult.histogramAdd({
-                category: "popupShown",
-                extension,
-              });
               this.eventQueue = [];
             }
           } catch (e) {
-            ExtensionTelemetry.browserActionPopupOpen.stopwatchCancel(
-              extension,
-              this
-            );
             Cu.reportError(e);
             event.preventDefault();
           }
         } else {
-          ExtensionTelemetry.browserActionPopupOpen.stopwatchCancel(
-            extension,
-            this
-          );
           // This isn't not a hack, but it seems to provide the correct behavior
           // with the fewest complications.
           event.preventDefault();
@@ -378,10 +354,6 @@ this.browserAction = class extends ExtensionAPI {
       case "mouseout":
         if (this.pendingPopup) {
           if (this.eventQueue.length) {
-            ExtensionTelemetry.browserActionPreloadResult.histogramAdd({
-              category: `clearAfter${this.eventQueue.pop()}`,
-              extension: this.extension,
-            });
             this.eventQueue = [];
           }
           this.clearPopup();

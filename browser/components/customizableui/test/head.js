@@ -31,18 +31,14 @@ registerCleanupFunction(() =>
   Services.prefs.clearUserPref("browser.uiCustomization.skipSourceNodeCheck")
 );
 
-var {
-  synthesizeDragStart,
-  synthesizeDrop,
-  synthesizeMouseAtCenter,
-} = EventUtils;
+var { synthesizeDrop, synthesizeMouseAtCenter } = EventUtils;
 
 const kNSXUL = "http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul";
 
-const kForceOverflowWidthPx = 300;
+const kForceOverflowWidthPx = 450;
 
 function createDummyXULButton(id, label, win = window) {
-  let btn = document.createElementNS(kNSXUL, "toolbarbutton");
+  let btn = win.document.createElementNS(kNSXUL, "toolbarbutton");
   btn.id = id;
   btn.setAttribute("label", label || id);
   btn.className = "toolbarbutton-1 chromeclass-toolbar-additional";
@@ -246,37 +242,24 @@ function endCustomizing(aWindow = window) {
   if (aWindow.document.documentElement.getAttribute("customizing") != "true") {
     return true;
   }
-  return new Promise(resolve => {
-    function onCustomizationEnds() {
-      aWindow.gNavToolbox.removeEventListener(
-        "aftercustomization",
-        onCustomizationEnds
-      );
-      resolve();
-    }
-    aWindow.gNavToolbox.addEventListener(
-      "aftercustomization",
-      onCustomizationEnds
-    );
-    aWindow.gCustomizeMode.exit();
-  });
+  let afterCustomizationPromise = BrowserTestUtils.waitForEvent(
+    aWindow.gNavToolbox,
+    "aftercustomization"
+  );
+  aWindow.gCustomizeMode.exit();
+  return afterCustomizationPromise;
 }
 
 function startCustomizing(aWindow = window) {
   if (aWindow.document.documentElement.getAttribute("customizing") == "true") {
     return null;
   }
-  return new Promise(resolve => {
-    function onCustomizing() {
-      aWindow.gNavToolbox.removeEventListener(
-        "customizationready",
-        onCustomizing
-      );
-      resolve();
-    }
-    aWindow.gNavToolbox.addEventListener("customizationready", onCustomizing);
-    aWindow.gCustomizeMode.enter();
-  });
+  let customizationReadyPromise = BrowserTestUtils.waitForEvent(
+    aWindow.gNavToolbox,
+    "customizationready"
+  );
+  aWindow.gCustomizeMode.enter();
+  return customizationReadyPromise;
 }
 
 function promiseObserverNotified(aTopic) {
@@ -531,12 +514,7 @@ function checkContextMenu(aContextMenu, aExpectedEntries, aWindow = window) {
 
 function waitForOverflowButtonShown(win = window) {
   let ov = win.document.getElementById("nav-bar-overflow-button");
-  let icon = win.document.getAnonymousElementByAttribute(
-    ov,
-    "class",
-    "toolbarbutton-icon"
-  );
-  return waitForElementShown(icon);
+  return waitForElementShown(ov.icon);
 }
 function waitForElementShown(element) {
   let win = element.ownerGlobal;

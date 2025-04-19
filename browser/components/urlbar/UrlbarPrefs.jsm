@@ -41,11 +41,6 @@ const PREF_URLBAR_DEFAULTS = new Map([
   // this value.  See UnifiedComplete.
   ["autoFill.stddevMultiplier", [0.0, "getFloatPref"]],
 
-  // If true, this optimizes for replacing the full URL rather than editing
-  // part of it. This also copies the urlbar value to the selection clipboard
-  // on systems that support it.
-  ["clickSelectsAll", false],
-
   // Whether using `ctrl` when hitting return/enter in the URL bar
   // (or clicking 'go') should prefix 'www.' and suffix
   // browser.fixup.alternate.suffix to the URL bar value prior to
@@ -61,10 +56,10 @@ const PREF_URLBAR_DEFAULTS = new Map([
   // "heuristic" result).  We fetch it as fast as possible.
   ["delay", 50],
 
-  // If true, this optimizes for replacing the full URL rather than selecting a
-  // portion of it. This also copies the urlbar value to the selection
-  // clipboard on systems that support it.
-  ["doubleClickSelectsAll", false],
+  // Some performance tests disable this because extending the urlbar needs
+  // layout information that we can't get before the first paint. (Or we could
+  // but this would mean flushing layout.)
+  ["disableExtendForTests", false],
 
   // When true, `javascript:` URLs are not included in search results.
   ["filter.javascript", true],
@@ -102,8 +97,12 @@ const PREF_URLBAR_DEFAULTS = new Map([
   // should be opened in new tabs by default.
   ["openintab", false],
 
-  // Whether the quantum bar is enabled.
-  ["quantumbar", false],
+  ["openViewOnFocus", false],
+
+  // When true, URLs in the user's history that look like search result pages
+  // are styled to look like search engine results instead of the usual history
+  // results.
+  ["restyleSearches", false],
 
   // Whether speculative connections should be enabled.
   ["speculativeConnect.enabled", true],
@@ -134,10 +133,8 @@ const PREF_URLBAR_DEFAULTS = new Map([
   // popular domains will no longer be included in the results.
   ["usepreloadedtopurls.expire_days", 14],
 
-  // When true, URLs in the user's history that look like search result pages
-  // are styled to look like search engine results instead of the usual history
-  // results.
-  ["restyleSearches", false],
+  // Whether the quantum bar displays design update 1.
+  ["update1", false],
 ]);
 const PREF_OTHER_DEFAULTS = new Map([
   ["keyword.enabled", true],

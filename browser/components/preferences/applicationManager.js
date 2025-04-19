@@ -24,35 +24,46 @@ var gAppManagerDialog = {
 
     const appDescElem = document.getElementById("appDescription");
     if (this.handlerInfo.wrappedHandlerInfo instanceof Ci.nsIMIMEInfo) {
+      let { typeDescription } = this.handlerInfo;
+      let typeStr;
+      if (typeDescription.id) {
+        MozXULElement.insertFTLIfNeeded("browser/preferences/preferences.ftl");
+        typeStr = await document.l10n.formatValue(
+          typeDescription.id,
+          typeDescription.args
+        );
+      } else {
+        typeStr = typeDescription.raw;
+      }
       document.l10n.setAttributes(appDescElem, "app-manager-handle-file", {
-        type: this.handlerInfo.typeDescription,
+        type: typeStr,
       });
     } else {
       document.l10n.setAttributes(appDescElem, "app-manager-handle-protocol", {
-        type: this.handlerInfo.typeDescription,
+        type: this.handlerInfo.typeDescription.raw,
       });
     }
 
-    var list = document.getElementById("appList");
+    let list = document.getElementById("appList");
+    let listFragment = document.createDocumentFragment();
     for (let app of this.handlerInfo.possibleApplicationHandlers.enumerate()) {
       if (!gMainPane.isValidHandlerApp(app)) {
         continue;
       }
 
-      // Ensure the XBL binding is created eagerly.
-      // eslint-disable-next-line no-undef
-      list.appendChild(MozXULElement.parseXULToFragment("<richlistitem/>"));
-      var item = list.lastChild;
+      let item = document.createXULElement("richlistitem");
+      listFragment.append(item);
       item.app = app;
 
-      var image = document.createXULElement("image");
+      let image = document.createXULElement("image");
       image.setAttribute("src", gMainPane._getIconURLForHandlerApp(app));
       item.appendChild(image);
 
-      var label = document.createXULElement("label");
+      let label = document.createXULElement("label");
       label.setAttribute("value", app.name);
       item.appendChild(label);
     }
+    list.append(listFragment);
 
     // Triggers onSelect which populates label
     list.selectedIndex = 0;

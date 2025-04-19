@@ -4,10 +4,9 @@
 
 /* import-globals-from ../../../toolkit/content/preferencesBindings.js */
 
-document.documentElement.addEventListener(
-  "dialoghelp",
-  window.top.openPrefsHelp
-);
+document
+  .querySelector("dialog")
+  .addEventListener("dialoghelp", window.top.openPrefsHelp);
 
 Preferences.addAll([
   { id: "privacy.clearOnShutdown.history", type: "bool" },

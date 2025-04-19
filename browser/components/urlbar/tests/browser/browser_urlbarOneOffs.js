@@ -72,6 +72,7 @@ add_task(async function() {
   let typedValue = "browser_urlbarOneOffs";
   await promiseAutocompleteResultPopup(typedValue, window, true);
   await waitForAutocompleteResultAt(gMaxResults - 1);
+  let heuristicResult = await UrlbarTestUtils.getDetailsOfResultAt(window, 0);
   assertState(0, -1, typedValue);
 
   // Key down through each result.  The first result is already selected, which
@@ -86,6 +87,10 @@ add_task(async function() {
       -1,
       "example.com/browser_urlbarOneOffs.js/?" + (gMaxResults - i - 1)
     );
+    Assert.ok(
+      !BrowserTestUtils.is_visible(heuristicResult.element.action),
+      "The heuristic action should not be visible"
+    );
   }
 
   // Key down through each one-off.
@@ -93,17 +98,35 @@ add_task(async function() {
   for (let i = 0; i < numButtons; i++) {
     EventUtils.synthesizeKey("KEY_ArrowDown");
     assertState(-1, i, typedValue);
+    Assert.equal(
+      BrowserTestUtils.is_visible(heuristicResult.element.action),
+      !oneOffSearchButtons.selectedButton.classList.contains(
+        "search-setting-button-compact"
+      ),
+      "The heuristic action should be visible when a one-off button is selected"
+    );
   }
 
   // Key down once more.  The selection should wrap around to the first result.
   EventUtils.synthesizeKey("KEY_ArrowDown");
   assertState(0, -1, typedValue);
+  Assert.ok(
+    BrowserTestUtils.is_visible(heuristicResult.element.action),
+    "The heuristic action should be visible"
+  );
 
   // Now key up.  The selection should wrap back around to the one-offs.  Key
   // up through all the one-offs.
   for (let i = numButtons - 1; i >= 0; i--) {
     EventUtils.synthesizeKey("KEY_ArrowUp");
     assertState(-1, i, typedValue);
+    Assert.equal(
+      BrowserTestUtils.is_visible(heuristicResult.element.action),
+      !oneOffSearchButtons.selectedButton.classList.contains(
+        "search-setting-button-compact"
+      ),
+      "The heuristic action should be visible when a one-off button is selected"
+    );
   }
 
   // Key up through each non-heuristic result.
@@ -114,11 +137,19 @@ add_task(async function() {
       -1,
       "example.com/browser_urlbarOneOffs.js/?" + (gMaxResults - i - 1)
     );
+    Assert.ok(
+      !BrowserTestUtils.is_visible(heuristicResult.element.action),
+      "The heuristic action should not be visible"
+    );
   }
 
   // Key up once more.  The heuristic result should be selected.
   EventUtils.synthesizeKey("KEY_ArrowUp");
   assertState(0, -1, typedValue);
+  Assert.ok(
+    BrowserTestUtils.is_visible(heuristicResult.element.action),
+    "The heuristic action should be visible"
+  );
 
   await hidePopup();
 });
@@ -207,9 +238,9 @@ add_task(async function oneOffReturn() {
   gBrowser.removeTab(gBrowser.selectedTab);
 });
 
-add_task(async function collapsedOneOffs() {
+add_task(async function hiddenOneOffs() {
   // Disable all the engines but the current one, check the oneoffs are
-  // collapsed and that moving up selects the last match.
+  // hidden and that moving up selects the last match.
   let defaultEngine = await Services.search.getDefault();
   let engines = (await Services.search.getVisibleEngines()).filter(
     e => e.name != defaultEngine.name
@@ -222,9 +253,10 @@ add_task(async function collapsedOneOffs() {
   await promiseAutocompleteResultPopup(typedValue, window, true);
   await UrlbarTestUtils.getDetailsOfResultAt(window, 0);
   assertState(0, -1);
-  Assert.ok(
-    oneOffSearchButtons.buttons.collapsed,
-    "The one-off buttons should be collapsed"
+  Assert.equal(
+    getComputedStyle(oneOffSearchButtons.container).display,
+    "none",
+    "The one-off buttons should be hidden"
   );
   EventUtils.synthesizeKey("KEY_ArrowUp");
   assertState(1, -1);
@@ -267,7 +299,7 @@ function assertState(result, oneOff, textValue = undefined) {
     "Expected one-off should be selected"
   );
   if (textValue !== undefined) {
-    Assert.equal(gURLBar.textValue, textValue, "Expected textValue");
+    Assert.equal(gURLBar.value, textValue, "Expected value");
   }
 }
 

@@ -47,7 +47,7 @@
 
 #tabbrowser-tabs,
 #tabbrowser-tabs > .tabbrowser-arrowscrollbox,
-#tabbrowser-tabs[positionpinnedtabs] > .tabbrowser-tab[pinned] {
+#tabbrowser-tabs[positionpinnedtabs] > .tabbrowser-arrowscrollbox > .tabbrowser-tab[pinned] {
   min-height: var(--tab-min-height);
 }
 
@@ -61,7 +61,7 @@
     min-width: 0;
   }
 
-  .tabbrowser-arrowscrollbox > .arrowscrollbox-scrollbox {
+  .tabbrowser-arrowscrollbox::part(scrollbox) {
     /* Needed to prevent tabstrip from growing as wide as the sum of the tabs'
        page-title widths (when we'd rather have it be as wide as the window and
        compress the tabs to their minimum size): */
@@ -401,6 +401,10 @@
   height: 14px;
 }
 
+.tab-icon-sound[pictureinpicture]:-moz-locale-dir(rtl) {
+  transform: scaleX(-1);
+}
+
 :root[lwtheme-image] .tab-icon-sound:-moz-lwtheme-darktext[pictureinpicture],
 :root[lwtheme-image] .tab-icon-sound:-moz-lwtheme-darktext[soundplaying],
 :root[lwtheme-image] .tab-icon-sound:-moz-lwtheme-darktext[muted],
@@ -429,8 +433,8 @@
 }
 
 /* Tab Overflow */
-.tabbrowser-arrowscrollbox > .arrowscrollbox-overflow-start-indicator:not([collapsed]),
-.tabbrowser-arrowscrollbox > .arrowscrollbox-overflow-end-indicator:not([collapsed]) {
+.tabbrowser-arrowscrollbox:not([scrolledtostart])::part(overflow-start-indicator),
+.tabbrowser-arrowscrollbox:not([scrolledtoend])::part(overflow-end-indicator) {
   width: 18px;
   background-image: url(chrome://browser/skin/tabbrowser/tab-overflow-indicator.png);
   background-size: 17px 100%;
@@ -445,26 +449,26 @@
   z-index: 3; /* the selected tab's z-index + 1 */
 }
 
-.tabbrowser-arrowscrollbox > .arrowscrollbox-overflow-start-indicator:-moz-locale-dir(rtl),
-.tabbrowser-arrowscrollbox > .arrowscrollbox-overflow-end-indicator:-moz-locale-dir(ltr) {
+.tabbrowser-arrowscrollbox:-moz-locale-dir(rtl)::part(overflow-start-indicator),
+.tabbrowser-arrowscrollbox:-moz-locale-dir(ltr)::part(overflow-end-indicator) {
   transform: scaleX(-1);
 }
 
-.tabbrowser-arrowscrollbox > .arrowscrollbox-overflow-start-indicator:not([collapsed]) {
+.tabbrowser-arrowscrollbox:not([scrolledtostart])::part(overflow-start-indicator) {
   margin-inline: -1px -17px;
 }
 
-.tabbrowser-arrowscrollbox > .arrowscrollbox-overflow-end-indicator:not([collapsed]) {
+.tabbrowser-arrowscrollbox:not([scrolledtoend])::part(overflow-end-indicator) {
   margin-inline: -17px -1px;
 }
 
-.tabbrowser-arrowscrollbox > .arrowscrollbox-overflow-start-indicator[collapsed],
-.tabbrowser-arrowscrollbox > .arrowscrollbox-overflow-end-indicator[collapsed] {
+.tabbrowser-arrowscrollbox[scrolledtostart]::part(overflow-start-indicator),
+.tabbrowser-arrowscrollbox[scrolledtoend]::part(overflow-end-indicator) {
   opacity: 0;
 }
 
-.tabbrowser-arrowscrollbox > .arrowscrollbox-overflow-start-indicator,
-.tabbrowser-arrowscrollbox > .arrowscrollbox-overflow-end-indicator {
+.tabbrowser-arrowscrollbox::part(overflow-start-indicator),
+.tabbrowser-arrowscrollbox::part(overflow-end-indicator) {
   transition: opacity 150ms ease;
 }
 
@@ -530,8 +534,8 @@
  */
 
 /* Lightweight theme on tabs */
-#tabbrowser-tabs:not([movingtab]) > .tabbrowser-tab > .tab-stack > .tab-background[multiselected=true]:-moz-lwtheme,
-#tabbrowser-tabs:not([movingtab]) > .tabbrowser-tab > .tab-stack > .tab-background[selected=true]:-moz-lwtheme {
+#tabbrowser-tabs:not([movingtab]) > .tabbrowser-arrowscrollbox > .tabbrowser-tab > .tab-stack > .tab-background[multiselected=true]:-moz-lwtheme,
+#tabbrowser-tabs:not([movingtab]) > .tabbrowser-arrowscrollbox > .tabbrowser-tab > .tab-stack > .tab-background[selected=true]:-moz-lwtheme {
   background-attachment: scroll, scroll, fixed;
   background-color: transparent;
   background-image: linear-gradient(var(--lwt-selected-tab-background-color, transparent), var(--lwt-selected-tab-background-color, transparent)),
@@ -575,14 +579,14 @@
 /* Pinned tabs */
 
 /* Pinned tab separators need position: absolute when positioned (during overflow). */
-#tabbrowser-tabs[positionpinnedtabs] > .tabbrowser-tab[pinned]::after {
+#tabbrowser-tabs[positionpinnedtabs] > .tabbrowser-arrowscrollbox > .tabbrowser-tab[pinned]::after {
   display: block;
   position: absolute;
   inset-block: 0;
   inset-inline-end: 0;
 }
 
-#tabbrowser-tabs[positionpinnedtabs] > .tabbrowser-tab[pinned] > .tab-stack {
+#tabbrowser-tabs[positionpinnedtabs] > .tabbrowser-arrowscrollbox > .tabbrowser-tab[pinned] > .tab-stack {
   border-inline-end: 1px solid transparent;
 }
 
@@ -603,6 +607,18 @@
 
 .tab-label[attention]:not([selected="true"]) {
   font-weight: bold;
+}
+
+/* Tab drag and drop */
+
+.tab-drop-indicator {
+  width: 12px;
+  margin-inline-start: -12px;
+  background: url(chrome://browser/skin/tabbrowser/tab-drag-indicator.svg) no-repeat center;
+  position: relative;
+  /* The z-index needs to be big enough to trump other positioned UI pieces
+     that we want to overlay. The selected tab uses 2. */
+  z-index: 3;
 }
 
 /* Drag space */
@@ -651,16 +667,16 @@
 %endif
 /* Show full height tab separators on hover and multiselection. */
 .tabbrowser-tab:hover::after,
-#tabbrowser-tabs:not([movingtab]) > .tabbrowser-tab[beforehovered]::after,
+#tabbrowser-tabs:not([movingtab]) > .tabbrowser-arrowscrollbox > .tabbrowser-tab[beforehovered]::after,
 .tabbrowser-tab[multiselected]::after,
-#tabbrowser-tabs:not([movingtab]) > .tabbrowser-tab[before-multiselected]::after {
+#tabbrowser-tabs:not([movingtab]) > .tabbrowser-arrowscrollbox > .tabbrowser-tab[before-multiselected]::after {
   margin-top: var(--tabs-top-border-width);
   margin-bottom: 0;
 }
 
 /* Show full height tab separators on selected tabs. */
-#tabbrowser-tabs:not([movingtab]) > .tabbrowser-tab[beforeselected-visible]::after,
-#tabbrowser-tabs[movingtab] > .tabbrowser-tab[visuallyselected]::before,
+#tabbrowser-tabs:not([movingtab]) > .tabbrowser-arrowscrollbox > .tabbrowser-tab[beforeselected-visible]::after,
+#tabbrowser-tabs[movingtab] > .tabbrowser-arrowscrollbox > .tabbrowser-tab[visuallyselected]::before,
 .tabbrowser-tab[visuallyselected]::after {
   border-color: var(--tabs-border-color);
   margin-top: 0;
@@ -670,30 +686,22 @@
 
 .tabbrowser-tab::after,
 /* Also show separators beside the selected tab when dragging it. */
-#tabbrowser-tabs[movingtab] > .tabbrowser-tab[visuallyselected]::before {
+#tabbrowser-tabs[movingtab] > .tabbrowser-arrowscrollbox > .tabbrowser-tab[visuallyselected]::before {
   content: "";
-  display: -moz-box;
+  display: block;
 }
 
 /* Tab bar scroll arrows */
 
-.tabbrowser-arrowscrollbox > .scrollbutton-up,
-.tabbrowser-arrowscrollbox > .scrollbutton-down {
-  list-style-image: url(chrome://browser/skin/arrow-left.svg) !important;
-  -moz-context-properties: fill, fill-opacity;
+.tabbrowser-arrowscrollbox::part(scrollbutton-up),
+.tabbrowser-arrowscrollbox::part(scrollbutton-down) {
   fill: var(--lwt-toolbarbutton-icon-fill, currentColor);
   fill-opacity: var(--toolbarbutton-icon-fill-opacity);
-  color: inherit;
-}
-
-.tabbrowser-arrowscrollbox > .scrollbutton-up:-moz-locale-dir(rtl),
-.tabbrowser-arrowscrollbox > .scrollbutton-down:-moz-locale-dir(ltr) {
-  transform: scaleX(-1);
 }
 
 /* New tab button */
 
-.tabs-newtab-button,
+#tabs-newtab-button,
 #TabsToolbar #new-tab-button {
   list-style-image: url(chrome://browser/skin/add.svg);
 }

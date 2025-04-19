@@ -48,6 +48,12 @@ function autoplayBlockedIcon() {
   );
 }
 
+function permissionListBlockedIcons() {
+  return document.querySelectorAll(
+    "image.identity-popup-permission-icon.blocked-permission-icon"
+  );
+}
+
 function sleep(ms) {
   /* eslint-disable mozilla/no-arbitrary-setTimeout */
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -277,10 +283,18 @@ add_task(async function testBlockedAll() {
 
     await openIdentityPopup();
 
+    Assert.equal(
+      permissionListBlockedIcons().length,
+      1,
+      "Blocked icon is shown"
+    );
+
     let menulist = document.getElementById("identity-popup-popup-menulist");
     await EventUtils.synthesizeMouseAtCenter(menulist, { type: "mousedown" });
     await TestUtils.waitForCondition(() => {
-      return menulist.getElementsByTagName("menuitem")[1].label === "Block Audio";
+      return (
+        menulist.getElementsByTagName("menuitem")[1].label === "Block Audio"
+      );
     });
 
     let menuitem = menulist.getElementsByTagName("menuitem")[0];

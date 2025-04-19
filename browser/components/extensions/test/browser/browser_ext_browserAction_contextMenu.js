@@ -1,11 +1,5 @@
 "use strict";
 
-XPCOMUtils.defineLazyPreferenceGetter(
-  this,
-  "HTML_ABOUTADDONS_ENABLED",
-  "extensions.htmlaboutaddons.enabled",
-  false
-);
 
 let extData = {
   manifest: {
@@ -240,21 +234,16 @@ add_task(async function browseraction_contextmenu_manage_extension() {
     );
     await closeChromeContextMenu(menuId, manageExtension, win);
     let managerWindow = (await addonManagerPromise).linkedBrowser.contentWindow;
-    if (managerWindow.useHtmlViews) {
-      // Check the UI to make sure that the correct view is loaded.
-      is(
-        managerWindow.gViewController.currentViewId,
-        `addons://detail/${encodeURIComponent(id)}`,
-        "Expected extension details view in about:addons"
-      );
-      // In HTML about:addons, the default view does not show the inline
-      // options browser, so we should not receive an "options-loaded" event.
-      // (if we do, the test will fail due to the unexpected message).
-    } else {
-      info("Waiting for inline options page in XUL about:addons");
-      // In XUL about:addons, the inline options page is shown by default.
-      await extension.awaitMessage("options-loaded");
-    }
+
+    // Check the UI to make sure that the correct view is loaded.
+    is(
+      managerWindow.gViewController.currentViewId,
+      `addons://detail/${encodeURIComponent(id)}`,
+      "Expected extension details view in about:addons"
+    );
+    // In HTML about:addons, the default view does not show the inline
+    // options browser, so we should not receive an "options-loaded" event.
+    // (if we do, the test will fail due to the unexpected message).
 
     info(
       `Remove the opened tab, and await customize mode to be restored if necessary`
@@ -315,11 +304,7 @@ add_task(async function browseraction_contextmenu_manage_extension() {
 
     info("Wait until the overflow menu is ready");
     let overflowButton = win.document.getElementById("nav-bar-overflow-button");
-    let icon = win.document.getAnonymousElementByAttribute(
-      overflowButton,
-      "class",
-      "toolbarbutton-icon"
-    );
+    let icon = overflowButton.icon;
     await waitForElementShown(icon);
 
     if (!customizing) {
@@ -421,11 +406,7 @@ async function runTestContextMenu({
 
   info("Wait until the overflow menu is ready");
   let overflowButton = win.document.getElementById("nav-bar-overflow-button");
-  let icon = win.document.getAnonymousElementByAttribute(
-    overflowButton,
-    "class",
-    "toolbarbutton-icon"
-  );
+  let icon = overflowButton.icon;
   await waitForElementShown(icon);
 
   if (!customizing) {

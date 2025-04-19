@@ -14,7 +14,7 @@
   #endif
 #endif
 
-pref("browser.hiddenWindowChromeURL", "chrome://browser/content/hiddenWindow.xul");
+pref("browser.hiddenWindowChromeURL", "chrome://browser/content/hiddenWindowMac.xhtml");
 
 // Enables some extra Extension System Logging (can reduce performance)
 pref("extensions.logging.enabled", false);
@@ -50,6 +50,9 @@ pref("extensions.webextensions.default-content-security-policy", "script-src 'se
 
 pref("extensions.webextensions.remote", true);
 pref("extensions.webextensions.background-delayed-startup", true);
+
+// Disable extensionStorage storage actor by default
+pref("devtools.storage.extensionStorage.enabled", false);
 
 // Dictionary download preference
 pref("browser.dictionaries.download.url", "data:text/plain,");
@@ -199,17 +202,6 @@ pref("browser.warnOnQuit", true);
 pref("browser.fullscreen.autohide", true);
 pref("browser.overlink-delay", 80);
 
-#ifdef UNIX_BUT_NOT_MAC
-  pref("browser.urlbar.clickSelectsAll", false);
-#else
-  pref("browser.urlbar.clickSelectsAll", true);
-#endif
-#ifdef UNIX_BUT_NOT_MAC
-  pref("browser.urlbar.doubleClickSelectsAll", true);
-#else
-  pref("browser.urlbar.doubleClickSelectsAll", false);
-#endif
-
 // Whether using `ctrl` when hitting return/enter in the URL bar
 // (or clicking 'go') should prefix 'www.' and suffix
 // browser.fixup.alternate.suffix to the URL bar value prior to
@@ -272,8 +264,10 @@ pref("browser.urlbar.openintab", false);
 pref("browser.urlbar.usepreloadedtopurls.enabled", false);
 pref("browser.urlbar.usepreloadedtopurls.expire_days", 14);
 
-// Enable the new Address Bar code.
-pref("browser.urlbar.quantumbar", true);
+pref("browser.urlbar.update1", false);
+pref("browser.urlbar.update1.expandTextOnFocus", false);
+
+pref("browser.urlbar.openViewOnFocus", false);
 
 pref("browser.altClickSave", false);
 
@@ -324,10 +318,6 @@ pref("browser.search.hiddenOneOffs", "");
 
 // Mirrors whether the search-container widget is in the navigation toolbar.
 pref("browser.search.widget.inNavBar", true);
-
-#ifndef RELEASE_OR_BETA
-  pref("browser.search.reset.enabled", true);
-#endif
 
 pref("browser.sessionhistory.max_entries", 50);
 
@@ -1095,7 +1085,6 @@ pref("services.sync.prefs.sync.browser.newtabpage.activity-stream.section.highli
 pref("services.sync.prefs.sync.browser.newtabpage.enabled", true);
 pref("services.sync.prefs.sync.browser.newtabpage.pinned", true);
 pref("services.sync.prefs.sync.browser.offline-apps.notify", true);
-pref("services.sync.prefs.sync.browser.sessionstore.restore_on_demand", true);
 pref("services.sync.prefs.sync.browser.startup.homepage", true);
 pref("services.sync.prefs.sync.browser.startup.page", true);
 pref("services.sync.prefs.sync.browser.tabs.loadInBackground", true);
@@ -1135,12 +1124,6 @@ pref("services.sync.prefs.sync.privacy.donottrackheader.enabled", true);
 pref("services.sync.prefs.sync.privacy.fuzzyfox.enabled", false);
 pref("services.sync.prefs.sync.privacy.fuzzyfox.clockgrainus", false);
 pref("services.sync.prefs.sync.privacy.sanitize.sanitizeOnShutdown", true);
-pref("services.sync.prefs.sync.privacy.trackingprotection.enabled", true);
-pref("services.sync.prefs.sync.privacy.trackingprotection.cryptomining.enabled", true);
-pref("services.sync.prefs.sync.privacy.trackingprotection.cryptomining.annotate.enabled", true);
-pref("services.sync.prefs.sync.privacy.trackingprotection.fingerprinting.enabled", true);
-pref("services.sync.prefs.sync.privacy.trackingprotection.fingerprinting.annotate.enabled", true);
-pref("services.sync.prefs.sync.privacy.trackingprotection.pbmode.enabled", true);
 pref("services.sync.prefs.sync.privacy.resistFingerprinting", true);
 pref("services.sync.prefs.sync.privacy.reduceTimerPrecision", true);
 pref("services.sync.prefs.sync.privacy.resistFingerprinting.reduceTimerPrecision.microseconds", true);
@@ -1352,8 +1335,6 @@ pref("media.gmp.trial-create.enabled", true);
 pref("media.gmp-gmpopenh264.visible", true);
 pref("media.gmp-gmpopenh264.enabled", true);
 
-// Switch block autoplay logic to v2, and enable UI.
-pref("media.autoplay.enabled.user-gestures-needed", true);
 // Set Firefox to block autoplay, asking for permission by default.
 pref("media.autoplay.default", 1); // 0=Allowed, 1=Blocked, 5=All Blocked
 
@@ -1414,10 +1395,6 @@ pref("media.gmp-provider.enabled", true);
   // Enable blocking access to storage from tracking resources only in nightly
   // and early beta. By default the value is 0: BEHAVIOR_ACCEPT
   pref("network.cookie.cookieBehavior", 4 /* BEHAVIOR_REJECT_TRACKER */);
-  // Enable fingerprinting blocking by default only in nightly and early beta.
-  pref("privacy.trackingprotection.fingerprinting.enabled", true);
-  // Enable cryptomining blocking by default only in nightly and early beta.
-  pref("privacy.trackingprotection.cryptomining.enabled", true);
 #endif
 
 pref("dom.storage_access.enabled", true);
@@ -1427,39 +1404,6 @@ pref("browser.contentblocking.trackingprotection.control-center.ui.enabled", tru
 
 pref("browser.contentblocking.control-center.ui.showBlockedLabels", true);
 pref("browser.contentblocking.control-center.ui.showAllowedLabels", false);
-
-pref("browser.contentblocking.cryptomining.preferences.ui.enabled", true);
-pref("browser.contentblocking.fingerprinting.preferences.ui.enabled", true);
-
-// Possible values for browser.contentblocking.features.strict pref:
-//   Tracking Protection:
-//     "tp": tracking protection enabled
-//     "-tp": tracking protection disabled
-//   Tracking Protection in private windows:
-//     "tpPrivate": tracking protection in private windows enabled
-//     "-tpPrivate": tracking protection in private windows disabled
-//   Fingerprinting:
-//     "fp": fingerprinting blocking enabled
-//     "-fp": fingerprinting blocking disabled
-//   Cryptomining:
-//     "cm": cryptomining blocking enabled
-//     "-cm": cryptomining blocking disabled
-//   Cookie behavior:
-//     "cookieBehavior0": cookie behaviour BEHAVIOR_ACCEPT
-//     "cookieBehavior1": cookie behaviour BEHAVIOR_REJECT_FOREIGN
-//     "cookieBehavior2": cookie behaviour BEHAVIOR_REJECT
-//     "cookieBehavior3": cookie behaviour BEHAVIOR_LIMIT_FOREIGN
-//     "cookieBehavior4": cookie behaviour BEHAVIOR_REJECT_TRACKER
-//     "cookieBehavior5": cookie behaviour BEHAVIOR_REJECT_TRACKER_AND_PARTITION_FOREIGN
-// One value from each section must be included in the browser.contentblocking.features.strict pref.
-pref("browser.contentblocking.features.strict", "tp,tpPrivate,cookieBehavior4,cm,fp");
-
-// Enable the Report Breakage UI on Nightly and Beta but not on Release yet.
-pref("browser.contentblocking.reportBreakage.enabled", false);
-// Show report breakage for tracking cookies in all channels.
-pref("browser.contentblocking.rejecttrackers.reportBreakage.enabled", true);
-
-pref("browser.contentblocking.reportBreakage.url", "data:text/plain,");
 
 // Enables the new Protections Panel.
 #ifdef NIGHTLY_BUILD
@@ -1472,19 +1416,14 @@ pref("privacy.usercontext.about_newtab_segregation.enabled", true);
 #ifdef NIGHTLY_BUILD
   pref("privacy.userContext.enabled", true);
   pref("privacy.userContext.ui.enabled", true);
-
-  // 0 disables long press, 1 when clicked, the menu is shown, 2 the menu is
-  // shown after X milliseconds.
-  pref("privacy.userContext.longPressBehavior", 2);
 #else
   pref("privacy.userContext.enabled", false);
   pref("privacy.userContext.ui.enabled", false);
-
-  // 0 disables long press, 1 when clicked, the menu is shown, 2 the menu is
-  // shown after X milliseconds.
-  pref("privacy.userContext.longPressBehavior", 0);
 #endif
 pref("privacy.userContext.extension", "");
+// allows user to open container menu on a left click instead of a new
+// tab in the default container
+pref("privacy.userContext.newTabContainerOnLeftClick.enabled", false);
 
 // Start the browser in e10s mode
 pref("browser.tabs.remote.autostart", true);
@@ -1508,28 +1447,9 @@ pref("browser.tabs.crashReporting.requestEmail", false);
 pref("browser.tabs.crashReporting.emailMe", false);
 pref("browser.tabs.crashReporting.email", "");
 
-// How often to check for CPOW timeouts. CPOWs are only timed out by
-// the hang monitor.
-pref("dom.ipc.cpow.timeout", 500);
-
-// Causes access on unsafe CPOWs from browser code to throw by default.
-pref("dom.ipc.cpows.forbid-unsafe-from-browser", true);
-
-// Enable e10s hang monitoring (slow script checking and plugin hang
-// detection).
-pref("dom.ipc.processHangMonitor", false);
-
 #if defined(XP_WIN)
   // Allows us to deprioritize the processes of background tabs at an OS level
   pref("dom.ipc.processPriorityManager.enabled", true);
-#endif
-
-#ifdef DEBUG
-  // Don't report hangs in DEBUG builds. They're too slow and often a
-  // debugger is attached.
-  pref("dom.ipc.reportProcessHangs", false);
-#else
-  pref("dom.ipc.reportProcessHangs", true);
 #endif
 
 // Don't limit how many nodes we care about on desktop:
@@ -1646,13 +1566,6 @@ pref("browser.toolbars.keyboard_navigation", true);
 pref("identity.fxaccounts.toolbar.enabled", false);
 pref("identity.fxaccounts.toolbar.accessed", false);
 
-// Check bundled JAR and XPI files for corruption.
-#ifdef RELEASE_OR_BETA
-  pref("corroborator.enabled", false);
-#else
-  pref("corroborator.enabled", true);
-#endif
-
 // Toolbox preferences
 pref("devtools.toolbox.footer.height", 250);
 pref("devtools.toolbox.sidebar.width", 500);
@@ -1670,7 +1583,6 @@ pref("devtools.command-button-pick.enabled", true);
 pref("devtools.command-button-frames.enabled", true);
 pref("devtools.command-button-splitconsole.enabled", true);
 pref("devtools.command-button-paintflashing.enabled", false);
-pref("devtools.command-button-scratchpad.enabled", false);
 pref("devtools.command-button-responsive.enabled", true);
 pref("devtools.command-button-screenshot.enabled", false);
 pref("devtools.command-button-rulers.enabled", false);
@@ -1847,23 +1759,6 @@ pref("devtools.netmonitor.har.enableAutoExportToFile", false);
   pref("devtools.netmonitor.features.webSockets", false);
 #endif
 
-// Scratchpad settings
-// - recentFileMax: The maximum number of recently-opened files
-//                  stored. Setting this preference to 0 will not
-//                  clear any recent files, but rather hide the
-//                  'Open Recent'-menu.
-// - lineNumbers: Whether to show line numbers or not.
-// - wrapText: Whether to wrap text or not.
-// - showTrailingSpace: Whether to highlight trailing space or not.
-// - editorFontSize: Editor font size configuration.
-// - enableAutocompletion: Whether to enable JavaScript autocompletion.
-pref("devtools.scratchpad.recentFilesMax", 10);
-pref("devtools.scratchpad.lineNumbers", true);
-pref("devtools.scratchpad.wrapText", false);
-pref("devtools.scratchpad.showTrailingSpace", false);
-pref("devtools.scratchpad.editorFontSize", 12);
-pref("devtools.scratchpad.enableAutocompletion", true);
-
 // Enable the Storage Inspector
 pref("devtools.storage.enabled", true);
 
@@ -1878,9 +1773,6 @@ pref("devtools.styleeditor.transitions", true);
 // Screenshot Option Settings.
 pref("devtools.screenshot.clipboard.enabled", false);
 pref("devtools.screenshot.audio.enabled", true);
-
-// Enable Scratchpad
-pref("devtools.scratchpad.enabled", false);
 
 // Make sure the DOM panel is hidden by default
 pref("devtools.dom.enabled", false);
@@ -1930,13 +1822,6 @@ pref("devtools.webconsole.timestampMessages", false);
   pref("devtools.webconsole.sidebarToggle", true);
 #else
   pref("devtools.webconsole.sidebarToggle", false);
-#endif
-
-// Enable editor mode in the console in Nightly builds.
-#if defined(NIGHTLY_BUILD)
-  pref("devtools.webconsole.features.editor", true);
-#else
-  pref("devtools.webconsole.features.editor", false);
 #endif
 
 // Saved editor mode state in the console.
@@ -2000,13 +1885,6 @@ pref("devtools.responsive.metaViewport.enabled", false);
 // The user agent of the viewport.
 pref("devtools.responsive.userAgent", "");
 
-// Whether to show the settings onboarding tooltip only in release or beta
-// builds.
-#if defined(RELEASE_OR_BETA)
-  pref("devtools.responsive.show-setting-tooltip", true);
-#else
-  pref("devtools.responsive.show-setting-tooltip", false);
-#endif
 // Show the custom user agent input in Nightly builds.
 #if defined(NIGHTLY_BUILD)
   pref("devtools.responsive.showUserAgentInput", true);

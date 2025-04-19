@@ -38,11 +38,7 @@ var gTests = [
           aSharing,
           "the tab has the attribute to show the " + aSharing + " icon"
         );
-        let icon = document.getAnonymousElementByAttribute(
-          tab,
-          "anonid",
-          "sharing-icon"
-        );
+        let icon = tab.sharingIcon;
         is(
           window.getComputedStyle(icon).display,
           "none",

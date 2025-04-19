@@ -2,11 +2,6 @@
 
 ChromeUtils.defineModuleGetter(
   this,
-  "ExtensionTelemetry",
-  "resource://gre/modules/ExtensionTelemetry.jsm"
-);
-ChromeUtils.defineModuleGetter(
-  this,
   "PageActions",
   "resource:///modules/PageActions.jsm"
 );
@@ -278,7 +273,6 @@ this.pageAction = class extends ExtensionAPI {
   async handleClick(window) {
     const { extension } = this;
 
-    ExtensionTelemetry.pageActionPopupOpen.stopwatchStart(extension, this);
     let tab = window.gBrowser.selectedTab;
     let popupURL = this.tabContext.get(tab).popup;
 
@@ -291,7 +285,6 @@ this.pageAction = class extends ExtensionAPI {
     if (popupURL) {
       if (this.popupNode && this.popupNode.panel.state !== "closed") {
         // The panel is being toggled closed.
-        ExtensionTelemetry.pageActionPopupOpen.stopwatchCancel(extension, this);
         window.BrowserPageActions.togglePanelForAction(
           this.browserPageAction,
           this.popupNode.panel
@@ -318,9 +311,7 @@ this.pageAction = class extends ExtensionAPI {
         this.browserPageAction,
         this.popupNode.panel
       );
-      ExtensionTelemetry.pageActionPopupOpen.stopwatchFinish(extension, this);
     } else {
-      ExtensionTelemetry.pageActionPopupOpen.stopwatchCancel(extension, this);
       this.emit("click", tab);
     }
   }

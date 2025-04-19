@@ -152,8 +152,7 @@ var StarUI = {
           break;
         }
         this._isComposing = true;
-      // Explicit fall-through, during composition, panel shouldn't be
-      // hidden automatically.
+      // Explicit fall-through, during composition, panel shouldn't be hidden automatically.
       case "input":
       // Might have edited some text without keyboard events nor composition
       // events. Fall-through to cancel auto close in such case.
@@ -581,7 +580,7 @@ var PlacesCommandHook = {
     if (!organizer || organizer.closed) {
       // No currently open places window, so open one with the specified mode.
       openDialog(
-        "chrome://browser/content/places/places.xul",
+        "chrome://browser/content/places/places.xhtml",
         "",
         "chrome,toolbar=yes,dialog=no,resizable",
         item
@@ -949,7 +948,7 @@ var PlacesMenuDNDHandler = {
     }
 
     PlacesControllerDragHelper.currentDropTarget = event.target;
-    let popup = event.target.lastChild;
+    let popup = event.target.menupopup;
     if (
       this._loadTimer ||
       popup.state === "showing" ||
@@ -991,7 +990,7 @@ var PlacesMenuDNDHandler = {
     }
 
     PlacesControllerDragHelper.currentDropTarget = null;
-    let popup = event.target.lastChild;
+    let popup = event.target.menupopup;
 
     if (this._loadTimer) {
       this._loadTimer.cancel();
@@ -1031,8 +1030,8 @@ var PlacesMenuDNDHandler = {
         node.getAttribute("type") == "menu");
     let isStatic =
       !("_placesNode" in node) &&
-      node.lastChild &&
-      node.lastChild.hasAttribute("placespopup") &&
+      node.menupopup &&
+      node.menupopup.hasAttribute("placespopup") &&
       !node.parentNode.hasAttribute("placespopup");
     return isMenu && isStatic;
   },
@@ -1234,12 +1233,9 @@ var LibraryUI = {
 
     let animatableBox = document.getElementById("library-animatable-box");
     let navBar = document.getElementById("nav-bar");
-    let libraryIcon = document.getAnonymousElementByAttribute(
-      libraryButton,
-      "class",
-      "toolbarbutton-icon"
+    let iconBounds = window.windowUtils.getBoundsWithoutFlushing(
+      libraryButton.icon
     );
-    let iconBounds = window.windowUtils.getBoundsWithoutFlushing(libraryIcon);
     let libraryBounds = window.windowUtils.getBoundsWithoutFlushing(
       libraryButton
     );
@@ -1312,12 +1308,9 @@ var LibraryUI = {
       }
 
       let animatableBox = document.getElementById("library-animatable-box");
-      let libraryIcon = document.getAnonymousElementByAttribute(
-        libraryButton,
-        "class",
-        "toolbarbutton-icon"
+      let iconBounds = window.windowUtils.getBoundsWithoutFlushing(
+        libraryButton.icon
       );
-      let iconBounds = window.windowUtils.getBoundsWithoutFlushing(libraryIcon);
 
       // Resizing the window will only have the ability to change the X offset of the
       // library button.
@@ -1581,7 +1574,7 @@ var BookmarkingUI = {
     if (this._hasBookmarksObserver) {
       PlacesUtils.bookmarks.removeObserver(this);
       PlacesUtils.observers.removeListener(
-        ["bookmark-added"],
+        ["bookmark-added", "bookmark-removed"],
         this.handlePlacesEvents
       );
     }
@@ -1632,7 +1625,7 @@ var BookmarkingUI = {
             PlacesUtils.bookmarks.addObserver(this);
             this.handlePlacesEvents = this.handlePlacesEvents.bind(this);
             PlacesUtils.observers.addListener(
-              ["bookmark-added"],
+              ["bookmark-added", "bookmark-removed"],
               this.handlePlacesEvents
             );
             this._hasBookmarksObserver = true;
@@ -1925,28 +1918,30 @@ var BookmarkingUI = {
   },
 
   handlePlacesEvents(aEvents) {
-    // Only need to update the UI if it wasn't marked as starred before:
-    if (this._itemGuids.size == 0) {
-      for (let { url, guid } of aEvents) {
-        if (url && url == this._uri.spec) {
-          // If a new bookmark has been added to the tracked uri, register it.
-          if (!this._itemGuids.has(guid)) {
-            this._itemGuids.add(guid);
-            this._updateStar();
+    for (let ev of aEvents) {
+      switch (ev.type) {
+        case "bookmark-added":
+          // Only need to update the UI if it wasn't marked as starred before:
+          if (this._itemGuids.size == 0) {
+            if (ev.url && ev.url == this._uri.spec) {
+              // If a new bookmark has been added to the tracked uri, register it.
+              if (!this._itemGuids.has(ev.guid)) {
+                this._itemGuids.add(ev.guid);
+                this._updateStar();
+              }
+            }
           }
-        }
-      }
-    }
-  },
-
-  // nsINavBookmarkObserver
-  onItemRemoved(aItemId, aParentId, aIndex, aItemType, aURI, aGuid) {
-    // If one of the tracked bookmarks has been removed, unregister it.
-    if (this._itemGuids.has(aGuid)) {
-      this._itemGuids.delete(aGuid);
-      // Only need to update the UI if the page is no longer starred
-      if (this._itemGuids.size == 0) {
-        this._updateStar();
+          break;
+        case "bookmark-removed":
+          // If one of the tracked bookmarks has been removed, unregister it.
+          if (this._itemGuids.has(ev.guid)) {
+            this._itemGuids.delete(ev.guid);
+            // Only need to update the UI if the page is no longer starred
+            if (this._itemGuids.size == 0) {
+              this._updateStar();
+            }
+          }
+          break;
       }
     }
   },

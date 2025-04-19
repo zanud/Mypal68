@@ -434,7 +434,7 @@ var PanelMultiView = class extends AssociatedToNode {
     this._panel.removeEventListener("popuppositioned", this);
     this._panel.removeEventListener("popupshown", this);
     this._panel.removeEventListener("popuphidden", this);
-    this.window.removeEventListener("keydown", this, true);
+    this.document.documentElement.removeEventListener("keydown", this, true);
     this.node = this._openPopupPromise = this._openPopupCancelCallback = this._viewContainer = this._viewStack = this._transitionDetails = null;
   }
 
@@ -1137,14 +1137,14 @@ var PanelMultiView = class extends AssociatedToNode {
       case "popupshowing": {
         this._viewContainer.setAttribute("panelopen", "true");
         if (!this.node.hasAttribute("disablekeynav")) {
-          // We add the keydown handler on the window so that it handles key
+          // We add the keydown handler on the root so that it handles key
           // presses when a panel appears but doesn't get focus, as happens
           // when a button to open a panel is clicked with the mouse.
           // However, this means the listener is on an ancestor of the panel,
           // which means that handlers such as ToolbarKeyboardNavigator are
           // deeper in the tree. Therefore, this must be a capturing listener
           // so we get the event first.
-          this.window.addEventListener("keydown", this, true);
+          this.document.documentElement.addEventListener("keydown", this, true);
           this._panel.addEventListener("mousemove", this);
         }
         break;
@@ -1173,7 +1173,11 @@ var PanelMultiView = class extends AssociatedToNode {
         this._transitioning = false;
         this._viewContainer.removeAttribute("panelopen");
         this._cleanupTransitionPhase();
-        this.window.removeEventListener("keydown", this, true);
+        this.document.documentElement.removeEventListener(
+          "keydown",
+          this,
+          true
+        );
         this._panel.removeEventListener("mousemove", this);
         this.closeAllViews();
 
@@ -1368,6 +1372,14 @@ var PanelView = class extends AssociatedToNode {
           continue;
         }
 
+        // Ignore content inside a <toolbarbutton>
+        if (
+          element.tagName != "toolbarbutton" &&
+          element.closest("toolbarbutton")
+        ) {
+          continue;
+        }
+
         // Take the label for toolbarbuttons; it only exists on those elements.
         element = element.multilineLabel || element;
 
@@ -1439,11 +1451,12 @@ var PanelView = class extends AssociatedToNode {
     let tag = element.localName;
     return (
       tag == "menulist" ||
-      tag == "textbox" ||
+      tag == "radiogroup" ||
       tag == "input" ||
       tag == "textarea" ||
-      // Allow tab to reach embedded documents in extension panels.
-      tag == "browser"
+      // Allow tab to reach embedded documents.
+      tag == "browser" ||
+      tag == "iframe"
     );
   }
 
@@ -1470,7 +1483,13 @@ var PanelView = class extends AssociatedToNode {
         (!arrowKey && this._isNavigableWithTabOnly(node))
       ) {
         // Set the tabindex attribute to make sure the node is focusable.
-        if (!node.hasAttribute("tabindex")) {
+        // Don't do this for browser and iframe elements because this breaks
+        // tabbing behavior. They're already focusable anyway.
+        if (
+          node.tagName != "browser" &&
+          node.tagName != "iframe" &&
+          !node.hasAttribute("tabindex")
+        ) {
           node.setAttribute("tabindex", "-1");
         }
         return NodeFilter.FILTER_ACCEPT;
@@ -1625,9 +1644,9 @@ var PanelView = class extends AssociatedToNode {
       focus = null;
     }
 
-    // Extension panels contain embedded documents. We can't manage
+    // Some panels contain embedded documents. We can't manage
     // keyboard navigation within those.
-    if (focus && focus.tagName == "browser") {
+    if (focus && (focus.tagName == "browser" || focus.tagName == "iframe")) {
       return;
     }
 
@@ -1648,8 +1667,8 @@ var PanelView = class extends AssociatedToNode {
     };
 
     // If a context menu is open, we must let it handle all keys.
-    // Normally, this just happens, but because we have a capturing window
-    // keydown listener, our listener takes precedence.
+    // Normally, this just happens, but because we have a capturing root
+    // element keydown listener, our listener takes precedence.
     // Again, we only want to do this check on demand for performance.
     let isContextMenuOpen = () => {
       if (!focus) {
@@ -1673,7 +1692,11 @@ var PanelView = class extends AssociatedToNode {
         }
       // Fall-through...
       case "Tab": {
-        if (isContextMenuOpen()) {
+        if (
+          isContextMenuOpen() ||
+          // Tab in an open menulist should close it.
+          (focus && focus.localName == "menulist" && focus.open)
+        ) {
           break;
         }
         stop();
@@ -1716,8 +1739,8 @@ var PanelView = class extends AssociatedToNode {
         if (!button || !button.classList.contains("subviewbutton-nav")) {
           break;
         }
-        // Fall-through...
       }
+      // Fall-through...
       case "Space":
       case "NumpadEnter":
       case "Enter": {

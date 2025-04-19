@@ -10,18 +10,14 @@ const { XPCOMUtils } = ChromeUtils.import(
   "resource://gre/modules/XPCOMUtils.jsm"
 );
 XPCOMUtils.defineLazyModuleGetters(this, {
-  Services: "resource://gre/modules/Services.jsm",
   UrlbarPrefs: "resource:///modules/UrlbarPrefs.jsm",
   UrlbarTokenizer: "resource:///modules/UrlbarTokenizer.jsm",
   UrlbarUtils: "resource:///modules/UrlbarUtils.jsm",
-  AppConstants: "resource://gre/modules/AppConstants.jsm",
 });
 
-XPCOMUtils.defineLazyGetter(this, "bundle", function() {
-  return Services.strings.createBundle(
-    "chrome://global/locale/autocomplete.properties"
-  );
-});
+// Stale rows are removed on a timer with this timeout.  Tests can override this
+// by setting UrlbarView.removeStaleRowsTimeout.
+const DEFAULT_REMOVE_STALE_ROWS_TIMEOUT = 400;
 
 /**
  * Receives and displays address bar autocomplete results.
@@ -38,8 +34,12 @@ class UrlbarView {
     this.document = this.panel.ownerDocument;
     this.window = this.document.defaultView;
 
+    if (this.input.megabar) {
+      this.panel.classList.add("megabar");
+    }
+
     this._mainContainer = this.panel.querySelector(".urlbarView-body-inner");
-    this._rows = this.panel.querySelector("#urlbarView-results");
+    this._rows = this.panel.querySelector(".urlbarView-results");
 
     this._rows.addEventListener("mousedown", this);
     this._rows.addEventListener("mouseup", this);
@@ -49,12 +49,11 @@ class UrlbarView {
     this._rows.addEventListener("overflow", this);
     this._rows.addEventListener("underflow", this);
 
-    this.panel.addEventListener("popupshowing", this);
-    this.panel.addEventListener("popupshown", this);
-    this.panel.addEventListener("popuphiding", this);
-
     this.controller.setView(this);
     this.controller.addQueryListener(this);
+    // This is used by autoOpen to avoid flickering results when reopening
+    // previously abandoned searches.
+    this._queryContextCache = new QueryContextCache(5);
   }
 
   get oneOffSearchButtons() {
@@ -75,7 +74,7 @@ class UrlbarView {
    *   Whether the panel is open.
    */
   get isOpen() {
-    return this.panel.state == "open" || this.panel.state == "showing";
+    return this.input.hasAttribute("open");
   }
 
   get allowEmptySelection() {
@@ -204,12 +203,102 @@ class UrlbarView {
     this._setAccessibleFocus(null);
   }
 
+  clear() {
+    this._rows.textContent = "";
+  }
+
   /**
-   * Closes the autocomplete popup, cancelling the query if necessary.
+   * Closes the view, cancelling the query if necessary.
    */
   close() {
     this.controller.cancelQuery();
-    this.panel.hidePopup();
+
+    if (!this.isOpen) {
+      return;
+    }
+
+    this.removeAccessibleFocus();
+    this.input.inputField.setAttribute("aria-expanded", "false");
+    this.input.dropmarker.removeAttribute("open");
+
+    this.input.removeAttribute("open");
+    this.input.endLayoutExtend();
+
+    if (!this.input.megabar && this.input._toolbar) {
+      this.input._toolbar.removeAttribute("urlbar-exceeds-toolbar-bounds");
+    }
+
+    this.window.removeEventListener("resize", this);
+
+    this.controller.notify(this.controller.NOTIFICATIONS.VIEW_CLOSE);
+  }
+
+  /**
+   * This can be used to open the view automatically as a consequence of
+   * specific user actions. For Top Sites searches (without a search string)
+   * the view is opened only for mouse or keyboard interactions.
+   * If the user abandoned a search (there is a search string) the view is
+   * reopened, and we try to use cached results to reduce flickering, then a new
+   * query is started to refresh results.
+   * @param {Event} queryOptions Options to use when starting a new query. The
+   *        event property is mandatory for proper telemetry tracking.
+   * @returns {boolean} Whether the view was opened.
+   */
+  autoOpen(queryOptions = {}) {
+    if (!this.input.openViewOnFocus || !queryOptions.event) {
+      return false;
+    }
+
+    if (
+      !this.input.value ||
+      this.input.getAttribute("pageproxystate") == "valid"
+    ) {
+      if (
+        // Do not show Top Sites in private windows.
+        !this.input.isPrivate &&
+        !this.isOpen &&
+        ["mousedown", "command"].includes(queryOptions.event.type)
+      ) {
+        this.input.startQuery(queryOptions);
+        return true;
+      }
+      return false;
+    }
+
+    // Reopen abandoned searches only if the input is focused.
+    if (!this.input.focused) {
+      return false;
+    }
+
+    // Tab switch is the only case where we requery if the view is open, because
+    // switching tabs doesn't necessarily close the view.
+    if (this.isOpen && queryOptions.event.type != "tabswitch") {
+      return false;
+    }
+
+    if (
+      this._rows.firstElementChild &&
+      this._queryContext.searchString == this.input.value
+    ) {
+      // We can reuse the current results.
+      queryOptions.allowAutofill = this._queryContext.allowAutofill;
+    } else {
+      // To reduce results flickering, try to reuse a cached UrlbarQueryContext.
+      let cachedQueryContext = this._queryContextCache.get(this.input.value);
+      if (cachedQueryContext) {
+        this.onQueryResults(cachedQueryContext);
+      }
+    }
+
+    queryOptions.searchString = this.input.value;
+    queryOptions.autofillIgnoresSelection = true;
+
+    this._openPanel();
+
+    // If we had cached results, this will just refresh them, avoiding results
+    // flicker, otherwise there may be some noise.
+    this.input.startQuery(queryOptions);
+    return true;
   }
 
   // UrlbarController listener methods.
@@ -232,8 +321,12 @@ class UrlbarView {
   }
 
   onQueryResults(queryContext) {
+    this._queryContextCache.put(queryContext);
     this._queryContext = queryContext;
 
+    if (!this.isOpen) {
+      this.clear();
+    }
     this._updateResults(queryContext);
 
     let isFirstPreselectedResult = false;
@@ -260,6 +353,10 @@ class UrlbarView {
           (trimmedValue[0] != UrlbarTokenizer.RESTRICT.SEARCH ||
             trimmedValue.length != 1)
       );
+
+      // The input field applies autofill on input, without waiting for results.
+      // Once we get results, we can ask it to correct wrong predictions.
+      this.input.maybeClearAutofillPlaceholder(queryContext.results[0]);
     }
 
     this._openPanel();
@@ -328,10 +425,6 @@ class UrlbarView {
 
   // Private methods below.
 
-  _getBoundsWithoutFlushing(element) {
-    return this.window.windowUtils.getBoundsWithoutFlushing(element);
-  }
-
   _createElement(name) {
     return this.document.createElementNS("http://www.w3.org/1999/xhtml", name);
   }
@@ -342,69 +435,79 @@ class UrlbarView {
     }
     this.controller.userSelectionBehavior = "none";
 
-    this.panel.removeAttribute("hidden");
     this.panel.removeAttribute("actionoverride");
 
-    // Make the panel span the width of the window.
-    let px = number => number.toFixed(2) + "px";
-    let documentRect = this._getBoundsWithoutFlushing(
-      this.document.documentElement
-    );
-    let width = documentRect.right - documentRect.left;
-    this.panel.setAttribute("width", width);
-    this._mainContainer.style.maxWidth = px(width);
+    if (!this.input.megabar) {
+      let getBoundsWithoutFlushing = element =>
+        this.window.windowUtils.getBoundsWithoutFlushing(element);
+      let px = number => number.toFixed(2) + "px";
+      let inputRect = getBoundsWithoutFlushing(this.input.textbox);
 
-    // Keep the popup items' site icons aligned with the input's identity
-    // icon if it's not too far from the edge of the window.  We define
-    // "too far" as "more than 30% of the window's width AND more than
-    // 250px".
-    let boundToCheck = this.window.RTL_UI ? "right" : "left";
-    let inputRect = this._getBoundsWithoutFlushing(this.input.textbox);
-    let startOffset = Math.abs(
-      inputRect[boundToCheck] - documentRect[boundToCheck]
-    );
-    let alignSiteIcons = startOffset / width <= 0.3 || startOffset <= 250;
-    if (alignSiteIcons) {
-      // Calculate the end margin if we have a start margin.
-      let boundToCheckEnd = this.window.RTL_UI ? "left" : "right";
-      let endOffset = Math.abs(
-        inputRect[boundToCheckEnd] - documentRect[boundToCheckEnd]
+      // Make the panel span the width of the window.
+      let documentRect = getBoundsWithoutFlushing(
+        this.document.documentElement
       );
-      if (endOffset > startOffset * 2) {
-        // Provide more space when aligning would result in an unbalanced
-        // margin. This allows the location bar to be moved to the start
-        // of the navigation toolbar to reclaim space for results.
-        endOffset = startOffset;
+      let width = documentRect.right - documentRect.left;
+
+      // Keep the popup items' site icons aligned with the input's identity
+      // icon if it's not too far from the edge of the window.  We define
+      // "too far" as "more than 30% of the window's width AND more than
+      // 250px".
+      let boundToCheck = this.window.RTL_UI ? "right" : "left";
+      let startOffset = Math.abs(
+        inputRect[boundToCheck] - documentRect[boundToCheck]
+      );
+      let alignSiteIcons = startOffset / width <= 0.3 || startOffset <= 250;
+
+      if (alignSiteIcons) {
+        // Calculate the end margin if we have a start margin.
+        let boundToCheckEnd = this.window.RTL_UI ? "left" : "right";
+        let endOffset = Math.abs(
+          inputRect[boundToCheckEnd] - documentRect[boundToCheckEnd]
+        );
+        if (endOffset > startOffset * 2) {
+          // Provide more space when aligning would result in an unbalanced
+          // margin. This allows the location bar to be moved to the start
+          // of the navigation toolbar to reclaim space for results.
+          endOffset = startOffset;
+        }
+        let identityIcon = this.document.getElementById("identity-icon");
+        let identityRect = getBoundsWithoutFlushing(identityIcon);
+        let start = this.window.RTL_UI
+          ? documentRect.right - identityRect.right
+          : identityRect.left;
+
+        this.panel.style.setProperty("--item-padding-start", px(start));
+        this.panel.style.setProperty("--item-padding-end", px(endOffset));
+      } else {
+        this.panel.style.removeProperty("--item-padding-start");
+        this.panel.style.removeProperty("--item-padding-end");
       }
-      let identityIcon = this.document.getElementById("identity-icon");
-      let identityRect = this._getBoundsWithoutFlushing(identityIcon);
-      let start = this.window.RTL_UI
-        ? documentRect.right - identityRect.right
-        : identityRect.left;
 
-      this.panel.style.setProperty("--item-padding-start", px(start));
-      this.panel.style.setProperty("--item-padding-end", px(endOffset));
-    } else {
-      this.panel.style.removeProperty("--item-padding-start");
-      this.panel.style.removeProperty("--item-padding-end");
+      // Align the panel with the parent toolbar.
+      this.panel.style.top = px(
+        getBoundsWithoutFlushing(this.input._toolbar).bottom
+      );
+
+      this._mainContainer.style.maxWidth = px(width);
+
+      if (this.input._toolbar) {
+        this.input._toolbar.setAttribute(
+          "urlbar-exceeds-toolbar-bounds",
+          "true"
+        );
+      }
     }
+    this.input.inputField.setAttribute("aria-expanded", "true");
+    this.input.dropmarker.setAttribute("open", "true");
 
-    // Align the panel with the input's parent toolbar.
-    let toolbarRect = this._getBoundsWithoutFlushing(
-      this.input.textbox.closest("toolbar")
-    );
-    let horizontalOffset = this.window.RTL_UI
-      ? inputRect.right - documentRect.right
-      : documentRect.left - inputRect.left;
-    let verticalOffset = inputRect.top - toolbarRect.top;
-    if (AppConstants.platform == "macosx") {
-      // Adjust vertical offset to account for the popup's native outer border.
-      verticalOffset++;
-    }
-    this.panel.style.marginInlineStart = px(horizontalOffset);
-    this.panel.style.marginTop = px(verticalOffset);
+    this.input.setAttribute("open", "true");
+    this.input.startLayoutExtend();
 
-    this.panel.openPopup(this.input.textbox, "after_start");
+    this.window.addEventListener("resize", this);
+    this._windowOuterWidth = this.window.outerWidth;
+
+    this.controller.notify(this.controller.NOTIFICATIONS.VIEW_OPEN);
   }
 
   /**
@@ -575,7 +678,7 @@ class UrlbarView {
 
     if (
       result.type == UrlbarUtils.RESULT_TYPE.SEARCH &&
-      !result.payload.isKeywordOffer
+      !result.payload.keywordOffer
     ) {
       item.setAttribute("type", "search");
     } else if (result.type == UrlbarUtils.RESULT_TYPE.REMOTE_TAB) {
@@ -611,7 +714,7 @@ class UrlbarView {
 
     let tagsContainer = item._elements.get("tagsContainer");
     tagsContainer.textContent = "";
-    if (result.payload.tags && result.payload.tags.length > 0) {
+    if (result.payload.tags && result.payload.tags.length) {
       tagsContainer.append(
         ...result.payload.tags.map((tag, i) => {
           const element = this._createElement("span");
@@ -631,7 +734,7 @@ class UrlbarView {
     let setURL = false;
     switch (result.type) {
       case UrlbarUtils.RESULT_TYPE.TAB_SWITCH:
-        action = bundle.GetStringFromName("switchToTab2");
+        action = UrlbarUtils.strings.GetStringFromName("switchToTab2");
         setURL = true;
         break;
       case UrlbarUtils.RESULT_TYPE.REMOTE_TAB:
@@ -639,10 +742,9 @@ class UrlbarView {
         setURL = true;
         break;
       case UrlbarUtils.RESULT_TYPE.SEARCH:
-        action = bundle.formatStringFromName(
-          "searchWithEngine",
-          [result.payload.engine]
-        );
+        action = UrlbarUtils.strings.formatStringFromName("searchWithEngine", [
+          result.payload.engine,
+        ]);
         break;
       case UrlbarUtils.RESULT_TYPE.KEYWORD:
         isVisitAction = result.payload.input.trim() == result.payload.keyword;
@@ -676,7 +778,7 @@ class UrlbarView {
     }
 
     if (isVisitAction) {
-      action = bundle.GetStringFromName("visit");
+      action = UrlbarUtils.strings.GetStringFromName("visit");
       title.setAttribute("isurl", "true");
     } else {
       title.removeAttribute("isurl");
@@ -727,7 +829,7 @@ class UrlbarView {
     this._removeStaleRowsTimer = this.window.setTimeout(() => {
       this._removeStaleRowsTimer = null;
       this._removeStaleRows();
-    }, 400);
+    }, UrlbarView.removeStaleRowsTimeout);
   }
 
   _cancelRemoveStaleRowsTimer() {
@@ -804,9 +906,7 @@ class UrlbarView {
     if (enable && UrlbarPrefs.get("oneOffSearches")) {
       this.oneOffSearchButtons.telemetryOrigin = "urlbar";
       this.oneOffSearchButtons.style.display = "";
-      // Set .textbox first, since the popup setter will cause
-      // a _rebuild call that uses it.
-      this.oneOffSearchButtons.textbox = this.input.textbox;
+      this.oneOffSearchButtons.textbox = this.input.inputField;
       this.oneOffSearchButtons.view = this;
     } else {
       this.oneOffSearchButtons.telemetryOrigin = null;
@@ -855,8 +955,15 @@ class UrlbarView {
         delete result.payload.originalEngine;
       }
       let item = this._rows.children[i];
+      // If a one-off button is the only selection, force the heuristic result
+      // to show its action text, so the engine name is visible.
+      if (result.heuristic && engine && !this.selectedElement) {
+        item.setAttribute("show-action-text", "true");
+      } else {
+        item.removeAttribute("show-action-text");
+      }
       let action = item.querySelector(".urlbarView-action");
-      action.textContent = bundle.formatStringFromName(
+      action.textContent = UrlbarUtils.strings.formatStringFromName(
         "searchWithEngine",
         [(engine && engine.name) || result.payload.engine]
       );
@@ -880,7 +987,6 @@ class UrlbarView {
       // Ignore right clicks.
       return;
     }
-
     let row = event.target;
     while (!row.classList.contains("urlbarView-row")) {
       row = row.parentNode;
@@ -926,23 +1032,6 @@ class UrlbarView {
     }
   }
 
-  _on_popupshowing() {
-    this.window.addEventListener("resize", this);
-    this._windowOuterWidth = this.window.outerWidth;
-  }
-
-  _on_popupshown() {
-    this.input.inputField.setAttribute("aria-expanded", "true");
-  }
-
-  _on_popuphiding() {
-    this.controller.cancelQuery();
-    this.window.removeEventListener("resize", this);
-    this.removeAccessibleFocus();
-    this.input.inputField.setAttribute("aria-expanded", "false");
-    this._rows.textContent = "";
-  }
-
   _on_resize() {
     if (this.input.megabar) {
       return;
@@ -959,5 +1048,50 @@ class UrlbarView {
     // Close the popup as it would be wrongly sized. This can
     // happen when using special OS resize functions like Win+Arrow.
     this.close();
+  }
+}
+
+UrlbarView.removeStaleRowsTimeout = DEFAULT_REMOVE_STALE_ROWS_TIMEOUT;
+
+/**
+ * Implements a QueryContext cache, working as a circular buffer, when a new
+ * entry is added at the top, the last item is remove from the bottom.
+ */
+class QueryContextCache {
+  /**
+   * Constructor.
+   * @param {number} size The number of entries to keep in the cache.
+   */
+  constructor(size) {
+    this.size = size;
+    this._cache = [];
+  }
+
+  /**
+   * Adds a new entry to the cache.
+   * @param {UrlbarQueryContext} queryContext The UrlbarQueryContext to add.
+   * @note QueryContexts without a searchString or without results are ignored
+   *       and not added.
+   */
+  put(queryContext) {
+    let searchString = queryContext.searchString;
+    if (!searchString || !queryContext.results.length) {
+      return;
+    }
+
+    let index = this._cache.findIndex(e => e.searchString == searchString);
+    if (index != -1) {
+      if (this._cache[index] == queryContext) {
+        return;
+      }
+      this._cache.splice(index, 1);
+    }
+    if (this._cache.unshift(queryContext) > this.size) {
+      this._cache.length = this.size;
+    }
+  }
+
+  get(searchString) {
+    return this._cache.find(e => e.searchString == searchString);
   }
 }

@@ -12,6 +12,7 @@
 var EXPORTED_SYMBOLS = [
   "UrlbarMuxer",
   "UrlbarProvider",
+  "UrlbarProviderExtension",
   "UrlbarQueryContext",
   "UrlbarUtils",
 ];
@@ -126,6 +127,17 @@ var UrlbarUtils = {
   // Limit the length of titles and URLs we display so layout doesn't spend too
   // much time building text runs.
   MAX_TEXT_LENGTH: 255,
+
+  // Search results with keywords and empty queries are called "keyword offers".
+  // When the user selects a keyword offer, the keyword followed by a space is
+  // put in the input as a hint that the user can search using the keyword.
+  // Depending on the use case, keyword-offer results can show or not show the
+  // keyword itself.
+  KEYWORD_OFFER: {
+    NONE: 0,
+    SHOW: 1,
+    HIDE: 2,
+  },
 
   // UnifiedComplete's autocomplete results store their titles and tags together
   // in their comments.  This separator is used to separate them.  When we
@@ -441,6 +453,12 @@ XPCOMUtils.defineLazyGetter(UrlbarUtils.ICON, "DEFAULT", () => {
   return PlacesUtils.favicons.defaultFavicon.spec;
 });
 
+XPCOMUtils.defineLazyGetter(UrlbarUtils, "strings", () => {
+  return Services.strings.createBundle(
+    "chrome://global/locale/autocomplete.properties"
+  );
+});
+
 /**
  * UrlbarQueryContext defines a user's autocomplete input from within the urlbar.
  * It supplements it with details of how the search results should be obtained
@@ -599,5 +617,35 @@ class UrlbarProvider {
    */
   cancelQuery(queryContext) {
     throw new Error("Trying to access the base class, must be overridden");
+  }
+}
+
+/**
+ * Class for an Extension UrlbarProvider.
+ */
+class UrlbarProviderExtension extends UrlbarProvider {
+  constructor(name) {
+    super();
+    this._name = name;
+    this.behavior = "inactive";
+  }
+  get name() {
+    return this._name;
+  }
+  get type() {
+    return UrlbarUtils.PROVIDER_TYPE.EXTENSION;
+  }
+  isActive(queryContext) {
+    return this.behavior != "inactive";
+  }
+  isRestricting(queryContext) {
+    return this.behavior == "restricting";
+  }
+  startQuery(queryContext, addCallback) {
+    // TODO (Bug 1547666)
+    return Promise.resolve();
+  }
+  cancelQuery(queryContext) {
+    // TODO (Bug 1547666)
   }
 }

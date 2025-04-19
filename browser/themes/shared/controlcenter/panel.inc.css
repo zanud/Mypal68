@@ -17,6 +17,14 @@
   --protections-popup-width: 33rem;
 }
 
+#identity-popup,
+#protections-popup {
+  /* Set default fill for icons in the identity popup.
+     Individual icons can override this. */
+  fill: currentColor;
+  fill-opacity: .6;
+}
+
 /* This is used by screenshots tests to hide intermittently different
  * identity popup shadows (see bug 1425253). */
 #identity-popup.no-shadow {
@@ -69,15 +77,6 @@
   display: none !important;
 }
 
-#identity-popup > .panel-arrowcontainer > .panel-arrowcontent,
-#protections-popup > .panel-arrowcontainer > .panel-arrowcontent {
-  padding: 0;
-  /* Set default fill for icons in the identity popup.
-     Individual icons can override this. */
-  fill: currentColor;
-  fill-opacity: .6;
-}
-
 #identity-popup-mainView {
   min-width: var(--identity-popup-width);
   max-width: var(--identity-popup-width);
@@ -86,6 +85,11 @@
 #protections-popup-mainView {
   min-width: var(--protections-popup-width);
   max-width: var(--protections-popup-width);
+}
+
+#identity-popup-permission-list {
+  /* 16px icon width + 12px margin */
+  padding-inline-start: 28px;
 }
 
 .identity-popup-section {
@@ -121,10 +125,11 @@
   width: 38px;
   border-style: none;
   appearance: none;
-  background: url("chrome://browser/skin/arrow-left.svg") center no-repeat;
+  background: url("chrome://global/skin/icons/arrow-left.svg") center no-repeat;
   background-size: 16px, auto;
-  -moz-context-properties: fill;
+  -moz-context-properties: fill, fill-opacity;
   fill: currentColor;
+  fill-opacity: .6;
   color: inherit !important; /* !important overrides :hover and :active:hover colors from button.css on Mac and Linux */
 }
 
@@ -174,15 +179,11 @@
 .identity-popup-content-blocking-empty-label,
 #tracking-protection-preferences-button > .toolbarbutton-text,
 .tracking-protection-button,
-#identity-popup-trackersView-strict-info > label,
 .identity-popup-cookiesView-list-header,
 .identity-popup-content-blocking-list-item > label,
 #identity-popup-mainView-panel-header > label,
 #protections-popup-mainView-panel-header > label,
-#identity-popup-trackersView > .panel-header,
 #identity-popup-securityView > .panel-header,
-#identity-popup-breakageReportView > .panel-header,
-#identity-popup-content-blocking-report-breakage,
 .identity-popup-content-blocking-category-label,
 .identity-popup-content-blocking-category-state-label,
 .identity-popup-permission-label,
@@ -204,7 +205,7 @@
   -moz-box-align: center;
 }
 
-#protections-popup > .panel-arrowcontainer > .panel-arrowbox > .panel-arrow {
+#protections-popup::part(arrow) {
   fill: rgb(100, 70, 228);
 }
 
@@ -350,59 +351,14 @@ description#identity-popup-content-verifier,
 
 /* CONTENT BLOCKING / TRACKING PROTECTION */
 
-#identity-popup-breakageReportView-footer {
-  display: flex;
-}
-
-#identity-popup-breakageReportView-footer > button {
-  flex: 1;
-}
-
-#identity-popup-breakageReportView-heading,
-#identity-popup-breakageReportView-body {
-  padding: 16px;
-  font-size: 110%;
-}
-
-.identity-popup-breakageReportView-collection-section {
-  margin-bottom: 16px;
-}
-
-#identity-popup-breakageReportView-body {
-  border-top: 1px solid var(--panel-separator-color);
-}
-
-#identity-popup-breakageReportView-collection-comments {
-  height: 120px;
-}
-
 #identity-popup-content-blocking-content {
-  background-image: url("chrome://browser/skin/controlcenter/tracking-protection.svg");
-}
-
-.identity-popup-content-blocking-category {
-  /* Overwrite toolbarbutton styles */
-  appearance: none;
-  margin: 0;
-  padding-inline-start: 0;
-}
-
-.identity-popup-content-blocking-category:-moz-focusring,
-.identity-popup-content-blocking-category:hover {
-  border-radius: 2px;
-  background-color: var(--arrowpanel-dimmed);
-  outline: none;
-}
-
-.identity-popup-content-blocking-category:hover:active {
-  background-color: var(--arrowpanel-dimmed-further);
-}
-
-.identity-popup-content-blocking-category::after {
-  content: url(chrome://browser/skin/back-12.svg);
+  background-image: url("chrome://browser/skin/controlcenter/3rdpartycookies.svg");
   -moz-context-properties: fill, fill-opacity;
-  transform: scaleX(-1) translateY(1px);
-  float: inline-end;
+}
+
+#identity-popup-permissions-content {
+  background-image: url(chrome://browser/skin/permissions.svg);
+  -moz-context-properties: fill, fill-opacity;
 }
 
 .identity-popup-content-blocking-category:-moz-locale-dir(rtl)::after {
@@ -411,26 +367,8 @@ description#identity-popup-content-verifier,
 
 /* This subview could get filled with a lot of trackers, set a maximum size
  * and allow it to scroll vertically.*/
-#identity-popup-cookiesView,
-#identity-popup-trackersView {
+#identity-popup-cookiesView {
   max-height: 600px;
-}
-
-#identity-popup-trackersView-list.empty {
-  -moz-box-align: center;
-  -moz-box-pack: center;
-}
-
-.identity-popup-content-blocking-empty-label {
-  margin-inline-start: 0;
-  color: var(--panel-disabled-color);
-}
-
-.identity-popup-content-blocking-trackersView-empty-image {
-  width: 48px;
-  height: 48px;
-  -moz-context-properties: fill, fill-opacity;
-  margin-bottom: 16px;
 }
 
 #identity-popup-cookiesView .identity-popup-content-blocking-empty-label {
@@ -471,20 +409,9 @@ description#identity-popup-content-verifier,
   margin-inline: 5px 2px;
 }
 
-.identity-popup-fingerprintersView-icon,
-.identity-popup-cryptominersView-icon,
-.identity-popup-trackersView-icon,
 .identity-popup-cookiesView-icon {
   margin-inline-end: 10px;
   -moz-context-properties: fill, fill-opacity;
-}
-
-.identity-popup-trackersView-icon {
-  list-style-image: url(chrome://browser/skin/controlcenter/trackers-disabled.svg);
-}
-
-.identity-popup-trackersView-icon.allowed {
-  list-style-image: url(chrome://browser/skin/controlcenter/trackers.svg);
 }
 
 .identity-popup-cookiesView-icon {
@@ -495,137 +422,17 @@ description#identity-popup-content-verifier,
   list-style-image: url(chrome://browser/skin/controlcenter/3rdpartycookies.svg);
 }
 
-.identity-popup-fingerprintersView-icon {
-  list-style-image: url(chrome://browser/skin/controlcenter/fingerprinters-disabled.svg);
-}
-
-.identity-popup-fingerprintersView-icon.allowed {
-  list-style-image: url(chrome://browser/skin/controlcenter/fingerprinters.svg);
-}
-
-.identity-popup-cryptominersView-icon {
-  list-style-image: url(chrome://browser/skin/controlcenter/cryptominers-disabled.svg);
-}
-
-.identity-popup-cryptominersView-icon.allowed {
-  list-style-image: url(chrome://browser/skin/controlcenter/cryptominers.svg);
-}
-
-#identity-popup-trackersView-strict-info {
-  min-height: 40px;
-  /* Limit to full width - margin */
-  max-width: calc(var(--identity-popup-width) - 12px);
-  min-width: calc(var(--identity-popup-width) - 12px);
-  background-color: #45a1ff80;
-  margin: 6px;
-  text-align: center;
-  -moz-box-align: center;
-  -moz-box-pack: center;
-  padding: 5px 15px;
-  border-radius: 3px;
-  color: #002275;
-}
-
-#identity-popup-trackersView-strict-info > image {
-  list-style-image: url(chrome://browser/skin/controlcenter/info.svg);
-  -moz-context-properties: fill;
-  fill: currentColor;
-  margin-inline-end: 10px;
-}
-
-#identity-popup-trackersView-strict-info > label {
-  overflow-wrap: break-word;
-  /* Limit to full width - container margin - container padding - icon width - icon margin */
-  max-width: calc(var(--identity-popup-width) - 12px - 20px - 16px - 10px);
-}
-
-/* Content Blocking categories */
-
-#identity-popup-content-blocking-category-list {
-  margin-top: 10px;
-}
-
 /* Show the "detected"/"not detected" message depending on the content state. */
 #identity-popup-content-blocking-content:not([detected]) > #identity-popup-content-blocking-detected,
 #identity-popup-content-blocking-content[detected] > #identity-popup-content-blocking-not-detected {
   display: none;
 }
 
-.tracking-protection-icon {
-  list-style-image: url(chrome://browser/skin/controlcenter/trackers.svg);
-}
-
 .thirdpartycookies-icon {
   list-style-image: url(chrome://browser/skin/controlcenter/3rdpartycookies.svg);
 }
 
-.cryptominers-icon {
-  list-style-image: url(chrome://browser/skin/controlcenter/cryptominers.svg);
-}
-
-.fingerprinters-icon {
-  list-style-image: url(chrome://browser/skin/controlcenter/fingerprinters.svg);
-}
-
 /* Content Blocking action button */
-
-.tracking-protection-button {
-  list-style-image: url(chrome://browser/skin/tracking-protection.svg);
-  appearance: none;
-  margin-block: 1em 0;
-  margin-inline: 0 8px;
-  display: none;
-  height: 32px;
-  background-color: var(--arrowpanel-dimmed);
-  /* !important to override -moz-mac-buttonactivetext from applying on :active on mac
-   and -moz-buttonhovertext from applying on :hover on linux. */
-  color: inherit !important;
-}
-
-.tracking-protection-button:hover {
-  background-color: var(--arrowpanel-dimmed-further);
-}
-
-.tracking-protection-button:hover:active {
-  background-color: var(--arrowpanel-dimmed-even-further);
-}
-
-.tracking-protection-button:-moz-focusring {
-  box-shadow: var(--focus-ring-box-shadow);
-}
-
-#tracking-action-block {
-  background-color: #0060df;
-  color: #fff !important;
-}
-
-#tracking-action-block:hover {
-  background-color: #003eaa;
-}
-
-#tracking-action-block:hover:active {
-  background-color: #002275;
-}
-
-#tracking-action-block .button-icon {
-  fill-opacity: 1;
-}
-
-#tracking-action-unblock,
-#tracking-action-unblock-private {
-  list-style-image: url(chrome://browser/skin/tracking-protection-disabled.svg);
-}
-
-#identity-popup-content-blocking-report-breakage {
-  margin-top: 6px;
-}
-
-/* Hide the "report breakage" button if we have not detected any trackers
- * (except if the user added an exception, in which case they might still
- * (especially!) want to report the breakage). */
-#identity-popup-content-blocking-content:not([blocking]):not([hasException]) #identity-popup-content-blocking-report-breakage {
-  display: none;
-}
 
 /* Show the right action buttons depending on content state */
 /* Offer to temporarily add an exception in private mode. */
@@ -639,23 +446,12 @@ description#identity-popup-content-verifier,
 
 /* PERMISSIONS */
 
-#identity-popup-permissions-content {
-  background-image: url(chrome://browser/skin/controlcenter/permissions.svg);
-  padding-bottom: 1.5em;
-}
-
 @supports -moz-bool-pref("layout.css.emulate-moz-box-with-flex") {
   /* The extra padding-bottom is there to work around XUL flex (Bug 1368281).
      This rule and the 1.5em above can both be removed once we are only using CSS flex. */
   #identity-popup-permissions-content {
     padding-bottom: 1em;
   }
-}
-
-#identity-popup-permissions-headline {
-  /* Make sure the label is as tall as the icon so that the permission list
-     which is aligned with the icon doesn't cover it up. */
-  min-height: 24px;
 }
 
 #identity-popup-content-blocking-category-list,
@@ -680,7 +476,7 @@ description#identity-popup-content-verifier,
 }
 
 #identity-popup-permission-list:not(:empty) {
-  margin-top: 5px;
+  margin-top: 8px;
 }
 
 .identity-popup-content-blocking-category-icon,

@@ -134,7 +134,7 @@ function CustomizeMode(aWindow) {
     );
   }
   // There are two palettes - there's the palette that can be overlayed with
-  // toolbar items in browser.xul. This is invisible, and never seen by the
+  // toolbar items in browser.xhtml. This is invisible, and never seen by the
   // user. Then there's the visible palette, which gets populated and displayed
   // to the user when in customizing mode.
   this.visiblePalette = this.$(kPaletteId);
@@ -355,10 +355,13 @@ CustomizeMode.prototype = {
       this._transitioning = true;
 
       let customizer = document.getElementById("customization-container");
-      customizer.parentNode.selectedPanel = customizer;
+      let browser = document.getElementById("browser");
+      browser.collapsed = true;
       customizer.hidden = false;
 
       this._wrapToolbarItemSync(CustomizableUI.AREA_TABSTRIP);
+
+      this.document.documentElement.setAttribute("customizing", true);
 
       let customizableToolbars = document.querySelectorAll(
         "toolbar[customizable=true]:not([autohide=true]):not([collapsed=true])"
@@ -367,7 +370,7 @@ CustomizeMode.prototype = {
         toolbar.setAttribute("customizing", true);
       }
 
-      await this._doTransition(true);
+      this._updateOverflowPanelArrowOffset();
 
       // Let everybody in this window know that we're about to customize.
       CustomizableUI.dispatchToolboxEvent("customizationstarting", {}, window);
@@ -469,7 +472,12 @@ CustomizeMode.prototype = {
     (async () => {
       await this.depopulatePalette();
 
-      await this._doTransition(false);
+      // We need to set this._customizing to false and remove the `customizing`
+      // attribute before removing the tab or else
+      // XULBrowserWindow.onLocationChange might think that we're still in
+      // customization mode and need to exit it for a second time.
+      this._customizing = false;
+      this.document.documentElement.removeAttribute("customizing");
 
       if (this.browser.selectedTab == gTab) {
         if (gTab.linkedBrowser.currentURI.spec == "about:blank") {
@@ -478,10 +486,11 @@ CustomizeMode.prototype = {
           unregisterGlobalTab();
         }
       }
-      let browser = document.getElementById("browser");
-      browser.parentNode.selectedPanel = browser;
+
       let customizer = document.getElementById("customization-container");
+      let browser = document.getElementById("browser");
       customizer.hidden = true;
+      browser.collapsed = false;
 
       window.gNavToolbox.removeEventListener("toolbarvisibilitychange", this);
 
@@ -504,11 +513,6 @@ CustomizeMode.prototype = {
       document.getElementById("nav-bar-overflow-button").disabled = false;
       let panelContextMenu = document.getElementById(kPanelItemContextMenu);
       this._previousPanelContextMenuParent.appendChild(panelContextMenu);
-
-      // We need to set this._customizing to false before removing the tab
-      // or the TabSelect event handler will think that we are exiting
-      // customization mode for a second time.
-      this._customizing = false;
 
       let customizableToolbars = document.querySelectorAll(
         "toolbar[customizable=true]:not([autohide=true])"
@@ -536,37 +540,36 @@ CustomizeMode.prototype = {
   },
 
   /**
-   * The customize mode transition has 4 phases when entering:
-   * 1) Pre-customization mode
-   *    This is the starting phase of the browser.
-   * 2) LWT swapping
-   *    This is where we swap some of the lightweight theme styles in order
-   *    to make them work in customize mode. We set/unset a customization-
-   *    lwtheme attribute iff we're using a lightweight theme.
-   * 3) customize-entering
-   *    This phase is a transition, optimized for smoothness.
-   * 4) customize-entered
-   *    After the transition completes, this phase draws all of the
-   *    expensive detail that isn't necessary during the second phase.
-   *
-   * Exiting customization mode has a similar set of phases, but in reverse
-   * order - customize-entered, customize-exiting, remove LWT swapping,
-   * pre-customization mode.
-   *
-   * When in the customize-entering, customize-entered, or customize-exiting
-   * phases, there is a "customizing" attribute set on the main-window to simplify
-   * excluding certain styles while in any phase of customize mode.
+   * The overflow panel in customize mode should have its arrow pointing
+   * at the overflow button. In order to do this correctly, we pass the
+   * distance between the inside of window and the middle of the button
+   * to the customize mode markup in which the arrow and panel are placed.
    */
-  _doTransition(aEntering) {
-    let docEl = this.document.documentElement;
-    if (aEntering) {
-      docEl.setAttribute("customizing", true);
-      docEl.setAttribute("customize-entered", true);
-    } else {
-      docEl.removeAttribute("customizing");
-      docEl.removeAttribute("customize-entered");
+  async _updateOverflowPanelArrowOffset() {
+    let currentDensity = this.document.documentElement.getAttribute(
+      "uidensity"
+    );
+    let offset = await this.window.promiseDocumentFlushed(() => {
+      let overflowButton = this.$("nav-bar-overflow-button");
+      let buttonRect = overflowButton.getBoundingClientRect();
+      let endDistance;
+      if (this.window.RTL_UI) {
+        endDistance = buttonRect.left;
+      } else {
+        endDistance = this.window.innerWidth - buttonRect.right;
+      }
+      return endDistance + buttonRect.width / 2;
+    });
+    if (
+      !this.document ||
+      currentDensity != this.document.documentElement.getAttribute("uidensity")
+    ) {
+      return;
     }
-    return Promise.resolve();
+    this.$("customization-panelWrapper").style.setProperty(
+      "--panel-arrow-offset",
+      offset + "px"
+    );
   },
 
   _getCustomizableChildForNode(aNode) {
@@ -1346,6 +1349,7 @@ CustomizeMode.prototype = {
 
   updateUIDensity(mode) {
     this.window.gUIDensity.update(mode);
+    this._updateOverflowPanelArrowOffset();
   },
 
   setUIDensity(mode) {
@@ -1364,10 +1368,12 @@ CustomizeMode.prototype = {
 
     this._onUIChange();
     panel.hidePopup();
+    this._updateOverflowPanelArrowOffset();
   },
 
   resetUIDensity() {
     this.window.gUIDensity.update();
+    this._updateOverflowPanelArrowOffset();
   },
 
   onUIDensityMenuShowing() {
@@ -2251,11 +2257,12 @@ CustomizeMode.prototype = {
   },
 
   _isUnwantedDragDrop(aEvent) {
-    // The simulated events generated by synthesizeDragStart/synthesizeDrop in
-    // mochitests are used only for testing whether the right data is being put
-    // into the dataTransfer. Neither cause a real drop to occur, so they don't
-    // set the source node. There isn't a means of testing real drag and drops,
-    // so this pref skips the check but it should only be set by test code.
+    // The synthesized events for tests generated by synthesizePlainDragAndDrop
+    // and synthesizeDrop in mochitests are used only for testing whether the
+    // right data is being put into the dataTransfer. Neither cause a real drop
+    // to occur, so they don't set the source node. There isn't a means of
+    // testing real drag and drops, so this pref skips the check but it should
+    // only be set by test code.
     if (this._skipSourceNodeCheck) {
       return false;
     }

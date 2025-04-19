@@ -246,7 +246,9 @@ var BookmarkPropertiesPanel = {
     });
 
     // Disable the buttons until we have all the information required.
-    let acceptButton = document.documentElement.getButton("accept");
+    let acceptButton = document
+      .getElementById("bookmarkpropertiesdialog")
+      .getButton("accept");
     acceptButton.disabled = true;
 
     // Allow initialization to complete in a truely async manner so that we're
@@ -261,7 +263,9 @@ var BookmarkPropertiesPanel = {
    * will enable the accept button (if appropraite) when it is complete.
    */
   async _initDialog() {
-    let acceptButton = document.documentElement.getButton("accept");
+    let acceptButton = document
+      .getElementById("bookmarkpropertiesdialog")
+      .getButton("accept");
     acceptButton.label = this._getAcceptLabel();
     let acceptButtonDisabled = false;
 
@@ -363,9 +367,9 @@ var BookmarkPropertiesPanel = {
           target.id == "editBMPanel_keywordField"
         ) {
           // Check uri fields to enable accept button if input is valid
-          document.documentElement.getButton(
-            "accept"
-          ).disabled = !this._inputIsValid();
+          document
+            .getElementById("bookmarkpropertiesdialog")
+            .getButton("accept").disabled = !this._inputIsValid();
         }
         break;
       case "resize":
@@ -439,7 +443,7 @@ var BookmarkPropertiesPanel = {
   },
 
   /**
-   * Determines whether the XUL textbox with the given ID contains a
+   * Determines whether the input with the given ID contains a
    * string that can be converted into an nsIURI.
    *
    * @param aTextboxID

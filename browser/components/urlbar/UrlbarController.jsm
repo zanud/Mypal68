@@ -22,12 +22,21 @@ XPCOMUtils.defineLazyModuleGetters(this, {
 
 const TELEMETRY_1ST_RESULT = "PLACES_AUTOCOMPLETE_1ST_RESULT_TIME_MS";
 const TELEMETRY_6_FIRST_RESULTS = "PLACES_AUTOCOMPLETE_6_FIRST_RESULTS_TIME_MS";
+const NOTIFICATIONS = {
+  QUERY_STARTED: "onQueryStarted",
+  QUERY_RESULTS: "onQueryResults",
+  QUERY_RESULT_REMOVED: "onQueryResultRemoved",
+  QUERY_CANCELLED: "onQueryCancelled",
+  QUERY_FINISHED: "onQueryFinished",
+  VIEW_OPEN: "onViewOpen",
+  VIEW_CLOSE: "onViewClose",
+};
 
 /**
  * The address bar controller handles queries from the address bar, obtains
  * results and returns them to the UI for display.
  *
- * Listeners may be added to listen for the results. They must support the
+ * Listeners may be added to listen for the results. They may support the
  * following methods which may be called when a query is run:
  *
  * - onQueryStarted(queryContext)
@@ -35,6 +44,8 @@ const TELEMETRY_6_FIRST_RESULTS = "PLACES_AUTOCOMPLETE_6_FIRST_RESULTS_TIME_MS";
  * - onQueryCancelled(queryContext)
  * - onQueryFinished(queryContext)
  * - onQueryResultRemoved(index)
+ * - onViewOpen()
+ * - onViewClose()
  */
 class UrlbarController {
   /**
@@ -65,6 +76,10 @@ class UrlbarController {
 
     this._listeners = new Set();
     this._userSelectionBehavior = "none";
+  }
+
+  get NOTIFICATIONS() {
+    return NOTIFICATIONS;
   }
 
   /**
@@ -111,7 +126,7 @@ class UrlbarController {
     // For proper functionality we must ensure this notification is fired
     // synchronously, as soon as startQuery is invoked, but after any
     // notifications related to the previous query.
-    this._notify("onQueryStarted", queryContext);
+    this.notify(NOTIFICATIONS.QUERY_STARTED, queryContext);
     await this.manager.startQuery(queryContext, this);
     // If the query has been cancelled, onQueryFinished was notified already.
     // Note this._lastQueryContextWrapper may have changed in the meanwhile.
@@ -122,7 +137,7 @@ class UrlbarController {
       contextWrapper.done = true;
       // TODO (Bug 1549936) this is necessary to avoid leaks in PB tests.
       this.manager.cancelQuery(queryContext);
-      this._notify("onQueryFinished", queryContext);
+      this.notify(NOTIFICATIONS.QUERY_FINISHED, queryContext);
     }
     return queryContext;
   }
@@ -143,8 +158,8 @@ class UrlbarController {
     TelemetryStopwatch.cancel(TELEMETRY_1ST_RESULT, queryContext);
     TelemetryStopwatch.cancel(TELEMETRY_6_FIRST_RESULTS, queryContext);
     this.manager.cancelQuery(queryContext);
-    this._notify("onQueryCancelled", queryContext);
-    this._notify("onQueryFinished", queryContext);
+    this.notify(NOTIFICATIONS.QUERY_CANCELLED, queryContext);
+    this.notify(NOTIFICATIONS.QUERY_FINISHED, queryContext);
   }
 
   /**
@@ -173,7 +188,7 @@ class UrlbarController {
       );
     }
 
-    this._notify("onQueryResults", queryContext);
+    this.notify(NOTIFICATIONS.QUERY_RESULTS, queryContext);
     // Update lastResultCount after notifying, so the view can use it.
     queryContext.lastResultCount = queryContext.results.length;
   }
@@ -198,17 +213,6 @@ class UrlbarController {
    */
   removeQueryListener(listener) {
     this._listeners.delete(listener);
-  }
-
-  /**
-   * When the containing context changes (for example when switching tabs),
-   * clear any caches that connects consecutive searches in the same context.
-   * For example it can be used to clear information used to improve autofill
-   * or save resourced on repeated searches.
-   */
-  viewContextChanged() {
-    this.cancelQuery();
-    this._notify("onViewContextChanged");
   }
 
   /**
@@ -241,7 +245,7 @@ class UrlbarController {
     if (
       end != start ||
       (isArrowUp && start > 0) ||
-      (isArrowDown && end < this.input.textValue.length)
+      (isArrowDown && end < this.input.value.length)
     ) {
       return true;
     }
@@ -292,7 +296,11 @@ class UrlbarController {
     switch (event.keyCode) {
       case KeyEvent.DOM_VK_ESCAPE:
         if (executeAction) {
-          this.input.handleRevert();
+          if (this.view.isOpen) {
+            this.view.close();
+          } else {
+            this.input.handleRevert();
+          }
         }
         event.preventDefault();
         break;
@@ -303,7 +311,21 @@ class UrlbarController {
         event.preventDefault();
         break;
       case KeyEvent.DOM_VK_TAB:
-        if (this.view.isOpen && !event.ctrlKey && !event.altKey) {
+        // It's always possible to tab through results when the urlbar was
+        // focused with the mouse, or has a search string.
+        // When there's no search string, we want to focus the next toolbar item
+        // instead, for accessibility reasons.
+        let allowTabbingThroughResults =
+          !UrlbarPrefs.get("update1") ||
+          this.input.focusedViaMousedown ||
+          (this.input.value &&
+            this.input.getAttribute("pageproxystate") != "valid");
+        if (
+          this.view.isOpen &&
+          !event.ctrlKey &&
+          !event.altKey &&
+          allowTabbingThroughResults
+        ) {
           if (executeAction) {
             this.userSelectionBehavior = "tab";
             this.view.selectBy(1, { reverse: event.shiftKey });
@@ -339,7 +361,7 @@ class UrlbarController {
           }
           if (executeAction) {
             this.userSelectionBehavior = "arrow";
-            this.input.startQuery({ searchString: this.input.textValue });
+            this.input.startQuery({ searchString: this.input.value });
           }
         }
         event.preventDefault();
@@ -379,7 +401,7 @@ class UrlbarController {
    */
   speculativeConnect(result, context, reason) {
     // Never speculative connect in private contexts.
-    if (!this.input || context.isPrivate || context.results.length == 0) {
+    if (!this.input || context.isPrivate || !context.results.length) {
       return;
     }
     let { url } = UrlbarUtils.getUrlFromResult(result);
@@ -554,7 +576,7 @@ class UrlbarController {
     }
 
     queryContext.results.splice(index, 1);
-    this._notify("onQueryResultRemoved", index);
+    this.notify(NOTIFICATIONS.QUERY_RESULT_REMOVED, index);
 
     PlacesUtils.history
       .remove(selectedResult.payload.url)
@@ -563,12 +585,12 @@ class UrlbarController {
   }
 
   /**
-   * Internal function to notify listeners of results.
+   * Notifies listeners of results.
    *
    * @param {string} name Name of the notification.
    * @param {object} params Parameters to pass with the notification.
    */
-  _notify(name, ...params) {
+  notify(name, ...params) {
     for (let listener of this._listeners) {
       // Can't use "in" because some tests proxify these.
       if (typeof listener[name] != "undefined") {

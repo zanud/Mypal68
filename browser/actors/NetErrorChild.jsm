@@ -81,7 +81,11 @@ const PREF_SERVICES_SETTINGS_CLOCK_SKEW_SECONDS =
 const PREF_SERVICES_SETTINGS_LAST_FETCHED =
   "services.settings.last_update_seconds";
 
-const PREF_SSL_IMPACT_ROOTS = ["security.tls.version.", "security.ssl3."];
+const PREF_SSL_IMPACT_ROOTS = [
+  "security.tls.version.",
+  "security.ssl3.",
+  "security.tls13.",
+];
 
 let formatter = new Services.intl.DateTimeFormat(undefined, {
   dateStyle: "long",

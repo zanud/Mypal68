@@ -205,70 +205,31 @@
   }
 }
 
-/**
- * In the classic themes, the titlebar has a horizontal gradient, which is
- * problematic for reading the text of background tabs when they're in the
- * titlebar. We side-step this issue by layering our own background underneath
- * the tabs. Unfortunately, this requires a bunch of positioning in order to get
- * text and icons to not appear fuzzy.
- */
 @media (-moz-windows-classic) {
   /**
-   * We need to bump up the z-index of the tabbrowser-tabs so that they appear
-   * over top of the fog we're applying for classic themes, as well as the nav-bar.
+   * In the classic themes, the titlebar has a horizontal gradient, which is
+   * problematic for reading the text of background tabs when they're in the
+   * titlebar. We side-step this issue by layering our own background underneath
+   * the tabs.
    */
-  #main-window[tabsintitlebar]:not([sizemode=fullscreen]) #tabbrowser-tabs {
-    position: relative;
-    z-index: 2;
+  :root[tabsintitlebar]:not([sizemode=fullscreen]) #TabsToolbar:not(:-moz-lwtheme) {
+    background-image: linear-gradient(transparent, ActiveCaption);
+    background-size: auto 200%;
   }
 
-  #main-window[tabsintitlebar] #TabsToolbar:not(:-moz-lwtheme) {
-    position: relative;
+  :root[tabsintitlebar]:not([sizemode=fullscreen]) #TabsToolbar:not(:-moz-lwtheme):-moz-window-inactive {
+    background-image: linear-gradient(transparent, InactiveCaption);
   }
 
-  #main-window[tabsintitlebar]:not([sizemode=fullscreen]) #TabsToolbar:not(:-moz-lwtheme)::after {
-    /* Because we use placeholders for window controls etc. in the tabstrip,
-     * and position those with ordinal attributes, and because our layout code
-     * expects :before/:after nodes to come first/last in the frame list,
-     * we have to reorder this element to come last, hence the
-     * ordinal group value (see bug 853415). */
-    -moz-box-ordinal-group: 1001;
-    box-shadow: 0 0 50px 8px ActiveCaption;
-    content: "";
-    display: block;
-    height: 0;
-    margin: 0 50px;
-    position: absolute;
-    pointer-events: none;
-    top: 100%;
-    width: -moz-available;
-  }
-
-  #main-window[tabsintitlebar]:not([sizemode=fullscreen]) #TabsToolbar:not(:-moz-lwtheme):-moz-window-inactive::after {
-    box-shadow: 0 0 50px 8px InactiveCaption;
-  }
-
-  #main-window[tabsintitlebar]:not([sizemode=fullscreen]) toolbar[customindex]:not(:-moz-lwtheme),
-  #main-window[tabsintitlebar]:not([sizemode=fullscreen]) #PersonalToolbar:not(:-moz-lwtheme) {
-    position: relative;
-  }
-
-  /* Need to constrain the box shadow fade to avoid overlapping layers, see bug 886281. */
-  #main-window[tabsintitlebar]:not([sizemode=fullscreen]) #navigator-toolbox:not(:-moz-lwtheme) {
-    overflow: clip;
-  }
-
-  #main-window[tabsintitlebar][sizemode="normal"] > #navigator-toolbox:-moz-lwtheme {
-    /* Render a window top border: */
+  /* Add a window top border for webextension themes */
+  :root[tabsintitlebar][sizemode="normal"] #navigator-toolbox:-moz-lwtheme {
     background-image: linear-gradient(to bottom,
           ThreeDLightShadow 0, ThreeDLightShadow 1px,
           ThreeDHighlight 1px, ThreeDHighlight 2px,
           ActiveBorder 2px, ActiveBorder 4px, transparent 4px);
   }
 
-  /* End classic titlebar gradient */
-
-  #main-window[tabsintitlebar]:not([inFullscreen]) :-moz-any(#TabsToolbar, #toolbar-menubar) toolbarbutton:not(:-moz-lwtheme) {
+  :root[tabsintitlebar]:not([inFullscreen]) :-moz-any(#TabsToolbar, #toolbar-menubar) toolbarbutton:not(:-moz-lwtheme) {
     color: inherit;
   }
 }
@@ -298,12 +259,12 @@
 
 /* ::::: titlebar ::::: */
 
-#main-window[tabsintitlebar][sizemode="normal"] > #navigator-toolbox > #titlebar {
+:root[tabsintitlebar][sizemode="normal"] #titlebar {
   appearance: auto;
   -moz-default-appearance: -moz-window-titlebar;
 }
 
-#main-window[tabsintitlebar][sizemode="maximized"] > #navigator-toolbox > #titlebar {
+:root[tabsintitlebar][sizemode="maximized"] #titlebar {
   appearance: auto;
   -moz-default-appearance: -moz-window-titlebar-maximized;
 }
@@ -326,7 +287,7 @@
 }
 
 @media (-moz-windows-classic) {
-  #main-window[tabsintitlebar][sizemode="normal"] > #navigator-toolbox > #titlebar > #toolbar-menubar {
+  :root[tabsintitlebar][sizemode="normal"] #toolbar-menubar {
     margin-top: 4px;
   }
 }
@@ -580,22 +541,9 @@ menuitem.bookmark-item {
 
 @media (-moz-windows-default-theme: 0) {
   #urlbar:not(:-moz-lwtheme):not([focused="true"]),
-  #urlbar:not(:-moz-lwtheme).hidden-focus,
   #searchbar:not(:-moz-lwtheme):not(:focus-within) {
     border-color: ThreeDShadow;
   }
-}
-
-html|*.urlbar-input:-moz-lwtheme::placeholder,
-.searchbar-textbox:-moz-lwtheme > moz-input-box > html|*.textbox-input::placeholder {
-  opacity: 1.0;
-  color: #777;
-}
-
-/* ::::: URL Bar Zoom Reset Button ::::: */
-
-.urlbar-display {
-  margin-inline-start: 0;
 }
 
 /* identity box */
@@ -605,15 +553,12 @@ html|*.urlbar-input:-moz-lwtheme::placeholder,
 /* autocomplete */
 
 %include ../shared/autocomplete.inc.css
-%include ../shared/urlbar-autocomplete.inc.css
-
-#urlbarView-results {
-  font-size: 1.15em;
-}
 
 #PopupAutoComplete > richlistbox > richlistitem[originaltype~="datalist-first"] {
   border-top: 1px solid ThreeDShadow;
 }
+
+%include ../shared/urlbar-autocomplete.inc.css
 
 @media (-moz-windows-default-theme) {
   :root {
@@ -626,6 +571,12 @@ html|*.urlbar-input:-moz-lwtheme::placeholder,
   :root {
     --urlbar-popup-url-color: -moz-nativehyperlinktext;
     --urlbar-popup-action-color: -moz-nativehyperlinktext;
+  }
+}
+
+@supports -moz-bool-pref("browser.urlbar.update1.expandTextOnFocus") {
+  #urlbar[breakout-extend] {
+    font-size: 1.25em;
   }
 }
 
@@ -678,42 +629,16 @@ html|*.urlbar-input:-moz-lwtheme::placeholder,
   outline-offset: -6px;
 }
 
-/* Tab DnD indicator */
-.tab-drop-indicator {
-  list-style-image: url(chrome://browser/skin/tabbrowser/tabDragIndicator.png);
-  margin-bottom: -9px;
-  z-index: 3;
-}
-
 /* All tabs menupopup */
 
 .alltabs-item[selected="true"] {
   font-weight: bold;
 }
 
-/* Bookmarks toolbar */
-#PlacesToolbarDropIndicator {
-  list-style-image: url(chrome://browser/skin/places/toolbarDropMarker.png);
-}
-
 toolbarbutton.bookmark-item[dragover="true"][open="true"] {
   appearance: none;
   background: Highlight !important;
   color: HighlightText !important;
-}
-
-/* rules for menupopup drop indicators */
-.menupopup-drop-indicator-bar {
-  position: relative;
-  /* these two margins must together compensate the indicator's height */
-  margin-block: -1px;
-}
-
-.menupopup-drop-indicator {
-  list-style-image: none;
-  height: 2px;
-  margin-inline-end: -4em;
-  background-color: Highlight;
 }
 
 %include ../shared/notification-icons.inc.css
@@ -783,7 +708,7 @@ notification[value="translation"] {
   notification[value="translation"] menulist > .menulist-dropmarker {
     list-style-image: url(chrome://global/skin/icons/arrow-dropdown-16.svg);
   }
-  notification[value="translation"] menulist > .menulist-dropmarker > .dropmarker-icon {
+  notification[value="translation"] menulist > .menulist-dropmarker::part(icon) {
     width: 11px;
     height: 11px;
   }
@@ -862,16 +787,6 @@ notification[value="translation"] {
 
 %include ../shared/customizableui/customizeMode.inc.css
 
-/**
- * This next rule is a hack to disable subpixel anti-aliasing on all
- * labels during the customize mode transition. Subpixel anti-aliasing
- * on Windows with Direct2D layers acceleration is particularly slow to
- * paint, so this hack is how we sidestep that performance bottleneck.
- */
-#main-window:-moz-any([customize-entering],[customize-exiting]) label {
-  transform: perspective(0.01px);
-}
-
 /* End customization mode */
 
 /* Prevent window controls from overlapping the nav bar's shadow on the tab
@@ -922,11 +837,6 @@ panel[touchmode] .PanelUI-subView #appMenu-zoom-controls > .subviewbutton-iconic
 }
 
 %include browser-aero.css
-
-.browser-extension-panel > .panel-arrowcontainer > .panel-arrowcontent {
-  padding: 0;
-  overflow: hidden;
-}
 
 @media (-moz-os-version: windows-vista),
        (-moz-os-version: windows-win7) {

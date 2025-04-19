@@ -78,7 +78,6 @@ let isRounded = (x, expectedPrecision) => {
 };
 
 let setupTest = async function(
-  tab,
   resistFingerprinting,
   reduceTimerPrecision,
   expectedPrecision,
@@ -95,6 +94,13 @@ let setupTest = async function(
       ],
     ],
   });
+
+  let win = await BrowserTestUtils.openNewBrowserWindow();
+  let tab = await BrowserTestUtils.openNewForegroundTab(
+    win.gBrowser,
+    TEST_PATH + "file_dummy.html"
+  );
+
   // No matter what we set the precision to, if we're in ResistFingerprinting mode
   // we use the larger of the precision pref and the constant 100ms
   if (resistFingerprinting) {
@@ -110,15 +116,11 @@ let setupTest = async function(
     },
     runTests
   );
+  await BrowserTestUtils.closeWindow(win);
 };
 // ================================================================================================
 // ================================================================================================
 add_task(async function runRPTests() {
-  let tab = await BrowserTestUtils.openNewForegroundTab(
-    gBrowser,
-    TEST_PATH + "file_dummy.html"
-  );
-
   let runTests = async function(data) {
     let timerlist = data.list;
     let expectedPrecision = data.precision;
@@ -133,13 +135,25 @@ add_task(async function runRPTests() {
         content.performance.timeOrigin
     );
 
-    // Check that whether the performance timing API is correctly spoofed.
+    // Check that the performance timing API is correctly spoofed. In
+    // particular, check if domainLookupStart and domainLookupEnd return
+    // fetchStart, and if everything else is clamped to the expected precision.
     for (let time of timerlist) {
-      is(
-        content.performance.timing[time],
-        0,
-        `For resistFingerprinting, the timing(${time}) is not correctly spoofed.`
-      );
+      if (time == "domainLookupStart" || time == "domainLookupEnd") {
+        is(
+          content.performance.timing[time],
+          content.performance.timing.fetchStart,
+          `For resistFingerprinting, the timing(${time}) is not correctly spoofed.`
+        );
+      } else {
+        ok(
+          isRounded(content.performance.timing[time], expectedPrecision),
+          `For resistFingerprinting with expected precision ` +
+            expectedPrecision +
+            `, the timing(${time}) is not correctly rounded: ` +
+            content.performance.timing[time]
+        );
+      }
     }
 
     // Try to add some entries.
@@ -165,21 +179,15 @@ add_task(async function runRPTests() {
     );
   };
 
-  await setupTest(tab, true, true, 100, runTests);
-  await setupTest(tab, true, false, 13, runTests);
-  await setupTest(tab, true, false, 0.13, runTests);
-
-  BrowserTestUtils.removeTab(tab);
+  await setupTest(true, true, 200, runTests);
+  await setupTest(true, true, 100, runTests);
+  await setupTest(true, false, 13, runTests);
+  await setupTest(true, false, 0.13, runTests);
 });
 
 // ================================================================================================
 // ================================================================================================
 add_task(async function runRTPTests() {
-  let tab = await BrowserTestUtils.openNewForegroundTab(
-    gBrowser,
-    TEST_PATH + "file_dummy.html"
-  );
-
   let runTests = async function(data) {
     let timerlist = data.list;
     let expectedPrecision = data.precision;
@@ -211,12 +219,20 @@ add_task(async function runRTPTests() {
     content.performance.measure("Test-Measure", "Test", "Test-End");
 
     // Check the entries for performance.getEntries/getEntriesByType/getEntriesByName.
+    await new Promise(resolve => {
+      const paintObserver = new content.PerformanceObserver(() => {
+        resolve();
+      });
+      paintObserver.observe({ type: "paint", buffered: true });
+    });
+
     is(
       content.performance.getEntries().length,
-      4,
+      5,
       "For reduceTimerPrecision, there should be 4 entries for performance.getEntries()"
+      // PerformancePaintTiming, PerformanceNavigationTiming, PerformanceMark, PerformanceMark, PerformanceMeasure
     );
-    for (var i = 0; i < 4; i++) {
+    for (var i = 0; i < 5; i++) {
       let startTime = content.performance.getEntries()[i].startTime;
       let duration = content.performance.getEntries()[i].duration;
       ok(
@@ -253,11 +269,9 @@ add_task(async function runRTPTests() {
     content.performance.clearResourceTimings();
   };
 
-  await setupTest(tab, false, true, 100, runTests);
-  await setupTest(tab, false, true, 13, runTests);
-  await setupTest(tab, false, true, 0.13, runTests);
-
-  BrowserTestUtils.removeTab(tab);
+  await setupTest(false, true, 100, runTests);
+  await setupTest(false, true, 13, runTests);
+  await setupTest(false, true, 0.13, runTests);
 });
 
 // ================================================================================================
@@ -284,27 +298,13 @@ let runWorkerTest = async function(data) {
 };
 
 add_task(async function runRPTestsForWorker() {
-  let tab = await BrowserTestUtils.openNewForegroundTab(
-    gBrowser,
-    TEST_PATH + "file_dummy.html"
-  );
-
-  await setupTest(tab, true, true, 100, runWorkerTest, "runRPTests");
-  await setupTest(tab, true, false, 13, runWorkerTest, "runRPTests");
-  await setupTest(tab, true, true, 0.13, runWorkerTest, "runRPTests");
-
-  BrowserTestUtils.removeTab(tab);
+  await setupTest(true, true, 100, runWorkerTest, "runRPTests");
+  await setupTest(true, false, 13, runWorkerTest, "runRPTests");
+  await setupTest(true, true, 0.13, runWorkerTest, "runRPTests");
 });
 
 add_task(async function runRTPTestsForWorker() {
-  let tab = await BrowserTestUtils.openNewForegroundTab(
-    gBrowser,
-    TEST_PATH + "file_dummy.html"
-  );
-
-  await setupTest(tab, false, true, 100, runWorkerTest, "runRTPTests");
-  await setupTest(tab, false, true, 13, runWorkerTest, "runRTPTests");
-  await setupTest(tab, false, true, 0.13, runWorkerTest, "runRTPTests");
-
-  BrowserTestUtils.removeTab(tab);
+  await setupTest(false, true, 100, runWorkerTest, "runRTPTests");
+  await setupTest(false, true, 13, runWorkerTest, "runRTPTests");
+  await setupTest(false, true, 0.13, runWorkerTest, "runRTPTests");
 });

@@ -7,7 +7,7 @@ var { Services } = ChromeUtils.import("resource://gre/modules/Services.jsm");
 AddonTestUtils.initMochitest(this);
 
 const BROWSER_LANGUAGES_URL =
-  "chrome://browser/content/preferences/browserLanguages.xul";
+  "chrome://browser/content/preferences/browserLanguages.xhtml";
 const DICTIONARY_ID_PL = "pl@dictionaries.addons.mozilla.org";
 const TELEMETRY_CATEGORY = "intl.ui.browserLanguage";
 
@@ -184,7 +184,7 @@ function assertTelemetryRecorded(events) {
 
   // Make sure we got some data.
   ok(
-    snapshot.parent && snapshot.parent.length > 0,
+    snapshot.parent && !!snapshot.parent.length,
     "Got parent telemetry events in the snapshot"
   );
 
@@ -364,10 +364,7 @@ add_task(async function testReorderingBrowserLanguages() {
   assertLocaleOrder(selected, "en-US,he,pl");
 
   // Accepting the change shows the confirm message bar.
-  let dialogClosed = BrowserTestUtils.waitForEvent(
-    dialogDoc.documentElement,
-    "dialogclosing"
-  );
+  let dialogClosed = BrowserTestUtils.waitForEvent(dialog, "dialogclosing");
   dialog.acceptDialog();
   await dialogClosed;
   is(messageBar.hidden, false, "The message bar is now visible");
@@ -394,10 +391,7 @@ add_task(async function testReorderingBrowserLanguages() {
   assertLocaleOrder(selected, "en-US,pl,he");
 
   // Accepting the change hides the confirm message bar.
-  dialogClosed = BrowserTestUtils.waitForEvent(
-    dialogDoc.documentElement,
-    "dialogclosing"
-  );
+  dialogClosed = BrowserTestUtils.waitForEvent(dialog, "dialogclosing");
   dialog.acceptDialog();
   await dialogClosed;
   is(messageBar.hidden, true, "The message bar is hidden again");
@@ -476,10 +470,7 @@ add_task(async function testAddAndRemoveSelectedLanguages() {
   assertAvailableLocales(available, ["pl", "fr"]);
 
   // Accepting the change shows the confirm message bar.
-  let dialogClosed = BrowserTestUtils.waitForEvent(
-    dialogDoc.documentElement,
-    "dialogclosing"
-  );
+  let dialogClosed = BrowserTestUtils.waitForEvent(dialog, "dialogclosing");
   dialog.acceptDialog();
   await dialogClosed;
 
@@ -602,7 +593,7 @@ add_task(async function testInstallFromAMO() {
 
   await BrowserTestUtils.waitForCondition(async () => {
     let newDicts = await AddonManager.getAddonsByTypes(["dictionary"]);
-    let done = newDicts.length != 0;
+    let done = !!newDicts.length;
 
     if (done) {
       is(
@@ -620,10 +611,7 @@ add_task(async function testInstallFromAMO() {
   assertLocaleOrder(selected, "en-US,pl");
 
   // Test that disabling the langpack removes it from the list.
-  let dialogClosed = BrowserTestUtils.waitForEvent(
-    dialogDoc.documentElement,
-    "dialogclosing"
-  );
+  let dialogClosed = BrowserTestUtils.waitForEvent(dialog, "dialogclosing");
   dialog.acceptDialog();
   await dialogClosed;
 

@@ -256,14 +256,11 @@ toolbar[brighttext] {
 }
 
 #PanelUI-profilerIframe {
-  width: 352px;
+  width: 450px;
 }
 
+#preferencesA-button,
 #preferences-button {
-  list-style-image: url("chrome://browser/skin/settings.svg");
-}
-
-#preferencesA-button {
   list-style-image: url("chrome://browser/skin/settings.svg");
 }
 

@@ -54,12 +54,6 @@ let extensionControlledContentIds = {
   webNotificationsDisabled: "browserNotificationsPermissionExtensionContent",
   defaultSearch: "browserDefaultSearchExtensionContent",
   "proxy.settings": "proxyExtensionContent",
-  get "websites.trackingProtectionMode"() {
-    return {
-      button: "contentBlockingDisableTrackingProtectionExtension",
-      section: "contentBlockingTrackingProtectionExtensionContentLabel",
-    };
-  },
 };
 
 const extensionControlledL10nKeys = {

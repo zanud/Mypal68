@@ -250,7 +250,7 @@ var ProcessHangMonitor = {
       case "domwindowopened": {
         // Install event listeners on the new window in case one of
         // its tabs is already hung.
-        let win = subject.QueryInterface(Ci.nsIDOMWindow);
+        let win = subject;
         let listener = ev => {
           win.removeEventListener("load", listener, true);
           this.updateWindows();
@@ -260,7 +260,7 @@ var ProcessHangMonitor = {
       }
 
       case "domwindowclosed": {
-        let win = subject.QueryInterface(Ci.nsIDOMWindow);
+        let win = subject;
         this.onWindowClosed(win);
         break;
       }

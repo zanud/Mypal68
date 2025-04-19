@@ -23,7 +23,7 @@ AddonTestUtils.initMochitest(this);
 const TEST_DIR = gTestPath.substr(0, gTestPath.lastIndexOf("/"));
 const CHROME_URL_ROOT = TEST_DIR + "/";
 const PERMISSIONS_URL =
-  "chrome://browser/content/preferences/sitePermissions.xul";
+  "chrome://browser/content/preferences/sitePermissions.xhtml";
 let sitePermissionsDialog;
 
 function getSupportsFile(path) {
@@ -970,7 +970,7 @@ add_task(async function testExtensionControlledProxyConfig() {
   const CONTROLLED_SECTION_ID = "proxyExtensionContent";
   const CONTROLLED_BUTTON_ID = "disableProxyExtension";
   const CONNECTION_SETTINGS_DESC_ID = "connectionSettingsDescription";
-  const PANEL_URL = "chrome://browser/content/preferences/connection.xul";
+  const PANEL_URL = "chrome://browser/content/preferences/connection.xhtml";
 
   await SpecialPowers.pushPrefEnv({ set: [[PROXY_PREF, PROXY_DEFAULT]] });
 
@@ -1030,13 +1030,13 @@ add_task(async function testExtensionControlledProxyConfig() {
       }
       function getProxyControls() {
         let controlGroup = doc.getElementById("networkProxyType");
-        let manualControlContainer = controlGroup.querySelector("grid");
+        let manualControlContainer = controlGroup.querySelector("#proxy-grid");
         return {
           manualControls: [
             ...manualControlContainer.querySelectorAll(
               "label[data-l10n-id]:not([control=networkProxyNone])"
             ),
-            ...manualControlContainer.querySelectorAll("textbox"),
+            ...manualControlContainer.querySelectorAll("input"),
             ...manualControlContainer.querySelectorAll("checkbox"),
             ...doc.querySelectorAll("#networkProxySOCKSVersion > radio"),
           ],
@@ -1122,7 +1122,7 @@ add_task(async function testExtensionControlledProxyConfig() {
   async function openProxyPanel() {
     let panel = await openAndLoadSubDialog(PANEL_URL);
     let closingPromise = waitForEvent(
-      panel.document.documentElement,
+      panel.document.getElementById("ConnectionsDialog"),
       "dialogclosing"
     );
     ok(panel, "Proxy panel opened.");
@@ -1130,7 +1130,8 @@ add_task(async function testExtensionControlledProxyConfig() {
   }
 
   async function closeProxyPanel(panelObj) {
-    panelObj.panel.document.documentElement.cancelDialog();
+    let dialog = panelObj.panel.document.getElementById("ConnectionsDialog");
+    dialog.cancelDialog();
     let panelClosingEvent = await panelObj.closingPromise;
     ok(panelClosingEvent, "Proxy panel closed.");
   }

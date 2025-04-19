@@ -244,6 +244,9 @@ var BrowserPageActions = {
       "subviewbutton-iconic",
       "pageAction-panel-button"
     );
+    if (action.isBadged) {
+      buttonNode.setAttribute("badged", "true");
+    }
     buttonNode.setAttribute("actionid", action.id);
     buttonNode.addEventListener("command", event => {
       this.doCommandForAction(action, event, buttonNode);
@@ -318,14 +321,13 @@ var BrowserPageActions = {
   _makeActivatedActionPanelForAction(action) {
     let panelNode = document.createXULElement("panel");
     panelNode.id = this._activatedActionPanelID;
-    panelNode.classList.add("cui-widget-panel");
+    panelNode.classList.add("cui-widget-panel", "panel-no-padding");
     panelNode.setAttribute("actionID", action.id);
     panelNode.setAttribute("role", "group");
     panelNode.setAttribute("type", "arrow");
     panelNode.setAttribute("flip", "slide");
     panelNode.setAttribute("noautofocus", "true");
     panelNode.setAttribute("tabspecific", "true");
-    panelNode.setAttribute("photon", "true");
 
     let panelViewNode = null;
     let iframeNode = null;
@@ -1192,7 +1194,6 @@ BrowserPageActions.addSearchEngine = {
     this._updateTitleAndIcon();
     this.action.setWantsSubview(this.engines.length > 1, window);
     let button = BrowserPageActions.panelButtonNodeForActionID(this.action.id);
-    button.classList.add("badged-button");
     button.setAttribute("image", this.engines[0].icon);
     button.setAttribute("uri", this.engines[0].uri);
     button.setAttribute("crop", "center");

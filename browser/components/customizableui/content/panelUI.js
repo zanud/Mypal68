@@ -433,7 +433,7 @@ const PanelUI = {
       let tempPanel = document.createXULElement("panel");
       tempPanel.setAttribute("type", "arrow");
       tempPanel.setAttribute("id", "customizationui-widget-panel");
-      tempPanel.setAttribute("class", "cui-widget-panel");
+      tempPanel.setAttribute("class", "cui-widget-panel panel-no-padding");
       tempPanel.setAttribute("viewId", aViewId);
       if (aAnchor.getAttribute("tabspecific")) {
         tempPanel.setAttribute("tabspecific", true);
@@ -442,7 +442,6 @@ const PanelUI = {
         tempPanel.setAttribute("animate", "false");
       }
       tempPanel.setAttribute("context", "");
-      tempPanel.setAttribute("photon", true);
       document
         .getElementById(CustomizableUI.AREA_NAVBAR)
         .appendChild(tempPanel);
@@ -969,17 +968,7 @@ const PanelUI = {
   },
 
   _getPanelAnchor(candidate) {
-    let iconAnchor =
-      document.getAnonymousElementByAttribute(
-        candidate,
-        "class",
-        "toolbarbutton-badge-stack"
-      ) ||
-      document.getAnonymousElementByAttribute(
-        candidate,
-        "class",
-        "toolbarbutton-icon"
-      );
+    let iconAnchor = candidate.badgeStack || candidate.icon;
     return iconAnchor || candidate;
   },
 

@@ -2,19 +2,11 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-do-not-track-description = Send websites a “Do Not Track” signal that you don’t want to be tracked
-do-not-track-learn-more = Learn more
-do-not-track-option-default-content-blocking-known =
-    .label = Only when { -brand-short-name } is set to block known trackers
-do-not-track-option-always =
-    .label = Always
-
-pref-page =
-    .title =
-        { PLATFORM() ->
-            [windows] Options
-           *[other] Preferences
-        }
+pref-page-title =
+    { PLATFORM() ->
+        [windows] Options
+       *[other] Preferences
+    }
 
 # This is used to determine the width of the search field in about:preferences,
 # in order to make the entire placeholder string visible
@@ -318,6 +310,80 @@ applications-action-column =
     .label = Action
     .accesskey = A
 
+# Variables:
+#   $extension (String) - file extension (e.g .TXT)
+applications-file-ending = { $extension } file
+applications-action-save =
+    .label = Save File
+
+# Variables:
+#   $app-name (String) - Name of an application (e.g Adobe Acrobat)
+applications-use-app =
+    .label = Use { $app-name }
+
+# Variables:
+#   $app-name (String) - Name of an application (e.g Adobe Acrobat)
+applications-use-app-default =
+    .label = Use { $app-name } (default)
+
+applications-use-other =
+    .label = Use other…
+applications-select-helper = Select Helper Application
+
+applications-manage-app =
+    .label = Application Details…
+applications-always-ask =
+    .label = Always ask
+applications-type-pdf = Portable Document Format (PDF)
+
+# Variables:
+#   $type (String) - the MIME type (e.g application/binary)
+applications-type-pdf-with-type = { applications-type-pdf } ({ $type })
+
+# Variables:
+#   $type-description (String) - Description of the type (e.g "Portable Document Format")
+#   $type (String) - the MIME type (e.g application/binary)
+applications-type-description-with-type = { $type-description } ({ $type })
+
+# Variables:
+#   $extension (String) - file extension (e.g .TXT)
+#   $type (String) - the MIME type (e.g application/binary)
+applications-file-ending-with-type = { applications-file-ending } ({ $type })
+
+# Variables:
+#   $plugin-name (String) - Name of a plugin (e.g Adobe Flash)
+applications-use-plugin-in =
+    .label = Use { $plugin-name } (in { -brand-short-name })
+applications-preview-inapp =
+    .label = Preview in { -brand-short-name }
+
+## The strings in this group are used to populate
+## selected label element based on the string from
+## the selected menu item.
+
+applications-use-plugin-in-label =
+    .value = { applications-use-plugin-in.label }
+
+applications-action-save-label =
+    .value = { applications-action-save.label }
+
+applications-use-app-label =
+    .value = { applications-use-app.label }
+
+applications-preview-inapp-label =
+    .value = { applications-preview-inapp.label }
+
+applications-always-ask-label =
+    .value = { applications-always-ask.label }
+
+applications-use-app-default-label =
+    .value = { applications-use-app-default.label }
+
+applications-use-other-label =
+    .value = { applications-use-other.label }
+
+##
+
 drm-content-header = Digital Rights Management (DRM) Content
 
 play-drm-content =
@@ -549,11 +615,20 @@ search-keyword-warning-bookmark = You have chosen a keyword that is currently in
 
 ## Containers Section
 
-containers-back-link = « Go Back
+containers-back-button =
+    .aria-label =
+      { PLATFORM() ->
+          [windows] Back to Options
+         *[other] Back to Preferences
+      }
 containers-header = Container Tabs
 containers-add-button =
     .label = Add New Container
     .accesskey = A
+
+containers-new-tab-check =
+    .label = Select a container for each new tab
+    .accesskey = S
 
 containers-preferences-button =
     .label = Preferences
@@ -695,6 +770,9 @@ forms-exceptions =
 forms-generate-passwords =
     .label = Suggest and generate strong passwords
     .accesskey = u
+forms-fill-logins-and-passwords =
+    .label = Autofill logins and passwords
+    .accesskey = i
 forms-saved-logins =
     .label = Saved Logins…
     .accesskey = L
@@ -704,6 +782,9 @@ forms-master-pw-use =
 forms-master-pw-change =
     .label = Change Master Password…
     .accesskey = M
+
+forms-master-pw-fips-title = You are currently in FIPS mode. FIPS requires a non-empty Master Password.
+forms-master-pw-fips-desc = Password Change Failed
 
 ## Privacy Section - History
 
@@ -787,8 +868,10 @@ sitedata-disallow-cookies-option =
 sitedata-block-desc = Type blocked
     .accesskey = T
 
-sitedata-option-block-trackers =
-    .label = Third-party trackers
+content-blocking-custom-desc = Choose what to block.
+
+sitedata-option-block-nothing =
+    .label = Nothing
 sitedata-option-block-unvisited =
     .label = Cookies from unvisited websites
 sitedata-option-block-all-third-party =
@@ -825,82 +908,19 @@ addressbar-locbar-openpage-option =
     .accesskey = O
 
 addressbar-suggestions-settings = Change preferences for search engine suggestions
-
-## Privacy Section - Content Blocking
-
-content-blocking-header = Content Blocking
-
-content-blocking-section-description = Protect your privacy while you browse. Block invisible content that tracks the sites you visit and profiles you. Blocking some of this content may make pages load faster.
-
-content-blocking-learn-more = Learn more
-
-# The terminology used to refer to categories of Content Blocking is also used in chrome/browser/browser.properties and should be translated consistently.
-# "Standard" in this case is an adjective, meaning "default" or "normal".
-content-blocking-setting-standard =
-  .label = Standard
-  .accesskey = d
-content-blocking-setting-strict =
-  .label = Strict
-  .accesskey = r
-content-blocking-setting-custom =
-  .label = Custom
-  .accesskey = C
-
-content-blocking-standard-desc = Balanced for protection and performance. Allows some trackers so websites function properly.
-content-blocking-strict-description = Stronger protection, may cause some sites to break.
-content-blocking-custom-desc = Choose what to block.
-
-content-blocking-private-trackers = Known trackers only in Private Windows
-content-blocking-third-party-cookies = Third-party tracking cookies
 content-blocking-all-cookies = All cookies
 content-blocking-unvisited-cookies = Cookies from unvisited sites
 content-blocking-all-windows-trackers = Known trackers in all windows
 content-blocking-all-third-party-cookies = All third-party cookies
-content-blocking-cryptominers = Cryptominers
-content-blocking-fingerprinters = Fingerprinters
-
-content-blocking-warning-title = Heads up!
-content-blocking-warning-description = Blocking content can cause some websites to break. It’s easy to disable blocking for sites you trust.
 
 content-blocking-reload-description = You will need to reload your tabs to apply these changes.
 content-blocking-reload-tabs-button =
   .label = Reload All Tabs
   .accesskey = R
 
-content-blocking-trackers-label =
-  .label = Trackers
-  .accesskey = T
-content-blocking-tracking-protection-option-all-windows =
-  .label = In all windows
-  .accesskey = A
-content-blocking-option-private =
-  .label = Only in Private Windows
-  .accesskey = p
-content-blocking-tracking-protection-change-block-list = Change block list
-
 content-blocking-cookies-label =
   .label = Cookies
   .accesskey = C
-
-content-blocking-expand-section =
-  .tooltiptext = More information
-
-# Cryptomining refers to using scripts on websites that can use a computer’s resources to mine cryptocurrency without a user’s knowledge.
-content-blocking-cryptominers-label =
-  .label = Cryptominers
-  .accesskey = y
-
-# Browser fingerprinting is a method of tracking users by the configuration and settings information (their "digital fingerprint")
-# that is visible to websites they browse, rather than traditional tracking methods such as IP addresses and unique cookies.
-content-blocking-fingerprinters-label =
-  .label = Fingerprinters
-  .accesskey = F
-
-## Privacy Section - Tracking
-
-tracking-manage-exceptions =
-    .label = Manage Exceptions…
-    .accesskey = x
 
 ## Privacy Section - Permissions
 
@@ -959,22 +979,6 @@ permissions-a11y-privacy-checkbox =
 
 permissions-a11y-privacy-link = Learn more
 
-## Privacy Section - Data Collection
-
-collection-header = { -brand-short-name } Data Collection and Use
-
-collection-description = We strive to provide you with choices and collect only what we need to provide and improve { -brand-short-name } for everyone. We always ask permission before receiving personal information.
-collection-privacy-notice = Privacy Notice
-
-collection-health-report =
-    .label = Allow { -brand-short-name } to send technical and interaction data to { -vendor-short-name }
-    .accesskey = r
-collection-health-report-link = Learn more
-
-addon-recommendations =
-    .label = Allow { -brand-short-name } to make personalized extension recommendations
-addon-recommendations-link = Learn more
-
 # This message is displayed above disabled data sharing options in developer builds
 # or builds with no Telemetry support available.
 collection-health-report-disabled = Data reporting is disabled for this build configuration
@@ -983,28 +987,6 @@ collection-backlogged-crash-reports =
     .label = Allow { -brand-short-name } to send backlogged crash reports on your behalf
     .accesskey = c
 collection-backlogged-crash-reports-link = Learn more
-
-## Privacy Section - Security
-##
-## It is important that wording follows the guidelines outlined on this page:
-## https://developers.google.com/safe-browsing/developers_guide_v2#AcceptableUsage
-
-security-header = Security
-
-security-browsing-protection = Deceptive Content and Dangerous Software Protection
-
-security-enable-safe-browsing =
-    .label = Block dangerous and deceptive content
-    .accesskey = B
-security-enable-safe-browsing-link = Learn more
-
-security-block-downloads =
-    .label = Block dangerous downloads
-    .accesskey = d
-
-security-block-uncommon-software =
-    .label = Warn you about unwanted and uncommon software
-    .accesskey = c
 
 ## Privacy Section - Certificates
 

@@ -246,9 +246,6 @@ View (e.g. showing/hiding a panel). It is also responsible for reporting Telemet
     // Used by the View to listen for results.
     addQueryListener(listener);
     removeQueryListener(listener);
-    // Used to indicate the View context changed, so that cached information
-    // about the latest search is no more relevant and can be dropped.
-    viewContextChanged();
   }
 
 
@@ -272,7 +269,7 @@ Implements an input box *View*, owns an *UrlbarView*.
 .. code::
 
   UrlbarInput {
-    constructor(options = { textbox, panel, controller });
+    constructor(options = { textbox, panel });
     // Used to trim urls when necessary (e.g. removing "http://")
     trimValue();
     // Uses UrlbarValueFormatter to highlight the base host, search aliases
@@ -331,9 +328,10 @@ Represents the base *View* implementation, communicates with the *Controller*.
     // Invoked when the query is done. This is invoked in any case, even if the
     // query was canceled earlier.
     onQueryFinished(queryContext);
-    // Invoked when the view context changed, so that cached information about
-    // the latest search is no more relevant and can be dropped.
-    onViewContextChanged();
+    // Invoked when the view opens.
+    onViewOpen();
+    // Invoked when the view closes.
+    onViewClose();
   }
 
 
@@ -376,7 +374,7 @@ The following RESULT_TYPEs are supported:
 
     // Payload: { icon, url, userContextId }
     TAB_SWITCH: 1,
-    // Payload: { icon, suggestion, keyword, query, isKeywordOffer }
+    // Payload: { icon, suggestion, keyword, query, keywordOffer }
     SEARCH: 2,
     // Payload: { icon, url, title, tags }
     URL: 3,

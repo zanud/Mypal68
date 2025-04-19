@@ -95,9 +95,6 @@ with Files("test/tabs/**"):
 with Files("test/touch/**"):
     BUG_COMPONENT = ("Firefox", "General")
 
-with Files("test/trackingUI/**"):
-    BUG_COMPONENT = ("Firefox", "Protections UI")
-
 with Files("test/webextensions/**"):
     BUG_COMPONENT = ("WebExtensions", "Untriaged")
 
@@ -109,9 +106,6 @@ with Files("aboutNetError.xhtml"):
 
 with Files("test/caps/**"):
     BUG_COMPONENT = ("Firefox", "Security")
-
-with Files("blockedSite.xhtml"):
-    BUG_COMPONENT = ("Toolkit", "Safe Browsing")
 
 with Files("browser-addons.js"):
     BUG_COMPONENT = ("Toolkit", "Add-ons Manager")
@@ -140,19 +134,16 @@ with Files("browser-places.js"):
 with Files("browser-plugins.js"):
     BUG_COMPONENT = ("Core", "Plug-ins")
 
-with Files("browser-safebrowsing.js"):
-    BUG_COMPONENT = ("Toolkit", "Safe Browsing")
-
 with Files("browser-sync.js"):
     BUG_COMPONENT = ("Firefox", "Sync")
 
 with Files("contentSearch*"):
     BUG_COMPONENT = ("Firefox", "Search")
 
-with Files("hiddenWindow.xul"):
+with Files("hiddenWindowMac.xhtml"):
     BUG_COMPONENT = ("Firefox", "Site Permissions")
 
-with Files("macWindow.inc.xul"):
+with Files("macWindow.inc.xhtml"):
     BUG_COMPONENT = ("Firefox", "Shell Integration")
 
 with Files("tabbrowser*"):

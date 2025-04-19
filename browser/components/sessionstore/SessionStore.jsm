@@ -2061,7 +2061,7 @@ var SessionStoreInternal = {
           }
         }
       }
-      if (openTabs.length == 0) {
+      if (!openTabs.length) {
         this._closedWindows.splice(ix, 1);
       } else if (openTabs.length != openTabCount) {
         // Adjust the window's title if we removed an open tab
@@ -3814,7 +3814,7 @@ var SessionStoreInternal = {
     var hidden = WINDOW_HIDEABLE_FEATURES.filter(function(aItem) {
       return aWindow[aItem] && !aWindow[aItem].visible;
     });
-    if (hidden.length != 0) {
+    if (hidden.length) {
       winData.hidden = hidden.join(",");
     } else if (winData.hidden) {
       delete winData.hidden;
@@ -3905,14 +3905,14 @@ var SessionStoreInternal = {
       //        its own check for popups. c.f. bug 597619
       if (
         nonPopupCount == 0 &&
-        lastClosedWindowsCopy.length > 0 &&
+        !!lastClosedWindowsCopy.length &&
         RunState.isQuitting
       ) {
         // prepend the last non-popup browser window, so that if the user loads more tabs
         // at startup we don't accidentally add them to a popup window
         do {
           total.unshift(lastClosedWindowsCopy.shift());
-        } while (total[0].isPopup && lastClosedWindowsCopy.length > 0);
+        } while (total[0].isPopup && lastClosedWindowsCopy.length);
       }
     }
 
@@ -4077,7 +4077,7 @@ var SessionStoreInternal = {
       firstWindow &&
       !overwriteTabs &&
       winData.tabs.length == 1 &&
-      (!winData.tabs[0].entries || winData.tabs[0].entries.length == 0)
+      (!winData.tabs[0].entries || !winData.tabs[0].entries.length)
     ) {
       winData.tabs = [];
     }
@@ -5221,7 +5221,7 @@ var SessionStoreInternal = {
   },
 
   /**
-   * on popup windows, the XULWindow's attributes seem not to be set correctly
+   * on popup windows, the AppWindow's attributes seem not to be set correctly
    * we use thus JSDOMWindow attributes for sizemode and normal window attributes
    * (and hope for reasonable values when maximized/minimized - since then
    * outerWidth/outerHeight aren't the dimensions of the restored window)
@@ -5260,13 +5260,13 @@ var SessionStoreInternal = {
         }
         // Width and height attribute report the inner size, but we want
         // to store the outer size, so add the difference.
-        let xulWin = aWindow.docShell.treeOwner
+        let appWin = aWindow.docShell.treeOwner
           .QueryInterface(Ci.nsIInterfaceRequestor)
-          .getInterface(Ci.nsIXULWindow);
+          .getInterface(Ci.nsIAppWindow);
         let diff =
           aAttribute == "width"
-            ? xulWin.outerToInnerWidthDifferenceInCSSPixels
-            : xulWin.outerToInnerHeightDifferenceInCSSPixels;
+            ? appWin.outerToInnerWidthDifferenceInCSSPixels
+            : appWin.outerToInnerHeightDifferenceInCSSPixels;
         return attr + diff;
       }
     }
@@ -5291,7 +5291,7 @@ var SessionStoreInternal = {
 
     // don't display the page when there's nothing to restore
     let winData = aState.windows || null;
-    if (!winData || winData.length == 0) {
+    if (!winData || !winData.length) {
       return false;
     }
 

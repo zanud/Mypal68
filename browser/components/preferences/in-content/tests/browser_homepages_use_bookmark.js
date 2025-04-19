@@ -36,13 +36,16 @@ add_task(async function testSetHomepageFromBookmark() {
   doc.getElementById("homeMode").value = 2;
 
   let promiseSubDialogLoaded = promiseLoadSubDialog(
-    "chrome://browser/content/preferences/selectBookmark.xul"
+    "chrome://browser/content/preferences/selectBookmark.xhtml"
   );
   doc.getElementById("useBookmarkBtn").click();
 
   let dialog = await promiseSubDialogLoaded;
   dialog.document.getElementById("bookmarks").selectItems([bm.guid]);
-  dialog.document.documentElement.getButton("accept").click();
+  dialog.document
+    .getElementById("selectBookmarkDialog")
+    .getButton("accept")
+    .click();
 
   Assert.equal(
     Services.prefs.getCharPref("browser.startup.homepage"),
@@ -64,7 +67,7 @@ add_task(async function testSetHomepageFromTopLevelFolder() {
   doc.getElementById("homeMode").value = 2;
 
   let promiseSubDialogLoaded = promiseLoadSubDialog(
-    "chrome://browser/content/preferences/selectBookmark.xul"
+    "chrome://browser/content/preferences/selectBookmark.xhtml"
   );
   doc.getElementById("useBookmarkBtn").click();
 
@@ -72,7 +75,10 @@ add_task(async function testSetHomepageFromTopLevelFolder() {
   dialog.document
     .getElementById("bookmarks")
     .selectItems([PlacesUtils.bookmarks.menuGuid]);
-  dialog.document.documentElement.getButton("accept").click();
+  dialog.document
+    .getElementById("selectBookmarkDialog")
+    .getButton("accept")
+    .click();
 
   Assert.equal(
     Services.prefs.getCharPref("browser.startup.homepage"),

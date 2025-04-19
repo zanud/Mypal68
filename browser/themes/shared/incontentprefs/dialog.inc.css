@@ -18,13 +18,13 @@ dialog {
 }
 
 .contentPane,
-dialog > .dialog-content-box {
+dialog::part(content-box) {
   /* This allows the focus ring to display fully when scrolling is enabled. */
   padding: 4px;
 }
 
 .contentPane.doScroll,
-dialog.doScroll > .dialog-content-box {
+dialog.doScroll::part(content-box) {
   overflow-y: auto;
 }
 

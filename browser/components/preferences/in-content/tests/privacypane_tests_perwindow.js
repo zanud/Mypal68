@@ -191,11 +191,8 @@ function test_dependent_cookie_elements(win) {
     "The notice for delete on close in permanent private browsing mode should be hidden."
   );
 
-  if (win.contentBlockingCookiesAndSiteDataRejectTrackersEnabled) {
-    blockCookiesMenu.value = "trackers";
-  } else {
-    blockCookiesMenu.value = "unvisited";
-  }
+  blockCookiesMenu.value = "unvisited";
+
   controlChanged(blockCookiesMenu);
   expect_disabled(false);
 
@@ -351,10 +348,6 @@ function test_custom_retention(controlToChange, expect, valueIncrement) {
     switch (controlToChange.localName) {
       case "checkbox":
         controlToChange.checked = !controlToChange.checked;
-        break;
-      case "textbox":
-        controlToChange.value =
-          parseInt(controlToChange.value) + valueIncrement;
         break;
       case "menulist":
         controlToChange.value = valueIncrement;

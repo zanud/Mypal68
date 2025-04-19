@@ -82,14 +82,12 @@ add_task(async function test_display_keyword_without_query() {
   );
   Assert.equal(
     result.displayed.title,
-    "example.com",
-    "Node should contain the name of the bookmark"
+    "https://example.com/browser/browser/components/urlbar/tests/browser/print_postdata.sjs?q=",
+    "Node should contain the url of the bookmark"
   );
   Assert.equal(
     result.displayed.action,
-    Services.strings
-      .createBundle("chrome://global/locale/autocomplete.properties")
-      .GetStringFromName("visit"),
+    UrlbarUtils.strings.GetStringFromName("visit"),
     "Should have visit indicated"
   );
 });
