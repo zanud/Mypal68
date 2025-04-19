@@ -21,9 +21,9 @@ add_task(async function testAutocompleteRichResult() {
     value: "a",
   });
 
-  info("Waiting for accessibility to be created for the richlistbox");
+  info("Waiting for accessibility to be created for the results list");
   let resultsView;
-  resultsView = gURLBar.view.panel.querySelector("#urlbarView-results");
+  resultsView = gURLBar.view.panel.querySelector(".urlbarView-results");
   await BrowserTestUtils.waitForCondition(() =>
     accService.getAccessibleFor(resultsView)
   );

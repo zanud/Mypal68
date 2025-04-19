@@ -21,7 +21,6 @@ DIRS += [ 'aom',
           'html',
           'interfaces',
           'ipc',
-          'jsat',
           'xpcom'
 ]
 

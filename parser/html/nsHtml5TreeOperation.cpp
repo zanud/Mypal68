@@ -15,7 +15,6 @@
 #include "mozilla/dom/MutationObservers.h"
 #include "mozilla/dom/Text.h"
 #include "nsAttrName.h"
-#include "nsBindingManager.h"
 #include "nsContentCreatorFunctions.h"
 #include "nsContentUtils.h"
 #include "nsDocElementCreatedNotificationRunner.h"
@@ -35,7 +34,6 @@
 #include "nsIURI.h"
 #include "nsNetUtil.h"
 #include "nsTextNode.h"
-#include "nsXBLBinding.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;

@@ -54,7 +54,7 @@ class NrTcpSocketData {
     MOZ_COUNT_CTOR(NrTcpSocketData);
   }
 
-  ~NrTcpSocketData() { MOZ_COUNT_DTOR(NrTcpSocketData); }
+  MOZ_COUNTED_DTOR(NrTcpSocketData)
 
   const nsTArray<uint8_t>& GetData() const { return mData; }
 

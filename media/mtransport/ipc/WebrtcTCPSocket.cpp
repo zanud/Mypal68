@@ -31,7 +31,7 @@ class WebrtcTCPData {
     MOZ_COUNT_CTOR(WebrtcTCPData);
   }
 
-  ~WebrtcTCPData() { MOZ_COUNT_DTOR(WebrtcTCPData); }
+  MOZ_COUNTED_DTOR(WebrtcTCPData)
 
   const nsTArray<uint8_t>& GetData() const { return mData; }
 

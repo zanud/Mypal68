@@ -544,3 +544,8 @@ void nsCoreUtils::DispatchAccEvent(RefPtr<nsIAccessibleEvent> event) {
 
   obsService->NotifyObservers(event, NS_ACCESSIBLE_EVENT_TOPIC, nullptr);
 }
+
+bool nsCoreUtils::IsDisplayContents(nsIContent* aContent) {
+  return aContent && aContent->IsElement() &&
+         aContent->AsElement()->IsDisplayContents();
+}

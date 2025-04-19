@@ -807,14 +807,6 @@ pub trait TElement:
         return data.hint.has_animation_hint();
     }
 
-    /// Returns the anonymous content for the current element's XBL binding,
-    /// given if any.
-    ///
-    /// This is used in Gecko for XBL.
-    fn xbl_binding_anonymous_content(&self) -> Option<Self::ConcreteNode> {
-        None
-    }
-
     /// The shadow root this element is a host of.
     fn shadow_root(&self) -> Option<<Self::ConcreteNode as TNode>::ConcreteShadowRoot>;
 
@@ -843,6 +835,9 @@ pub trait TElement:
     /// data if it comes from Shadow DOM.
     ///
     /// Returns whether normal document author rules should apply.
+    ///
+    /// TODO(emilio): We could separate the invalidation data for elements
+    /// matching in other scopes to avoid over-invalidation.
     fn each_applicable_non_document_style_rule_data<'a, F>(&self, mut f: F) -> bool
     where
         Self: 'a,
@@ -877,9 +872,40 @@ pub trait TElement:
             // Slots can only have assigned nodes when in a shadow tree.
             let shadow = slot.containing_shadow().unwrap();
             if let Some(data) = shadow.style_data() {
-                f(data, shadow.host());
+                if data.any_slotted_rule() {
+                    f(data, shadow.host());
+                }
             }
             current = slot.assigned_slot();
+        }
+
+        if target.has_part_attr() {
+            if let Some(mut inner_shadow) = target.containing_shadow() {
+                loop {
+                    let inner_shadow_host = inner_shadow.host();
+                    match inner_shadow_host.containing_shadow() {
+                        Some(shadow) => {
+                            if let Some(data) = shadow.style_data() {
+                                if data.any_part_rule() {
+                                    f(data, shadow.host())
+                                }
+                            }
+                            // TODO: Could be more granular.
+                            if !shadow.host().exports_any_part() {
+                                break;
+                            }
+                            inner_shadow = shadow;
+                        },
+                        None => {
+                            // TODO(emilio): Should probably distinguish with
+                            // MatchesDocumentRules::{No,Yes,IfPart} or
+                            // something so that we could skip some work.
+                            doc_rules_apply = true;
+                            break;
+                        },
+                    }
+                }
+            }
         }
 
         doc_rules_apply

@@ -4,8 +4,28 @@
 #include <ntstatus.h>
 #include <winternl.h>
 
-extern "C" DECLSPEC_IMPORT NTSTATUS WINAPI NtWaitForKeyedEvent(HANDLE, const void*, BOOLEAN, const LARGE_INTEGER*);
-extern "C" DECLSPEC_IMPORT NTSTATUS WINAPI NtReleaseKeyedEvent(HANDLE, const void*, BOOLEAN, const LARGE_INTEGER*);
+extern "C" {
+__kernel_entry NTSYSCALLAPI
+NTSTATUS
+NTAPI
+NtWaitForKeyedEvent(
+    __in HANDLE KeyedEventHandle,
+    __in PVOID KeyValue,
+    __in BOOLEAN Alertable,
+    __in_opt PLARGE_INTEGER Timeout
+    );
+
+__kernel_entry NTSYSCALLAPI
+NTSTATUS
+NTAPI
+NtReleaseKeyedEvent(
+    __in HANDLE KeyedEventHandle,
+    __in PVOID KeyValue,
+    __in BOOLEAN Alertable,
+    __in_opt PLARGE_INTEGER Timeout
+    );
+
+}
 
 class WinxpStuff final {
  public:
@@ -24,7 +44,7 @@ for_begin:
         case 1:  /* in progress, wait */
           next = val & ~3;
           if (::InterlockedCompareExchangePointer(&once->Ptr, (void *)((ULONG_PTR)&next | 1), (void *)val ) == (void *)val)
-            NtWaitForKeyedEvent( 0, &next, FALSE, NULL );
+            ::NtWaitForKeyedEvent( 0, &next, FALSE, NULL );
           goto for_begin;
 
         case 2:  /* done */
@@ -66,7 +86,7 @@ for_begin:
           val &= ~3;
           while (val) {
             ULONG_PTR next = *(ULONG_PTR *)val;
-            NtReleaseKeyedEvent( 0, (void *)val, FALSE, NULL );
+            ::NtReleaseKeyedEvent( 0, (void *)val, FALSE, NULL );
             val = next;
             }
             return STATUS_SUCCESS;

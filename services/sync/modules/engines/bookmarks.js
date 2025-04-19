@@ -78,6 +78,10 @@ XPCOMUtils.defineLazyGetter(this, "IGNORED_SOURCES", () => [
   PlacesUtils.bookmarks.SOURCES.SYNC_REPARENT_REMOVED_FOLDER_CHILDREN,
 ]);
 
+// The maximum time that the buffered engine should wait before aborting a
+// bookmark merge.
+const BUFFERED_BOOKMARK_APPLY_TIMEOUT_MS = 5 * 60 * 60 * 1000; // 5 minutes
+
 function isSyncedRootNode(node) {
   return (
     node.root == "bookmarksMenuFolder" ||
@@ -442,7 +446,8 @@ BaseBookmarksEngine.prototype = {
       if (
         Async.isShutdownException(ex) ||
         ex.status > 0 ||
-        ex.name == "MergeConflictError"
+        ex.name == "MergeConflictError" ||
+        ex.name == "InterruptedError"
       ) {
         // Don't run maintenance on shutdown or HTTP errors, or if we aborted
         // the sync because the user changed their bookmarks during merging.
@@ -868,12 +873,24 @@ BufferedBookmarksEngine.prototype = {
   async _processIncoming(newitems) {
     await super._processIncoming(newitems);
     let buf = await this._store.ensureOpenMirror();
-    let recordsToUpload = await buf.apply({
-      remoteTimeSeconds: Resource.serverTime,
-      weakUpload: [...this._needWeakUpload.keys()],
-    });
-    this._needWeakUpload.clear();
-    this._modified.replace(recordsToUpload);
+
+    let watchdog = this._newWatchdog();
+    watchdog.start(BUFFERED_BOOKMARK_APPLY_TIMEOUT_MS);
+
+    try {
+      let recordsToUpload = await buf.apply({
+        remoteTimeSeconds: Resource.serverTime,
+        weakUpload: [...this._needWeakUpload.keys()],
+        signal: watchdog.signal,
+      });
+      this._modified.replace(recordsToUpload);
+    } finally {
+      watchdog.stop();
+      if (watchdog.abortReason) {
+        this._log.warn(`Aborting bookmark merge: ${watchdog.abortReason}`);
+      }
+      this._needWeakUpload.clear();
+    }
   },
 
   async _reconcile(item) {
@@ -988,6 +1005,11 @@ BufferedBookmarksEngine.prototype = {
   async finalize() {
     await super.finalize();
     await this._store.finalize();
+  },
+
+  // Returns a new watchdog. Exposed for tests.
+  _newWatchdog() {
+    return Async.watchdog();
   },
 };
 
@@ -1290,18 +1312,12 @@ BufferedBookmarksStore.prototype = {
 
     return SyncedBookmarksMirror.open({
       path: mirrorPath,
-      recordTelemetryEvent: (object, method, value, extra) => {
-        this.engine.service.recordTelemetryEvent(object, method, value, extra);
-      },
     });
   },
 
   async applyIncomingBatch(records) {
     let buf = await this.ensureOpenMirror();
-    for (let [, chunk] of PlacesSyncUtils.chunkArray(
-      records,
-      this._batchChunkSize
-    )) {
+    for (let chunk of PlacesUtils.chunkArray(records, this._batchChunkSize)) {
       await buf.store(chunk);
     }
     // Array of failed records.
@@ -1354,7 +1370,10 @@ BookmarksTracker.prototype = {
     this._placesListener = new PlacesWeakCallbackWrapper(
       this.handlePlacesEvents.bind(this)
     );
-    PlacesUtils.observers.addListener(["bookmark-added"], this._placesListener);
+    PlacesUtils.observers.addListener(
+      ["bookmark-added", "bookmark-removed"],
+      this._placesListener
+    );
     Svc.Obs.add("bookmarks-restore-begin", this);
     Svc.Obs.add("bookmarks-restore-success", this);
     Svc.Obs.add("bookmarks-restore-failed", this);
@@ -1363,7 +1382,7 @@ BookmarksTracker.prototype = {
   onStop() {
     PlacesUtils.bookmarks.removeObserver(this);
     PlacesUtils.observers.removeListener(
-      ["bookmark-added"],
+      ["bookmark-added", "bookmark-removed"],
       this._placesListener
     );
     Svc.Obs.remove("bookmarks-restore-begin", this);
@@ -1437,22 +1456,25 @@ BookmarksTracker.prototype = {
 
   handlePlacesEvents(events) {
     for (let event of events) {
-      if (IGNORED_SOURCES.includes(event.source)) {
-        continue;
+      switch (event.type) {
+        case "bookmark-added":
+          if (IGNORED_SOURCES.includes(event.source)) {
+            continue;
+          }
+
+          this._log.trace("'bookmark-added': " + event.id);
+          this._upScore();
+          break;
+        case "bookmark-removed":
+          if (IGNORED_SOURCES.includes(event.source)) {
+            continue;
+          }
+
+          this._log.trace("'bookmark-removed': " + event.id);
+          this._upScore();
+          break;
       }
-
-      this._log.trace("'bookmark-added': " + event.id);
-      this._upScore();
     }
-  },
-
-  onItemRemoved(itemId, parentId, index, type, uri, guid, parentGuid, source) {
-    if (IGNORED_SOURCES.includes(source)) {
-      return;
-    }
-
-    this._log.trace("onItemRemoved: " + itemId);
-    this._upScore();
   },
 
   // This method is oddly structured, but the idea is to return as quickly as

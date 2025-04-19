@@ -7,7 +7,7 @@ A browser for Windows XP based on Firefox 68.
 
 ## KNOWN PROBLEMS
 
-- 1.5gb memory limit on winxp, if the browser reaches the limit it crashes inevitably, singleporess mode crashes all,
+- 1.5gb memory limit on winxp, if the browser reaches the limit it crashes inevitably, singleprocess mode crashes all,
   multiprocess only this which reaches 1.5gb, so it better here.
   I think this is OS limitation, nothing to do with this.
 
@@ -17,8 +17,9 @@ A browser for Windows XP based on Firefox 68.
 
 - This browser does not run well on winxp SP2 and lower. If you do not want to install SP3, be ready for crashes and blue screens.
   If you are on SP2 and lower, there is no need to post a screenshot from blue_screen_view. And i suggest to apply postready updates of 2019.
-  Some say that it runs fine on sp2 but it is no accurate data what to do.
+  Some say that it runs fine on sp2 but it is no accurate data what to do, [there about win2000](https://mrqash.blogspot.com/2022/04/mypal-68-firefox-68121-on-windows-2000.html).
 
+## [UPDATING AND POSSIBLE PROBLEMS](https://github.com/Feodor2/Mypal68/wiki/Updating-to-a-new-version)
 
 ## IF YOU GOT A BLUE SCREEN
 
@@ -33,15 +34,15 @@ Do not post pictures of the crash, this is useless and a waste.
 Also put your pc specs: cpu, ram and graphics card
 If I don't reproduce the crash myself then you may to submit drwatson.log.
 Drwatson log is usually inside All Users\Application Data\Microsoft\Dr Watson.
-Minidump also may be usefull. Do not post any irrelevent logs.
-An issue without details cosider as invalid.
+Minidump also may be usefull. Do not post any irrelevant logs.
+An issue without details considered as invalid.
 
 ## IF YOU WANT REPORT A SITE
 
 Report [there](https://github.com/Feodor2/Mypal68/issues/228).
 Put the actual link to the site
 Notice that I never would look to the site which requires the login, including any goolag sites.
-Please try to find what feature is missig by yourself by checking on newer firefoxes and find first version where it works.
+Please try to find what feature is missing by yourself by checking on newer firefoxes and find first version where it works (mozregression day).
 Actually I do not look every site, no time for this.
 
 ## YOU MAY DONATE

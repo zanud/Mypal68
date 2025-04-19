@@ -17,7 +17,9 @@
 #include "nsIWebBrowserChrome3.h"
 #include "nsIWindowProvider.h"
 
-class nsXULWindow;
+namespace mozilla {
+class AppWindow;
+}
 class nsSiteWindow;
 
 class nsContentTreeOwner final : public nsIDocShellTreeOwner,
@@ -25,7 +27,7 @@ class nsContentTreeOwner final : public nsIDocShellTreeOwner,
                                  public nsIInterfaceRequestor,
                                  public nsIWebBrowserChrome3,
                                  public nsIWindowProvider {
-  friend class nsXULWindow;
+  friend class mozilla::AppWindow;
   friend class nsSiteWindow;
 
  public:
@@ -42,18 +44,13 @@ class nsContentTreeOwner final : public nsIDocShellTreeOwner,
   explicit nsContentTreeOwner(bool fPrimary);
   virtual ~nsContentTreeOwner();
 
-  void XULWindow(nsXULWindow* aXULWindow);
-  nsXULWindow* XULWindow();
+  void AppWindow(mozilla::AppWindow* aAppWindow);
+  mozilla::AppWindow* AppWindow();
 
  protected:
-  nsXULWindow* mXULWindow;
+  mozilla::AppWindow* mAppWindow;
   nsSiteWindow* mSiteWindow;
   bool mPrimary;
-  bool mContentTitleSetting;
-  nsString mWindowTitleModifier;
-  nsString mTitleSeparator;
-  nsString mTitlePreface;
-  nsString mTitleDefault;
 };
 
 #endif /* nsContentTreeOwner_h__ */

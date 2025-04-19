@@ -61,8 +61,6 @@
 #include "nsTreeBodyFrame.h"
 #include "nsTreeColumns.h"
 #include "nsTreeUtils.h"
-#include "nsXBLPrototypeBinding.h"
-#include "nsXBLBinding.h"
 #include "mozilla/ArrayUtils.h"
 #include "mozilla/dom/DOMStringList.h"
 #include "mozilla/dom/EventTarget.h"
@@ -935,7 +933,7 @@ Accessible* nsAccessibilityService::CreateAccessible(nsINode* aNode,
   if (!frame || !frame->StyleVisibility()->IsVisible()) {
     // display:contents element doesn't have a frame, but retains the semantics.
     // All its children are unaffected.
-    if (content->IsElement() && content->AsElement()->IsDisplayContents()) {
+    if (nsCoreUtils::IsDisplayContents(content)) {
       const HTMLMarkupMapInfo* markupMap =
           mHTMLMarkupMap.Get(content->NodeInfo()->NameAtom());
       if (markupMap && markupMap->new_func) {
@@ -1092,7 +1090,7 @@ Accessible* nsAccessibilityService::CreateAccessible(nsINode* aNode,
     }
   }
 
-  // Accessible XBL types and deck stuff are used in XUL only currently.
+  // XUL accessibles.
   if (!newAcc && content->IsXULElement()) {
     // No accessible for not selected deck panel and its children.
     if (!aContext->IsXULTabpanels()) {
@@ -1133,6 +1131,8 @@ Accessible* nsAccessibilityService::CreateAccessible(nsINode* aNode,
         // polyline and image. A 'use' and 'text' graphic elements require
         // special support.
         newAcc = new EnumRoleAccessible<roles::GRAPHIC>(content, document);
+      } else if (content->IsSVGElement(nsGkAtoms::text)) {
+        newAcc = new HyperTextAccessibleWrap(content->AsElement(), document);
       } else if (content->IsSVGElement(nsGkAtoms::svg)) {
         newAcc = new EnumRoleAccessible<roles::DIAGRAM>(content, document);
       }
@@ -1528,10 +1528,13 @@ void nsAccessibilityService::RemoveNativeRootAccessible(
 bool nsAccessibilityService::HasAccessible(nsINode* aDOMNode) {
   if (!aDOMNode) return false;
 
-  DocAccessible* document = GetDocAccessible(aDOMNode->OwnerDoc());
+  Document* document = aDOMNode->OwnerDoc();
   if (!document) return false;
 
-  return document->HasAccessible(aDOMNode);
+  DocAccessible* docAcc = GetExistingDocAccessible(aDOMNode->OwnerDoc());
+  if (!docAcc) return false;
+
+  return docAcc->HasAccessible(aDOMNode);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -23,14 +23,6 @@ var { TelemetryController } = ChromeUtils.import(
   "resource://gre/modules/TelemetryController.jsm"
 );
 
-if (AppConstants.ACCESSIBILITY) {
-  ChromeUtils.defineModuleGetter(
-    this,
-    "AccessFu",
-    "resource://gre/modules/accessibility/AccessFu.jsm"
-  );
-}
-
 ChromeUtils.defineModuleGetter(
   this,
   "AsyncPrefs",
@@ -712,19 +704,6 @@ var BrowserApp = {
       NativeWindow,
       "contextmenus"
     );
-
-    if (AppConstants.ACCESSIBILITY) {
-      InitLater(() =>
-        GlobalEventDispatcher.dispatch("GeckoView:AccessibilityReady")
-      );
-      GlobalEventDispatcher.registerListener((aEvent, aData, aCallback) => {
-        if (aData.touchEnabled) {
-          AccessFu.enable();
-        } else {
-          AccessFu.disable();
-        }
-      }, "GeckoView:AccessibilitySettings");
-    }
 
     InitLater(() => {
       (async () => {
@@ -4373,7 +4352,7 @@ Tab.prototype = {
 
     aParams = aParams || {};
 
-    this.browser = document.createElement("browser");
+    this.browser = document.createXULElement("browser");
     this.browser.setAttribute("type", "content");
     this.browser.setAttribute("messagemanagergroup", "browsers");
 

@@ -5,6 +5,7 @@
 EXPORTS.mozilla.a11y += ['AccessibleWrap.h',
     'HyperTextAccessibleWrap.h',
     'SessionAccessibility.h',
+    'TraversalRule.h',
 ]
 
 SOURCES += [
@@ -14,6 +15,7 @@ SOURCES += [
     'ProxyAccessibleWrap.cpp',
     'RootAccessibleWrap.cpp',
     'SessionAccessibility.cpp',
+    'TraversalRule.cpp',
 ]
 
 LOCAL_INCLUDES += [
@@ -22,6 +24,7 @@ LOCAL_INCLUDES += [
     '/accessible/html',
     '/accessible/ipc',
     '/accessible/ipc/other',
+    '/accessible/xpcom',
     '/accessible/xul',
     '/dom/base',
     '/widget',

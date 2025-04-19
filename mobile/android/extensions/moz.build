@@ -5,6 +5,6 @@
 with Files('**'):
     BUG_COMPONENT = ('Firefox for Android', 'General')
 
-DIRS += [
-    'webcompat'
-]
+#DIRS += [
+#    'webcompat'
+#]

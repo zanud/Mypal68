@@ -356,7 +356,7 @@ nsScriptSecurityManager::GetChannelURIPrincipal(nsIChannel* aChannel,
   MOZ_ASSERT(aChannel, "Must have channel!");
 
   // Get the principal from the URI.  Make sure this does the same thing
-  // as Document::Reset and XULDocument::StartDocumentLoad.
+  // as Document::Reset and PrototypeDocumentContentSink::Init.
   nsCOMPtr<nsIURI> uri;
   nsresult rv = NS_GetFinalChannelURI(aChannel, getter_AddRefs(uri));
   NS_ENSURE_SUCCESS(rv, rv);
@@ -430,8 +430,8 @@ bool nsScriptSecurityManager::ContentSecurityPolicyPermitsJSAction(
   }
 
 #if !defined(ANDROID)
-  if (!nsContentSecurityUtils::IsEvalAllowed(cx, subjectPrincipal,
-                                             scriptSample)) {
+  if (!nsContentSecurityUtils::IsEvalAllowed(
+          cx, subjectPrincipal->IsSystemPrincipal(), scriptSample)) {
     return false;
   }
 #endif

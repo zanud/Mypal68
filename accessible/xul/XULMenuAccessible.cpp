@@ -33,7 +33,6 @@ using namespace mozilla::a11y;
 XULMenuitemAccessible::XULMenuitemAccessible(nsIContent* aContent,
                                              DocAccessible* aDoc)
     : AccessibleWrap(aContent, aDoc) {
-  mStateFlags |= eNoXBLKids;
 }
 
 uint64_t XULMenuitemAccessible::NativeState() const {
@@ -347,8 +346,6 @@ XULMenupopupAccessible::XULMenupopupAccessible(nsIContent* aContent,
     mSelectControl = nullptr;
     mGenericTypes &= ~eSelect;
   }
-
-  mStateFlags |= eNoXBLKids;
 }
 
 uint64_t XULMenupopupAccessible::NativeState() const {
@@ -390,8 +387,11 @@ ENameValueFlag XULMenupopupAccessible::NativeName(nsString& aName) const {
 }
 
 role XULMenupopupAccessible::NativeRole() const {
-  // If accessible is not bound to the tree (this happens while children are
-  // cached) return general role.
+  nsMenuPopupFrame* menuPopupFrame = do_QueryFrame(GetFrame());
+  if (menuPopupFrame && menuPopupFrame->IsContextMenu()) {
+    return roles::MENUPOPUP;
+  }
+
   if (mParent) {
     if (mParent->IsCombobox() || mParent->IsAutoComplete())
       return roles::COMBOBOX_LIST;
@@ -404,6 +404,8 @@ role XULMenupopupAccessible::NativeRole() const {
     }
   }
 
+  // If accessible is not bound to the tree (this happens while children are
+  // cached) return general role.
   return roles::MENUPOPUP;
 }
 

@@ -766,7 +766,6 @@ with modules["XPCONNECT"]:
     errors["NS_ERROR_XPC_HAS_BEEN_SHUTDOWN"] = FAILURE(51)
     errors["NS_ERROR_XPC_CANT_MODIFY_PROP_ON_WN"] = FAILURE(52)
     errors["NS_ERROR_XPC_BAD_CONVERT_JS_ZERO_ISNOT_NULL"] = FAILURE(53)
-    errors["NS_ERROR_XPC_CANT_PASS_CPOW_TO_NATIVE"] = FAILURE(54)
     # any new errors here should have an associated entry added in xpc.msg
 
 
@@ -861,8 +860,6 @@ with modules["CONTENT"]:
     errors["NS_ERROR_CONTENT_BLOCKED_SHOW_ALT"] = FAILURE(7)
     # Success variations of content policy blocking
     errors["NS_PROPTABLE_PROP_NOT_THERE"] = FAILURE(10)
-    # Error code for XBL
-    errors["NS_ERROR_XBL_BLOCKED"] = FAILURE(15)
     # Error code for when the content process crashed
     errors["NS_ERROR_CONTENT_CRASHED"] = FAILURE(16)
     # Error code for when a subframe process crashed
@@ -872,7 +869,7 @@ with modules["CONTENT"]:
     errors["NS_ERROR_BUILDID_MISMATCH"] = FAILURE(17)
 
     errors["NS_PROPTABLE_PROP_OVERWRITTEN"] = SUCCESS(11)
-    # Error codes for FindBroadcaster in XULDocument.cpp
+    # Error codes for FindBroadcaster in XULBroadcastManager.cpp
     errors["NS_FINDBROADCASTER_NOT_FOUND"] = SUCCESS(12)
     errors["NS_FINDBROADCASTER_FOUND"] = SUCCESS(13)
 

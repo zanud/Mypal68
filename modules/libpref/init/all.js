@@ -49,10 +49,12 @@ pref("security.ssl3.ecdhe_rsa_aes_128_sha", true);
 pref("security.ssl3.ecdhe_ecdsa_aes_128_sha", true);
 pref("security.ssl3.ecdhe_rsa_aes_256_sha", true);
 pref("security.ssl3.ecdhe_ecdsa_aes_256_sha", true);
-pref("security.ssl3.dhe_rsa_aes_128_sha", true);
-pref("security.ssl3.dhe_rsa_aes_256_sha", true);
+pref("security.ssl3.dhe_rsa_aes_128_sha", false);
+pref("security.ssl3.dhe_rsa_aes_256_sha", false);
 pref("security.ssl3.rsa_aes_128_sha", true);
 pref("security.ssl3.rsa_aes_256_sha", true);
+pref("security.ssl3.rsa_aes_128_gcm_sha256", true);
+pref("security.ssl3.rsa_aes_256_gcm_sha384", true);
 pref("security.ssl3.rsa_des_ede3_sha", true);
 
 pref("security.content.signature.root_hash",
@@ -2128,11 +2130,14 @@ pref("security.directory",              "");
 pref("security.dialog_enable_delay", 1000);
 pref("security.notification_enable_delay", 500);
 
-#if defined(DEBUG) && !defined(ANDROID)
-  pref("csp.about_uris_without_csp", "blank,printpreview,srcdoc,addons,config,downloads,home,newtab,preferences,sessionrestore,sync-log");
-  // the following prefs are for testing purposes only.
-  pref("csp.overrule_about_uris_without_csp_whitelist", false);
+#if defined(DEBUG)
+  // For testing purposes only: Flipping this pref to true allows
+  // to skip the assertion that every about page ships with a CSP.
   pref("csp.skip_about_page_has_csp_assert", false);
+  // For testing purposes only: Flipping this pref to true allows
+  // to skip the allowlist for about: pages and do not ship with a
+  // CSP and NS_ASSERT right away.
+  pref("csp.skip_about_page_csp_allowlist_and_assert", false);
   // For testing purposes only: Flipping this pref to true allows
   // to skip the assertion that HTML fragments (e.g. innerHTML) can
   // not be used within chrome code or about: pages.
@@ -3289,8 +3294,6 @@ pref("ui.mouse.radius.inputSource.touchOnly", true);
   pref("middlemouse.openNewWindow", true);
   pref("middlemouse.scrollbarPosition", true);
 
-  pref("browser.urlbar.clickSelectsAll", false);
-
   // Tab focus model bit field:
   // 1 focuses text controls, 2 focuses other form elements, 4 adds links.
   // Leave this at the default, 7, to match mozilla1.0-era user expectations.
@@ -3331,8 +3334,6 @@ pref("ui.mouse.radius.inputSource.touchOnly", true);
   pref("middlemouse.paste", true);
   pref("middlemouse.openNewWindow", true);
   pref("middlemouse.scrollbarPosition", true);
-
-  pref("browser.urlbar.clickSelectsAll", false);
 
   // Tab focus model bit field:
   // 1 focuses text controls, 2 focuses other form elements, 4 adds links.
@@ -3813,8 +3814,6 @@ pref("extensions.webextensions.enablePerformanceCounters", true);
 // reset, so we reduce memory footprint.
 pref("extensions.webextensions.performanceCountersMaxAge", 5000);
 
-// The HTML about:addons page.
-pref("extensions.htmlaboutaddons.enabled", false);
 // Whether to allow the inline options browser in HTML about:addons page.
 pref("extensions.htmlaboutaddons.inline-options.enabled", true);
 // Show recommendations on the extension and theme list views.
@@ -4157,8 +4156,6 @@ pref("dom.presentation.session_transport.data_channel.enable", false);
 // Search service settings
 pref("browser.search.log", false);
 pref("browser.search.suggest.enabled", false);
-pref("browser.search.reset.enabled", false);
-pref("browser.search.reset.whitelist", "");
 pref("browser.search.geoSpecificDefaults", false);
 pref("browser.search.geoip.url", "");
 pref("browser.search.geoip.timeout", 3000);
@@ -4288,9 +4285,6 @@ pref("dom.input.fallbackUploadDir", "");
 
 // Turn rewriting of youtube embeds on/off
 pref("plugins.rewrite_youtube_embeds", true);
-
-pref("dom.audiochannel.audioCompeting", false);
-pref("dom.audiochannel.audioCompeting.allAgents", false);
 
 // Default media volume
 pref("media.default_volume", "1.0");

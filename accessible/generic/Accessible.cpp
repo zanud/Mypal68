@@ -4,8 +4,6 @@
 
 #include "Accessible-inl.h"
 
-#include "nsIXBLAccessible.h"
-
 #include "EmbeddedObjCollector.h"
 #include "AccGroupInfo.h"
 #include "AccIterator.h"
@@ -28,7 +26,6 @@
 #include "TableAccessible.h"
 #include "TableCellAccessible.h"
 #include "TreeWalker.h"
-#include "XULDocument.h"
 
 #include "nsIDOMXULButtonElement.h"
 #include "nsIDOMXULSelectCntrlEl.h"
@@ -131,12 +128,6 @@ ENameValueFlag Accessible::Name(nsString& aName) const {
   ARIAName(aName);
   if (!aName.IsEmpty()) return eNameOK;
 
-  nsCOMPtr<nsIXBLAccessible> xblAccessible(do_QueryInterface(mContent));
-  if (xblAccessible) {
-    xblAccessible->GetAccessibleName(aName);
-    if (!aName.IsEmpty()) return eNameOK;
-  }
-
   ENameValueFlag nameFlag = NativeName(aName);
   if (!aName.IsEmpty()) return nameFlag;
 
@@ -229,8 +220,8 @@ KeyBinding Accessible::AccessKey() const {
       HTMLLabelIterator iter(Document(), this,
                              HTMLLabelIterator::eSkipAncestorLabel);
       label = iter.Next();
-
-    } else if (mContent->IsXULElement()) {
+    }
+    if (!label) {
       XULLabelIterator iter(Document(), mContent);
       label = iter.Next();
     }
@@ -303,7 +294,7 @@ uint64_t Accessible::VisibilityState() const {
   if (!frame) {
     // Element having display:contents is considered visible semantically,
     // despite it doesn't have a visually visible box.
-    if (mContent->IsElement() && mContent->AsElement()->IsDisplayContents()) {
+    if (nsCoreUtils::IsDisplayContents(mContent)) {
       return states::OFFSCREEN;
     }
     return states::INVISIBLE;
@@ -726,6 +717,22 @@ void Accessible::TakeFocus() const {
   }
 }
 
+void Accessible::NameFromAssociatedXULLabel(DocAccessible* aDocument,
+                                            nsIContent* aElm, nsString& aName) {
+  Accessible* label = nullptr;
+  XULLabelIterator iter(aDocument, aElm);
+  while ((label = iter.Next())) {
+    // Check if label's value attribute is used
+    label->Elm()->GetAttr(kNameSpaceID_None, nsGkAtoms::value, aName);
+    if (aName.IsEmpty()) {
+      // If no value attribute, a non-empty label must contain
+      // children that define its text -- possibly using HTML
+      nsTextEquivUtils::AppendTextEquivFromContent(label, label->Elm(), &aName);
+    }
+  }
+  aName.CompressWhitespace();
+}
+
 void Accessible::XULElmName(DocAccessible* aDocument, nsIContent* aElm,
                             nsString& aName) {
   /**
@@ -759,47 +766,10 @@ void Accessible::XULElmName(DocAccessible* aDocument, nsIContent* aElm,
   // CASES #2 and #3 ------ label as a child or <label control="id" ... >
   // </label>
   if (aName.IsEmpty()) {
-    Accessible* label = nullptr;
-    XULLabelIterator iter(aDocument, aElm);
-    while ((label = iter.Next())) {
-      // Check if label's value attribute is used
-      label->Elm()->GetAttr(kNameSpaceID_None, nsGkAtoms::value, aName);
-      if (aName.IsEmpty()) {
-        // If no value attribute, a non-empty label must contain
-        // children that define its text -- possibly using HTML
-        nsTextEquivUtils::AppendTextEquivFromContent(label, label->Elm(),
-                                                     &aName);
-      }
-    }
+    NameFromAssociatedXULLabel(aDocument, aElm, aName);
   }
 
   aName.CompressWhitespace();
-  if (!aName.IsEmpty()) return;
-
-  // Can get text from title of <toolbaritem> if we're a child of a
-  // <toolbaritem>
-  nsIContent* bindingParent = aElm->GetBindingParent();
-  nsIContent* parent =
-      bindingParent ? bindingParent->GetParent() : aElm->GetParent();
-  nsAutoString ancestorTitle;
-  while (parent) {
-    if (parent->IsXULElement(nsGkAtoms::toolbaritem) &&
-        parent->AsElement()->GetAttr(kNameSpaceID_None, nsGkAtoms::title,
-                                     ancestorTitle)) {
-      // Before returning this, check if the element itself has a tooltip:
-      if (aElm->IsElement() &&
-          aElm->AsElement()->GetAttr(kNameSpaceID_None, nsGkAtoms::tooltiptext,
-                                     aName)) {
-        aName.CompressWhitespace();
-        return;
-      }
-
-      aName.Assign(ancestorTitle);
-      aName.CompressWhitespace();
-      return;
-    }
-    parent = parent->GetParent();
-  }
 }
 
 nsresult Accessible::HandleAccEvent(AccEvent* aEvent) {
@@ -1591,9 +1561,8 @@ Relation Accessible::RelationByType(RelationType aType) const {
           new IDRefsIterator(mDoc, mContent, nsGkAtoms::aria_labelledby));
       if (mContent->IsHTMLElement()) {
         rel.AppendIter(new HTMLLabelIterator(Document(), this));
-      } else if (mContent->IsXULElement()) {
-        rel.AppendIter(new XULLabelIterator(Document(), mContent));
       }
+      rel.AppendIter(new XULLabelIterator(Document(), mContent));
 
       return rel;
     }
@@ -1718,11 +1687,10 @@ Relation Accessible::RelationByType(RelationType aType) const {
         // In XUL, use first <button default="true" .../> in the document
         dom::Document* doc = mContent->OwnerDoc();
         nsIContent* buttonEl = nullptr;
-        if (doc->IsXULDocument()) {
-          dom::XULDocument* xulDoc = doc->AsXULDocument();
+        if (doc->AllowXULXBL()) {
           nsCOMPtr<nsIHTMLCollection> possibleDefaultButtons =
-              xulDoc->GetElementsByAttribute(NS_LITERAL_STRING("default"),
-                                             NS_LITERAL_STRING("true"));
+              doc->GetElementsByAttribute(NS_LITERAL_STRING("default"),
+                                          NS_LITERAL_STRING("true"));
           if (possibleDefaultButtons) {
             uint32_t length = possibleDefaultButtons->Length();
             // Check for button in list of default="true" elements
@@ -1733,21 +1701,6 @@ Relation Accessible::RelationByType(RelationType aType) const {
                                     : nullptr;
               if (button) {
                 buttonEl = item;
-              }
-            }
-          }
-          if (!buttonEl) {  // Check for anonymous accept button in <dialog>
-            dom::Element* rootElm = mContent->OwnerDoc()->GetRootElement();
-            if (rootElm) {
-              nsIContent* possibleButtonEl =
-                  rootElm->OwnerDoc()->GetAnonymousElementByAttribute(
-                      rootElm, nsGkAtoms::_default, NS_LITERAL_STRING("true"));
-              if (possibleButtonEl && possibleButtonEl->IsElement()) {
-                RefPtr<nsIDOMXULButtonElement> button =
-                    possibleButtonEl->AsElement()->AsXULButton();
-                if (button) {
-                  buttonEl = possibleButtonEl;
-                }
               }
             }
           }
@@ -1895,7 +1848,7 @@ void Accessible::AppendTextTo(nsAString& aText, uint32_t aStartOffset,
 
   nsIFrame* frame = GetFrame();
   if (!frame) {
-    if (mContent->IsElement() && mContent->AsElement()->IsDisplayContents()) {
+    if (nsCoreUtils::IsDisplayContents(mContent)) {
       aText += kEmbeddedObjectChar;
     }
     return;
@@ -1965,6 +1918,11 @@ ENameValueFlag Accessible::NativeName(nsString& aName) const {
     }
 
     if (!aName.IsEmpty()) return eNameOK;
+
+    NameFromAssociatedXULLabel(mDoc, mContent, aName);
+    if (!aName.IsEmpty()) {
+      return eNameOK;
+    }
 
     nsTextEquivUtils::GetNameFromSubtree(this, aName);
     return aName.IsEmpty() ? eNameOK : eNameFromSubtree;
@@ -2430,8 +2388,7 @@ Accessible* Accessible::CurrentItem() const {
   if (HasOwnContent() && mContent->IsElement() &&
       mContent->AsElement()->GetAttr(kNameSpaceID_None,
                                      nsGkAtoms::aria_activedescendant, id)) {
-    dom::Document* DOMDoc = mContent->OwnerDoc();
-    dom::Element* activeDescendantElm = DOMDoc->GetElementById(id);
+    dom::Element* activeDescendantElm = IDRefsIterator::GetElem(mContent, id);
     if (activeDescendantElm) {
       if (mContent->IsInclusiveDescendantOf(activeDescendantElm)) {
         // Don't want a cyclical descendant relationship. That would be bad.

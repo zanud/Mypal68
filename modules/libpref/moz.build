@@ -52,6 +52,7 @@ pref_groups = [
     'keyword',
     'layers',
     'layout',
+    'mathml',
     'media',
     'mousewheel',
     'network',

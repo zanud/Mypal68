@@ -9,7 +9,6 @@
 #include "jsfriendapi.h"
 #include "mozilla/AbstractThread.h"
 #include "mozilla/Atomics.h"
-#include "mozilla/Telemetry.h"
 #include "mozilla/Unused.h"
 #include "mozilla/dom/DocGroup.h"
 #include "mozilla/dom/ScriptSettings.h"
@@ -267,22 +266,6 @@ SchedulerGroup::Runnable::Runnable(already_AddRefed<nsIRunnable>&& aRunnable,
       mDocGroup(aDocGroup) {}
 
 dom::DocGroup* SchedulerGroup::Runnable::DocGroup() const { return mDocGroup; }
-
-#ifdef MOZ_COLLECTING_RUNNABLE_TELEMETRY
-NS_IMETHODIMP
-SchedulerGroup::Runnable::GetName(nsACString& aName) {
-  // Try to get a name from the underlying runnable.
-  nsCOMPtr<nsINamed> named = do_QueryInterface(mRunnable);
-  if (named) {
-    named->GetName(aName);
-  }
-  if (aName.IsEmpty()) {
-    aName.AssignLiteral("anonymous");
-  }
-
-  return NS_OK;
-}
-#endif
 
 NS_IMETHODIMP
 SchedulerGroup::Runnable::Run() {

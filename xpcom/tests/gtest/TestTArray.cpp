@@ -810,6 +810,39 @@ TEST(TArray, RemoveElementsAt_ByIterator)
   ASSERT_EQ(expected, array);
 }
 
+TEST(TArray, RemoveLastElements_None)
+{
+  const nsTArray<int> original{1, 2, 3, 4};
+  nsTArray<int> array = original.Clone();
+  array.RemoveLastElements(0);
+
+  ASSERT_EQ(original, array);
+}
+
+TEST(TArray, RemoveLastElements_Empty_None)
+{
+  nsTArray<int> array;
+  array.RemoveLastElements(0);
+
+  ASSERT_EQ(0u, array.Length());
+}
+
+TEST(TArray, RemoveLastElements_All)
+{
+  nsTArray<int> array{1, 2, 3, 4};
+  array.RemoveLastElements(4);
+
+  ASSERT_EQ(0u, array.Length());
+}
+
+TEST(TArray, RemoveLastElements_One)
+{
+  nsTArray<int> array{1, 2, 3, 4};
+  array.RemoveLastElements(1);
+
+  ASSERT_EQ((nsTArray<int>{1, 2, 3}), array);
+}
+
 static_assert(std::is_copy_assignable<decltype(
                   MakeBackInserter(std::declval<nsTArray<int>&>()))>::value,
               "output iteraror must be copy-assignable");
@@ -877,5 +910,40 @@ class Foo {
 
   const RefCounted* GetFirst() const { return mArray.SafeElementAt(0); }
 };
+
+TEST(TArray, ArrayView)
+{
+  const nsTArray<int> expected = {1, 2, 3, 4, 5};
+  const nsTArrayView<int> view(expected.Clone());
+
+  nsTArray<int> fromSpan;
+  fromSpan.AppendElements(view.AsSpan());
+  EXPECT_EQ(expected, fromSpan);
+
+  for (auto& element : view) {
+    element++;
+  }
+
+  int i = 2;
+  for (const auto& element : view) {
+    EXPECT_EQ(i++, element);
+  }
+}
+
+TEST(TArray, StableSort)
+{
+  const nsTArray<std::pair<int, int>> expected = {
+      std::pair(1, 9), std::pair(1, 8), std::pair(1, 7), std::pair(2, 0),
+      std::pair(3, 0)};
+  nsTArray<std::pair<int, int>> array = {std::pair(1, 9), std::pair(2, 0),
+                                         std::pair(1, 8), std::pair(3, 0),
+                                         std::pair(1, 7)};
+
+  array.StableSort([](std::pair<int, int> left, std::pair<int, int> right) {
+    return left.first - right.first;
+  });
+
+  EXPECT_EQ(expected, array);
+}
 
 }  // namespace TestTArray

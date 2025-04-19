@@ -1846,12 +1846,12 @@ Connection::ExecuteSimpleSQL(const nsACString& aSQLStatement) {
 }
 
 NS_IMETHODIMP
-Connection::ExecuteAsync(mozIStorageBaseStatement** aStatements,
-                         uint32_t aNumStatements,
-                         mozIStorageStatementCallback* aCallback,
-                         mozIStoragePendingStatement** _handle) {
-  nsTArray<StatementData> stmts(aNumStatements);
-  for (uint32_t i = 0; i < aNumStatements; i++) {
+Connection::ExecuteAsync(
+    const nsTArray<RefPtr<mozIStorageBaseStatement>>& aStatements,
+    mozIStorageStatementCallback* aCallback,
+    mozIStoragePendingStatement** _handle) {
+  nsTArray<StatementData> stmts(aStatements.Length());
+  for (uint32_t i = 0; i < aStatements.Length(); i++) {
     nsCOMPtr<StorageBaseStatementInternal> stmt =
         do_QueryInterface(aStatements[i]);
 
@@ -1929,6 +1929,19 @@ NS_IMETHODIMP
 Connection::SetDefaultTransactionType(int32_t aType) {
   NS_ENSURE_ARG_RANGE(aType, TRANSACTION_DEFERRED, TRANSACTION_EXCLUSIVE);
   mDefaultTransactionType = aType;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+Connection::GetVariableLimit(int32_t* _limit) {
+  if (!connectionReady()) {
+    return NS_ERROR_NOT_INITIALIZED;
+  }
+  int limit = ::sqlite3_limit(mDBConn, SQLITE_LIMIT_VARIABLE_NUMBER, -1);
+  if (limit < 0) {
+    return NS_ERROR_UNEXPECTED;
+  }
+  *_limit = limit;
   return NS_OK;
 }
 

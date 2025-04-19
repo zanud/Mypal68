@@ -79,7 +79,6 @@ LOCAL_INCLUDES += [
     '/accessible/xpcom',
     '/accessible/xul',
     '/dom/base',
-    '/dom/xbl',
     '/ipc/chromium/src',
     '/layout/generic',
     '/layout/style',

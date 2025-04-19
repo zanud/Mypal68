@@ -419,7 +419,7 @@ class ModuleInfo {
 }
 
 function createBrowser() {
-  const browser = (window.browser = document.createElement("browser"));
+  const browser = (window.browser = document.createXULElement("browser"));
   // Identify this `<browser>` element uniquely to Marionette, devtools, etc.
   browser.permanentKey = {};
 
@@ -446,12 +446,6 @@ function startup() {
 
   const browser = createBrowser();
   ModuleManager.init(browser, [
-    {
-      name: "GeckoViewAccessibility",
-      onInit: {
-        resource: "resource://gre/modules/GeckoViewAccessibility.jsm",
-      },
-    },
     {
       name: "GeckoViewContent",
       onInit: {

@@ -1772,13 +1772,31 @@ class nsTArray_Impl
   // A variation on the RemoveElementsAt method defined above.
   void RemoveElementAt(index_type aIndex) { RemoveElementsAt(aIndex, 1); }
 
-  // A variation on the RemoveElementAt that removes the last element.
-  void RemoveLastElement() { RemoveElementAt(Length() - 1); }
+  // A variation on RemoveElementAt that removes the last element.
+  void RemoveLastElement() { RemoveLastElements(1); }
+
+  // A variation on RemoveElementsAt that removes the last 'aCount' elements.
+  void RemoveLastElements(const size_type aCount) {
+    // This assertion is redundant, but produces a better error message than the
+    // release assertion within TruncateLength.
+    MOZ_ASSERT(aCount <= Length());
+    TruncateLength(Length() - aCount);
+  }
 
   // Removes the last element of the array and returns a copy of it.
   [[nodiscard]] elem_type PopLastElement() {
-    elem_type elem = std::move(LastElement());
-    RemoveLastElement();
+    // This function intentionally does not call ElementsAt and calls
+    // TruncateLengthUnsafe directly to avoid multiple release checks for
+    // non-emptiness.
+    // This debug assertion is redundant, but produces a better error message
+    // than the release assertion below.
+    MOZ_ASSERT(!base_type::IsEmpty());
+    const size_type oldLen = Length();
+    if (MOZ_UNLIKELY(0 == oldLen)) {
+      InvalidArrayIndex_CRASH(1, 0);
+    }
+    elem_type elem = std::move(Elements()[oldLen - 1]);
+    TruncateLengthUnsafe(oldLen - 1);
     return elem;
   }
 
@@ -2117,19 +2135,19 @@ class nsTArray_Impl
   // removes elements from the array (see also RemoveElementsAt).
   // @param aNewLen The desired length of this array.
   // @return True if the operation succeeded; false otherwise.
-  // See also TruncateLength if the new length is guaranteed to be smaller than
-  // the old.
+  // See also TruncateLength for a more efficient variant if the new length is
+  // guaranteed to be smaller than the old.
  protected:
   template <typename ActualAlloc = Alloc>
   typename ActualAlloc::ResultType SetLength(size_type aNewLen) {
-    size_type oldLen = Length();
+    const size_type oldLen = Length();
     if (aNewLen > oldLen) {
       return ActualAlloc::ConvertBoolToResultType(
           InsertElementsAtInternal<ActualAlloc>(oldLen, aNewLen - oldLen) !=
           nullptr);
     }
 
-    TruncateLength(aNewLen);
+    TruncateLengthUnsafe(aNewLen);
     return ActualAlloc::ConvertBoolToResultType(true);
   }
 
@@ -2145,9 +2163,24 @@ class nsTArray_Impl
   // RemoveElementsAt).
   // @param aNewLen The desired length of this array.
   void TruncateLength(size_type aNewLen) {
-    size_type oldLen = Length();
-    MOZ_ASSERT(aNewLen <= oldLen, "caller should use SetLength instead");
-    RemoveElementsAt(aNewLen, oldLen - aNewLen);
+    // This assertion is redundant, but produces a better error message than the
+    // release assertion below.
+    MOZ_ASSERT(aNewLen <= Length(), "caller should use SetLength instead");
+
+    if (MOZ_UNLIKELY(aNewLen > Length())) {
+      InvalidArrayIndex_CRASH(aNewLen, Length());
+    }
+
+    TruncateLengthUnsafe(aNewLen);
+  }
+
+ private:
+  void TruncateLengthUnsafe(size_type aNewLen) {
+    const size_type oldLen = Length();
+    if (oldLen) {
+      DestructRange(aNewLen, oldLen - aNewLen);
+      base_type::mHdr->mLength = aNewLen;
+    }
   }
 
   // This method ensures that the array has length at least the given
@@ -2254,6 +2287,21 @@ class nsTArray_Impl
   // A variation on the Sort method defined above that assumes that
   // 'operator<' is defined for elem_type.
   void Sort() { Sort(nsDefaultComparator<elem_type, elem_type>()); }
+
+  // This method sorts the elements of the array in a stable way (i.e. not
+  // changing the relative order of elements considered equal by the
+  // Comparator).  It uses the LessThan
+  // method defined on the given Comparator object to collate elements.
+  // @param aComp The Comparator used to collate elements.
+  template <class Comparator>
+  void StableSort(const Comparator& aComp) {
+    const ::detail::CompareWrapper<Comparator, elem_type> comp(aComp);
+
+    std::stable_sort(Elements(), Elements() + Length(),
+                     [&comp](const auto& lhs, const auto& rhs) {
+                       return comp.LessThan(lhs, rhs);
+                     });
+  }
 
   // This method reverses the array in place.
   void Reverse() {
@@ -2952,6 +3000,42 @@ Span(nsTArray_Impl<E, Alloc>&) -> Span<E>;
 
 template <typename E, class Alloc>
 Span(const nsTArray_Impl<E, Alloc>&) -> Span<const E>;
+
+// Provides a view on a nsTArray through which the existing array elements can
+// be accessed in a non-const way, but the array itself cannot be modified, so
+// that references to elements are guaranteed to be stable.
+template <typename T>
+class nsTArrayView {
+ public:
+  using element_type = T;
+  using pointer = element_type*;
+  using reference = element_type&;
+  using index_type = typename Span<T>::index_type;
+  using size_type = typename Span<T>::index_type;
+
+  explicit nsTArrayView(nsTArray<T> aArray)
+      : mArray(std::move(aArray)), mSpan(mArray) {}
+
+  T& operator[](index_type aIndex) { return mSpan[aIndex]; }
+
+  const T& operator[](index_type aIndex) const { return mSpan[aIndex]; }
+
+  size_type Length() const { return mSpan.Length(); }
+
+  auto begin() { return mSpan.begin(); }
+  auto end() { return mSpan.end(); }
+  auto begin() const { return mSpan.begin(); }
+  auto end() const { return mSpan.end(); }
+  auto cbegin() const { return mSpan.cbegin(); }
+  auto cend() const { return mSpan.cend(); }
+
+  Span<T> AsSpan() { return mSpan; }
+  Span<const T> AsSpan() const { return mSpan; }
+
+ private:
+  nsTArray<T> mArray;
+  const Span<T> mSpan;
+};
 
 }  // namespace mozilla
 

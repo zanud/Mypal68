@@ -796,9 +796,9 @@ dependencies = [
 
 [[package]]
 name = "dogear"
-version = "0.2.5"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26b7583e1427e296c852f3217eaab3890e698f742b8d7349beb1f40c4e946fc9"
+checksum = "c01a457f8d6689260111be60774bfb68e558b41bc89b866ebc3bbed60ba255cb"
 dependencies = [
  "log",
  "smallbitvec",

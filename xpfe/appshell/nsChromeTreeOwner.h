@@ -16,14 +16,16 @@
 #include "nsIWebProgressListener.h"
 #include "nsWeakReference.h"
 
-class nsXULWindow;
+namespace mozilla {
+class AppWindow;
+}
 
 class nsChromeTreeOwner : public nsIDocShellTreeOwner,
                           public nsIBaseWindow,
                           public nsIInterfaceRequestor,
                           public nsIWebProgressListener,
                           public nsSupportsWeakReference {
-  friend class nsXULWindow;
+  friend class mozilla::AppWindow;
 
  public:
   NS_DECL_ISUPPORTS
@@ -37,11 +39,11 @@ class nsChromeTreeOwner : public nsIDocShellTreeOwner,
   nsChromeTreeOwner();
   virtual ~nsChromeTreeOwner();
 
-  void XULWindow(nsXULWindow* aXULWindow);
-  nsXULWindow* XULWindow();
+  void AppWindow(mozilla::AppWindow* aAppWindow);
+  mozilla::AppWindow* AppWindow();
 
  protected:
-  nsXULWindow* mXULWindow;
+  mozilla::AppWindow* mAppWindow;
 };
 
 #endif /* nsChromeTreeOwner_h__ */

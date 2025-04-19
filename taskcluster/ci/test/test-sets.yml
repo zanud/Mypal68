@@ -382,9 +382,6 @@ linux32-tests:
 desktop-screenshot-capture:
     - browser-screenshots
 
-desktop-instrumentation:
-    - browser-instrumentation
-
 android-common-tests:
     - crashtest
     - geckoview-junit

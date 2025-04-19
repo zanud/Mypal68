@@ -1,5 +1,5 @@
 /**
- * @fileoverview Defines the environment when in the browser.xul window.
+ * @fileoverview Defines the environment when in the browser.xhtml window.
  *               Imports many globals from various files.
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
@@ -23,7 +23,7 @@ const rootDir = helpers.rootDir;
 // When updating EXTRA_SCRIPTS or MAPPINGS, be sure to also update the
 // 'support-files' config in `tools/lint/eslint.yml`.
 
-// These are scripts not loaded from browser.xul or global-scripts.inc
+// These are scripts not loaded from browser.xhtml or global-scripts.inc
 // but via other includes.
 const EXTRA_SCRIPTS = [
   "browser/base/content/nsContextMenu.js",
@@ -49,6 +49,8 @@ const MAPPINGS = {
   "viewSourceUtils.js":
     "toolkit/components/viewsource/content/viewSourceUtils.js",
   "places-tree.js": "browser/components/places/content/places-tree.js",
+  "places-menupopup.js":
+    "browser/components/places/content/places-menupopup.js",
 };
 
 const globalScriptsRegExp = /^\s*Services.scriptloader.loadSubScript\(\"(.*?)\", this\);$/;

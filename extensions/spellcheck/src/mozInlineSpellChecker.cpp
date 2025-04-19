@@ -48,6 +48,7 @@
 #include "nsCRT.h"
 #include "nsGenericHTMLElement.h"
 #include "nsRange.h"
+#include "nsINodeList.h" //MY68
 #include "nsIPrefBranch.h"
 #include "nsIPrefService.h"
 #include "nsIRunnable.h"

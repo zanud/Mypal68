@@ -52,7 +52,11 @@ if CONFIG['OS_ARCH'] == 'WINNT':
         'TimeStamp_windows.cpp',
         'WindowsProcessMitigations.cpp',
     ]
-    OS_LIBS += ['dbghelp']
+    OS_LIBS += [
+        'dbghelp',
+        'ntdll',
+    ]
+
 elif CONFIG['HAVE_CLOCK_MONOTONIC']:
     SOURCES += [
         'TimeStamp_posix.cpp',
