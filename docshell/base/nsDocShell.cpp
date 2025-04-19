@@ -5190,7 +5190,7 @@ nsDocShell::SetParentNativeWindow(nativeWindow aParentNativeWindow) {
 
 NS_IMETHODIMP
 nsDocShell::GetNativeHandle(nsAString& aNativeHandle) {
-  // the nativeHandle should be accessed from nsIXULWindow
+  // the nativeHandle should be accessed from nsIAppWindow
   return NS_ERROR_NOT_IMPLEMENTED;
 }
 
@@ -9417,18 +9417,6 @@ nsresult nsDocShell::InternalLoad(nsDocShellLoadState* aLoadState,
           !StaticPrefs::extensions_webextensions_remote()) {
         break;
       }
-#ifdef MOZ_LAYOUT_DEBUGGER
-      // Also allow loads in the layout debugger window.
-      nsCOMPtr<nsIDocShellTreeItem> rootItem;
-      GetRootTreeItem(getter_AddRefs(rootItem));
-      nsCOMPtr<nsIWebNavigation> root = do_QueryInterface(rootItem);
-      nsCOMPtr<nsIURI> rootURL;
-      root->GetCurrentURI(getter_AddRefs(rootURL));
-      if (rootURL && rootURL->GetSpecOrDefault().EqualsLiteral(
-                         "chrome://layoutdebug/content/layoutdebug.xul")) {
-        break;
-      }
-#endif
       // Final exception for some legacy automated tests:
       if (xpc::IsInAutomation() &&
           Preferences::GetBool("security.allow_unsafe_parent_loads", false)) {

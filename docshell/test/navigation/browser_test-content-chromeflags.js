@@ -30,7 +30,7 @@ add_task(async function() {
 
       let chromeFlags = win.docShell.treeOwner
         .QueryInterface(Ci.nsIInterfaceRequestor)
-        .getInterface(Ci.nsIXULWindow).chromeFlags;
+        .getInterface(Ci.nsIAppWindow).chromeFlags;
 
       // In the multi-process case, the new window will have the
       // CHROME_REMOTE_WINDOW flag set.
