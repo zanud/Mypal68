@@ -130,6 +130,7 @@ class nsWindow final : public nsWindowBase {
   virtual void SetSizeConstraints(const SizeConstraints& aConstraints) override;
   virtual void LockAspectRatio(bool aShouldLock) override;
   virtual const SizeConstraints GetSizeConstraints() override;
+  virtual void SetWindowMouseTransparent(bool aIsTransparent) override;
   virtual void Move(double aX, double aY) override;
   virtual void Resize(double aWidth, double aHeight, bool aRepaint) override;
   virtual void Resize(double aX, double aY, double aWidth, double aHeight,
@@ -688,6 +689,7 @@ class nsWindow final : public nsWindowBase {
   static void InitMouseWheelScrollData();
 
   double mSizeConstraintsScale;  // scale in effect when setting constraints
+  int32_t mMaxTextureSize;
 
   // Pointer events processing and management
   WinPointerEvents mPointerEvents;

@@ -20,7 +20,7 @@
 #include "nsIAppShellService.h"
 #include "nsIOSPermissionRequest.h"
 #include "nsIRunnable.h"
-#include "nsIXULWindow.h"
+#include "nsIAppWindow.h"
 #include "nsIBaseWindow.h"
 #include "nsMenuUtilsX.h"
 #include "nsToolkit.h"
@@ -271,7 +271,7 @@ nsIWidget* nsCocoaUtils::GetHiddenWindowWidget() {
     return nullptr;
   }
 
-  nsCOMPtr<nsIXULWindow> hiddenWindow;
+  nsCOMPtr<nsIAppWindow> hiddenWindow;
   appShell->GetHiddenWindow(getter_AddRefs(hiddenWindow));
   if (!hiddenWindow) {
     // Don't warn, this happens during shutdown, bug 358607.
@@ -281,7 +281,7 @@ nsIWidget* nsCocoaUtils::GetHiddenWindowWidget() {
   nsCOMPtr<nsIBaseWindow> baseHiddenWindow;
   baseHiddenWindow = do_GetInterface(hiddenWindow);
   if (!baseHiddenWindow) {
-    NS_WARNING("Couldn't get nsIBaseWindow from hidden window (nsIXULWindow)");
+    NS_WARNING("Couldn't get nsIBaseWindow from hidden window (nsIAppWindow)");
     return nullptr;
   }
 

@@ -28,7 +28,6 @@
 #include "nsIContent.h"
 #include "nsIDocumentObserver.h"
 #include "nsIRollupListener.h"
-#include "nsBindingManager.h"
 #include "nsXULPopupManager.h"
 #include "mozilla/dom/ScriptSettings.h"
 #include "mozilla/EventDispatcher.h"

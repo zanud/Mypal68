@@ -41,7 +41,7 @@ using mozilla::dom::ContentParent;
 
 #include "nsIWidgetListener.h"
 #include "nsIWindowWatcher.h"
-#include "nsIXULWindow.h"
+#include "nsIAppWindow.h"
 
 #include "nsAppShell.h"
 #include "nsFocusManager.h"
@@ -1234,11 +1234,11 @@ void nsWindow::GeckoViewSupport::Open(
                                       aInitData);
 
   if (window->mWidgetListener) {
-    nsCOMPtr<nsIXULWindow> xulWindow(window->mWidgetListener->GetXULWindow());
-    if (xulWindow) {
-      // Our window is not intrinsically sized, so tell nsXULWindow to
+    nsCOMPtr<nsIAppWindow> appWindow(window->mWidgetListener->GetAppWindow());
+    if (appWindow) {
+      // Our window is not intrinsically sized, so tell AppWindow to
       // not set a size for us.
-      xulWindow->SetIntrinsicallySized(false);
+      appWindow->SetIntrinsicallySized(false);
     }
   }
 }

@@ -42,6 +42,9 @@
 #include "nsIDOMWakeLockListener.h"
 #include "nsIPowerManagerService.h"
 
+#include "nsIObserverService.h"
+#include "mozilla/Services.h"
+
 using namespace mozilla;
 using namespace mozilla::widget;
 
@@ -875,6 +878,11 @@ nsAppShell::AfterProcessNextEvent(nsIThreadInternal* aThread, bool aEventWasProc
   if (currentEvent) {
     TextInputHandler::sLastModifierState =
         [currentEvent modifierFlags] & NSDeviceIndependentModifierFlagsMask;
+  }
+
+  nsCOMPtr<nsIObserverService> observerService = services::GetObserverService();
+  if (observerService) {
+    observerService->NotifyObservers(nullptr, NS_WIDGET_MAC_APP_ACTIVATE_OBSERVER_TOPIC, nullptr);
   }
 
   NS_OBJC_END_TRY_ABORT_BLOCK;

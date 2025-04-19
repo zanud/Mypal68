@@ -262,6 +262,12 @@ enum nsTopLevelWidgetZPlacement {  // for PlaceBehind()
  */
 #define NS_WIDGET_RESUME_PROCESS_OBSERVER_TOPIC "resume_process_notification"
 
+/**
+ * When an app(-shell) is activated by the OS, this topic is notified.
+ * Currently, this only happens on Mac OSX.
+ */
+#define NS_WIDGET_MAC_APP_ACTIVATE_OBSERVER_TOPIC "mac_app_activate"
+
 namespace mozilla {
 namespace widget {
 
@@ -1113,6 +1119,13 @@ class nsIWidget : public nsISupports {
    * Ignored on child widgets and on non-Mac platforms.
    */
   virtual void SetWindowTransform(const mozilla::gfx::Matrix& aTransform) {}
+
+  /**
+   * Set whether the window should ignore mouse events or not.
+   *
+   * This is only used on popup windows.
+   */
+  virtual void SetWindowMouseTransparent(bool aIsTransparent) {}
 
   /*
    * On Mac OS X, this method shows or hides the pill button in the titlebar

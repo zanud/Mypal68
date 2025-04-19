@@ -17,7 +17,7 @@
 #include "nsIAppShellService.h"
 #include "nsIBaseWindow.h"
 #include "nsIInterfaceRequestorUtils.h"
-#include "nsIXULWindow.h"
+#include "nsIAppWindow.h"
 #include "nsToolkit.h"
 #include "nsPIDOMWindow.h"
 #include "nsThreadUtils.h"
@@ -306,9 +306,8 @@ nsresult nsCocoaWindow::Create(nsIWidget* aParent, nsNativeWidget aNativeParent,
   NS_ENSURE_SUCCESS(rv, rv);
 
   if (mWindowType == eWindowType_popup) {
-    if (aInitData->mMouseTransparent) {
-      [mWindow setIgnoresMouseEvents:YES];
-    }
+    SetWindowMouseTransparent(aInitData->mMouseTransparent);
+
     // now we can convert newBounds to device pixels for the window we created,
     // as the child view expects a rect expressed in the dev pix of its parent
     LayoutDeviceIntRect devRect = RoundedToInt(newBounds * GetDesktopToDeviceScale());
@@ -653,7 +652,7 @@ void nsCocoaWindow::SetModal(bool aState) {
     // appears over behave as they should.  We can't rely on native methods to
     // do this, for the following reason:  The OS runs modal non-sheet windows
     // in an event loop (using [NSApplication runModalForWindow:] or similar
-    // methods) that's incompatible with the modal event loop in nsXULWindow::
+    // methods) that's incompatible with the modal event loop in AppWindow::
     // ShowModal() (each of these event loops is "exclusive", and can't run at
     // the same time as other (similar) event loops).
     if (mWindowType != eWindowType_sheet) {
@@ -1617,7 +1616,7 @@ void nsCocoaWindow::BackingScaleFactorChanged() {
 
   mBackingScaleFactor = newScale;
 
-  if (!mWidgetListener || mWidgetListener->GetXULWindow()) {
+  if (!mWidgetListener || mWidgetListener->GetAppWindow()) {
     return;
   }
 
@@ -2061,6 +2060,15 @@ void nsCocoaWindow::SetWindowTransform(const gfx::Matrix& aTransform) {
   mWindowTransformIsIdentity = isIdentity;
 
   NS_OBJC_END_TRY_ABORT_BLOCK;
+}
+
+void nsCocoaWindow::SetWindowMouseTransparent(bool aIsTransparent) {
+  MOZ_ASSERT(mWindowType == eWindowType_popup, "This should only be called on popup windows.");
+  if (aIsTransparent) {
+    [mWindow setIgnoresMouseEvents:YES];
+  } else {
+    [mWindow setIgnoresMouseEvents:NO];
+  }
 }
 
 void nsCocoaWindow::SetShowsToolbarButton(bool aShow) {

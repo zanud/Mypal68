@@ -3732,13 +3732,7 @@ nsresult nsWindow::Create(nsIWidget* aParent, nsNativeWidget aNativeParent,
         }
 
         // If the popup ignores mouse events, set an empty input shape.
-        if (aInitData->mMouseTransparent) {
-          cairo_rectangle_int_t rect = {0, 0, 0, 0};
-          cairo_region_t* region = cairo_region_create_rectangle(&rect);
-
-          gdk_window_input_shape_combine_region(mGdkWindow, region, 0, 0);
-          cairo_region_destroy(region);
-        }
+        SetWindowMouseTransparent(aInitData->mMouseTransparent);
       }
     } break;
 
@@ -4326,6 +4320,21 @@ nsTransparencyMode nsWindow::GetTransparencyMode() {
   }
 
   return mIsTransparent ? eTransparencyTransparent : eTransparencyOpaque;
+}
+
+void nsWindow::SetWindowMouseTransparent(bool aIsTransparent) {
+  if (!mGdkWindow) {
+    return;
+  }
+
+  cairo_rectangle_int_t emptyRect = {0, 0, 0, 0};
+  cairo_region_t* region =
+      aIsTransparent ? cairo_region_create_rectangle(&emptyRect) : nullptr;
+
+  gdk_window_input_shape_combine_region(mGdkWindow, region, 0, 0);
+  if (region) {
+    cairo_region_destroy(region);
+  }
 }
 
 // For setting the draggable titlebar region from CSS

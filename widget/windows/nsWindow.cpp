@@ -653,6 +653,7 @@ nsWindow::nsWindow(bool aIsChildWindow)
   mIdleService = nullptr;
 
   mSizeConstraintsScale = GetDefaultScale().scale;
+  mMaxTextureSize = -1;  // Will be calculated when layer manager is created.
 
   sInstanceCount++;
 }
@@ -1686,6 +1687,25 @@ void nsWindow::LockAspectRatio(bool aShouldLock) {
 
 /**************************************************************
  *
+ * SECTION: nsIWidget::SetWindowMouseTransparent
+ *
+ * Sets whether the window should ignore mouse events.
+ *
+ **************************************************************/
+void nsWindow::SetWindowMouseTransparent(bool aIsTransparent) {
+  if (!mWnd) {
+    return;
+  }
+
+  LONG_PTR oldStyle = ::GetWindowLongPtrW(mWnd, GWL_EXSTYLE);
+  LONG_PTR newStyle = aIsTransparent ? (oldStyle | WS_EX_TRANSPARENT)
+                                     : (oldStyle & ~WS_EX_TRANSPARENT);
+  ::SetWindowLongPtrW(mWnd, GWL_EXSTYLE, newStyle);
+  mMouseTransparent = aIsTransparent;
+}
+
+/**************************************************************
+ *
  * SECTION: nsIWidget::Move, nsIWidget::Resize,
  * nsIWidget::Size, nsIWidget::BeginResizeDrag
  *
@@ -1701,14 +1721,13 @@ void nsWindow::SetSizeConstraints(const SizeConstraints& aConstraints) {
     c.mMinSize.height =
         std::max(int32_t(::GetSystemMetrics(SM_CYMINTRACK)), c.mMinSize.height);
   }
-  KnowsCompositor* knowsCompositor = GetLayerManager()->AsKnowsCompositor();
-  if (knowsCompositor) {
-    int32_t maxSize = knowsCompositor->GetMaxTextureSize();
+
+  if (mMaxTextureSize > 0) {
     // We can't make ThebesLayers bigger than this anyway.. no point it letting
     // a window grow bigger as we won't be able to draw content there in
     // general.
-    c.mMaxSize.width = std::min(c.mMaxSize.width, maxSize);
-    c.mMaxSize.height = std::min(c.mMaxSize.height, maxSize);
+    c.mMaxSize.width = std::min(c.mMaxSize.width, mMaxTextureSize);
+    c.mMaxSize.height = std::min(c.mMaxSize.height, mMaxTextureSize);
   }
 
   mSizeConstraintsScale = GetDefaultScale().scale;
@@ -3729,6 +3748,10 @@ bool nsWindow::HasPendingInputEvent() {
 LayerManager* nsWindow::GetLayerManager(PLayerTransactionChild* aShadowManager,
                                         LayersBackend aBackendHint,
                                         LayerManagerPersistence aPersistence) {
+  if (mLayerManager) {
+    return mLayerManager;
+  }
+
   RECT windowRect;
   ::GetClientRect(mWnd, &windowRect);
 
@@ -3768,6 +3791,19 @@ LayerManager* nsWindow::GetLayerManager(PLayerTransactionChild* aShadowManager,
   }
 
   NS_ASSERTION(mLayerManager, "Couldn't provide a valid layer manager.");
+
+  if (mLayerManager) {
+    // Update the size constraints now that the layer manager has been
+    // created.
+    KnowsCompositor* knowsCompositor = mLayerManager->AsKnowsCompositor();
+    if (knowsCompositor) {
+      SizeConstraints c = mSizeConstraints;
+      mMaxTextureSize = knowsCompositor->GetMaxTextureSize();
+      c.mMaxSize.width = std::min(c.mMaxSize.width, mMaxTextureSize);
+      c.mMaxSize.height = std::min(c.mMaxSize.height, mMaxTextureSize);
+      nsBaseWidget::SetSizeConstraints(c);
+    }
+  }
 
   return mLayerManager;
 }
