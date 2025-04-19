@@ -86,17 +86,15 @@ enum class StyleDisplay : uint16_t {
 
   /// XUL boxes.
   MozBox =
-      StyleDisplayFrom(StyleDisplayOutside::XUL, StyleDisplayInside::MozBox),
-  MozInlineBox = StyleDisplayFrom(StyleDisplayOutside::XUL,
-                                  StyleDisplayInside::MozInlineBox),
+      StyleDisplayFrom(StyleDisplayOutside::Block, StyleDisplayInside::MozBox),
+  MozInlineBox = StyleDisplayFrom(StyleDisplayOutside::Inline,
+                                  StyleDisplayInside::MozBox),
   MozGrid =
       StyleDisplayFrom(StyleDisplayOutside::XUL, StyleDisplayInside::MozGrid),
   MozGridGroup = StyleDisplayFrom(StyleDisplayOutside::XUL,
                                   StyleDisplayInside::MozGridGroup),
   MozGridLine = StyleDisplayFrom(StyleDisplayOutside::XUL,
                                  StyleDisplayInside::MozGridLine),
-  MozStack =
-      StyleDisplayFrom(StyleDisplayOutside::XUL, StyleDisplayInside::MozStack),
   MozDeck =
       StyleDisplayFrom(StyleDisplayOutside::XUL, StyleDisplayInside::MozDeck),
   MozPopup =
@@ -249,14 +247,6 @@ enum class StyleShapeSourceType : uint8_t {
   Shape,
   Box,
   Path,  // SVG path function
-};
-
-// -moz-stack-sizing
-enum class StyleStackSizing : uint8_t {
-  Ignore,
-  StretchToFit,
-  IgnoreHorizontal,
-  IgnoreVertical,
 };
 
 // user-focus

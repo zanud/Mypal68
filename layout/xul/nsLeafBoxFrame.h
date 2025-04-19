@@ -63,9 +63,6 @@ class nsLeafBoxFrame : public nsLeafFrame {
   virtual void BuildDisplayList(nsDisplayListBuilder* aBuilder,
                                 const nsDisplayListSet& aLists) override;
 
-  virtual nsresult AttributeChanged(int32_t aNameSpaceID, nsAtom* aAttribute,
-                                    int32_t aModType) override;
-
   virtual bool XULComputesOwnOverflowArea() override { return false; }
 
  protected:
@@ -76,9 +73,6 @@ class nsLeafBoxFrame : public nsLeafFrame {
   explicit nsLeafBoxFrame(ComputedStyle* aStyle, nsPresContext* aPresContext,
                           ClassID aID = kClassID)
       : nsLeafFrame(aStyle, aPresContext, aID) {}
-
- private:
-  void UpdateMouseThrough();
 
 };  // class nsLeafBoxFrame
 

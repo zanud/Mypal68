@@ -82,6 +82,7 @@
 #include "mozilla/Telemetry.h"
 #include "mozilla/dom/Performance.h"
 #include "mozilla/dom/PerformanceTiming.h"
+#include "mozilla/dom/PerformancePaintTiming.h"
 #include "mozilla/layers/APZThreadUtils.h"
 #include "mozilla/dom/ImageTracker.h"
 
@@ -152,11 +153,9 @@ static bool IsVisualCharset(NotNull<const Encoding*> aCharset) {
 }
 
 nsPresContext::nsPresContext(dom::Document* aDocument, nsPresContextType aType)
-    : mType(aType),
-      mPresShell(nullptr),
+    : mPresShell(nullptr),
       mDocument(aDocument),
       mMedium(aType == eContext_Galley ? nsGkAtoms::screen : nsGkAtoms::print),
-      mInflationDisabledForShrinkWrap(false),
       mSystemFontScale(1.0),
       mTextZoom(1.0),
       mEffectiveTextZoom(1.0),
@@ -169,17 +168,19 @@ nsPresContext::nsPresContext(dom::Document* aDocument, nsPresContextType aType)
       mPageScale(0.0),
       mPPScale(1.0f),
       mViewportScrollOverrideElement(nullptr),
-      mViewportScrollStyles(StyleOverflow::Auto, StyleOverflow::Auto),
-      mExistThrottledUpdates(false),
-      // mImageAnimationMode is initialised below, in constructor body
-      mImageAnimationModePref(imgIContainer::kNormalAnimMode),
-      mInterruptChecksToSkip(0),
-      mNextFrameRateMultiplier(0),
       mElementsRestyled(0),
       mFramesConstructed(0),
       mFramesReflowed(0),
+      mInterruptChecksToSkip(0),
+      mNextFrameRateMultiplier(0),
+      mViewportScrollStyles(StyleOverflow::Auto, StyleOverflow::Auto),
+      // mImageAnimationMode is initialised below, in constructor body
+      mImageAnimationModePref(imgIContainer::kNormalAnimMode),
+      mType(aType),
+      mInflationDisabledForShrinkWrap(false),
       mInteractionTimeEnabled(true),
       mHasPendingInterrupt(false),
+      mHasEverBuiltInvisibleText(false),
       mPendingInterruptFromTest(false),
       mInterruptsEnabled(false),
       mSendAfterPaintToContent(false),
@@ -210,6 +211,7 @@ nsPresContext::nsPresContext(dom::Document* aDocument, nsPresContextType aType)
       mQuirkSheetAdded(false),
       mHadNonBlankPaint(false),
       mHadContentfulPaint(false),
+      mHadNonTickContentfulPaint(false),
       mHadContentfulPaintComposite(false)
 #ifdef DEBUG
       ,
@@ -2306,12 +2308,35 @@ void nsPresContext::NotifyNonBlankPaint() {
 }
 
 void nsPresContext::NotifyContentfulPaint() {
+  nsRootPresContext* rootPresContext = GetRootPresContext();
+  if (!rootPresContext) {
+    return;
+  }
   if (!mHadContentfulPaint) {
+    if (!rootPresContext->RefreshDriver()->IsInRefresh()) {
+      if (!mHadNonTickContentfulPaint) {
+        rootPresContext->RefreshDriver()
+            ->AddForceNotifyContentfulPaintPresContext(this);
+        mHadNonTickContentfulPaint = true;
+      }
+      return;
+    }
     mHadContentfulPaint = true;
-    if (IsRootContentDocument()) {
-      if (nsRootPresContext* rootPresContext = GetRootPresContext()) {
-        mFirstContentfulPaintTransactionId =
-            Some(rootPresContext->mRefreshDriver->LastTransactionId().Next());
+    mFirstContentfulPaintTransactionId =
+        Some(rootPresContext->mRefreshDriver->LastTransactionId().Next());
+    if (nsPIDOMWindowInner* innerWindow = mDocument->GetInnerWindow()) {
+      if (Performance* perf = innerWindow->GetPerformance()) {
+        TimeStamp nowTime = rootPresContext->RefreshDriver()->MostRecentRefresh(
+            /* aEnsureTimerStarted */ false);
+        MOZ_ASSERT(!nowTime.IsNull(),
+                   "Most recent refresh timestamp should exist since we are in "
+                   "a refresh driver tick");
+        MOZ_ASSERT(rootPresContext->RefreshDriver()->IsInRefresh(),
+                   "We should only notify contentful paint during refresh "
+                   "driver ticks");
+        RefPtr<PerformancePaintTiming> paintTiming = new PerformancePaintTiming(
+            perf, u"first-contentful-paint"_ns, nowTime);
+        perf->SetFCPTimingEntry(paintTiming);
       }
     }
   }

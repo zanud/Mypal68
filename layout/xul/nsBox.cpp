@@ -52,8 +52,6 @@ nsresult nsIFrame::EndXULLayout(nsBoxLayoutState& aState) {
   return SyncXULLayout(aState);
 }
 
-nsresult nsIFrame::XULRelayoutChildAtOrdinal(nsIFrame* aChild) { return NS_OK; }
-
 nsresult nsIFrame::GetXULClientRect(nsRect& aClientRect) {
   aClientRect = mRect;
   aClientRect.MoveTo(0, 0);
@@ -233,24 +231,6 @@ nsSize nsIFrame::GetUncachedXULMaxSize(nsBoxLayoutState& aBoxLayoutState) {
   bool widthSet, heightSet;
   nsIFrame::AddXULMaxSize(this, maxSize, widthSet, heightSet);
   return maxSize;
-}
-
-int32_t nsIFrame::GetXULOrdinal() {
-  int32_t ordinal = StyleXUL()->mBoxOrdinal;
-
-  // When present, attribute value overrides CSS.
-  nsIContent* content = GetContent();
-  if (content && content->IsXULElement()) {
-    nsresult error;
-    nsAutoString value;
-
-    content->AsElement()->GetAttr(kNameSpaceID_None, nsGkAtoms::ordinal, value);
-    if (!value.IsEmpty()) {
-      ordinal = value.ToInteger(&error);
-    }
-  }
-
-  return ordinal;
 }
 
 bool nsIFrame::IsXULCollapsed() {

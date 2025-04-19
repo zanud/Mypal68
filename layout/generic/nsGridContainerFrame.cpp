@@ -47,6 +47,12 @@ using TrackListValue =
 using TrackRepeat = StyleGenericTrackRepeat<LengthPercentage, StyleInteger>;
 using NameList = StyleOwnedSlice<StyleCustomIdent>;
 using SizingConstraint = nsGridContainerFrame::SizingConstraint;
+using GridItemCachedBAxisMeasurement =
+    nsGridContainerFrame::CachedBAxisMeasurement;
+
+static mozilla::LazyLogModule gGridContainerLog("GridContainer");
+#define GRID_LOG(...) \
+  MOZ_LOG(gGridContainerLog, LogLevel::Debug, (__VA_ARGS__));
 
 static const int32_t kMaxLine = StyleMAX_GRID_LINE;
 static const int32_t kMinLine = StyleMIN_GRID_LINE;
@@ -4975,6 +4981,25 @@ static nscoord MeasuringReflow(nsIFrame* aChild,
       nsIFrame::ReflowChildFlags::NoMoveFrame |
       nsIFrame::ReflowChildFlags::NoSizeView |
       nsIFrame::ReflowChildFlags::NoDeleteNextInFlowChild;
+
+  if (StaticPrefs::layout_css_grid_item_baxis_measurement_enabled()) {
+    bool found;
+    GridItemCachedBAxisMeasurement cachedMeasurement =
+        aChild->GetProperty(GridItemCachedBAxisMeasurement::Prop(), &found);
+    if (found && cachedMeasurement.IsValidFor(aChild, aCBSize)) {
+      childSize.BSize(wm) = cachedMeasurement.BSize();
+      childSize.ISize(wm) = aChild->ISize(wm);
+      nsContainerFrame::FinishReflowChild(aChild, pc, childSize, &childRI, wm,
+                                          LogicalPoint(wm), nsSize(), flags);
+      GRID_LOG(
+          "[perf] MeasuringReflow accepted cached value=%d, child=%p, "
+          "aCBSize.ISize=%d",
+          cachedMeasurement.BSize(), aChild,
+          aCBSize.ISize(aChild->GetWritingMode()));
+      return cachedMeasurement.BSize();
+    }
+  }
+
   parent->ReflowChild(aChild, pc, childSize, childRI, wm, LogicalPoint(wm),
                       nsSize(), flags, childStatus);
   nsContainerFrame::FinishReflowChild(aChild, pc, childSize, &childRI, wm,
@@ -4982,6 +5007,42 @@ static nscoord MeasuringReflow(nsIFrame* aChild,
 #ifdef DEBUG
   parent->RemoveProperty(nsContainerFrame::DebugReflowingWithInfiniteISize());
 #endif
+
+  if (StaticPrefs::layout_css_grid_item_baxis_measurement_enabled()) {
+    bool found;
+    GridItemCachedBAxisMeasurement cachedMeasurement =
+        aChild->GetProperty(GridItemCachedBAxisMeasurement::Prop(), &found);
+    if (!found &&
+        GridItemCachedBAxisMeasurement::CanCacheMeasurement(aChild, aCBSize)) {
+      GridItemCachedBAxisMeasurement cachedMeasurement(aChild, aCBSize,
+                                                       childSize.BSize(wm));
+      aChild->SetProperty(GridItemCachedBAxisMeasurement::Prop(),
+                          cachedMeasurement);
+      GRID_LOG(
+          "[perf] MeasuringReflow created new cached value=%d, child=%p, "
+          "aCBSize.ISize=%d",
+          cachedMeasurement.BSize(), aChild,
+          aCBSize.ISize(aChild->GetWritingMode()));
+    } else if (found) {
+      if (GridItemCachedBAxisMeasurement::CanCacheMeasurement(aChild,
+                                                              aCBSize)) {
+        cachedMeasurement.Update(aChild, aCBSize, childSize.BSize(wm));
+        GRID_LOG(
+            "[perf] MeasuringReflow rejected but updated cached value=%d, "
+            "child=%p, aCBSize.ISize=%d",
+            cachedMeasurement.BSize(), aChild,
+            aCBSize.ISize(aChild->GetWritingMode()));
+        aChild->SetProperty(GridItemCachedBAxisMeasurement::Prop(),
+                            cachedMeasurement);
+      } else {
+        aChild->RemoveProperty(GridItemCachedBAxisMeasurement::Prop());
+        GRID_LOG(
+            "[perf] MeasuringReflow rejected and removed cached value, "
+            "child=%p",
+            aChild);
+      }
+    }
+  }
   return childSize.BSize(wm);
 }
 
@@ -5222,9 +5283,31 @@ static nscoord ContentContribution(
       iMinSizeClamp = aMinSizeClamp;
     }
     LogicalSize availableSize(childWM, availISize, availBSize);
-    size = ::MeasuringReflow(child, aState.mReflowInput, aRC, availableSize,
-                             cbSize, iMinSizeClamp, bMinSizeClamp);
-    size += child->GetLogicalUsedMargin(childWM).BStartEnd(childWM);
+    if (MOZ_UNLIKELY(child->IsXULBoxFrame())) {
+      auto* pc = child->PresContext();
+      // For XUL-in-CSS-Grid (e.g. in our frontend code), we defer to XUL's
+      // GetPrefSize() function (which reports an answer in both axes), instead
+      // of actually reflowing.  It's important to avoid the "measuring + final"
+      // two-pass reflow for XUL, because some XUL layout code may incorrectly
+      // optimize away the second reflow in cases where it's really needed.
+      // XXXdholbert We'll remove this special case in bug 1600542.
+      ReflowInput childRI(pc, *aState.mReflowInput, child, availableSize,
+                          Some(cbSize));
+
+      nsBoxLayoutState state(pc, &aState.mRenderingContext, &childRI,
+                             childRI.mReflowDepth);
+      nsSize physicalPrefSize = child->GetXULPrefSize(state);
+      auto prefSize = LogicalSize(childWM, physicalPrefSize);
+      size = prefSize.BSize(childWM);
+
+      // XXXdholbert This won't have percentage margins resolved.
+      // Hopefully we can just avoid those for XUL-content-in-css-grid?
+      size += childRI.ComputedLogicalMargin(childWM).BStartEnd(childWM);
+    } else {
+      size = ::MeasuringReflow(child, aState.mReflowInput, aRC, availableSize,
+                               cbSize, iMinSizeClamp, bMinSizeClamp);
+      size += child->GetLogicalUsedMargin(childWM).BStartEnd(childWM);
+    }
     nscoord overflow = size - aMinSizeClamp;
     if (MOZ_UNLIKELY(overflow > 0)) {
       nscoord contentSize = child->ContentSize(childWM).BSize(childWM);
@@ -7235,10 +7318,34 @@ void nsGridContainerFrame::ReflowInFlowChild(
   // aContainerSize, and then pass the correct position to FinishReflowChild.
   ReflowOutput childSize(childRI);
   const nsSize dummyContainerSize;
-  ReflowChild(aChild, pc, childSize, childRI, childWM, LogicalPoint(childWM),
+
+  // XXXdholbert The childPos that we use for ReflowChild shouldn't matter,
+  // since we finalize it in FinishReflowChild. However, it does matter if the
+  // child happens to be XUL (which sizes menu popup frames based on the
+  // position within the viewport, during this ReflowChild call). So we make an
+  // educated guess that the child will be at the origin of its containing
+  // block, and then use align/justify to correct that as-needed further
+  // down. (If the child has a different writing mode than its parent, though,
+  // then we can't express the CB origin until we've reflowed the child and
+  // determined its size. In that case, we throw up our hands and don't bother
+  // trying to guess the position up-front after all.)
+  // XXXdholbert We'll remove this special case in bug 1600542, and then we can
+  // go back to just setting childPos in a single call after ReflowChild.
+  LogicalPoint childPos(childWM);
+  if (MOZ_LIKELY(childWM == wm)) {
+    // Initially, assume the child will be at the containing block origin.
+    // (This may get corrected during alignment/justification below.)
+    childPos = cb.Origin(wm);
+  }
+  ReflowChild(aChild, pc, childSize, childRI, childWM, childPos,
               dummyContainerSize, ReflowChildFlags::Default, aStatus);
-  LogicalPoint childPos = cb.Origin(wm).ConvertTo(
-      childWM, wm, aContainerSize - childSize.PhysicalSize());
+  if (MOZ_UNLIKELY(childWM != wm)) {
+    // As above: assume the child will be at the containing block origin.
+    // (which we can now compute in terms of the childWM, now that we know the
+    // child's size).
+    childPos = cb.Origin(wm).ConvertTo(
+        childWM, wm, aContainerSize - childSize.PhysicalSize());
+  }
   // Apply align/justify-self and reflow again if that affects the size.
   if (MOZ_LIKELY(isGridItem)) {
     LogicalSize size = childSize.Size(childWM);  // from the ReflowChild()
@@ -7300,7 +7407,7 @@ nscoord nsGridContainerFrame::ReflowInFragmentainer(
   // and put them in a separate array.
   nsTArray<const GridItemInfo*> sortedItems(aState.mGridItems.Length());
   nsTArray<nsIFrame*> placeholders(aState.mAbsPosItems.Length());
-  aState.mIter.Reset(CSSOrderAwareFrameIterator::eIncludeAll);
+  aState.mIter.Reset(CSSOrderAwareFrameIterator::ChildFilter::IncludeAll);
   for (; !aState.mIter.AtEnd(); aState.mIter.Next()) {
     nsIFrame* child = *aState.mIter;
     if (!child->IsPlaceholderFrame()) {
@@ -7800,7 +7907,7 @@ nscoord nsGridContainerFrame::MasonryLayout(GridReflowInput& aState,
 
   // Collect our grid items and sort them in grid order.
   nsTArray<GridItemInfo*> sortedItems(aState.mGridItems.Length());
-  aState.mIter.Reset(CSSOrderAwareFrameIterator::eIncludeAll);
+  aState.mIter.Reset(CSSOrderAwareFrameIterator::ChildFilter::IncludeAll);
   size_t absposIndex = 0;
   const LogicalAxis masonryAxis =
       IsMasonry(eLogicalAxisBlock) ? eLogicalAxisBlock : eLogicalAxisInline;
@@ -8316,15 +8423,15 @@ nscoord nsGridContainerFrame::ReflowChildren(GridReflowInput& aState,
     bSize = ReflowInFragmentainer(aState, aContentArea, aDesiredSize, aStatus,
                                   *fragmentainer, aContainerSize);
   } else {
-    aState.mIter.Reset(CSSOrderAwareFrameIterator::eIncludeAll);
+    aState.mIter.Reset(CSSOrderAwareFrameIterator::ChildFilter::IncludeAll);
     for (; !aState.mIter.AtEnd(); aState.mIter.Next()) {
       nsIFrame* child = *aState.mIter;
       const GridItemInfo* info = nullptr;
       if (!child->IsPlaceholderFrame()) {
         info = &aState.mGridItems[aState.mIter.ItemIndex()];
       }
-      ReflowInFlowChild(*aState.mIter, info, aContainerSize, Nothing(), nullptr,
-                        aState, aContentArea, aDesiredSize, aStatus);
+      ReflowInFlowChild(child, info, aContainerSize, Nothing(), nullptr, aState,
+                        aContentArea, aDesiredSize, aStatus);
       MOZ_ASSERT(aStatus.IsComplete(),
                  "child should be complete in unconstrained reflow");
     }
@@ -8626,8 +8733,8 @@ void nsGridContainerFrame::Reflow(nsPresContext* aPresContext,
       using Filter = CSSOrderAwareFrameIterator::ChildFilter;
       using Order = CSSOrderAwareFrameIterator::OrderState;
       bool ordered = gridReflowInput.mIter.ItemsAreAlreadyInOrder();
-      auto orderState = ordered ? Order::eKnownOrdered : Order::eKnownUnordered;
-      iter.emplace(this, kPrincipalList, Filter::eSkipPlaceholders, orderState);
+      auto orderState = ordered ? Order::Ordered : Order::Unordered;
+      iter.emplace(this, kPrincipalList, Filter::SkipPlaceholders, orderState);
       gridItems.emplace();
       for (; !iter->AtEnd(); iter->Next()) {
         auto child = **iter;
@@ -9209,10 +9316,11 @@ void nsGridContainerFrame::BuildDisplayList(nsDisplayListBuilder* aBuilder,
   typedef CSSOrderAwareFrameIterator::OrderState OrderState;
   OrderState order =
       HasAnyStateBits(NS_STATE_GRID_NORMAL_FLOW_CHILDREN_IN_CSS_ORDER)
-          ? OrderState::eKnownOrdered
-          : OrderState::eKnownUnordered;
+          ? OrderState::Ordered
+          : OrderState::Unordered;
   CSSOrderAwareFrameIterator iter(
-      this, kPrincipalList, CSSOrderAwareFrameIterator::eIncludeAll, order);
+      this, kPrincipalList, CSSOrderAwareFrameIterator::ChildFilter::IncludeAll,
+      order);
   for (; !iter.AtEnd(); iter.Next()) {
     nsIFrame* child = *iter;
     BuildDisplayListForChild(aBuilder, child, aLists,
@@ -9392,9 +9500,9 @@ void nsGridContainerFrame::CalculateBaselines(
     // iterator ('aIter' is the forward iterator from the GridReflowInput).
     using Iter = ReverseCSSOrderAwareFrameIterator;
     auto orderState = aIter->ItemsAreAlreadyInOrder()
-                          ? Iter::OrderState::eKnownOrdered
-                          : Iter::OrderState::eKnownUnordered;
-    Iter iter(this, kPrincipalList, Iter::ChildFilter::eSkipPlaceholders,
+                          ? Iter::OrderState::Ordered
+                          : Iter::OrderState::Unordered;
+    Iter iter(this, kPrincipalList, Iter::ChildFilter::SkipPlaceholders,
               orderState);
     iter.SetItemCount(aGridItems->Length());
     FindItemInGridOrderResult gridOrderLastItem = FindLastItemInGridOrder(

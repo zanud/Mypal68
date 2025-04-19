@@ -1670,14 +1670,6 @@ var gCSSProperties = {
     alias_for: "appearance",
     subproperties: ["appearance"],
   },
-  "-moz-binding": {
-    domProp: "MozBinding",
-    inherited: false,
-    type: CSS_TYPE_LONGHAND,
-    initial_values: ["none"],
-    other_values: ["url(foo.xml)"],
-    invalid_values: [],
-  },
   "-webkit-appearance": {
     domProp: "webkitAppearance",
     inherited: false,
@@ -3517,14 +3509,6 @@ var gCSSProperties = {
     prerequisites: { display: "block", overflow: "auto" },
     initial_values: ["none"],
     other_values: ["both", "horizontal", "vertical", "inline", "block"],
-    invalid_values: [],
-  },
-  "-moz-stack-sizing": {
-    domProp: "MozStackSizing",
-    inherited: false,
-    type: CSS_TYPE_LONGHAND,
-    initial_values: ["stretch-to-fit"],
-    other_values: ["ignore", "ignore-horizontal", "ignore-vertical"],
     invalid_values: [],
   },
   "-moz-tab-size": {

@@ -19,9 +19,9 @@ load 404470-1.html
 load 411603-1.html
 load 412588-1.html
 load 413274-1.xhtml
-load 416461-1.xul
+load chrome://reftest/content/crashtests/layout/style/crashtests/416461-1.xhtml
 load 418007-1.xhtml
-load 431705-1.xul
+load chrome://reftest/content/crashtests/layout/style/crashtests/431705-1.xhtml
 load 432561-1.html
 load 437170-1.html
 load 437532-1.html
@@ -182,7 +182,6 @@ load 1344210.html
 load 1353312.html
 load 1356601-1.html
 load 1364139-1.html
-load 1370793-1.xhtml
 load 1371450-1.html
 load 1374175-1.html
 load 1375812-1.html
@@ -300,7 +299,6 @@ load 1502893.html
 load 1507674.html
 load 1509989.html
 load 1514086.html
-pref(layout.css.moz-binding.content.enabled,false) load 1517319.html
 load 1533783.html
 load 1533891.html
 pref(gfx.omta.background-color,true) load 1533968.html

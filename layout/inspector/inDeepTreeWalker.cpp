@@ -10,6 +10,7 @@
 #include "mozilla/dom/Document.h"
 #include "nsServiceManagerUtils.h"
 #include "nsIContent.h"
+#include "nsINodeList.h" //MY68
 #include "ChildIterator.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/InspectorUtils.h"

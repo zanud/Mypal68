@@ -9,6 +9,7 @@
 #include "nsFontMetrics.h"
 #include "nsTextControlFrame.h"
 #include "nsIEditor.h"
+#include "nsINodeList.h" //MY68
 #include "nsIScrollableFrame.h"
 #include "nsCaret.h"
 #include "nsCSSPseudoElements.h"

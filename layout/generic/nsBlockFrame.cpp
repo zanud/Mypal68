@@ -566,12 +566,12 @@ nscoord nsBlockFrame::GetLogicalBaseline(WritingMode aWM) const {
 bool nsBlockFrame::GetNaturalBaselineBOffset(
     mozilla::WritingMode aWM, BaselineSharingGroup aBaselineGroup,
     nscoord* aBaseline) const {
-  if (aBaselineGroup == BaselineSharingGroup::First) {
-    return nsLayoutUtils::GetFirstLineBaseline(aWM, this, aBaseline);
-  }
-
   if (StyleDisplay()->IsContainLayout()) {
     return false;
+  }
+
+  if (aBaselineGroup == BaselineSharingGroup::First) {
+    return nsLayoutUtils::GetFirstLineBaseline(aWM, this, aBaseline);
   }
 
   for (ConstReverseLineIterator line = LinesRBegin(), line_end = LinesREnd();
@@ -1529,8 +1529,8 @@ void nsBlockFrame::Reflow(nsPresContext* aPresContext, ReflowOutput& aMetrics,
   }
 
   nsRect areaBounds = nsRect(0, 0, aMetrics.Width(), aMetrics.Height());
-  ComputeOverflowAreas(areaBounds, reflowInput->mStyleDisplay,
-                       blockEndEdgeOfChildren, aMetrics.mOverflowAreas);
+  aMetrics.mOverflowAreas = ComputeOverflowAreas(
+      areaBounds, reflowInput->mStyleDisplay, blockEndEdgeOfChildren);
   // Factor overflow container child bounds into the overflow area
   aMetrics.mOverflowAreas.UnionWith(ocBounds);
   // Factor pushed float child bounds into the overflow area
@@ -2096,10 +2096,9 @@ static void ConsiderBlockEndEdgeOfChildren(const WritingMode aWritingMode,
   }
 }
 
-void nsBlockFrame::ComputeOverflowAreas(const nsRect& aBounds,
-                                        const nsStyleDisplay* aDisplay,
-                                        nscoord aBEndEdgeOfChildren,
-                                        OverflowAreas& aOverflowAreas) {
+OverflowAreas nsBlockFrame::ComputeOverflowAreas(const nsRect& aBounds,
+                                                 const nsStyleDisplay* aDisplay,
+                                                 nscoord aBEndEdgeOfChildren) {
   // Compute the overflow areas of our children
   // XXX_perf: This can be done incrementally.  It is currently one of
   // the things that makes incremental reflow O(N^2).
@@ -2141,7 +2140,7 @@ void nsBlockFrame::ComputeOverflowAreas(const nsRect& aBounds,
          ToString(areas.ScrollableOverflow()).c_str());
 #endif
 
-  aOverflowAreas = areas;
+  return areas;
 }
 
 void nsBlockFrame::UnionChildOverflow(OverflowAreas& aOverflowAreas) {

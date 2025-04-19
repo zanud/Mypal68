@@ -69,10 +69,12 @@ enum class StyleSheetState : uint8_t {
   ForcedUniqueInner = 1 << 2,
   // Whether this stylesheet has suffered any modification to the rules via
   // CSSOM.
-  //
-  // FIXME(emilio): I think as of right now we also set this flag for normal
-  // @import rules, which looks very fishy.
   ModifiedRules = 1 << 3,
+  // Same flag, but devtools clears it in some specific situations.
+  //
+  // Used to control whether devtools shows the rule in its authored form or
+  // not.
+  ModifiedRulesForDevtools = 1 << 4,
   // Whether modifications to the sheet are currently disallowed.
   // This flag is set during the async Replace() function to ensure
   // that the sheet is not modified until the promise is resolved.
@@ -215,7 +217,9 @@ class StyleSheet final : public nsICSSLoaderObserver, public nsWrapperCache {
 
   bool HasModifiedRules() const { return bool(mState & State::ModifiedRules); }
 
-  void ClearModifiedRules() { mState &= ~State::ModifiedRules; }
+  bool HasModifiedRulesForDevtools() const {
+    return bool(mState & State::ModifiedRulesForDevtools);
+  }
 
   bool HasUniqueInner() const { return Inner().mSheets.Length() == 1; }
 
@@ -459,6 +463,10 @@ class StyleSheet final : public nsICSSLoaderObserver, public nsWrapperCache {
   nsISupports* GetRelevantGlobal() const;
 
  private:
+  void SetModifiedRules() {
+    mState |= State::ModifiedRules | State::ModifiedRulesForDevtools;
+  }
+
   const StyleSheet& OutermostSheet() const {
     auto* current = this;
     while (current->mParentSheet) {

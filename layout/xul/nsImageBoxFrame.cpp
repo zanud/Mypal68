@@ -263,21 +263,9 @@ void nsImageBoxFrame::UpdateImage() {
         doc->ImageTracker()->Add(mImageRequest);
       }
     }
-  } else {
-    // Only get the list-style-image if we aren't being drawn
-    // by a native theme.
-    auto* display = StyleDisplay();
-    nsPresContext* pc = PresContext();
-    if (!(display->HasAppearance() &&
-          pc->Theme()->ThemeSupportsWidget(nullptr, this,
-                                           display->mDefaultAppearance))) {
-      // get the list-style-image
-      imgRequestProxy* styleRequest = StyleList()->mListStyleImage.GetImageRequest();
-      if (styleRequest) {
-        styleRequest->SyncClone(mListener, mContent->GetComposedDoc(),
-                                getter_AddRefs(mImageRequest));
-      }
-    }
+  } else if (auto* styleRequest = GetRequestFromStyle()) {
+    styleRequest->SyncClone(mListener, mContent->GetComposedDoc(),
+                            getter_AddRefs(mImageRequest));
   }
 
   if (!mImageRequest) {
@@ -615,15 +603,22 @@ bool nsImageBoxFrame::CanOptimizeToImageLayer() {
   return true;
 }
 
-//
-// DidSetComputedStyle
-//
-// When the ComputedStyle changes, make sure that all of our image is up to
-// date.
-//
+imgRequestProxy* nsImageBoxFrame::GetRequestFromStyle() {
+  const nsStyleDisplay* disp = StyleDisplay();
+  if (disp->HasAppearance()) {
+    nsPresContext* pc = PresContext();
+    if (pc->Theme()->ThemeSupportsWidget(pc, this,
+                                         disp->EffectiveAppearance())) {
+      return nullptr;
+    }
+  }
+
+  return StyleList()->mListStyleImage.GetImageRequest();
+}
+
 /* virtual */
-void nsImageBoxFrame::DidSetComputedStyle(ComputedStyle* aOldComputedStyle) {
-  nsLeafBoxFrame::DidSetComputedStyle(aOldComputedStyle);
+void nsImageBoxFrame::DidSetComputedStyle(ComputedStyle* aOldStyle) {
+  nsLeafBoxFrame::DidSetComputedStyle(aOldStyle);
 
   // Fetch our subrect.
   const nsStyleList* myList = StyleList();
@@ -632,23 +627,20 @@ void nsImageBoxFrame::DidSetComputedStyle(ComputedStyle* aOldComputedStyle) {
   if (mUseSrcAttr || mSuppressStyleCheck)
     return;  // No more work required, since the image isn't specified by style.
 
-  // If we're using a native theme implementation, we shouldn't draw anything.
-  const nsStyleDisplay* disp = StyleDisplay();
-  nsPresContext* pc = PresContext();
-  if (disp->HasAppearance() &&
-      pc->Theme()->ThemeSupportsWidget(nullptr, this, disp->mDefaultAppearance))
-    return;
-
-  // If list-style-image changes, we have a new image.
+  // If the image to use changes, we have a new image.
   nsCOMPtr<nsIURI> oldURI, newURI;
-  if (mImageRequest) mImageRequest->GetURI(getter_AddRefs(oldURI));
-  if (myList->mListStyleImage.GetImageRequest())
-    myList->mListStyleImage.GetImageRequest()->GetURI(getter_AddRefs(newURI));
+  if (mImageRequest) {
+    mImageRequest->GetURI(getter_AddRefs(oldURI));
+  }
+  if (auto* newImage = GetRequestFromStyle()) {
+    newImage->GetURI(getter_AddRefs(newURI));
+  }
   bool equal;
   if (newURI == oldURI ||  // handles null==null
       (newURI && oldURI && NS_SUCCEEDED(newURI->Equals(oldURI, &equal)) &&
-       equal))
+       equal)) {
     return;
+  }
 
   UpdateImage();
 }  // DidSetComputedStyle

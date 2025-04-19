@@ -48,7 +48,6 @@ EXPORTS += [
     'nsFrameTraversal.h',
     'nsGenConList.h',
     'nsIFrameTraversal.h',
-    'nsILayoutDebugger.h',
     'nsIPercentBSizeObserver.h',
     'nsIReflowCallback.h',
     'nsLayoutUtils.h',
@@ -156,7 +155,6 @@ LOCAL_INCLUDES += [
     '/dom/base',
     '/dom/html',
     '/dom/svg',
-    '/dom/xbl',
     '/dom/xul',
     '/view',
 ]

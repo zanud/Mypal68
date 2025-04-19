@@ -1192,7 +1192,6 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleDisplay {
   nsChangeHint CalcDifference(const nsStyleDisplay& aNewData,
                               const nsStylePosition& aOldPosition) const;
 
-  mozilla::StyleUrlOrNone mBinding;
   nsStyleAutoArray<mozilla::StyleTransition> mTransitions;
   // The number of elements in mTransitions that are not from repeating
   // a list due to another property being longer.
@@ -1454,8 +1453,7 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleDisplay {
   bool IsXULDisplayStyle() const {
     // -moz-{inline-}box is XUL, unless we're emulating it with flexbox.
     if (!mozilla::StaticPrefs::layout_css_emulate_moz_box_with_flex() &&
-       (DisplayInside() == mozilla::StyleDisplayInside::MozInlineBox ||
-        DisplayInside() == mozilla::StyleDisplayInside::MozBox)) {
+        DisplayInside() == mozilla::StyleDisplayInside::MozBox) {
       return true;
     }
 
@@ -1776,7 +1774,6 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleXUL {
   mozilla::StyleBoxDirection mBoxDirection;
   mozilla::StyleBoxOrient mBoxOrient;
   mozilla::StyleBoxPack mBoxPack;
-  mozilla::StyleStackSizing mStackSizing;
 };
 
 struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleColumn {

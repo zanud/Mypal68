@@ -59,12 +59,15 @@ StyleSheet::StyleSheet(const StyleSheet& aCopy, StyleSheet* aParentSheetToUse,
              "Should never have both of these together.");
   MOZ_ASSERT(mInner, "Should only copy StyleSheets with an mInner.");
   mInner->AddSheet(this);
-
-  if (HasForcedUniqueInner()) {  // CSSOM's been there, force full copy now
+  // CSSOM's been there, force full copy now.
+  if (HasForcedUniqueInner()) {
     MOZ_ASSERT(IsComplete(),
                "Why have rules been accessed on an incomplete sheet?");
-    // FIXME: handle failure?
     EnsureUniqueInner();
+    // But CSSOM hasn't been on _this_ stylesheet yet, so no need to clone
+    // ourselves.
+    mState &= ~(State::ForcedUniqueInner | State::ModifiedRules |
+                State::ModifiedRulesForDevtools);
   }
 
   if (aCopy.mMedia) {
@@ -799,19 +802,19 @@ nsresult StyleSheet::DeleteRuleFromGroup(css::GroupRule* aGroup,
 }
 
 void StyleSheet::RuleAdded(css::Rule& aRule) {
-  mState |= State::ModifiedRules;
+  SetModifiedRules();
   NOTIFY(RuleAdded, (*this, aRule));
 }
 
 void StyleSheet::RuleRemoved(css::Rule& aRule) {
-  mState |= State::ModifiedRules;
+  SetModifiedRules();
   NOTIFY(RuleRemoved, (*this, aRule));
 }
 
 void StyleSheet::RuleChanged(css::Rule* aRule, StyleRuleChangeKind aKind) {
   MOZ_ASSERT(!aRule || HasUniqueInner(),
              "Shouldn't have mutated a shared sheet");
-  mState |= State::ModifiedRules;
+  SetModifiedRules();
   NOTIFY(RuleChanged, (*this, aRule, aKind));
 }
 
@@ -1322,8 +1325,8 @@ void StyleSheet::ReparseSheet(const nsACString& aInput, ErrorResult& aRv) {
     }
   }
 
-  // Our rules are no longer considered modified.
-  ClearModifiedRules();
+  // Our rules are no longer considered modified for devtools.
+  mState &= ~State::ModifiedRulesForDevtools;
 }
 
 void StyleSheet::DropRuleList() {

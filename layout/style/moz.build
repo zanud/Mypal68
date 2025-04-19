@@ -241,7 +241,6 @@ LOCAL_INCLUDES += [
     '../xul',
     '/dom/base',
     '/dom/html',
-    '/dom/xbl',
     '/dom/xul',
 ]
 

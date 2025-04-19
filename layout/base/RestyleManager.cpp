@@ -560,7 +560,6 @@ nsCString RestyleManager::ChangeHintToString(nsChangeHint aHint) {
                          "UpdateBackgroundPosition",
                          "AddOrRemoveTransform",
                          "ScrollbarChange",
-                         "UpdateWidgetProperties",
                          "UpdateTableCellSpans",
                          "VisibilityChange"};
   static_assert(nsChangeHint_AllHints ==
@@ -1738,9 +1737,6 @@ void RestyleManager::ProcessRestyledFrames(nsStyleChangeList& aChangeList) {
       if ((hint & nsChangeHint_UpdateCursor) && !didUpdateCursor) {
         presContext->PresShell()->SynthesizeMouseMove(false);
         didUpdateCursor = true;
-      }
-      if (hint & nsChangeHint_UpdateWidgetProperties) {
-        frame->UpdateWidgetProperties();
       }
       if (hint & nsChangeHint_UpdateTableCellSpans) {
         frameConstructor->UpdateTableCellSpans(content);
@@ -3111,7 +3107,6 @@ static void VerifyFlatTree(const nsIContent& aContent) {
   for (auto* content = iter.GetNextChild(); content;
        content = iter.GetNextChild()) {
     MOZ_ASSERT(content->GetFlattenedTreeParentNodeForStyle() == &aContent);
-    MOZ_ASSERT(!content->IsActiveChildrenElement());
     VerifyFlatTree(*content);
   }
 }
@@ -3311,8 +3306,8 @@ static inline bool AttributeChangeRequiresSubtreeRestyle(
     return aElement.IsHTMLElement(nsGkAtoms::table);
   }
   if (aAttr == nsGkAtoms::lwtheme || aAttr == nsGkAtoms::lwthemetextcolor) {
-    return aElement.GetNameSpaceID() == kNameSpaceID_XUL &&
-           &aElement == aElement.OwnerDoc()->GetRootElement();
+    Document* doc = aElement.OwnerDoc();
+    return doc->IsInChromeDocShell() && &aElement == doc->GetRootElement();
   }
   // TODO(emilio, bug 1598094): Maybe finer-grained invalidation for exportparts
   // attribute changes?

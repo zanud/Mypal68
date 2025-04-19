@@ -13,6 +13,7 @@
 #include "nsIDOMXULCommandDispatcher.h"
 #include "nsCSSFrameConstructor.h"
 #include "nsGlobalWindow.h"
+#include "nsIContentInlines.h"
 #include "nsLayoutUtils.h"
 #include "nsViewManager.h"
 #include "nsITimer.h"
@@ -26,11 +27,11 @@
 #include "nsPIWindowRoot.h"
 #include "nsFrameManager.h"
 #include "nsIObserverService.h"
-#include "XULDocument.h"
 #include "mozilla/AnimationUtils.h"
 #include "mozilla/dom/DocumentInlines.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/Event.h"  // for Event
+#include "mozilla/dom/HTMLSlotElement.h"
 #include "mozilla/dom/KeyboardEvent.h"
 #include "mozilla/dom/KeyboardEventBinding.h"
 #include "mozilla/dom/MouseEvent.h"
@@ -674,7 +675,7 @@ void nsXULPopupManager::ShowMenu(nsIContent* aMenu, bool aSelectFirstItem,
 
   // there is no trigger event for menus
   InitTriggerEvent(nullptr, nullptr, nullptr);
-  popupFrame->InitializePopup(menuFrame->GetAnchor(), nullptr, position, 0, 0,
+  popupFrame->InitializePopup(aMenu, nullptr, position, 0, 0,
                               MenuPopupAnchorType_Node, true);
 
   if (aAsynchronous) {
@@ -766,7 +767,7 @@ void nsXULPopupManager::ShowTooltipAtScreen(nsIContent* aPopup,
 static void CheckCaretDrawingState() {
   // There is 1 caret per document, we need to find the focused
   // document and erase its caret.
-  nsIFocusManager* fm = nsFocusManager::GetFocusManager();
+  nsFocusManager* fm = nsFocusManager::GetFocusManager();
   if (fm) {
     nsCOMPtr<mozIDOMWindowProxy> window;
     fm->GetFocusedWindow(getter_AddRefs(window));
@@ -2222,16 +2223,22 @@ bool nsXULPopupManager::HandleKeyboardEventWithKeyCode(
   return true;
 }
 
+// TODO(emilio): This should probably just walk the DOM instead and call
+// GetPrimaryFrame() on the items... Do we have anonymous / fallback menu items
+// that could be selectable?
+static nsIContent* FindDefaultInsertionPoint(nsIContent* aParent) {
+  if (ShadowRoot* shadow = aParent->GetShadowRoot()) {
+    if (HTMLSlotElement* slot = shadow->GetDefaultSlot()) {
+      return slot;
+    }
+  }
+  return aParent;
+}
+
 nsContainerFrame* nsXULPopupManager::ImmediateParentFrame(
     nsContainerFrame* aFrame) {
   MOZ_ASSERT(aFrame && aFrame->GetContent());
-
-  bool multiple = false;  // Unused
-  nsIContent* insertionPoint =
-      aFrame->GetContent()
-          ->OwnerDoc()
-          ->BindingManager()
-          ->FindNestedSingleInsertionPoint(aFrame->GetContent(), &multiple);
+  nsIContent* insertionPoint = FindDefaultInsertionPoint(aFrame->GetContent());
 
   nsCSSFrameConstructor* fc = aFrame->PresContext()->FrameConstructor();
   nsContainerFrame* insertionFrame =

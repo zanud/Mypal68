@@ -36,7 +36,6 @@ headers = [
     "nsMappedAttributes.h",
     "nsNameSpaceManager.h",
     "nsMediaFeatures.h",
-    "nsXBLBinding.h",
     "GeckoProfiler.h",
 ]
 raw-lines = [
@@ -112,7 +111,6 @@ rusty-enums = [
     "mozilla::StyleVisibility",
     "mozilla::StyleBasicShapeType",
     "nsStyleImageLayers_Size_DimensionType",
-    "mozilla::StyleStackSizing",
     "mozilla::StyleBorderCollapse",
     "mozilla::StyleBorderImageRepeat",
     "mozilla::StyleBoxPack",

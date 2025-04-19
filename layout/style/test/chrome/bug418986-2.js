@@ -159,7 +159,7 @@ var generateHtmlLines = function(resisting) {
   expected_values.forEach(function([key, offVal, onVal]) {
     let val = resisting ? onVal : offVal;
     if (val) {
-      let div = document.createElement("div");
+      let div = document.createElementNS(HTML_NS, "div");
       div.setAttribute("class", "spoof");
       div.setAttribute("id", key);
       div.textContent = key;
@@ -167,14 +167,14 @@ var generateHtmlLines = function(resisting) {
     }
   });
   suppressed_toggles.forEach(function(key) {
-    let div = document.createElement("div");
+    let div = document.createElementNS(HTML_NS, "div");
     div.setAttribute("class", "suppress");
     div.setAttribute("id", key);
     div.textContent = key;
     fragment.appendChild(div);
   });
   if (OS === "WINNT") {
-    let div = document.createElement("div");
+    let div = document.createElementNS(HTML_NS, "div");
     div.setAttribute("class", "windows");
     div.setAttribute("id", "-moz-os-version");
     div.textContent = "-moz-os-version";
@@ -282,7 +282,7 @@ var testCSS = function(resisting) {
 // When fingerprinting resistance is enabled, the `getComputedStyle`
 // should always return `undefined` for `MozOSXFontSmoothing`.
 var testOSXFontSmoothing = function(resisting) {
-  let div = document.createElement("div");
+  let div = document.createElementNS(HTML_NS, "div");
   div.style.MozOsxFontSmoothing = "unset";
   document.documentElement.appendChild(div);
   let readBack = window.getComputedStyle(div).MozOsxFontSmoothing;

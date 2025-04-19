@@ -10,6 +10,7 @@
 #include "nsContentUtils.h"
 #include "nsTreeBodyFrame.h"
 #include "mozilla/dom/Element.h"
+#include "mozilla/CSSOrderAwareFrameIterator.h"
 #include "mozilla/dom/TreeColumnBinding.h"
 #include "mozilla/dom/TreeColumnsBinding.h"
 #include "mozilla/dom/XULTreeElement.h"
@@ -175,15 +176,12 @@ void nsTreeColumn::Invalidate(ErrorResult& aRv) {
 
   // Figure out our column type. Default type is text.
   mType = TreeColumn_Binding::TYPE_TEXT;
-  static Element::AttrValuesArray typestrings[] = {
-      nsGkAtoms::checkbox, nsGkAtoms::password, nullptr};
+  static Element::AttrValuesArray typestrings[] = {nsGkAtoms::checkbox,
+                                                   nullptr};
   switch (mContent->FindAttrValueIn(kNameSpaceID_None, nsGkAtoms::type,
                                     typestrings, eCaseMatters)) {
     case 0:
       mType = TreeColumn_Binding::TYPE_CHECKBOX;
-      break;
-    case 1:
-      mType = TreeColumn_Binding::TYPE_PASSWORD;
       break;
   }
 
@@ -234,19 +232,7 @@ int32_t nsTreeColumn::GetWidth(mozilla::ErrorResult& aRv) {
 }
 
 already_AddRefed<nsTreeColumn> nsTreeColumn::GetPreviousColumn() {
-  nsIFrame* frame = GetFrame();
-  while (frame) {
-    frame = frame->GetPrevSibling();
-    if (frame && frame->GetContent()->IsElement()) {
-      RefPtr<nsTreeColumn> column =
-          mColumns->GetColumnFor(frame->GetContent()->AsElement());
-      if (column) {
-        return column.forget();
-      }
-    }
-  }
-
-  return nullptr;
+  return do_AddRef(mPrevious);
 }
 
 nsTreeColumns::nsTreeColumns(nsTreeBodyFrame* aTree) : mTree(aTree) {}
@@ -414,38 +400,6 @@ void nsTreeColumns::InvalidateColumns() {
   mFirstColumn = nullptr;
 }
 
-void nsTreeColumns::RestoreNaturalOrder() {
-  if (!mTree) {
-    return;
-  }
-
-  nsIContent* content = mTree->GetBaseElement();
-
-  // Strong ref, since we'll be setting attributes
-  nsCOMPtr<nsIContent> colsContent =
-      nsTreeUtils::GetImmediateChild(content, nsGkAtoms::treecols);
-  if (!colsContent) {
-    return;
-  }
-
-  int32_t i = 0;
-  for (nsINode* child = colsContent->GetFirstChild(); child;
-       child = child->GetNextSibling()) {
-    nsAutoString ordinal;
-    ordinal.AppendInt(i++);
-    if (child->IsElement()) {
-      child->AsElement()->SetAttr(kNameSpaceID_None, nsGkAtoms::ordinal,
-                                  ordinal, true);
-    }
-  }
-
-  nsTreeColumns::InvalidateColumns();
-
-  if (mTree) {
-    mTree->Invalidate();
-  }
-}
-
 nsTreeColumn* nsTreeColumns::GetPrimaryColumn() {
   EnsureColumns();
   for (nsTreeColumn* currCol = mFirstColumn; currCol;
@@ -476,31 +430,30 @@ void nsTreeColumns::EnsureColumns() {
     colFrame = colFrame->GetParent();
     if (!colFrame) return;
 
-    colFrame = colFrame->PrincipalChildList().FirstChild();
-    if (!colFrame) return;
-
-    // Now that we have the first visible column,
-    // we can enumerate the columns in visible order
     nsTreeColumn* currCol = nullptr;
-    while (colFrame) {
+
+    // Enumerate the columns in visible order
+    CSSOrderAwareFrameIterator iter(
+        colFrame, mozilla::layout::kPrincipalList,
+        CSSOrderAwareFrameIterator::ChildFilter::IncludeAll,
+        CSSOrderAwareFrameIterator::OrderState::Unknown,
+        CSSOrderAwareFrameIterator::OrderingProperty::BoxOrdinalGroup);
+    for (; !iter.AtEnd(); iter.Next()) {
+      nsIFrame* colFrame = iter.get();
       nsIContent* colContent = colFrame->GetContent();
-
-      if (colContent->NodeInfo()->Equals(nsGkAtoms::treecol,
-                                         kNameSpaceID_XUL)) {
-        // Create a new column structure.
-        nsTreeColumn* col = new nsTreeColumn(this, colContent->AsElement());
-        if (!col) return;
-
-        if (currCol) {
-          currCol->SetNext(col);
-          col->SetPrevious(currCol);
-        } else {
-          mFirstColumn = col;
-        }
-        currCol = col;
+      if (!colContent->IsXULElement(nsGkAtoms::treecol)) {
+        continue;
       }
+      // Create a new column structure.
+      nsTreeColumn* col = new nsTreeColumn(this, colContent->AsElement());
 
-      colFrame = colFrame->GetNextSibling();
+      if (currCol) {
+        currCol->SetNext(col);
+        col->SetPrevious(currCol);
+      } else {
+        mFirstColumn = col;
+      }
+      currCol = col;
     }
   }
 }

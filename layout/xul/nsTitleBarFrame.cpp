@@ -35,7 +35,6 @@ nsTitleBarFrame::nsTitleBarFrame(ComputedStyle* aStyle,
                                  nsPresContext* aPresContext, ClassID aID)
     : nsBoxFrame(aStyle, aPresContext, aID, false) {
   mTrackingMouseMove = false;
-  UpdateMouseThrough();
 }
 
 void nsTitleBarFrame::BuildDisplayListForChildren(

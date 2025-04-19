@@ -412,7 +412,7 @@ optgroup:disabled {
 }
 
 /* hidden inputs */
-input[type="hidden"] {
+input[type=hidden] {
   appearance: none;
   -moz-default-appearance: none;
   display: none !important;
@@ -423,7 +423,7 @@ input[type="hidden"] {
 }
 
 /* image buttons */
-input[type="image"] {
+input[type=image] {
   appearance: none;
   -moz-default-appearance: none;
   padding: unset;
@@ -434,7 +434,7 @@ input[type="image"] {
   cursor: pointer;
 }
 
-input[type="image"]:disabled {
+input[type=image]:disabled {
   cursor: unset;
 }
 
@@ -451,7 +451,7 @@ input[type="image"]:disabled {
 }
 
 /* radio buttons */
-input[type="radio"] {
+input[type=radio] {
   appearance: auto;
   -moz-default-appearance: radio;
   margin-block: 3px 0;
@@ -459,7 +459,7 @@ input[type="radio"] {
 }
 
 /* check boxes */
-input[type="checkbox"] {
+input[type=checkbox] {
   appearance: auto;
   -moz-default-appearance: checkbox;
   margin-block: 3px;
@@ -468,8 +468,8 @@ input[type="checkbox"] {
 
 /* Common features of radio buttons and check boxes */
 
-input[type="radio"],
-input[type="checkbox"] {
+input[type=radio],
+input[type=checkbox] {
   box-sizing: border-box;
   cursor: default;
   /* unset some values from the general 'input' rule above: */
@@ -479,21 +479,21 @@ input[type="checkbox"] {
   color: unset;
 }
 
-input:is([type="radio"], [type="checkbox"]):is(:disabled, :disabled:active, :disabled:hover:active) {
+input:is([type=radio], [type=checkbox]):is(:disabled, :disabled:active, :disabled:hover:active) {
   cursor: unset;
 }
 
-input:not([type="file"]):not([type="image"]):-moz-focusring,
-select:-moz-focusring,
-button:-moz-focusring,
-textarea:-moz-focusring {
+input:not([type=file], [type=image]):focus-visible,
+select:focus-visible,
+button:focus-visible,
+textarea:focus-visible {
   /* These elements can handle outline themselves when themed, so we use
    * outline-style: auto and skip rendering the outline only when themed and
    * the theme allows so */
   outline-style: auto;
 }
 
-input[type="search"] {
+input[type=search] {
   box-sizing: border-box;
 }
 
@@ -503,10 +503,10 @@ input[type="search"] {
    need to match button background/border values here */
 
 /* Non text-related properties for buttons: these ones are shared with
-   input[type="color"] */
+   input[type=color] */
 button,
 ::file-selector-button,
-input:is([type="color"], [type="reset"], [type="button"], [type="submit"]) {
+input:is([type=color], [type=reset], [type=button], [type=submit]) {
   appearance: auto;
   -moz-default-appearance: button;
   /* The sum of border and padding on block-start and block-end
@@ -522,10 +522,10 @@ input:is([type="color"], [type="reset"], [type="button"], [type="submit"]) {
 }
 
 /* Text-related properties for buttons: these ones are not shared with
-   input[type="color"] */
+   input[type=color] */
 button,
 ::file-selector-button,
-input:is([type="reset"], [type="button"], [type="submit"]) {
+input:is([type=reset], [type=button], [type=submit]) {
   color: ButtonText;
   font: -moz-button;
   white-space: pre;
@@ -533,7 +533,7 @@ input:is([type="reset"], [type="button"], [type="submit"]) {
   overflow-clip-box: padding-box;
 }
 
-input[type="color"] {
+input[type=color] {
   inline-size: 64px;
   block-size: 23px;
 }
@@ -583,19 +583,19 @@ button,
 
 ::file-selector-button:hover,
 button:hover,
-input:is([type="reset"], [type="button"], [type="submit"], [type="color"]):hover {
+input:is([type=reset], [type=button], [type=submit], [type=color]):hover {
   background-color: -moz-buttonhoverface;
 }
 
 ::file-selector-button:hover,
 button:hover,
-input:is([type="reset"], [type="button"], [type="submit"]):hover {
+input:is([type=reset], [type=button], [type=submit]):hover {
   color: -moz-buttonhovertext;
 }
 
 ::file-selector-button:active:hover,
 button:active:hover,
-input:is([type="reset"], [type="button"], [type="submit"], [type="color"]):active:hover {
+input:is([type=reset], [type=button], [type=submit], [type=color]):active:hover {
 %ifndef XP_MACOSX
   padding-block: 0;
   padding-inline: 9px 7px;
@@ -606,7 +606,7 @@ input:is([type="reset"], [type="button"], [type="submit"], [type="color"]):activ
 
 ::file-selector-button:active:hover,
 button:active:hover,
-input:is([type="reset"], [type="button"], [type="submit"]):active:hover {
+input:is([type=reset], [type=button], [type=submit]):active:hover {
 %ifdef MOZ_WIDGET_GTK
   color: -moz-gtk-buttonactivetext;
 %else
@@ -621,13 +621,13 @@ input:is([type="reset"], [type="button"], [type="submit"]):active:hover {
   border: 1px dotted transparent;
 }
 
-:-moz-focusring::-moz-focus-inner {
+:focus-visible::-moz-focus-inner {
   border-color: currentColor;
 }
 
 :is(:disabled, :disabled:active)::file-selector-button,
 button:is(:disabled, :disabled:active),
-input:is([type="reset"], [type="button"], [type="submit"], [type="color"]):is(:disabled, :disabled:active),
+input:is([type=reset], [type=button], [type=submit], [type=color]):is(:disabled, :disabled:active),
 select:is(:disabled, :disabled:active) > button {
   /* The sum of border and padding on block-start and block-end
      must be the same here and for text inputs */
@@ -639,13 +639,13 @@ select:is(:disabled, :disabled:active) > button {
 
 :is(:disabled, :disabled:active)::file-selector-button,
 button:is(:disabled, :disabled:active),
-input:is([type="reset"], [type="button"], [type="submit"]):is(:disabled, :disabled:active),
+input:is([type=reset], [type=button], [type=submit]):is(:disabled, :disabled:active),
 select:is(:disabled, :disabled:active) > button {
   color: GrayText;
 }
 
 /* file selector */
-input[type="file"] {
+input[type=file] {
   white-space: nowrap !important;
   overflow: hidden !important;
   overflow-clip-box: padding-box;
@@ -661,7 +661,7 @@ input[type="file"] {
   padding: unset;
 }
 
-input[type="file"] > label {
+input[type=file] > label {
   display: inline-block;
   min-inline-size: 12em;
   padding-inline-start: 5px;
@@ -686,12 +686,12 @@ input[type="file"] > label {
   * Make form controls inherit 'unicode-bidi' transparently as required by
   *  their various anonymous descendants and pseudo-elements:
   *
-  * <textarea> and <input type="text">:
+  * <textarea> and <input type=text>:
   *  inherit into the scroll frame with pseudo ::-moz-text-control-editing-root
   *  which is a (direct or indirect) child of the text control.
   *
-  * Buttons (either <button>, <input type="submit">, <input type="button">
-  *          or <input type="reset">)
+  * Buttons (either <button>, <input type=submit>, <input type=button>
+  *          or <input type=reset>)
   *  inherit into the ':-moz-button-content' pseudo-element.
   *
   * <select>:
@@ -714,7 +714,7 @@ optgroup:before {
     -moz-user-input: none !important;
   }
 
-  input[type="file"] {
+  input[type=file] {
     height: 2em;
   }
 }
@@ -852,7 +852,7 @@ input[type=range]::-moz-range-thumb {
   user-select: none !important;
 }
 
-input[type="number"] {
+input[type=number] {
   appearance: auto;
   -moz-default-appearance: number-input;
 }
@@ -939,19 +939,18 @@ input[type=number]::-moz-number-spin-down {
   border-bottom-right-radius: 4px;
 }
 
-input[type="number"] > div > div > div:hover {
+input[type=number] > div > div > div:hover {
   /* Give some indication of hover state for the up/down buttons */
   background-color: lightblue;
 }
 
-input[type="date"],
-input[type="time"] {
+input:is([type=date], [type=time]) {
   overflow: hidden !important;
   font-family: -moz-fixed;
   cursor: default;
 }
 
-input:is([type="date"], [type="time"]):is(:disabled, :read-only) {
+input:is([type=date], [type=time]):is(:disabled, :read-only) {
   color: GrayText;
 }
 

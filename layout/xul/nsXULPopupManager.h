@@ -411,8 +411,8 @@ class nsXULPopupManager final : public nsIDOMEventListener,
   // retrieve the node and offset of the last mouse event used to open a
   // context menu. This information is determined from the rangeParent and
   // the rangeOffset of the event supplied to ShowPopup or ShowPopupAtScreen.
-  // This is used by the implementation of XULDocument::GetPopupRangeParent
-  // and XULDocument::GetPopupRangeOffset.
+  // This is used by the implementation of Document::GetPopupRangeParent
+  // and Document::GetPopupRangeOffset.
   nsIContent* GetMouseLocationParent() const { return mRangeParentContent; }
   int32_t MouseLocationOffset() const { return mRangeOffset; }
 

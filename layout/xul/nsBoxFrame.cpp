@@ -45,6 +45,7 @@
 
 #include "gfxUtils.h"
 #include "mozilla/ComputedStyle.h"
+#include "mozilla/CSSOrderAwareFrameIterator.h"
 #include "mozilla/EventStateManager.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/PresShell.h"
@@ -125,13 +126,37 @@ nsBoxFrame::nsBoxFrame(ComputedStyle* aStyle, nsPresContext* aPresContext,
 
 nsBoxFrame::~nsBoxFrame() = default;
 
+nsIFrame* nsBoxFrame::SlowOrdinalGroupAwareSibling(nsIFrame* aBox, bool aNext) {
+  nsIFrame* parent = aBox->GetParent();
+  if (!parent) {
+    return nullptr;
+  }
+  CSSOrderAwareFrameIterator iter(
+      parent, layout::kPrincipalList,
+      CSSOrderAwareFrameIterator::ChildFilter::IncludeAll,
+      CSSOrderAwareFrameIterator::OrderState::Unknown,
+      CSSOrderAwareFrameIterator::OrderingProperty::BoxOrdinalGroup);
+
+  nsIFrame* prevSibling = nullptr;
+  for (; !iter.AtEnd(); iter.Next()) {
+    nsIFrame* current = iter.get();
+    if (!aNext && current == aBox) {
+      return prevSibling;
+    }
+    if (aNext && prevSibling == aBox) {
+      return current;
+    }
+    prevSibling = current;
+  }
+  return nullptr;
+}
+
 void nsBoxFrame::SetInitialChildList(ChildListID aListID,
                                      nsFrameList& aChildList) {
   nsContainerFrame::SetInitialChildList(aListID, aChildList);
   if (aListID == kPrincipalList) {
     // initialize our list of infos.
     nsBoxLayoutState state(PresContext());
-    CheckBoxOrder();
     if (mLayoutManager)
       mLayoutManager->ChildrenSet(this, state, mFrames.FirstChild());
   }
@@ -161,29 +186,8 @@ void nsBoxFrame::Init(nsIContent* aContent, nsContainerFrame* aParent,
 
   CacheAttributes();
 
-  UpdateMouseThrough();
-
   // register access key
   RegUnregAccessKey(true);
-}
-
-void nsBoxFrame::UpdateMouseThrough() {
-  static Element::AttrValuesArray strings[] = {nsGkAtoms::never,
-                                               nsGkAtoms::always, nullptr};
-  switch (mContent->AsElement()->FindAttrValueIn(
-      kNameSpaceID_None, nsGkAtoms::mousethrough, strings, eCaseMatters)) {
-    case 0:
-      AddStateBits(NS_FRAME_MOUSE_THROUGH_NEVER);
-      break;
-    case 1:
-      AddStateBits(NS_FRAME_MOUSE_THROUGH_ALWAYS);
-      break;
-    case 2: {
-      RemoveStateBits(NS_FRAME_MOUSE_THROUGH_ALWAYS);
-      RemoveStateBits(NS_FRAME_MOUSE_THROUGH_NEVER);
-      break;
-    }
-  }
 }
 
 void nsBoxFrame::CacheAttributes() {
@@ -229,44 +233,10 @@ void nsBoxFrame::CacheAttributes() {
 }
 
 bool nsBoxFrame::GetInitialHAlignment(nsBoxFrame::Halignment& aHalign) {
-  if (!GetContent() || !GetContent()->IsElement()) return false;
+  if (!GetContent()) return false;
 
-  Element* element = GetContent()->AsElement();
-  // XXXdwh Everything inside this if statement is deprecated code.
-  static Element::AttrValuesArray alignStrings[] = {nsGkAtoms::left,
-                                                    nsGkAtoms::right, nullptr};
-  static const Halignment alignValues[] = {hAlign_Left, hAlign_Right};
-  int32_t index = element->FindAttrValueIn(kNameSpaceID_None, nsGkAtoms::align,
-                                           alignStrings, eCaseMatters);
-  if (index >= 0) {
-    aHalign = alignValues[index];
-    return true;
-  }
-
-  // Now that the deprecated stuff is out of the way, we move on to check the
-  // appropriate attribute.  For horizontal boxes, we are checking the PACK
-  // attribute.  For vertical boxes we are checking the ALIGN attribute.
-  nsAtom* attrName = IsXULHorizontal() ? nsGkAtoms::pack : nsGkAtoms::align;
-  static Element::AttrValuesArray strings[] = {
-      nsGkAtoms::_empty, nsGkAtoms::start, nsGkAtoms::center, nsGkAtoms::end,
-      nullptr};
-  static const Halignment values[] = {hAlign_Left /*not used*/, hAlign_Left,
-                                      hAlign_Center, hAlign_Right};
-  index = element->FindAttrValueIn(kNameSpaceID_None, attrName, strings,
-                                   eCaseMatters);
-
-  if (index == Element::ATTR_VALUE_NO_MATCH) {
-    // The attr was present but had a nonsensical value. Revert to the default.
-    return false;
-  }
-  if (index > 0) {
-    aHalign = values[index];
-    return true;
-  }
-
-  // Now that we've checked for the attribute it's time to check CSS.  For
-  // horizontal boxes we're checking PACK.  For vertical boxes we are checking
-  // ALIGN.
+  // For horizontal boxes we're checking PACK.  For vertical boxes we are
+  // checking ALIGN.
   const nsStyleXUL* boxInfo = StyleXUL();
   if (IsXULHorizontal()) {
     switch (boxInfo->mBoxPack) {
@@ -302,46 +272,9 @@ bool nsBoxFrame::GetInitialHAlignment(nsBoxFrame::Halignment& aHalign) {
 }
 
 bool nsBoxFrame::GetInitialVAlignment(nsBoxFrame::Valignment& aValign) {
-  if (!GetContent() || !GetContent()->IsElement()) return false;
-
-  Element* element = GetContent()->AsElement();
-
-  static Element::AttrValuesArray valignStrings[] = {
-      nsGkAtoms::top, nsGkAtoms::baseline, nsGkAtoms::middle, nsGkAtoms::bottom,
-      nullptr};
-  static const Valignment valignValues[] = {vAlign_Top, vAlign_BaseLine,
-                                            vAlign_Middle, vAlign_Bottom};
-  int32_t index = element->FindAttrValueIn(kNameSpaceID_None, nsGkAtoms::valign,
-                                           valignStrings, eCaseMatters);
-  if (index >= 0) {
-    aValign = valignValues[index];
-    return true;
-  }
-
-  // Now that the deprecated stuff is out of the way, we move on to check the
-  // appropriate attribute.  For horizontal boxes, we are checking the ALIGN
-  // attribute.  For vertical boxes we are checking the PACK attribute.
-  nsAtom* attrName = IsXULHorizontal() ? nsGkAtoms::align : nsGkAtoms::pack;
-  static Element::AttrValuesArray strings[] = {
-      nsGkAtoms::_empty,   nsGkAtoms::start, nsGkAtoms::center,
-      nsGkAtoms::baseline, nsGkAtoms::end,   nullptr};
-  static const Valignment values[] = {vAlign_Top /*not used*/, vAlign_Top,
-                                      vAlign_Middle, vAlign_BaseLine,
-                                      vAlign_Bottom};
-  index = element->FindAttrValueIn(kNameSpaceID_None, attrName, strings,
-                                   eCaseMatters);
-  if (index == Element::ATTR_VALUE_NO_MATCH) {
-    // The attr was present but had a nonsensical value. Revert to the default.
-    return false;
-  }
-  if (index > 0) {
-    aValign = values[index];
-    return true;
-  }
-
-  // Now that we've checked for the attribute it's time to check CSS.  For
-  // horizontal boxes we're checking ALIGN.  For vertical boxes we are checking
-  // PACK.
+  if (!GetContent()) return false;
+  // For horizontal boxes we're checking ALIGN.  For vertical boxes we are
+  // checking PACK.
   const nsStyleXUL* boxInfo = StyleXUL();
   if (IsXULHorizontal()) {
     switch (boxInfo->mBoxAlign) {
@@ -383,24 +316,11 @@ void nsBoxFrame::GetInitialOrientation(bool& aIsHorizontal) {
   // see if we are a vertical or horizontal box.
   if (!GetContent()) return;
 
-  // Check the style system first.
   const nsStyleXUL* boxInfo = StyleXUL();
   if (boxInfo->mBoxOrient == StyleBoxOrient::Horizontal) {
     aIsHorizontal = true;
   } else {
     aIsHorizontal = false;
-  }
-
-  // Now see if we have an attribute.  The attribute overrides
-  // the style system value.
-  if (!GetContent()->IsElement()) return;
-
-  static Element::AttrValuesArray strings[] = {nsGkAtoms::vertical,
-                                               nsGkAtoms::horizontal, nullptr};
-  int32_t index = GetContent()->AsElement()->FindAttrValueIn(
-      kNameSpaceID_None, nsGkAtoms::orient, strings, eCaseMatters);
-  if (index >= 0) {
-    aIsHorizontal = index == 1;
   }
 }
 
@@ -414,35 +334,28 @@ void nsBoxFrame::GetInitialDirection(bool& aIsNormal) {
     //
     // If text runs RTL then so do we.
     aIsNormal = StyleVisibility()->mDirection == StyleDirection::Ltr;
-  } else
+    if (GetContent()->IsElement()) {
+      Element* element = GetContent()->AsElement();
+
+      // Now see if we have an attribute. The attribute overrides
+      // the style system 'direction' property.
+      static Element::AttrValuesArray strings[] = {nsGkAtoms::ltr,
+                                                   nsGkAtoms::rtl, nullptr};
+      int32_t index = element->FindAttrValueIn(
+          kNameSpaceID_None, nsGkAtoms::dir, strings, eCaseMatters);
+      if (index >= 0) {
+        bool values[] = {true, false};
+        aIsNormal = values[index];
+      }
+    }
+  } else {
     aIsNormal = true;  // Assume a normal direction in the vertical case.
+  }
 
   // Now check the style system to see if we should invert aIsNormal.
   const nsStyleXUL* boxInfo = StyleXUL();
   if (boxInfo->mBoxDirection == StyleBoxDirection::Reverse) {
     aIsNormal = !aIsNormal;  // Invert our direction.
-  }
-
-  if (!GetContent()->IsElement()) {
-    return;
-  }
-
-  Element* element = GetContent()->AsElement();
-
-  // Now see if we have an attribute.  The attribute overrides
-  // the style system value.
-  if (IsXULHorizontal()) {
-    static Element::AttrValuesArray strings[] = {
-        nsGkAtoms::reverse, nsGkAtoms::ltr, nsGkAtoms::rtl, nullptr};
-    int32_t index = element->FindAttrValueIn(kNameSpaceID_None, nsGkAtoms::dir,
-                                             strings, eCaseMatters);
-    if (index >= 0) {
-      bool values[] = {!aIsNormal, true, false};
-      aIsNormal = values[index];
-    }
-  } else if (element->AttrValueIs(kNameSpaceID_None, nsGkAtoms::dir,
-                                  nsGkAtoms::reverse, eCaseMatters)) {
-    aIsNormal = !aIsNormal;
   }
 }
 
@@ -466,18 +379,6 @@ bool nsBoxFrame::GetInitialEqualSize(bool& aEqualSize) {
  */
 bool nsBoxFrame::GetInitialAutoStretch(bool& aStretch) {
   if (!GetContent()) return false;
-
-  // Check the align attribute.
-  if (GetContent()->IsElement()) {
-    static Element::AttrValuesArray strings[] = {nsGkAtoms::_empty,
-                                                 nsGkAtoms::stretch, nullptr};
-    int32_t index = GetContent()->AsElement()->FindAttrValueIn(
-        kNameSpaceID_None, nsGkAtoms::align, strings, eCaseMatters);
-    if (index != Element::ATTR_MISSING && index != 0) {
-      aStretch = index == 1;
-      return true;
-    }
-  }
 
   // Check the CSS box-align property.
   const nsStyleXUL* boxInfo = StyleXUL();
@@ -905,12 +806,6 @@ void nsBoxFrame::InsertFrames(ChildListID aListID, nsIFrame* aPrevFrame,
   if (mLayoutManager)
     mLayoutManager->ChildrenInserted(this, state, aPrevFrame, newFrames);
 
-  // Make sure to check box order _after_ notifying the layout
-  // manager; otherwise the slice we give the layout manager will
-  // just be bogus.  If the layout manager cares about the order, we
-  // just lose.
-  CheckBoxOrder();
-
   PresShell()->FrameNeedsReflow(this, IntrinsicDirty::TreeChange,
                                 NS_FRAME_HAS_DIRTY_CHILDREN);
 }
@@ -925,12 +820,6 @@ void nsBoxFrame::AppendFrames(ChildListID aListID, nsFrameList& aFrameList) {
 
   // notify the layout manager
   if (mLayoutManager) mLayoutManager->ChildrenAppended(this, state, newFrames);
-
-  // Make sure to check box order _after_ notifying the layout
-  // manager; otherwise the slice we give the layout manager will
-  // just be bogus.  If the layout manager cares about the order, we
-  // just lose.
-  CheckBoxOrder();
 
   // XXXbz why is this NS_FRAME_FIRST_REFLOW check here?
   if (!HasAnyStateBits(NS_FRAME_FIRST_REFLOW)) {
@@ -954,8 +843,7 @@ nsresult nsBoxFrame::AttributeChanged(int32_t aNameSpaceID, nsAtom* aAttribute,
 
   // Ignore 'width', 'height', 'screenX', 'screenY' and 'sizemode' on a
   // <window>.
-  if (mContent->IsAnyOfXULElements(nsGkAtoms::window, nsGkAtoms::page,
-                                   nsGkAtoms::dialog, nsGkAtoms::wizard) &&
+  if (mContent->IsXULElement(nsGkAtoms::window) &&
       (nsGkAtoms::width == aAttribute || nsGkAtoms::height == aAttribute ||
        nsGkAtoms::screenX == aAttribute || nsGkAtoms::screenY == aAttribute ||
        nsGkAtoms::sizemode == aAttribute)) {
@@ -971,8 +859,7 @@ nsresult nsBoxFrame::AttributeChanged(int32_t aNameSpaceID, nsAtom* aAttribute,
       aAttribute == nsGkAtoms::minheight ||
       aAttribute == nsGkAtoms::maxheight || aAttribute == nsGkAtoms::flex ||
       aAttribute == nsGkAtoms::orient || aAttribute == nsGkAtoms::pack ||
-      aAttribute == nsGkAtoms::dir || aAttribute == nsGkAtoms::mousethrough ||
-      aAttribute == nsGkAtoms::equalsize) {
+      aAttribute == nsGkAtoms::dir || aAttribute == nsGkAtoms::equalsize) {
     if (aAttribute == nsGkAtoms::align || aAttribute == nsGkAtoms::valign ||
         aAttribute == nsGkAtoms::orient || aAttribute == nsGkAtoms::pack ||
         aAttribute == nsGkAtoms::dir) {
@@ -1014,26 +901,10 @@ nsresult nsBoxFrame::AttributeChanged(int32_t aNameSpaceID, nsAtom* aAttribute,
                aAttribute == nsGkAtoms::bottom ||
                aAttribute == nsGkAtoms::start || aAttribute == nsGkAtoms::end) {
       RemoveStateBits(NS_STATE_STACK_NOT_POSITIONED);
-    } else if (aAttribute == nsGkAtoms::mousethrough) {
-      UpdateMouseThrough();
     }
 
     PresShell()->FrameNeedsReflow(this, IntrinsicDirty::StyleChange,
                                   NS_FRAME_IS_DIRTY);
-  } else if (aAttribute == nsGkAtoms::ordinal) {
-    nsIFrame* parent = GetParentXULBox(this);
-    // If our parent is not a box, there's not much we can do... but in that
-    // case our ordinal doesn't matter anyway, so that's ok.
-    // Also don't bother with popup frames since they are kept on the
-    // kPopupList and XULRelayoutChildAtOrdinal() only handles
-    // principal children.
-    if (parent && !(GetStateBits() & NS_FRAME_OUT_OF_FLOW) &&
-        StyleDisplay()->mDisplay != mozilla::StyleDisplay::MozPopup) {
-      parent->XULRelayoutChildAtOrdinal(this);
-      // XXXldb Should this instead be a tree change on the child or parent?
-      PresShell()->FrameNeedsReflow(parent, IntrinsicDirty::StyleChange,
-                                    NS_FRAME_IS_DIRTY);
-    }
   }
   // If the accesskey changed, register for the new value
   // The old value has been unregistered in nsXULElement::SetAttr
@@ -1110,14 +981,17 @@ void nsBoxFrame::BuildDisplayList(nsDisplayListBuilder* aBuilder,
 
 void nsBoxFrame::BuildDisplayListForChildren(nsDisplayListBuilder* aBuilder,
                                              const nsDisplayListSet& aLists) {
-  nsIFrame* kid = mFrames.FirstChild();
+  // Iterate over the children in CSS order.
+  auto iter = CSSOrderAwareFrameIterator(
+      this, mozilla::layout::kPrincipalList,
+      CSSOrderAwareFrameIterator::ChildFilter::IncludeAll,
+      CSSOrderAwareFrameIterator::OrderState::Unknown,
+      CSSOrderAwareFrameIterator::OrderingProperty::BoxOrdinalGroup);
   // Put each child's background onto the BlockBorderBackgrounds list
   // to emulate the existing two-layer XUL painting scheme.
   nsDisplayListSet set(aLists, aLists.BlockBorderBackgrounds());
-  // The children should be in the right order
-  while (kid) {
-    BuildDisplayListForChild(aBuilder, kid, set);
-    kid = kid->GetNextSibling();
+  for (; !iter.AtEnd(); iter.Next()) {
+    BuildDisplayListForChild(aBuilder, iter.get(), set);
   }
 }
 
@@ -1134,8 +1008,8 @@ void nsBoxFrame::RegUnregAccessKey(bool aDoReg) {
 
   // only support accesskeys for the following elements
   if (!mContent->IsAnyOfXULElements(nsGkAtoms::button, nsGkAtoms::toolbarbutton,
-                                    nsGkAtoms::checkbox, nsGkAtoms::textbox,
-                                    nsGkAtoms::tab, nsGkAtoms::radio)) {
+                                    nsGkAtoms::checkbox, nsGkAtoms::tab,
+                                    nsGkAtoms::radio)) {
     return;
   }
 
@@ -1162,21 +1036,6 @@ void nsBoxFrame::AppendDirectlyOwnedAnonBoxes(nsTArray<OwnedAnonBox>& aResult) {
   }
 }
 
-// Helper less-than-or-equal function, used in CheckBoxOrder() as a
-// template-parameter for the sorting functions.
-static bool IsBoxOrdinalLEQ(nsIFrame* aFrame1, nsIFrame* aFrame2) {
-  // If we've got a placeholder frame, use its out-of-flow frame's ordinal val.
-  nsIFrame* aRealFrame1 = nsPlaceholderFrame::GetRealFrameFor(aFrame1);
-  nsIFrame* aRealFrame2 = nsPlaceholderFrame::GetRealFrameFor(aFrame2);
-  return aRealFrame1->GetXULOrdinal() <= aRealFrame2->GetXULOrdinal();
-}
-
-void nsBoxFrame::CheckBoxOrder() {
-  if (!nsIFrame::IsFrameListSorted<IsBoxOrdinalLEQ>(mFrames)) {
-    nsIFrame::SortFrameList<IsBoxOrdinalLEQ>(mFrames);
-  }
-}
-
 nsresult nsBoxFrame::LayoutChildAt(nsBoxLayoutState& aState, nsIFrame* aBox,
                                    const nsRect& aRect) {
   // get the current rect
@@ -1189,38 +1048,6 @@ nsresult nsBoxFrame::LayoutChildAt(nsBoxLayoutState& aState, nsIFrame* aBox,
       (oldRect.width != aRect.width || oldRect.height != aRect.height)) {
     return aBox->XULLayout(aState);
   }
-
-  return NS_OK;
-}
-
-nsresult nsBoxFrame::XULRelayoutChildAtOrdinal(nsIFrame* aChild) {
-  int32_t ord = aChild->GetXULOrdinal();
-
-  nsIFrame* child = mFrames.FirstChild();
-  nsIFrame* newPrevSib = nullptr;
-
-  while (child) {
-    if (ord < child->GetXULOrdinal()) {
-      break;
-    }
-
-    if (child != aChild) {
-      newPrevSib = child;
-    }
-
-    child = GetNextXULBox(child);
-  }
-
-  if (aChild->GetPrevSibling() == newPrevSib) {
-    // This box is not moving.
-    return NS_OK;
-  }
-
-  // Take |aChild| out of its old position in the child list.
-  mFrames.RemoveFrame(aChild);
-
-  // Insert it after |newPrevSib| or at the start if it's null.
-  mFrames.InsertFrame(nullptr, newPrevSib, aChild);
 
   return NS_OK;
 }
