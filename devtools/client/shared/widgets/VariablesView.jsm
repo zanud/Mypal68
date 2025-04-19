@@ -29,6 +29,7 @@ const { KeyCodes } = require("devtools/client/shared/keycodes");
 const { PluralForm } = require("devtools/shared/plural-form");
 const { LocalizationHelper, ELLIPSIS } = require("devtools/shared/l10n");
 const L10N = new LocalizationHelper(DBG_STRINGS_URI);
+const HTML_NS = "http://www.w3.org/1999/xhtml";
 
 XPCOMUtils.defineLazyServiceGetter(
   this,
@@ -435,12 +436,12 @@ VariablesView.prototype = {
     // properties to display.
     container.hidden = !this._store.length;
 
-    const searchbox = (this._searchboxNode = document.createXULElement(
-      "textbox"
+    const searchbox = (this._searchboxNode = document.createElementNS(
+      HTML_NS,
+      "input"
     ));
     searchbox.className = "variables-view-searchinput devtools-filterinput";
     searchbox.setAttribute("placeholder", this._searchboxPlaceholder);
-    searchbox.setAttribute("flex", "1");
     searchbox.addEventListener("input", this._onSearchboxInput);
     searchbox.addEventListener("keydown", this._onSearchboxKeyDown);
 
@@ -2901,11 +2902,12 @@ Variable.prototype = extend(Scope.prototype, {
     event && event.stopPropagation();
 
     return async function() {
-      await this.toolbox.initInspector();
-
       let nodeFront = this._nodeFront;
       if (!nodeFront) {
-        nodeFront = await this.toolbox.walker.gripToNodeFront(this._valueGrip);
+        const inspectorFront = await this.toolbox.target.getFront("inspector");
+        nodeFront = await inspectorFront.getNodeFrontFromNodeGrip(
+          this._valueGrip
+        );
       }
 
       if (nodeFront) {
@@ -2928,15 +2930,18 @@ Variable.prototype = extend(Scope.prototype, {
    * linked to the toolbox's inspector, then highlight the corresponding node
    */
   highlightDomNode: async function() {
-    if (this.toolbox) {
-      await this.toolbox.initInspector();
-      if (!this._nodeFront) {
-        this.nodeFront = await this.toolbox.walker.gripToNodeFront(
-          this._valueGrip
-        );
-      }
-      await this.toolbox.highlighter.highlight(this._nodeFront);
+    if (!this.toolbox) {
+      return;
     }
+
+    if (!this._nodeFront) {
+      const inspectorFront = await this.toolbox.target.getFront("inspector");
+      this.nodeFront = await inspectorFront.getNodeFrontFromNodeGrip(
+        this._valueGrip
+      );
+    }
+
+    await this.nodeFront.highlighterFront.highlight(this._nodeFront);
   },
 
   /**
@@ -2944,9 +2949,11 @@ Variable.prototype = extend(Scope.prototype, {
    * @see highlightDomNode
    */
   unhighlightDomNode: function() {
-    if (this.toolbox) {
-      this.toolbox.highlighter.unhighlight();
+    if (!this.toolbox) {
+      return;
     }
+
+    this.nodeFront.highlighterFront.unhighlight();
   },
 
   /**
@@ -4263,12 +4270,10 @@ Editable.prototype = {
 
     // Create a texbox input element which will be shown in the current
     // element's specified label location.
-    const input = (this._input = this._variable.document.createXULElement(
-      "textbox"
-    ));
-    input.className = "plain " + this.className;
+    const input = this._input =
+      this._variable.document.createElementNS(HTML_NS, "input");
+    input.className = this.className;
     input.setAttribute("value", initialString);
-    input.setAttribute("flex", "1");
 
     // Replace the specified label with a textbox input element.
     label.parentNode.replaceChild(input, label);

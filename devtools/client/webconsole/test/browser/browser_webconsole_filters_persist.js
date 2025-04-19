@@ -31,6 +31,9 @@ add_task(async function() {
     filterButton.click();
   });
 
+  // Wait for the CSS warning to be displayed so we don't have a pending promise.
+  await waitFor(() => findMessage(hud, "Expected color but found ‘blouge’"));
+
   info("Close and re-open the console");
   await closeTabAndToolbox();
   hud = await openNewTabAndConsole(TEST_URI);
@@ -53,9 +56,9 @@ async function getFilterButtons(hud) {
   });
   ok(filterBar, "Filter bar is shown when filter icon is clicked.");
 
-  return filterBar.querySelectorAll(".devtools-button");
+  return filterBar.querySelectorAll(".devtools-togglebutton");
 }
 
 function filterIsEnabled(button) {
-  return button.classList.contains("checked");
+  return button.getAttribute("aria-pressed") === "true";
 }

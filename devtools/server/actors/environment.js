@@ -147,7 +147,7 @@ const EnvironmentActor = ActorClassWithSpec(environmentSpec, {
       const desc = {
         value: value,
         configurable: false,
-        writable: !(value && value.optimizedOut),
+        writable: !value?.optimizedOut,
         enumerable: true,
       };
 

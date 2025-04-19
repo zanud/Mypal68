@@ -8,12 +8,21 @@
  * Care should be taken to keep it minimal as it can be run with browser initialization.
  */
 
-ChromeUtils.defineModuleGetter(this, "Services",
-                                "resource://gre/modules/Services.jsm");
-ChromeUtils.defineModuleGetter(this, "CustomizableUI",
-                                "resource:///modules/CustomizableUI.jsm");
-ChromeUtils.defineModuleGetter(this, "CustomizableWidgets",
-                                "resource:///modules/CustomizableWidgets.jsm");
+ChromeUtils.defineModuleGetter(
+  this,
+  "Services",
+  "resource://gre/modules/Services.jsm"
+);
+ChromeUtils.defineModuleGetter(
+  this,
+  "CustomizableUI",
+  "resource:///modules/CustomizableUI.jsm"
+);
+ChromeUtils.defineModuleGetter(
+  this,
+  "CustomizableWidgets",
+  "resource:///modules/CustomizableWidgets.jsm"
+);
 
 // The profiler's menu button and its popup can be enabled/disabled by the user.
 // This is the pref to control whether the user has turned it on or not.
@@ -56,21 +65,14 @@ function toggle(document) {
   }
 }
 
-/**
- * This is a utility function to get the iframe from an event.
- * @param {Object} The event fired by the CustomizableUI interface, contains a target.
- */
-function getIframeFromEvent(event) {
-  const panelview = event.target;
-  const document = panelview.ownerDocument;
+// This function takes the button element, and returns a function that's used to
+// update the profiler button whenever the profiler activation status changed.
+const updateButtonColorForElement = buttonElement => () => {
+  const isRunning = Services.profiler.IsActive();
 
-   // Create the iframe, and append it.
-  const iframe = document.getElementById("PanelUI-profilerIframe");
-  if (!iframe) {
-    throw new Error("Unable to select the PanelUI-profilerIframe.");
-  }
-  return iframe;
-}
+  // Use photon blue-60 when active.
+  buttonElement.style.fill = isRunning ? "#0060df" : "";
+};
 
 /**
  * This function creates the widget definition for the CustomizableUI. It should
@@ -79,7 +81,7 @@ function getIframeFromEvent(event) {
 function initialize() {
   const widget = CustomizableUI.getWidget(WIDGET_ID);
   if (widget && widget.provider == CustomizableUI.PROVIDER_API) {
-     // This widget has already been created.
+    // This widget has already been created.
     return;
   }
 
@@ -90,9 +92,18 @@ function initialize() {
     type: "view",
     viewId: "PanelUI-profiler",
     tooltiptext: "profiler-button.tooltiptext",
-    onViewShowing: (event) => {
-      const iframe = getIframeFromEvent(event);
-      iframe.src = "chrome://devtools/content/performance-new/popup/popup.html";
+    onViewShowing: event => {
+      const panelview = event.target;
+      const document = panelview.ownerDocument;
+
+      // Create an iframe and append it to the panelview.
+      const iframe = document.createXULElement("iframe");
+      iframe.id = "PanelUI-profilerIframe";
+      iframe.className = "PanelUI-developer-iframe";
+      iframe.src =
+        "chrome://devtools/content/performance-new/popup/popup.xhtml";
+
+      panelview.appendChild(iframe);
 
       // Provide a mechanism for the iframe to close the popup.
       iframe.contentWindow.gClosePopup = () => {
@@ -103,48 +114,55 @@ function initialize() {
       iframe.contentWindow.gResizePopup = height => {
         iframe.style.height = `${Math.min(600, height)}px`;
       };
+
+      // The popup has an annoying rendering "blip" when first rendering the react
+      // components. This adds a blocker until the content is ready to show.
+      event.detail.addBlocker(
+        new Promise(resolve => {
+          iframe.contentWindow.gReportReady = () => {
+            // Delete the function gReportReady so we don't leave any dangling
+            // references between windows.
+            delete iframe.contentWindow.gReportReady;
+            // Now resolve this promise to open the window.
+            resolve();
+          };
+        })
+      );
     },
     onViewHiding(event) {
-      const iframe = getIframeFromEvent(event);
-      // Unset the iframe src so that when the popup DOM element is moved, the popup's
-      // contents aren't re-initialized.
-      iframe.src = "";
+      const document = event.target.ownerDocument;
+
+      // Create the iframe, and append it.
+      const iframe = document.getElementById("PanelUI-profilerIframe");
+      if (!iframe) {
+        throw new Error("Unable to select the PanelUI-profilerIframe.");
+      }
+
+      // Remove the iframe so it doesn't leak.
+      iframe.remove();
     },
-    onBeforeCreated: (document) => {
+    onBeforeCreated: document => {
       setMenuItemChecked(document, true);
-      observer = {
-        observe(subject, topic, data) {
-          switch (topic) {
-            case "profiler-started": {
-              const button = document.querySelector("#profiler-button");
-              if (button) {
-                // Photon blue-60.
-                button.style.fill = "#0060df";
-              }
-              break;
-            }
-            case "profiler-stopped": {
-              const button = document.querySelector("#profiler-button");
-              if (button) {
-                button.style.fill = "";
-              }
-              break;
-            }
-          }
-        },
-      };
+    },
+    onCreated: buttonElement => {
+      observer = updateButtonColorForElement(buttonElement);
       Services.obs.addObserver(observer, "profiler-started");
       Services.obs.addObserver(observer, "profiler-stopped");
+
+      // Also run the observer right away to update the color if the profiler is
+      // already running at startup.
+      observer();
     },
     onDestroyed: () => {
       Services.obs.removeObserver(observer, "profiler-started");
       Services.obs.removeObserver(observer, "profiler-stopped");
+      observer = null;
     },
   };
   CustomizableUI.createWidget(item);
   CustomizableWidgets.push(item);
 }
 
-const ProfilerMenuButton = { toggle, initialize };
+const ProfilerMenuButton = { toggle, initialize, isEnabled };
 
 var EXPORTED_SYMBOLS = ["ProfilerMenuButton"];

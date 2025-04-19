@@ -3,12 +3,12 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 "use strict";
 
-/* exported gInit, gDestroy */
+/* exported gInit, gDestroy, loader */
 
 const { BrowserLoader } = ChromeUtils.import(
   "resource://devtools/client/shared/browser-loader.js"
 );
-const { require } = BrowserLoader({
+const { require, loader } = BrowserLoader({
   baseURI: "resource://devtools/client/performance-new/",
   window,
 });
@@ -22,8 +22,9 @@ const actions = require("devtools/client/performance-new/store/actions");
 const { Provider } = require("devtools/client/shared/vendor/react-redux");
 const {
   receiveProfile,
-  getRecordingPreferences,
-  setRecordingPreferences,
+  getRecordingPreferencesFromDebuggee,
+  setRecordingPreferencesOnDebuggee,
+  createMultiModalGetSymbolTableFn,
 } = require("devtools/client/performance-new/browser");
 
 /**
@@ -45,16 +46,26 @@ async function gInit(perfFront, preferenceFront) {
       // to what's in the target's preferences. This way the preferences are stored
       // on the target. This could be useful for something like Android where you might
       // want to tweak the settings.
-      recordingSettingsFromPreferences: await getRecordingPreferences(
+      recordingSettingsFromPreferences: await getRecordingPreferencesFromDebuggee(
         preferenceFront,
         selectors.getRecordingSettings(store.getState())
       ),
+
       // Go ahead and hide the implementation details for the component on how the
       // preference information is stored
       setRecordingPreferences: () =>
-        setRecordingPreferences(
+        setRecordingPreferencesOnDebuggee(
           preferenceFront,
           selectors.getRecordingSettings(store.getState())
+        ),
+
+      // Configure the getSymbolTable function for the DevTools workflow.
+      // See createMultiModalGetSymbolTableFn for more information.
+      getSymbolTableGetter: profile =>
+        createMultiModalGetSymbolTableFn(
+          profile,
+          selectors.getPerfFront(store.getState()),
+          selectors.getObjdirs(store.getState())
         ),
     })
   );

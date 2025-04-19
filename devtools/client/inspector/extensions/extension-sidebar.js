@@ -71,24 +71,26 @@ class ExtensionSidebar {
           },
           serviceContainer: {
             highlightDomElement: async (grip, options = {}) => {
-              const { highlighter } = this.inspector;
-              const nodeFront = await this.inspector.walker.gripToNodeFront(
+              const nodeFront = await this.inspector.inspectorFront.getNodeFrontFromNodeGrip(
                 grip
               );
-              return highlighter.highlight(nodeFront, options);
+              return nodeFront.highlighterFront.highlight(nodeFront, options);
             },
-            unHighlightDomElement: (forceHide = false) => {
-              const { highlighter } = this.inspector;
-              return highlighter.unhighlight(forceHide);
+            unHighlightDomElement: async grip => {
+              const nodeFront = await this.inspector.inspectorFront.getNodeFrontFromNodeGrip(
+                grip
+              );
+              return nodeFront.highlighterFront.unhighlight();
             },
             openNodeInInspector: async grip => {
-              const { walker } = this.inspector;
-              const front = await walker.gripToNodeFront(grip);
+              const nodeFront = await this.inspector.inspectorFront.getNodeFrontFromNodeGrip(
+                grip
+              );
               const onInspectorUpdated = this.inspector.once(
                 "inspector-updated"
               );
               const onNodeFrontSet = this.inspector.toolbox.selection.setNodeFront(
-                front,
+                nodeFront,
                 {
                   reason: "inspector-extension-sidebar",
                 }

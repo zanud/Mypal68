@@ -36,8 +36,7 @@ const {
 loader.lazyRequireGetter(
   this,
   "ResponsiveUIManager",
-  "devtools/client/responsive/manager",
-  true
+  "devtools/client/responsive/manager"
 );
 loader.lazyRequireGetter(
   this,
@@ -59,6 +58,8 @@ const PREF_MEDIA_SIDEBAR = "devtools.styleeditor.showMediaSidebar";
 const PREF_SIDEBAR_WIDTH = "devtools.styleeditor.mediaSidebarWidth";
 const PREF_NAV_WIDTH = "devtools.styleeditor.navSidebarWidth";
 const PREF_ORIG_SOURCES = "devtools.source-map.client-service.enabled";
+
+const HTML_NS = "http://www.w3.org/1999/xhtml";
 
 /**
  * StyleEditorUI is controls and builds the UI of the Style Editor, including
@@ -151,11 +152,11 @@ StyleEditorUI.prototype = {
   },
 
   async initializeHighlighter() {
-    await this._toolbox.initInspector();
-    this._walker = this._toolbox.walker;
+    const inspectorFront = await this._toolbox.target.getFront("inspector");
+    this._walker = inspectorFront.walker;
 
     try {
-      this._highlighter = await this._toolbox.inspectorFront.getHighlighterByType(
+      this._highlighter = await inspectorFront.getHighlighterByType(
         SELECTOR_HIGHLIGHTER_TYPE
       );
     } catch (e) {
@@ -173,9 +174,7 @@ StyleEditorUI.prototype = {
    * Build the initial UI and wire buttons with event handlers.
    */
   createUI: function() {
-    const viewRoot = this._root.parentNode.querySelector(".splitview-root");
-
-    this._view = new SplitView(viewRoot);
+    this._view = new SplitView(this._root);
 
     wire(this._view.rootElement, ".style-editor-newButton", () => {
       this._debuggee.addStyleSheet(null);
@@ -980,14 +979,14 @@ StyleEditorUI.prototype = {
         }
         inSource = true;
 
-        const div = this._panelDoc.createElement("div");
+        const div = this._panelDoc.createElementNS(HTML_NS, "div");
         div.className = "media-rule-label";
         div.addEventListener(
           "click",
           this._jumpToLocation.bind(this, location)
         );
 
-        const cond = this._panelDoc.createElement("div");
+        const cond = this._panelDoc.createElementNS(HTML_NS, "div");
         cond.className = "media-rule-condition";
         if (!rule.matches) {
           cond.classList.add("media-condition-unmatched");
@@ -999,7 +998,7 @@ StyleEditorUI.prototype = {
         }
         div.appendChild(cond);
 
-        const link = this._panelDoc.createElement("div");
+        const link = this._panelDoc.createElementNS(HTML_NS, "div");
         link.className = "media-rule-line theme-link";
         if (location.line != -1) {
           link.textContent = ":" + location.line;
@@ -1037,7 +1036,7 @@ StyleEditorUI.prototype = {
       );
       element.appendChild(node);
 
-      const link = this._panelDoc.createElement("a");
+      const link = this._panelDoc.createElementNS(HTML_NS, "a");
       link.href = "#";
       link.className = "media-responsive-mode-toggle";
       link.textContent = rawText.substring(match.index, matchEnd);

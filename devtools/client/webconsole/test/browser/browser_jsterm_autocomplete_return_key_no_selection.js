@@ -49,6 +49,7 @@ add_task(async function() {
   );
   ok(!getInputCompletionValue(hud), "completeNode is empty");
 
+  const onMessage = waitForMessage(hud, "hello world");
   EventUtils.synthesizeKey("KEY_Enter");
   is(getInputValue(hud), "", "input is empty after KEY_Enter");
 
@@ -59,4 +60,7 @@ add_task(async function() {
     "window.testBugA",
     "jsterm history is correct"
   );
+
+  info("Wait for the execution value to appear");
+  await onMessage;
 });

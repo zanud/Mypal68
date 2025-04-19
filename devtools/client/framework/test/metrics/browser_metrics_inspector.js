@@ -23,7 +23,7 @@ add_task(async function() {
   // But the inspector is a specific case, because it reuses the BrowserLoader
   // of the toolbox to load its react components. This is why we only list
   // two loaders here.
-  const loaders = [loader.provider.loader, toolboxBrowserLoader.loader];
+  const loaders = [loader.loader, toolboxBrowserLoader.loader];
 
   runDuplicatedModulesTest(loaders, [
     "@loader/unload.js",

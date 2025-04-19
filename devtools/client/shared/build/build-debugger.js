@@ -72,6 +72,8 @@ const moduleMapping = {
   asyncStoreHelper: "devtools/client/shared/async-store-helper",
   asyncStorage: "devtools/shared/async-storage",
   PluralForm: "devtools/shared/plural-form",
+  DevToolsUtils: "devtools/shared/DevToolsUtils",
+  AppConstants: "resource://gre/modules/AppConstants.jsm",
 };
 
 /*
@@ -201,6 +203,7 @@ function transformMC({ types: t }) {
         if (
           !exists &&
           !value.endsWith("index") &&
+          !value.endsWith(".jsm") &&
           !(value.startsWith("devtools") || mappingValues.includes(value))
         ) {
           value = `${value}/index`;
@@ -263,6 +266,7 @@ Babel.registerPlugin("transform-mc", transformMC);
 module.exports = function(filePath) {
   return [
     "transform-flow-strip-types",
+    "proposal-optional-chaining",
     "proposal-class-properties",
     "transform-modules-commonjs",
     "transform-react-jsx",

@@ -190,20 +190,22 @@ class Accessible extends Component {
     this.setState({ expanded });
   }
 
-  showHighlighter(nodeFront) {
+  async showHighlighter(nodeFront) {
     if (!gToolbox) {
       return;
     }
 
-    gToolbox.highlighter.highlight(nodeFront);
+    const { highlighterFront } = nodeFront;
+    await highlighterFront.highlight(nodeFront);
   }
 
-  hideHighlighter() {
+  async hideHighlighter(nodeFront) {
     if (!gToolbox) {
       return;
     }
 
-    gToolbox.highlighter.unhighlight();
+    const { highlighterFront } = nodeFront;
+    await highlighterFront.unhighlight();
   }
 
   showAccessibleHighlighter(accessible) {
@@ -286,7 +288,8 @@ class Accessible extends Component {
 
     if (isNode(object)) {
       valueProps.defaultRep = ElementNode;
-      valueProps.onDOMNodeMouseOut = () => this.hideHighlighter();
+      valueProps.onDOMNodeMouseOut = () =>
+        this.hideHighlighter(this.props.DOMNode);
       valueProps.onDOMNodeMouseOver = () =>
         this.showHighlighter(this.props.DOMNode);
       valueProps.onInspectIconClick = () => this.selectNode(this.props.DOMNode);

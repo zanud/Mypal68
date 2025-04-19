@@ -78,11 +78,13 @@ class InactiveCssTooltipHelper {
    */
   getTemplate(data, tooltip) {
     const XHTML_NS = "http://www.w3.org/1999/xhtml";
-    const { fixId, msgId, numFixProps, property, display } = data;
+    const { fixId, msgId, numFixProps, property, display, learnMoreURL } = data;
     const { doc } = tooltip;
 
+    const documentURL =
+      learnMoreURL || `https://developer.mozilla.org/docs/Web/CSS/${property}`;
     this._currentTooltip = tooltip;
-    this._currentUrl = `https://developer.mozilla.org/docs/Web/CSS/${property}`;
+    this._currentUrl = `${documentURL}`;
 
     const templateNode = doc.createElementNS(XHTML_NS, "template");
 

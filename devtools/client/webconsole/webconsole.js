@@ -25,11 +25,6 @@ loader.lazyRequireGetter(
 );
 loader.lazyRequireGetter(
   this,
-  "viewSource",
-  "devtools/client/shared/view-source"
-);
-loader.lazyRequireGetter(
-  this,
   "openDocLink",
   "devtools/client/shared/link",
   true
@@ -224,17 +219,6 @@ class WebConsole {
   }
 
   /**
-   * Tries to open a JavaScript file related to the web page for the web console
-   * instance in the corresponding Scratchpad.
-   *
-   * @param string sourceURL
-   *        The URL of the file which corresponds to a Scratchpad id.
-   */
-  viewSourceInScratchpad(sourceURL, sourceLine) {
-    viewSource.viewSourceInScratchpad(sourceURL, sourceLine);
-  }
-
-  /**
    * Retrieve information about the JavaScript debugger's stackframes list. This
    * is used to allow the Web Console to evaluate code in the selected
    * stackframe.
@@ -350,29 +334,25 @@ class WebConsole {
    * @return object
    *         A promise object that is resolved once the Web Console is closed.
    */
-  async destroy() {
-    if (this._destroyer) {
-      return this._destroyer;
+  destroy() {
+    if (!this.hudId) {
+      return;
     }
 
-    this._destroyer = (async () => {
+    if (this.ui) {
+      this.ui.destroy();
+    }
 
-      if (this.ui) {
-        await this.ui.destroy();
-      }
+    if (this._parserService) {
+      this._parserService.stop();
+      this._parserService = null;
+    }
 
-      if (this._parserService) {
-        this._parserService.stop();
-        this._parserService = null;
-      }
+    const id = Utils.supportsString(this.hudId);
+    Services.obs.notifyObservers(id, "web-console-destroyed");
+    this.hudId = null;
 
-      const id = Utils.supportsString(this.hudId);
-      Services.obs.notifyObservers(id, "web-console-destroyed");
-
-      this.emit("destroyed");
-    })();
-
-    return this._destroyer;
+    this.emit("destroyed");
   }
 }
 

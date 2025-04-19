@@ -5,8 +5,14 @@
 
 "use strict";
 
+require("@babel/register")({
+  // by default everything is ignored
+  ignore: [/node_modules/],
+});
+
 const mcRoot = `${__dirname}/../../../../../`;
-const getModule = mcPath => `module.exports = require("${mcRoot}${mcPath}");`;
+const getModule = mcPath =>
+  `module.exports = require("${(mcRoot + mcPath).replace(/\\/gi, "/")}");`;
 
 const {
   Services: { pref },
@@ -29,7 +35,6 @@ pref("devtools.webconsole.groupWarningMessages", false);
 pref("devtools.webconsole.input.editor", false);
 pref("devtools.webconsole.input.autocomplete", true);
 pref("devtools.browserconsole.contentMessages", true);
-pref("devtools.webconsole.features.editor", true);
 pref("devtools.webconsole.input.editorWidth", 800);
 
 global.loader = {

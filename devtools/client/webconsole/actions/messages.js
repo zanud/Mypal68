@@ -4,10 +4,7 @@
 
 "use strict";
 
-const {
-  prepareMessage,
-  getArrayTypeNames,
-} = require("devtools/client/webconsole/utils/messages");
+const { prepareMessage } = require("devtools/client/webconsole/utils/messages");
 const {
   IdGenerator,
 } = require("devtools/client/webconsole/utils/id-generator");
@@ -119,19 +116,6 @@ function messageGetMatchingElements(id, cssSelectors) {
   };
 }
 
-function messageGetTableData(id, grip, dataType) {
-  return async ({ dispatch, services }) => {
-    const needEntries = ["Map", "WeakMap", "Set", "WeakSet"].includes(dataType);
-    const enumIndexedPropertiesOnly = getArrayTypeNames().includes(dataType);
-
-    const results = await (needEntries
-      ? services.fetchObjectEntries(grip)
-      : services.fetchObjectProperties(grip, enumIndexedPropertiesOnly));
-
-    dispatch(messageUpdatePayload(id, results));
-  };
-}
-
 /**
  * Associate additional data with a message without mutating the original message object.
  *
@@ -177,7 +161,6 @@ module.exports = {
   messageOpen,
   messageClose,
   messageGetMatchingElements,
-  messageGetTableData,
   messageUpdatePayload,
   networkMessageUpdate,
   networkUpdateRequest,

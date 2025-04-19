@@ -105,10 +105,6 @@ ConsoleServiceListener.prototype = {
       case "component javascript":
       case "chrome javascript":
       case "chrome registration":
-      case "XBL":
-      case "XBL Prototype Handler":
-      case "XBL Content Sink":
-      case "xbl javascript":
         return false;
     }
 
@@ -156,7 +152,7 @@ ConsoleServiceListener.prototype = {
         ) {
           return false;
         }
-      } else if (ids && ids[0]) {
+      } else if (ids?.[0]) {
         // If this is not an nsIScriptError and we need to do window-based
         // filtering we skip this message.
         return false;

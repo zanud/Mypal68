@@ -36,9 +36,6 @@ const VALID_KEYMAPS = new Map([
 // while shifting to a line which was initially out of view.
 const MAX_VERTICAL_OFFSET = 3;
 
-// Match @Scratchpad/N:LINE[:COLUMN] or (LINE[:COLUMN]) anywhere at an end of
-// line in text selection.
-const RE_SCRATCHPAD_ERROR = /(?:@Scratchpad\/\d+:|\()(\d+):?(\d+)?(?:\)|\n)/;
 const RE_JUMP_TO_LINE = /^(\d+):?(\d+)?/;
 const AUTOCOMPLETE_MARK_CLASSNAME = "cm-auto-complete-shadow-text";
 
@@ -211,7 +208,7 @@ function Editor(config) {
   // indenting with tabs, insert one tab. Otherwise insert N
   // whitespaces where N == indentUnit option.
   this.config.extraKeys.Tab = cm => {
-    if (config.extraKeys && config.extraKeys.Tab) {
+    if (config.extraKeys?.Tab) {
       // If a consumer registers its own extraKeys.Tab, we execute it before doing
       // anything else. If it returns false, that mean that all the key handling work is
       // done, so we can do an early return.
@@ -258,7 +255,7 @@ Editor.prototype = {
    */
   get CodeMirror() {
     const codeMirror = editors.get(this);
-    return codeMirror && codeMirror.constructor;
+    return codeMirror?.constructor;
   },
 
   /**
@@ -548,7 +545,7 @@ Editor.prototype = {
 
   /**
    * The source editor can expose several commands linked from system and context menus.
-   * Kept for backward compatibility with scratchpad and styleeditor.
+   * Kept for backward compatibility with styleeditor.
    */
   insertCommandsController: function() {
     const {
@@ -1094,20 +1091,6 @@ Editor.prototype = {
     div.appendChild(txt);
     div.appendChild(inp);
 
-    if (!this.hasMultipleSelections()) {
-      const cm = editors.get(this);
-      const sel = cm.getSelection();
-      // Scratchpad inserts and selects a comment after an error happens:
-      // "@Scratchpad/1:10:2". Parse this to get the line and column.
-      // In the string above this is line 10, column 2.
-      const match = sel.match(RE_SCRATCHPAD_ERROR);
-      if (match) {
-        const [, line, column] = match;
-        inp.value = column ? line + ":" + column : line;
-        inp.selectionStart = inp.selectionEnd = inp.value.length;
-      }
-    }
-
     this.openDialog(div, line => {
       // Handle LINE:COLUMN as well as LINE
       const match = line.toString().match(RE_JUMP_TO_LINE);
@@ -1430,7 +1413,7 @@ Editor.prototype = {
 
     // Remove the link between the document and code-mirror.
     const cm = editors.get(this);
-    if (cm && cm.doc) {
+    if (cm?.doc) {
       cm.doc.cm = null;
     }
 

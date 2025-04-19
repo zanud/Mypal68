@@ -332,11 +332,7 @@ function serialize(target) {
   }
 
   // Window
-  if (
-    target.constructor &&
-    target.constructor.name &&
-    target.constructor.name === "Window"
-  ) {
+  if (target?.constructor?.name === "Window") {
     return `window (${target.location.origin})`;
   }
 

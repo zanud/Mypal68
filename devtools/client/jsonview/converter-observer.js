@@ -11,21 +11,15 @@ const { XPCOMUtils } = ChromeUtils.import(
 );
 const { Services } = ChromeUtils.import("resource://gre/modules/Services.jsm");
 
-// Load devtools module lazily.
-XPCOMUtils.defineLazyGetter(this, "devtools", function() {
-  // eslint-disable-next-line no-shadow
-  const { devtools } = ChromeUtils.import(
-    "resource://devtools/shared/Loader.jsm"
-  );
-  return devtools;
-});
-
 // Load JsonView services lazily.
 XPCOMUtils.defineLazyGetter(this, "JsonViewService", function() {
-  // eslint-disable-next-line no-shadow
-  const { JsonViewService } = devtools.require(
-    "devtools/client/jsonview/converter-child"
+  const { require } = ChromeUtils.import(
+    "resource://devtools/shared/Loader.jsm"
   );
+  const {
+    // eslint-disable-next-line no-shadow
+    JsonViewService,
+  } = require("devtools/client/jsonview/converter-child");
   return JsonViewService;
 });
 
@@ -69,7 +63,7 @@ JsonViewSniffer.prototype = {
 
   isTopLevelLoad: function(request) {
     const loadInfo = request.loadInfo;
-    if (loadInfo && loadInfo.isTopLevelLoad) {
+    if (loadInfo?.isTopLevelLoad) {
       return request.loadFlags & Ci.nsIChannel.LOAD_DOCUMENT_URI;
     }
     return false;

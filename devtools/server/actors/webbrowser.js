@@ -24,8 +24,8 @@ loader.lazyRequireGetter(
 );
 loader.lazyRequireGetter(
   this,
-  "WebExtensionActor",
-  "devtools/server/actors/addon/webextension",
+  "WebExtensionDescriptorActor",
+  "devtools/server/actors/descriptors/webextension",
   true
 );
 loader.lazyRequireGetter(
@@ -289,12 +289,12 @@ BrowserTabList.prototype._getChildren = function(window) {
 };
 
 BrowserTabList.prototype.getList = function(browserActorOptions) {
-  const topXULWindow = Services.wm.getMostRecentWindow(
+  const topAppWindow = Services.wm.getMostRecentWindow(
     DebuggerServer.chromeWindowType
   );
   let selectedBrowser = null;
-  if (topXULWindow) {
-    selectedBrowser = this._getSelectedBrowser(topXULWindow);
+  if (topAppWindow) {
+    selectedBrowser = this._getSelectedBrowser(topAppWindow);
   }
 
   // As a sanity check, make sure all the actors presently in our map get
@@ -376,7 +376,7 @@ BrowserTabList.prototype.getTab = function(
     // First look for in-process frames with this ID
     const window = Services.wm.getOuterWindowWithId(outerWindowID);
     // Safety check to prevent debugging top level window via getTab
-    if (window && window.isChromeWindow) {
+    if (window?.isChromeWindow) {
       return Promise.reject({
         error: "forbidden",
         message: "Window with outerWindowID '" + outerWindowID + "' is chrome",
@@ -403,8 +403,7 @@ BrowserTabList.prototype.getTab = function(
     // Tabs OOP
     for (const browser of this._getBrowsers()) {
       if (
-        browser.frameLoader &&
-        browser.frameLoader.remoteTab &&
+        browser.frameLoader?.remoteTab &&
         browser.frameLoader.remoteTab.tabId === tabId
       ) {
         return this._getActorForBrowser(browser, browserActorOptions);
@@ -416,11 +415,11 @@ BrowserTabList.prototype.getTab = function(
     });
   }
 
-  const topXULWindow = Services.wm.getMostRecentWindow(
+  const topAppWindow = Services.wm.getMostRecentWindow(
     DebuggerServer.chromeWindowType
   );
-  if (topXULWindow) {
-    const selectedBrowser = this._getSelectedBrowser(topXULWindow);
+  if (topAppWindow) {
+    const selectedBrowser = this._getSelectedBrowser(topAppWindow);
     return this._getActorForBrowser(selectedBrowser, browserActorOptions);
   }
   return Promise.reject({
@@ -781,7 +780,7 @@ BrowserTabList.prototype.onOpenWindow = DevToolsUtils.makeInfallible(function(
 BrowserTabList.prototype.onCloseWindow = DevToolsUtils.makeInfallible(function(
   window
 ) {
-  if (window instanceof Ci.nsIXULWindow) {
+  if (window instanceof Ci.nsIAppWindow) {
     window = window.docShell.domWindow;
   }
 
@@ -824,7 +823,7 @@ BrowserAddonList.prototype.getList = async function() {
   for (const addon of addons) {
     let actor = this._actorByAddonId.get(addon.id);
     if (!actor) {
-      actor = new WebExtensionActor(this._connection, addon);
+      actor = new WebExtensionDescriptorActor(this._connection, addon);
       this._actorByAddonId.set(addon.id, actor);
     }
   }

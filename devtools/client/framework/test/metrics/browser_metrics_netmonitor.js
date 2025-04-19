@@ -21,7 +21,7 @@ add_task(async function() {
   const netmonitorLoader = panel.panelWin.getBrowserLoaderForWindow();
 
   const loaders = [
-    loader.provider.loader,
+    loader.loader,
     toolboxBrowserLoader.loader,
     netmonitorLoader.loader,
   ];

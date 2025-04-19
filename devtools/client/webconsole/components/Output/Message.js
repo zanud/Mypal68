@@ -82,14 +82,13 @@ class Message extends Component {
         emitNewMessage: PropTypes.func.isRequired,
         onViewSource: PropTypes.func.isRequired,
         onViewSourceInDebugger: PropTypes.func,
-        onViewSourceInScratchpad: PropTypes.func,
         onViewSourceInStyleEditor: PropTypes.func,
         openContextMenu: PropTypes.func.isRequired,
         openLink: PropTypes.func.isRequired,
         sourceMapService: PropTypes.any,
         canRewind: PropTypes.func.isRequired,
-        jumpToExecutionPoint: PropTypes.func.isRequired,
-        onMessageHover: PropTypes.func.isRequired,
+        jumpToExecutionPoint: PropTypes.func,
+        onMessageHover: PropTypes.func,
       }),
       notes: PropTypes.arrayOf(
         PropTypes.shape({
@@ -324,9 +323,6 @@ class Message extends Component {
           onViewSourceInDebugger:
             serviceContainer.onViewSourceInDebugger ||
             serviceContainer.onViewSource,
-          onViewSourceInScratchpad:
-            serviceContainer.onViewSourceInScratchpad ||
-            serviceContainer.onViewSource,
           onViewSource: serviceContainer.onViewSource,
           onReady: this.props.maybeScrollToBottom,
           sourceMapService: serviceContainer.sourceMapService,
@@ -385,10 +381,6 @@ class Message extends Component {
       if (source === MESSAGE_SOURCE.CSS) {
         onFrameClick =
           serviceContainer.onViewSourceInStyleEditor ||
-          serviceContainer.onViewSource;
-      } else if (/^Scratchpad\/\d+$/.test(frame.source)) {
-        onFrameClick =
-          serviceContainer.onViewSourceInScratchpad ||
           serviceContainer.onViewSource;
       } else {
         // Point everything else to debugger, if source not available,

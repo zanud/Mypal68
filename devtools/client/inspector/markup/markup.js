@@ -195,11 +195,11 @@ function MarkupView(inspector, frame, controllerWindow) {
   this.walker.on("mutations", this._mutationObserver);
   this.win.addEventListener("copy", this._onCopy);
   this.win.addEventListener("mouseup", this._onMouseUp);
-  this.inspector.inspectorFront.nodePicker.on(
+  this.inspector.toolbox.nodePicker.on(
     "picker-node-canceled",
     this._onToolboxPickerCanceled
   );
-  this.inspector.inspectorFront.nodePicker.on(
+  this.inspector.toolbox.nodePicker.on(
     "picker-node-hovered",
     this._onToolboxPickerHover
   );
@@ -575,7 +575,10 @@ MarkupView.prototype = {
    *         requests queued up
    */
   _showBoxModel: function(nodeFront) {
-    return this.toolbox.highlighter
+    // Hold onto a reference to the highlighted NodeFront so that we can get the correct
+    // HighlighterFront when calling _hideBoxModel.
+    this._highlightedNodeFront = nodeFront;
+    return nodeFront.highlighterFront
       .highlight(nodeFront)
       .catch(this._handleRejectionIfNotDestroyed);
   },
@@ -590,7 +593,11 @@ MarkupView.prototype = {
    *         requests queued up
    */
   _hideBoxModel: function(forceHide) {
-    return this.toolbox.highlighter
+    if (!this._highlightedNodeFront) {
+      return Promise.resolve();
+    }
+
+    return this._highlightedNodeFront.highlighterFront
       .unhighlight(forceHide)
       .catch(this._handleRejectionIfNotDestroyed);
   },
@@ -1716,7 +1723,7 @@ MarkupView.prototype = {
         (this.inspector.selection.nodeFront === removedNode && isHTMLTag)
       ) {
         const childContainers = parentContainer.getChildContainers();
-        if (childContainers && childContainers[childIndex]) {
+        if (childContainers?.[childIndex]) {
           const childContainer = childContainers[childIndex];
           this._markContainerAsSelected(childContainer, reason);
           if (childContainer.hasChildren) {
@@ -2027,8 +2034,8 @@ MarkupView.prototype = {
       return promise.resolve(container);
     }
 
-    const expand = options && options.expand;
-    const flash = options && options.flash;
+    const expand = options?.expand;
+    const flash = options?.flash;
 
     container.hasChildren = container.node.hasChildren;
     // Accessibility should either ignore empty children or semantically
@@ -2222,6 +2229,7 @@ MarkupView.prototype = {
 
     this._clearBriefBoxModelTimer();
 
+    this._highlightedNodeFront = null;
     this._hoveredContainer = null;
 
     if (this._contextMenu) {
@@ -2259,7 +2267,7 @@ MarkupView.prototype = {
     this._elt.removeEventListener("mouseout", this._onMouseOut);
     this._frame.removeEventListener("focus", this._onFocus);
     this.inspector.selection.off("new-node-front", this._onNewSelection);
-    this.inspector.inspectorFront.nodePicker.off(
+    this.inspector.toolbox.nodePicker.off(
       "picker-node-hovered",
       this._onToolboxPickerHover
     );

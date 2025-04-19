@@ -33,7 +33,7 @@ loader.lazyRequireGetter(
 );
 loader.lazyRequireGetter(
   this,
-  "focusableSelector",
+  "getFocusableElements",
   "devtools/client/shared/focus",
   true
 );
@@ -95,8 +95,6 @@ class JSTerm extends Component {
       autocompleteData: PropTypes.object.isRequired,
       // Toggle the editor mode.
       editorToggle: PropTypes.func.isRequired,
-      // Is the editor feature enabled
-      editorFeatureEnabled: PropTypes.bool,
       // Is the input in editor mode.
       editorMode: PropTypes.bool,
       editorWidth: PropTypes.number,
@@ -537,7 +535,12 @@ class JSTerm extends Component {
         return null;
       }
 
-      const items = Array.from(el.querySelectorAll(focusableSelector));
+      // We only want to get visible focusable element, and for that we can assert that
+      // the offsetParent isn't null. We can do that because we don't have fixed position
+      // element in the console.
+      const items = getFocusableElements(el).filter(
+        ({ offsetParent }) => offsetParent !== null
+      );
       const inputIndex = items.indexOf(inputField);
 
       if (items.length === 0 || (inputIndex > -1 && items.length === 1)) {
@@ -1053,16 +1056,14 @@ class JSTerm extends Component {
       return null;
     }
 
-    const openEditorButton = this.props.editorFeatureEnabled
-      ? dom.button({
-          className: "devtools-button webconsole-input-openEditorButton",
-          title: l10n.getFormatStr(
-            "webconsole.input.openEditorButton.tooltip",
-            [isMacOS ? "Cmd + B" : "Ctrl + B"]
-          ),
-          onClick: this.props.editorToggle,
-        })
-      : undefined;
+    const openEditorButton = dom.button({
+      className: "devtools-button webconsole-input-openEditorButton",
+      title: l10n.getFormatStr(
+        "webconsole.input.openEditorButton.tooltip",
+        [isMacOS ? "Cmd + B" : "Ctrl + B"]
+      ),
+      onClick: this.props.editorToggle,
+    });
 
     return dom.div(
       {

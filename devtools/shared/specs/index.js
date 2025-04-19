@@ -28,11 +28,6 @@ const Types = (exports.__TypesForTests = [
     front: "devtools/shared/fronts/addon/addons",
   },
   {
-    types: ["webExtension"],
-    spec: "devtools/shared/specs/addon/webextension",
-    front: null,
-  },
-  {
     types: ["webExtensionInspectedWindow"],
     spec: "devtools/shared/specs/addon/webextension-inspected-window",
     front: "devtools/shared/fronts/addon/webextension-inspected-window",
@@ -61,6 +56,11 @@ const Types = (exports.__TypesForTests = [
     types: ["processDescriptor"],
     spec: "devtools/shared/specs/descriptors/process",
     front: "devtools/shared/fronts/descriptors/process",
+  },
+  {
+    types: ["webExtensionDescriptor"],
+    spec: "devtools/shared/specs/descriptors/webextension",
+    front: "devtools/shared/fronts/descriptors/webextension",
   },
   {
     types: ["device"],
@@ -101,7 +101,7 @@ const Types = (exports.__TypesForTests = [
     front: "devtools/shared/fronts/highlighters",
   },
   {
-    types: ["domnodelist", "domwalker", "inspector"],
+    types: ["inspector"],
     spec: "devtools/shared/specs/inspector",
     front: "devtools/shared/fronts/inspector",
   },
@@ -155,11 +155,6 @@ const Types = (exports.__TypesForTests = [
     types: ["preference"],
     spec: "devtools/shared/specs/preference",
     front: "devtools/shared/fronts/preference",
-  },
-  {
-    types: ["promises"],
-    spec: "devtools/shared/specs/promises",
-    front: "devtools/shared/fronts/promises",
   },
   {
     types: ["propertyIterator"],
@@ -225,11 +220,6 @@ const Types = (exports.__TypesForTests = [
     front: null,
   },
   {
-    types: ["addonTarget"],
-    spec: "devtools/shared/specs/targets/addon",
-    front: "devtools/shared/fronts/targets/addon",
-  },
-  {
     types: ["browsingContextTarget"],
     spec: "devtools/shared/specs/targets/browsing-context",
     front: "devtools/shared/fronts/targets/browsing-context",
@@ -268,6 +258,11 @@ const Types = (exports.__TypesForTests = [
     types: ["thread"],
     spec: "devtools/shared/specs/thread",
     front: "devtools/shared/fronts/thread",
+  },
+  {
+    types: ["domwalker"],
+    spec: "devtools/shared/specs/walker",
+    front: "devtools/shared/fronts/walker",
   },
   {
     types: ["console"],

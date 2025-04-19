@@ -77,33 +77,34 @@ class DomTree extends Component {
     const toolbox = DomProvider.getToolbox();
     if (toolbox) {
       onDOMNodeMouseOver = async (grip, options = {}) => {
-        await toolbox.initInspector();
-        if (!toolbox.highlighter) {
-          return null;
-        }
-        const nodeFront = await toolbox.walker.gripToNodeFront(grip);
-        return toolbox.highlighter.highlight(nodeFront, options);
+        const inspectorFront = await toolbox.target.getFront("inspector");
+        const nodeFront = await inspectorFront.getNodeFrontFromNodeGrip(grip);
+        const { highlighterFront } = nodeFront;
+        return highlighterFront.highlight(nodeFront, options);
       };
-      onDOMNodeMouseOut = (forceHide = false) => {
-        return toolbox.highlighter
-          ? toolbox.highlighter.unhighlight(forceHide)
-          : null;
+      onDOMNodeMouseOut = async grip => {
+        const inspectorFront = await toolbox.target.getFront("inspector");
+        const nodeFront = await inspectorFront.getNodeFrontFromNodeGrip(grip);
+        nodeFront.highlighterFront.unhighlight();
       };
       onInspectIconClick = async grip => {
-        await toolbox.initInspector();
         const onSelectInspector = toolbox.selectTool(
           "inspector",
           "inspect_dom"
         );
-        const onGripNodeToFront = toolbox.walker.gripToNodeFront(grip);
-        const [front, inspector] = await Promise.all([
-          onGripNodeToFront,
+        const onNodeFront = toolbox.target
+          .getFront("inspector")
+          .then(inspectorFront =>
+            inspectorFront.getNodeFrontFromNodeGrip(grip)
+          );
+        const [nodeFront, inspectorPanel] = await Promise.all([
+          onNodeFront,
           onSelectInspector,
         ]);
 
-        const onInspectorUpdated = inspector.once("inspector-updated");
-        const onNodeFrontSet = toolbox.selection.setNodeFront(front, {
-          reason: "console",
+        const onInspectorUpdated = inspectorPanel.once("inspector-updated");
+        const onNodeFrontSet = toolbox.selection.setNodeFront(nodeFront, {
+          reason: "dom",
         });
 
         return Promise.all([onNodeFrontSet, onInspectorUpdated]);

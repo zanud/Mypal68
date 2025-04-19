@@ -29,7 +29,6 @@ DevToolsModules(
     'performance-recording.js',
     'performance.js',
     'preference.js',
-    'promises.js',
     'reflow.js',
     'root.js',
     'screenshot.js',
@@ -39,6 +38,7 @@ DevToolsModules(
     'styles.js',
     'stylesheets.js',
     'thread.js',
+    'walker.js',
     'webconsole.js',
-    'websocket.js',
+    'websocket.js'
 )

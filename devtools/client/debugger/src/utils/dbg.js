@@ -44,7 +44,7 @@ function bindSelectors(obj: Object): Object {
 
 function getCM() {
   const cm: any = document.querySelector(".CodeMirror");
-  return cm && cm.CodeMirror;
+  return cm?.CodeMirror;
 }
 
 function formatMappedLocation(mappedLocation) {

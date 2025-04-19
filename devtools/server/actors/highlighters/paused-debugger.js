@@ -24,7 +24,6 @@ loader.lazyGetter(this, "L10N", () => {
  */
 function PausedDebuggerOverlay(highlighterEnv, options = {}) {
   this.env = highlighterEnv;
-  this.showOverlayStepButtons = options.showOverlayStepButtons;
   this.resume = options.resume;
   this.stepOver = options.stepOver;
 
@@ -80,54 +79,52 @@ PausedDebuggerOverlay.prototype = {
       prefix,
     });
 
-    if (this.showOverlayStepButtons) {
-      createNode(window, {
-        parent: toolbar,
-        attributes: {
-          id: "divider",
-          class: "divider",
-        },
-        prefix,
-      });
+    createNode(window, {
+      parent: toolbar,
+      attributes: {
+        id: "divider",
+        class: "divider",
+      },
+      prefix,
+    });
 
-      const stepWrapper = createNode(window, {
-        parent: toolbar,
-        attributes: {
-          id: "step-button-wrapper",
-          class: "step-button-wrapper",
-        },
-        prefix,
-      });
+    const stepWrapper = createNode(window, {
+      parent: toolbar,
+      attributes: {
+        id: "step-button-wrapper",
+        class: "step-button-wrapper",
+      },
+      prefix,
+    });
 
-      createNode(window, {
-        nodeType: "button",
-        parent: stepWrapper,
-        attributes: {
-          id: "step-button",
-          class: "step-button",
-        },
-        prefix,
-      });
+    createNode(window, {
+      nodeType: "button",
+      parent: stepWrapper,
+      attributes: {
+        id: "step-button",
+        class: "step-button",
+      },
+      prefix,
+    });
 
-      const resumeWrapper = createNode(window, {
-        parent: toolbar,
-        attributes: {
-          id: "resume-button-wrapper",
-          class: "resume-button-wrapper",
-        },
-        prefix,
-      });
+    const resumeWrapper = createNode(window, {
+      parent: toolbar,
+      attributes: {
+        id: "resume-button-wrapper",
+        class: "resume-button-wrapper",
+      },
+      prefix,
+    });
 
-      createNode(window, {
-        nodeType: "button",
-        parent: resumeWrapper,
-        attributes: {
-          id: "resume-button",
-          class: "resume-button",
-        },
-        prefix,
-      });
-    }
+    createNode(window, {
+      nodeType: "button",
+      parent: resumeWrapper,
+      attributes: {
+        id: "resume-button",
+        class: "resume-button",
+      },
+      prefix,
+    });
 
     return container;
   },

@@ -94,7 +94,6 @@ class WebConsoleWrapper {
 
       const { prefs } = store.getState();
       const autocomplete = prefs.autocomplete;
-      const editorFeatureEnabled = prefs.editor;
 
       this.prefsObservers = new Map();
       this.prefsObservers.set(PREFS.UI.MESSAGE_TIMESTAMP, () => {
@@ -119,7 +118,6 @@ class WebConsoleWrapper {
         onFirstMeaningfulPaint: resolve,
         closeSplitConsole: this.closeSplitConsole.bind(this),
         autocomplete,
-        editorFeatureEnabled,
         hidePersistLogsCheckbox:
           webConsoleUI.isBrowserConsole || webConsoleUI.isBrowserToolboxConsole,
         hideShowContentMessagesCheckbox:
@@ -272,7 +270,7 @@ class WebConsoleWrapper {
   }
 
   dispatchRequestUpdate(id, data) {
-    this.batchedRequestUpdates({ id, data });
+    return this.batchedRequestUpdates({ id, data });
   }
 
   dispatchSidebarClose() {
@@ -315,7 +313,7 @@ class WebConsoleWrapper {
 
   batchedRequestUpdates(message) {
     this.queuedRequestUpdates.push(message);
-    this.setTimeoutIfNeeded();
+    return this.setTimeoutIfNeeded();
   }
 
   batchedMessageAdd(message) {
@@ -356,11 +354,10 @@ class WebConsoleWrapper {
 
   setTimeoutIfNeeded() {
     if (this.throttledDispatchPromise) {
-      return;
+      return this.throttledDispatchPromise;
     }
-
     this.throttledDispatchPromise = new Promise(done => {
-      setTimeout(() => {
+      setTimeout(async () => {
         this.throttledDispatchPromise = null;
 
         if (!store) {
@@ -390,16 +387,18 @@ class WebConsoleWrapper {
         this.queuedMessageAdds = [];
 
         if (this.queuedMessageUpdates.length > 0) {
-          this.queuedMessageUpdates.forEach(({ message, res }) => {
-            store.dispatch(actions.networkMessageUpdate(message, null, res));
+          for (const { message, res } of this.queuedMessageUpdates) {
+            await store.dispatch(
+              actions.networkMessageUpdate(message, null, res)
+            );
             this.webConsoleUI.emit("network-message-updated", res);
-          });
+          }
           this.queuedMessageUpdates = [];
         }
         if (this.queuedRequestUpdates.length > 0) {
-          this.queuedRequestUpdates.forEach(({ id, data }) => {
-            store.dispatch(actions.networkUpdateRequest(id, data));
-          });
+          for (const { id, data } of this.queuedRequestUpdates) {
+            await store.dispatch(actions.networkUpdateRequest(id, data));
+          }
           this.queuedRequestUpdates = [];
 
           // Fire an event indicating that all data fetched from
@@ -414,6 +413,7 @@ class WebConsoleWrapper {
         done();
       }, 50);
     });
+    return this.throttledDispatchPromise;
   }
 
   getStore() {

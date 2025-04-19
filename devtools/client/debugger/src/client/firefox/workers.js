@@ -7,6 +7,9 @@
 import { addThreadEventListeners } from "./events";
 import type { TabTarget } from "./types";
 
+// $FlowIgnore
+const { defaultThreadOptions } = require("devtools/client/shared/thread-utils");
+
 export function supportsWorkers(tabTarget: TabTarget) {
   return tabTarget.isBrowsingContext || tabTarget.isContentProcess;
 }
@@ -32,7 +35,10 @@ export async function updateWorkerTargets({
       if (workerTargets[threadActorID]) {
         newWorkerTargets[threadActorID] = workerTargets[threadActorID];
       } else {
-        const [, workerThread] = await workerTargetFront.attachThread(options);
+        const [, workerThread] = await workerTargetFront.attachThread({
+          ...defaultThreadOptions(),
+          ...args.options,
+          });
         workerThread.resume();
 
         addThreadEventListeners(workerThread);

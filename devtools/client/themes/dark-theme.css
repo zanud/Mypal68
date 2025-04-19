@@ -181,7 +181,9 @@ body {
   background: transparent;
 }
 
-.CodeMirror.cm-s-mozilla  pre {
+.CodeMirror.cm-s-mozilla  pre,
+.CodeMirror.cm-s-mozilla  pre.CodeMirror-line,
+.CodeMirror.cm-s-mozilla  pre.CodeMirror-line-like {
   color: var(--theme-text-color-strong);
 }
 
@@ -240,11 +242,6 @@ div.CodeMirror span.eval-text {
 .cm-s-mozilla .CodeMirror-gutters { /* vertical line next to line numbers */
   border-right-color: var(--theme-toolbar-background);
   background-color: var(--theme-sidebar-background);
-}
-
-.cm-s-markup-view pre {
-  line-height: 1.4em;
-  min-height: 1.4em;
 }
 
 .CodeMirror-Tern-fname {

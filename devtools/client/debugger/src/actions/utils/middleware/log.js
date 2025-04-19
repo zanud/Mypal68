@@ -28,7 +28,7 @@ function cloneAction(action: any) {
   action = { ...action };
 
   // ADD_TAB, ...
-  if (action.source && action.source.text) {
+  if (action.source?.text) {
     const source = { ...action.source, text: "" };
     action.source = source;
   }

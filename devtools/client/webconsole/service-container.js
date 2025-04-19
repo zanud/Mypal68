@@ -278,7 +278,7 @@ function setupServiceContainer({
   };
 
   if (toolbox) {
-    const { highlight, unhighlight } = toolbox.getHighlighter(true);
+    const { highlight, unhighlight } = toolbox.getHighlighter();
 
     Object.assign(serviceContainer, {
       onViewSourceInDebugger: frame => {
@@ -301,17 +301,6 @@ function setupServiceContainer({
             webconsoleWrapper.webConsoleUI.emit("source-in-debugger-opened");
           });
       },
-      onViewSourceInScratchpad: frame =>
-        toolbox.viewSourceInScratchpad(frame.url, frame.line).then(() => {
-          webconsoleWrapper.telemetry.recordEvent(
-            "jump_to_source",
-            "webconsole",
-            null,
-            {
-              session_id: toolbox.sessionId,
-            }
-          );
-        }),
       onViewSourceInStyleEditor: frame =>
         toolbox
           .viewSourceInStyleEditor(frame.url, frame.line, frame.column)
@@ -339,19 +328,22 @@ function setupServiceContainer({
       highlightDomElement: highlight,
       unHighlightDomElement: unhighlight,
       openNodeInInspector: async grip => {
-        await this.toolbox.initInspector();
         const onSelectInspector = toolbox.selectTool(
           "inspector",
           "inspect_dom"
         );
-        const onGripNodeToFront = this.toolbox.walker.gripToNodeFront(grip);
-        const [front, inspector] = await Promise.all([
-          onGripNodeToFront,
+
+        const onNodeFront = this.toolbox.target
+          .getFront("inspector")
+          .then(inspectorFront => inspectorFront.getNodeFrontFromNodeGrip(grip));
+
+        const [nodeFront, inspectorPanel] = await Promise.all([
+          onNodeFront,
           onSelectInspector,
         ]);
 
-        const onInspectorUpdated = inspector.once("inspector-updated");
-        const onNodeFrontSet = toolbox.selection.setNodeFront(front, {
+        const onInspectorUpdated = inspectorPanel.once("inspector-updated");
+        const onNodeFrontSet = toolbox.selection.setNodeFront(nodeFront, {
           reason: "console",
         });
 

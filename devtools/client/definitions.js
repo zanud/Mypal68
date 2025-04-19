@@ -60,11 +60,6 @@ loader.lazyGetter(
 );
 loader.lazyGetter(
   this,
-  "ScratchpadPanel",
-  () => require("devtools/client/scratchpad/panel").ScratchpadPanel
-);
-loader.lazyGetter(
-  this,
   "DomPanel",
   () => require("devtools/client/dom/panel").DomPanel
 );
@@ -93,13 +88,7 @@ loader.lazyRequireGetter(
 loader.lazyRequireGetter(
   this,
   "ResponsiveUIManager",
-  "devtools/client/responsive/manager",
-  true
-);
-loader.lazyImporter(
-  this,
-  "ScratchpadManager",
-  "resource://devtools/client/scratchpad/scratchpad-manager.jsm"
+  "devtools/client/responsive/manager"
 );
 
 const { MultiLocalizationHelper } = require("devtools/shared/l10n");
@@ -154,8 +143,11 @@ Tools.inspector = {
   inMenu: true,
 
   preventClosingOnKey: true,
+  // preventRaisingOnKey is used to keep the focus on the content window for shortcuts
+  // that trigger the element picker.
+  preventRaisingOnKey: true,
   onkey: function(panel, toolbox) {
-    toolbox.inspectorFront.nodePicker.togglePicker();
+    toolbox.nodePicker.togglePicker();
   },
 
   isTargetSupported: function(target) {
@@ -228,7 +220,7 @@ Tools.styleEditor = {
   visibilityswitch: "devtools.styleeditor.enabled",
   accesskey: l10n("open.accesskey"),
   icon: "chrome://devtools/skin/images/tool-styleeditor.svg",
-  url: "chrome://devtools/content/styleeditor/index.xul",
+  url: "chrome://devtools/content/styleeditor/index.xhtml",
   label: l10n("ToolboxStyleEditor.label"),
   panelLabel: l10n("ToolboxStyleEditor.panelLabel"),
   get tooltip() {
@@ -283,7 +275,7 @@ function switchPerformancePanel() {
       return target.isLocalTab;
     };
   } else {
-    Tools.performance.url = "chrome://devtools/content/performance/index.xul";
+    Tools.performance.url = "chrome://devtools/content/performance/index.xhtml";
     Tools.performance.build = function(frame, target) {
       return new PerformancePanel(frame, target);
     };
@@ -354,7 +346,7 @@ Tools.storage = {
   accesskey: l10n("storage.accesskey"),
   visibilityswitch: "devtools.storage.enabled",
   icon: "chrome://devtools/skin/images/tool-storage.svg",
-  url: "chrome://devtools/content/storage/index.xul",
+  url: "chrome://devtools/content/storage/index.xhtml",
   label: l10n("storage.label"),
   menuLabel: l10n("storage.menuLabel"),
   panelLabel: l10n("storage.panelLabel"),
@@ -375,24 +367,6 @@ Tools.storage = {
 
   build: function(iframeWindow, toolbox) {
     return new StoragePanel(iframeWindow, toolbox);
-  },
-};
-
-Tools.scratchpad = {
-  id: "scratchpad",
-  ordinal: 12,
-  visibilityswitch: "devtools.scratchpad.enabled",
-  icon: "chrome://devtools/skin/images/tool-scratchpad.svg",
-  url: "chrome://devtools/content/scratchpad/index.xul",
-  label: l10n("scratchpad.label"),
-  panelLabel: l10n("scratchpad.panelLabel"),
-  tooltip: l10n("scratchpad.tooltip"),
-  inMenu: false,
-  isTargetSupported: function(target) {
-    return target.hasActor("console");
-  },
-  build: function(iframeWindow, toolbox) {
-    return new ScratchpadPanel(iframeWindow, toolbox);
   },
 };
 
@@ -487,7 +461,6 @@ var defaultTools = [
   Tools.performance,
   Tools.netMonitor,
   Tools.storage,
-  Tools.scratchpad,
   Tools.memory,
   Tools.dom,
 #ifdef ACCESSIBILITY
@@ -529,14 +502,6 @@ exports.ToolboxButtons = [
     },
     isChecked(toolbox) {
       return toolbox.isPaintFlashing;
-    },
-  },
-  {
-    id: "command-button-scratchpad",
-    description: l10n("toolbox.buttons.scratchpad"),
-    isTargetSupported: target => target.isLocalTab,
-    onClick(event, toolbox) {
-      ScratchpadManager.openScratchpad();
     },
   },
   {
@@ -594,8 +559,8 @@ function createHighlightButton(highlighterName, id) {
     description: l10n(`toolbox.buttons.${id}`),
     isTargetSupported: target => !target.chrome,
     async onClick(event, toolbox) {
-      await toolbox.initInspector();
-      const highlighter = await toolbox.inspectorFront.getOrCreateHighlighterByType(
+      const inspectorFront = await toolbox.target.getFront("inspector");
+      const highlighter = await inspectorFront.getOrCreateHighlighterByType(
         highlighterName
       );
       if (highlighter.isShown()) {
@@ -609,11 +574,7 @@ function createHighlightButton(highlighterName, id) {
     isChecked(toolbox) {
       // if the inspector doesn't exist, then the highlighter has not yet been connected
       // to the front end.
-      // TODO: we are using target._inspector here, but we should be using
-      // target.getCachedFront. This is a temporary solution until the inspector no
-      // longer relies on the toolbox and can be destroyed the same way any other
-      // front would be. Related: #1487677
-      const inspectorFront = toolbox.target._inspector;
+      const inspectorFront = toolbox.target.getCachedFront("inspector");
       if (!inspectorFront) {
         // initialize the inspector front asyncronously. There is a potential for buggy
         // behavior here, but we need to change how the buttons get data (have them

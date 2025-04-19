@@ -29,12 +29,6 @@ loader.lazyRequireGetter(
   "devtools/client/webconsole/browser-console-manager",
   true
 );
-loader.lazyRequireGetter(this, "Telemetry", "devtools/client/shared/telemetry");
-loader.lazyImporter(
-  this,
-  "ScratchpadManager",
-  "resource://devtools/client/scratchpad/scratchpad-manager.jsm"
-);
 loader.lazyImporter(
   this,
   "BrowserToolboxProcess",
@@ -68,8 +62,6 @@ function DevTools() {
   this._creatingToolboxes = new Map(); // Map<target, toolbox Promise>
 
   EventEmitter.decorate(this);
-  this._telemetry = new Telemetry();
-  this._telemetry.setEventRecordingEnabled(true);
 
   // Listen for changes to the theme pref.
   this._onThemeChanged = this._onThemeChanged.bind(this);
@@ -430,30 +422,12 @@ DevTools.prototype = {
   saveDevToolsSession: function(state) {
     state.browserConsole = BrowserConsoleManager.getBrowserConsoleSessionState();
     state.browserToolbox = BrowserToolboxProcess.getBrowserToolboxSessionState();
-
-    // Check if the module is loaded to avoid loading ScratchpadManager for no reason.
-    state.scratchpads = [];
-    if (
-      Cu.isModuleLoaded(
-        "resource://devtools/client/scratchpad/scratchpad-manager.jsm"
-      )
-    ) {
-      state.scratchpads = ScratchpadManager.getSessionState();
-    }
   },
 
   /**
    * Restore the devtools session state as provided by SessionStore.
    */
-  restoreDevToolsSession: function({
-    scratchpads,
-    browserConsole,
-    browserToolbox,
-  }) {
-    if (scratchpads) {
-      ScratchpadManager.restoreSession(scratchpads);
-    }
-
+  restoreDevToolsSession: function({ browserConsole, browserToolbox }) {
     if (browserToolbox) {
       BrowserToolboxProcess.init();
     }
@@ -462,12 +436,6 @@ DevTools.prototype = {
       BrowserConsoleManager.toggleBrowserConsole();
     }
   },
-
-  /**
-   * Boolean, true, if we never opened a toolbox.
-   * Used to implement the telemetry tracking toolbox opening.
-   */
-  _firstShowToolbox: true,
 
   /**
    * Show a Toolbox for a target (either by creating a new one, or if a toolbox
@@ -485,9 +453,6 @@ DevTools.prototype = {
    *        The type of host (bottom, window, left, right)
    * @param {object} hostOptions
    *        Options for host specifically
-   * @param {Number} startTime
-   *        Optional, indicates the time at which the user event related to this toolbox
-   *        opening started. This is a `Cu.now()` timing.
    * @param {string} reason
    *        Reason the tool was opened
    *
@@ -499,7 +464,6 @@ DevTools.prototype = {
     toolId,
     hostType,
     hostOptions,
-    startTime,
     reason = "toolbox_show"
   ) {
     let toolbox = this._toolboxes.get(target);
@@ -533,11 +497,6 @@ DevTools.prototype = {
       this._creatingToolboxes.set(target, toolboxPromise);
       toolbox = await toolboxPromise;
       this._creatingToolboxes.delete(target);
-
-      if (startTime) {
-        this.logToolboxOpenTime(toolbox, startTime);
-      }
-      this._firstShowToolbox = false;
     }
 
     // We send the "enter" width here to ensure it is always sent *after*
@@ -546,50 +505,7 @@ DevTools.prototype = {
     const panelName = this.makeToolIdHumanReadable(
       toolId || toolbox.defaultToolId
     );
-    this._telemetry.addEventProperty(
-      toolbox,
-      "enter",
-      panelName,
-      null,
-      "width",
-      width
-    );
-
     return toolbox;
-  },
-
-  /**
-   * Log telemetry related to toolbox opening.
-   * Two distinct probes are logged. One for cold startup, when we open the very first
-   * toolbox. This one includes devtools framework loading. And a second one for all
-   * subsequent toolbox opening, which should all be faster.
-   * These two probes are indexed by Tool ID.
-   *
-   * @param {String} toolbox
-   *        Toolbox instance.
-   * @param {Number} startTime
-   *        Indicates the time at which the user event related to the toolbox
-   *        opening started. This is a `Cu.now()` timing.
-   */
-  logToolboxOpenTime(toolbox, startTime) {
-    const toolId = toolbox.currentToolId || toolbox.defaultToolId;
-    const delay = Cu.now() - startTime;
-    const panelName = this.makeToolIdHumanReadable(toolId);
-
-    const telemetryKey = this._firstShowToolbox
-      ? "DEVTOOLS_COLD_TOOLBOX_OPEN_DELAY_MS"
-      : "DEVTOOLS_WARM_TOOLBOX_OPEN_DELAY_MS";
-    this._telemetry.getKeyedHistogramById(telemetryKey).add(toolId, delay);
-
-    const browserWin = toolbox.win.top;
-    this._telemetry.addEventProperty(
-      browserWin,
-      "open",
-      "tools",
-      null,
-      "first_panel",
-      panelName
-    );
   },
 
   makeToolIdHumanReadable(toolId) {
@@ -712,59 +628,17 @@ DevTools.prototype = {
   },
 
   /**
-   * Evaluate the cross iframes query selectors
-   * @oaram {Object} walker
-   * @param {Array} selectors
-   *        An array of CSS selectors to find the target accessible object.
-   *        Several selectors can be needed if the element is nested in frames
-   *        and not directly in the root document.
-   * @return {Promise} a promise that resolves when the node front is found for
-   *                   selection using inspector tools.
-   */
-  async findNodeFront(walker, nodeSelectors) {
-    async function querySelectors(nodeFront) {
-      const selector = nodeSelectors.shift();
-      if (!selector) {
-        return nodeFront;
-      }
-      nodeFront = await walker.querySelector(nodeFront, selector);
-      if (nodeSelectors.length > 0) {
-        const { nodes } = await walker.children(nodeFront);
-        // If there are remaining selectors to process, they will target a document or a
-        // document-fragment under the current node. Whether the element is a frame or
-        // a web component, it can only contain one document/document-fragment, so just
-        // select the first one available.
-        nodeFront = nodes.find(node => {
-          const { nodeType } = node;
-          return (
-            nodeType === Node.DOCUMENT_FRAGMENT_NODE ||
-            nodeType === Node.DOCUMENT_NODE
-          );
-        });
-      }
-      return querySelectors(nodeFront);
-    }
-    const nodeFront = await walker.getRootNode();
-    return querySelectors(nodeFront);
-  },
-
-  /**
    * Called from the DevToolsShim, used by nsContextMenu.js.
    *
    * @param {XULTab} tab
    *        The browser tab on which inspect node was used.
-   * @param {Array} selectors
-   *        An array of CSS selectors to find the target node. Several selectors can be
-   *        needed if the element is nested in frames and not directly in the root
-   *        document. The selectors are ordered starting with the root document and
-   *        ending with the deepest nested frame.
-   * @param {Number} startTime
-   *        Optional, indicates the time at which the user event related to this node
-   *        inspection started. This is a `Cu.now()` timing.
+   * @param {ElementIdentifier} domReference
+   *        Identifier generated by ContentDOMReference. It is a unique pair of
+   *        BrowsingContext ID and a numeric ID.
    * @return {Promise} a promise that resolves when the node is selected in the inspector
    *         markup view.
    */
-  async inspectNode(tab, nodeSelectors, startTime) {
+  async inspectNode(tab, domReference) {
     const target = await TargetFactory.forTab(tab);
 
     const toolbox = await gDevTools.showToolbox(
@@ -772,20 +646,18 @@ DevTools.prototype = {
       "inspector",
       null,
       null,
-      startTime,
       "inspect_dom"
     );
     const inspector = toolbox.getCurrentPanel();
-
-    // If the toolbox has been switched into a nested frame, we should first remove
-    // selectors according to the frame depth.
-    nodeSelectors.splice(0, toolbox.selectedFrameDepth);
 
     // new-node-front tells us when the node has been selected, whether the
     // browser is remote or not.
     const onNewNode = inspector.selection.once("new-node-front");
 
-    const nodeFront = await this.findNodeFront(inspector.walker, nodeSelectors);
+    const nodeFront = await inspector.walker.getNodeActorFromContentDomReference(
+      domReference
+    );
+
     // Select the final node
     inspector.selection.setNodeFront(nodeFront, {
       reason: "browser-context-menu",
@@ -802,27 +674,25 @@ DevTools.prototype = {
    *
    * @param {XULTab} tab
    *        The browser tab on which inspect accessibility was used.
-   * @param {Array} selectors
-   *        An array of CSS selectors to find the target accessible object.
-   *        Several selectors can be needed if the element is nested in frames
-   *        and not directly in the root document.
-   * @param {Number} startTime
-   *        Optional, indicates the time at which the user event related to this
-   *        node inspection started. This is a `Cu.now()` timing.
+   * @param {ElementIdentifier} domReference
+   *        Identifier generated by ContentDOMReference. It is a unique pair of
+   *        BrowsingContext ID and a numeric ID.
    * @return {Promise} a promise that resolves when the accessible object is
    *         selected in the accessibility inspector.
    */
-  async inspectA11Y(tab, nodeSelectors, startTime) {
+  async inspectA11Y(tab, domReference) {
     const target = await TargetFactory.forTab(tab);
 
     const toolbox = await gDevTools.showToolbox(
       target,
       "accessibility",
       null,
-      null,
-      startTime
+      null
     );
-    const nodeFront = await this.findNodeFront(toolbox.walker, nodeSelectors);
+    const inspectorFront = await toolbox.target.getFront("inspector");
+    const nodeFront = await inspectorFront.walker.getNodeActorFromContentDomReference(
+      domReference
+    );
     // Select the accessible object in the panel and wait for the event that
     // tells us it has been done.
     const a11yPanel = toolbox.getCurrentPanel();
@@ -855,8 +725,8 @@ DevTools.prototype = {
     removeThemeObserver(this._onThemeChanged);
 
     // Do not unregister devtools from the DevToolsShim if the destroy is caused by an
-    // application shutdown. For instance SessionStore needs to save the Scratchpad
-    // manager state on shutdown.
+    // application shutdown. For instance SessionStore needs to save the Browser Toolbox
+    // state on shutdown.
     if (!shuttingDown) {
       // Notify the DevToolsShim that DevTools are no longer available, particularly if
       // the destroy was caused by disabling/removing DevTools.

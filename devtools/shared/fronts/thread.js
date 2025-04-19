@@ -33,8 +33,8 @@ loader.lazyRequireGetter(
  *        The actor ID for this thread.
  */
 class ThreadFront extends FrontClassWithSpec(threadSpec) {
-  constructor(client) {
-    super(client);
+  constructor(client, targetFront, parentFront) {
+    super(client, targetFront, parentFront);
     this.client = client;
     this._pauseGrips = {};
     this._threadGrips = {};
@@ -321,8 +321,10 @@ class ThreadFront extends FrontClassWithSpec(threadSpec) {
       return this._threadGrips[form.actor];
     }
 
-    this._threadGrips[form.actor] = new SourceFront(this.client, form);
-    return this._threadGrips[form.actor];
+    const sourceFront = new SourceFront(this.client, form);
+    this.manage(sourceFront);
+    this._threadGrips[form.actor] = sourceFront;
+    return sourceFront;
   }
 }
 

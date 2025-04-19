@@ -79,6 +79,13 @@
 }
 
 /**
+ * Override global.css input styles
+ */
+html|input {
+  margin: revert;
+}
+
+/**
  * Override wrong system font from forms.css
  * Bug 1458224: buttons use a wrong default font-size on Linux
  */
@@ -292,6 +299,7 @@ checkbox:-moz-focusring {
 
 /* Toolbar buttons */
 .devtools-toolbarbutton,
+.devtools-togglebutton,
 .devtools-button {
   appearance: none;
   background: transparent;
@@ -306,6 +314,10 @@ checkbox:-moz-focusring {
 
   /* Button text should not wrap on multiple lines */
   white-space: nowrap;
+}
+
+.devtools-togglebutton {
+  padding: 1px 6px;
 }
 
 /* Remove system form border from devtools-button. */
@@ -411,6 +423,15 @@ checkbox:-moz-focusring {
   color: var(--toolbarbutton-focus-color);
 }
 
+.devtools-togglebutton:not([aria-pressed="true"]) {
+  background: var(--theme-toolbarbutton-background);
+  color: var(--theme-toolbarbutton-color);
+}
+
+.devtools-togglebutton:not([aria-pressed="true"]):hover {
+  background-color: var(--theme-toolbarbutton-hover-background);
+}
+
 /* Selectable button which is checked. */
 
 .devtools-toolbarbutton:not([disabled])[label][checked=true],
@@ -424,6 +445,27 @@ checkbox:-moz-focusring {
 .devtools-toolbarbutton:not([disabled])[label][open]:focus,
 .devtools-button:not(:empty).checked:focus {
   background-color: var(--toolbarbutton-checked-focus-background);
+}
+
+.devtools-togglebutton[aria-pressed="true"],
+.devtools-togglebutton:focus {
+  background-color: var(--theme-toolbarbutton-checked-background);
+  color: var(--theme-toolbarbutton-checked-color);
+}
+
+.devtools-togglebutton[aria-pressed="true"]:hover {
+  background: var(--theme-toolbarbutton-checked-hover-background);
+  color: var(--theme-toolbarbutton-checked-hover-color);
+}
+
+.devtools-togglebutton:active,
+.devtools-togglebutton:hover:active {
+  background: var(--theme-toolbarbutton-active-background);
+  color: var(--theme-toolbarbutton-active-color);
+}
+
+.devtools-togglebutton::-moz-focus-inner {
+  border-color: transparent;
 }
 
 /* Icons */

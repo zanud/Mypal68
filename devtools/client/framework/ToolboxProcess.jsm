@@ -116,8 +116,9 @@ BrowserToolboxProcess.prototype = {
     // This allows us to safely use the tools against even the actors and
     // DebuggingServer itself, especially since we can mark this loader as
     // invisible to the debugger (unlike the usual loader settings).
-    this.loader = new DevToolsLoader();
-    this.loader.invisibleToDebugger = true;
+    this.loader = new DevToolsLoader({
+      invisibleToDebugger: true,
+    });
     const { DebuggerServer } = this.loader.require(
       "devtools/server/debugger-server"
     );

@@ -55,8 +55,7 @@ loader.lazyRequireGetter(
 loader.lazyRequireGetter(
   this,
   "ResponsiveUIManager",
-  "devtools/client/responsive/manager",
-  true
+  "devtools/client/responsive/manager"
 );
 loader.lazyRequireGetter(
   this,
@@ -68,11 +67,6 @@ loader.lazyImporter(
   this,
   "BrowserToolboxProcess",
   "resource://devtools/client/framework/ToolboxProcess.jsm"
-);
-loader.lazyImporter(
-  this,
-  "ScratchpadManager",
-  "resource://devtools/client/scratchpad/scratchpad-manager.jsm"
 );
 
 const { LocalizationHelper } = require("devtools/shared/l10n");
@@ -105,7 +99,7 @@ var gDevToolsBrowser = (exports.gDevToolsBrowser = {
    * of there
    */
   // used by browser-sets.inc, command
-  async toggleToolboxCommand(gBrowser, startTime) {
+  async toggleToolboxCommand(gBrowser) {
     const target = await TargetFactory.forTab(gBrowser.selectedTab);
     const toolbox = gDevTools.getToolbox(target);
 
@@ -113,11 +107,7 @@ var gDevToolsBrowser = (exports.gDevToolsBrowser = {
     // - should close a docked toolbox
     // - should focus a windowed toolbox
     const isDocked = toolbox && toolbox.hostType != Toolbox.HostType.WINDOW;
-    if (isDocked) {
-      gDevTools.closeToolbox(target);
-    } else {
-      gDevTools.showToolbox(target, null, null, null, startTime);
-    }
+    isDocked ? gDevTools.closeToolbox(target) : gDevTools.showToolbox(target);
   },
 
   /**
@@ -253,7 +243,7 @@ var gDevToolsBrowser = (exports.gDevToolsBrowser = {
    * Used when: - registering a new tool
    *            - new xul window, to add menu items
    */
-  async selectToolCommand(win, toolId, startTime) {
+  async selectToolCommand(win, toolId) {
     if (gDevToolsBrowser._isAboutDevtoolsToolbox(win)) {
       const toolbox = gDevToolsBrowser._getAboutDevtoolsToolbox(win);
       toolbox.selectTool(toolId, "key_shortcut");
@@ -275,15 +265,16 @@ var gDevToolsBrowser = (exports.gDevToolsBrowser = {
         toolDefinition.preventClosingOnKey ||
         toolbox.hostType == Toolbox.HostType.WINDOW
       ) {
-        toolbox.raise();
+        if (!toolDefinition.preventRaisingOnKey) {
+          toolbox.raise();
+        }
       } else {
         toolbox.destroy();
       }
       gDevTools.emit("select-tool-command", toolId);
     } else {
       gDevTools
-        .showToolbox(target, toolId, null, null, startTime)
-        .then(newToolbox => {
+        .showToolbox(target, toolId).then(newToolbox => {
           newToolbox.fireCustomKey(toolId);
           gDevTools.emit("select-tool-command", toolId);
         });
@@ -300,13 +291,9 @@ var gDevToolsBrowser = (exports.gDevToolsBrowser = {
    *         from devtools-startup.js's KeyShortcuts array. The useful fields here
    *         are:
    *         - `toolId` used to identify a toolbox's panel like inspector or webconsole,
-   *         - `id` used to identify any other key shortcuts like scratchpad or
-   *         about:debugging
-   * @param {Number} startTime
-   *        Optional, indicates the time at which the key event fired. This is a
-   *        `Cu.now()` timing.
+   *         - `id` used to identify any other key shortcuts like about:debugging
    */
-  async onKeyShortcut(window, key, startTime) {
+  async onKeyShortcut(window, key) {
     // Avoid to open devtools when the about:devtools-toolbox page is showing
     // on the window now.
     if (
@@ -318,14 +305,14 @@ var gDevToolsBrowser = (exports.gDevToolsBrowser = {
 
     // If this is a toolbox's panel key shortcut, delegate to selectToolCommand
     if (key.toolId) {
-      await gDevToolsBrowser.selectToolCommand(window, key.toolId, startTime);
+      await gDevToolsBrowser.selectToolCommand(window, key.toolId);
       return;
     }
     // Otherwise implement all other key shortcuts individually here
     switch (key.id) {
       case "toggleToolbox":
       case "toggleToolboxF12":
-        await gDevToolsBrowser.toggleToolboxCommand(window.gBrowser, startTime);
+        await gDevToolsBrowser.toggleToolboxCommand(window.gBrowser);
         break;
       case "browserToolbox":
         BrowserToolboxProcess.init();
@@ -340,16 +327,6 @@ var gDevToolsBrowser = (exports.gDevToolsBrowser = {
         ResponsiveUIManager.toggle(window, window.gBrowser.selectedTab, {
           trigger: "shortcut",
         });
-        break;
-      case "scratchpad":
-        ScratchpadManager.openScratchpad();
-        break;
-      case "inspectorMac":
-        await gDevToolsBrowser.selectToolCommand(
-          window,
-          "inspector",
-          startTime
-        );
         break;
     }
   },
@@ -459,7 +436,7 @@ var gDevToolsBrowser = (exports.gDevToolsBrowser = {
   /**
    * Add this DevTools's presence to a browser window's document
    *
-   * @param {XULDocument} doc
+   * @param {HTMLDocument} doc
    *        The document to which devtools should be hooked to.
    */
   _registerBrowserWindow(win) {
@@ -819,7 +796,7 @@ Services.obs.addObserver(gDevToolsBrowser, "devtools:loader:destroy");
 // Fake end of browser window load event for all already opened windows
 // that is already fully loaded.
 for (const win of Services.wm.getEnumerator(gDevTools.chromeWindowType)) {
-  if (win.gBrowserInit && win.gBrowserInit.delayedStartupFinished) {
+  if (win.gBrowserInit?.delayedStartupFinished) {
     gDevToolsBrowser._registerBrowserWindow(win);
   }
 }

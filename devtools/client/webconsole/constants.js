@@ -82,7 +82,6 @@ const prefs = {
       SIDEBAR_TOGGLE: "devtools.webconsole.sidebarToggle",
       AUTOCOMPLETE: "devtools.webconsole.input.autocomplete",
       GROUP_WARNINGS: "devtools.webconsole.groupWarningMessages",
-      EDITOR: "devtools.webconsole.features.editor",
     },
   },
 };

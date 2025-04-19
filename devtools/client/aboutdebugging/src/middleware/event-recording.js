@@ -58,9 +58,9 @@ function getRuntimeEventExtras(runtime) {
   const { extra, runtimeDetails } = runtime;
 
   // deviceName can be undefined for non-usb devices, but we should not log "undefined".
-  const deviceName = (extra && extra.deviceName) || "";
+  const deviceName = extra?.deviceName || "";
   const runtimeShortName = runtime.type === RUNTIMES.USB ? runtime.name : "";
-  const runtimeName = (runtimeDetails && runtimeDetails.info.name) || "";
+  const runtimeName = runtimeDetails?.info.name || "";
   return {
     connection_type: runtime.type,
     device_name: deviceName,
@@ -125,8 +125,7 @@ function onRemoteRuntimesUpdated(action, store) {
     const oldRuntime = oldRuntimes.find(
       r => r.extra.deviceName === oldDeviceName
     );
-    const isUnplugged =
-      newRuntime && newRuntime.isUnplugged && !oldRuntime.isUnplugged;
+    const isUnplugged = newRuntime?.isUnplugged && !oldRuntime.isUnplugged;
     if (oldDeviceName && (!newRuntime || isUnplugged)) {
       recordEvent("device_removed", {
         connection_type: action.runtimeType,
@@ -153,8 +152,7 @@ function onRemoteRuntimesUpdated(action, store) {
     const oldRuntime = oldRuntimes.find(
       r => r.extra.deviceName === newDeviceName
     );
-    const isPlugged =
-      oldRuntime && oldRuntime.isUnplugged && !newRuntime.isUnplugged;
+    const isPlugged = oldRuntime?.isUnplugged && !newRuntime.isUnplugged;
 
     if (newDeviceName && (!oldRuntime || isPlugged)) {
       recordEvent("device_added", {

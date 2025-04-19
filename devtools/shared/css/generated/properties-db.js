@@ -905,24 +905,6 @@ exports.CSS_PROPERTIES = {
       "unset"
     ]
   },
-  "-moz-stack-sizing": {
-    "isInherited": false,
-    "subproperties": [
-      "-moz-stack-sizing"
-    ],
-    "supports": [],
-    "values": [
-      "ignore",
-      "ignore-horizontal",
-      "ignore-vertical",
-      "inherit",
-      "initial",
-      "revert-layer",
-      "revert",
-      "stretch-to-fit",
-      "unset"
-    ]
-  },
   "-moz-tab-size": {
     "isInherited": true,
     "subproperties": [
@@ -2996,7 +2978,6 @@ exports.CSS_PROPERTIES = {
       "transform-origin",
       "contain",
       "appearance",
-      "-moz-binding",
       "-moz-orient",
       "will-change",
       "shape-image-threshold",
@@ -3224,7 +3205,6 @@ exports.CSS_PROPERTIES = {
       "-moz-box-flex",
       "-moz-box-orient",
       "-moz-box-pack",
-      "-moz-stack-sizing",
       "-moz-box-ordinal-group"
     ],
     "supports": [],
@@ -11538,10 +11518,6 @@ exports.PREFERENCES = [
   [
     "offset-distance",
     "layout.css.motion-path.enabled"
-  ],
-  [
-    "-moz-binding",
-    "layout.css.moz-binding.content.enabled"
   ],
   [
     "-moz-outline-radius-bottomleft",

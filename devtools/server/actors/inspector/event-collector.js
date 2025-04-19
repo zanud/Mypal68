@@ -289,8 +289,7 @@ class MainEventCollector {
       return null;
     }
 
-    const hasJQuery =
-      global.jQuery && global.jQuery.fn && global.jQuery.fn.jquery;
+    const hasJQuery = global.jQuery?.fn?.jquery;
 
     if (hasJQuery) {
       return global.jQuery;
@@ -577,7 +576,7 @@ class JQueryLiveEventCollector extends MainEventCollector {
                 },
               };
 
-              if (!eventInfo.type && event.data && event.data.live) {
+              if (!eventInfo.type && event.data?.live) {
                 eventInfo.type = event.data.live;
               }
 
@@ -666,7 +665,7 @@ class ReactEventCollector extends MainEventCollector {
     if (props) {
       for (const [name, prop] of Object.entries(props)) {
         if (REACT_EVENT_NAMES.includes(name)) {
-          const listener = (prop && prop.__reactBoundMethod) || prop;
+          const listener = prop?.__reactBoundMethod || prop;
 
           if (typeof listener !== "function") {
             continue;
@@ -713,7 +712,7 @@ class ReactEventCollector extends MainEventCollector {
         if (value.memoizedProps) {
           return value.memoizedProps; // React 16
         }
-        return value && value._currentElement && value._currentElement.props; // React 15
+        return value?._currentElement?.props; // React 15
       }
     }
     return null;
@@ -939,7 +938,7 @@ class EventCollector {
           listenerDO = listenerDO.proto;
         }
 
-        if (desc && desc.value) {
+        if (desc?.value) {
           listenerDO = desc.value;
         }
       }

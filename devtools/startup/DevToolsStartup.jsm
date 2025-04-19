@@ -66,18 +66,6 @@ ChromeUtils.defineModuleGetter(
  "resource://devtools/client/performance-new/popup/menu-button.jsm"
 );
  
-// We don't want to spend time initializing the full loader here so we create
-// our own lazy require.
-XPCOMUtils.defineLazyGetter(this, "Telemetry", function() {
-  const { require } = ChromeUtils.import(
-    "resource://devtools/shared/Loader.jsm"
-  );
-  // eslint-disable-next-line no-shadow
-  const Telemetry = require("devtools/client/shared/telemetry");
-
-  return Telemetry;
-});
-
 XPCOMUtils.defineLazyGetter(this, "StartupBundle", function() {
   const url = "chrome://devtools-startup/locale/startup.properties";
   return Services.strings.createBundle(url);
@@ -141,13 +129,6 @@ XPCOMUtils.defineLazyGetter(this, "KeyShortcuts", function() {
       ),
       modifiers,
     },
-    // Open ScratchPad window
-    {
-      id: "scratchpad",
-      shortcut: KeyShortcutsBundle.GetStringFromName("scratchpad.commandkey"),
-      modifiers: "shift",
-    },
-
     // The following keys are also registered in /client/definitions.js
     // and should be synced.
 
@@ -210,6 +191,7 @@ XPCOMUtils.defineLazyGetter(this, "KeyShortcuts", function() {
     // like on Chrome DevTools.
     shortcuts.push({
       id: "inspectorMac",
+      toolId: "inspector",
       shortcut: KeyShortcutsBundle.GetStringFromName("inspector.commandkey"),
       modifiers: "accel,shift",
     });
@@ -264,21 +246,6 @@ DevToolsStartup.prototype = {
    * By initialized, we mean that its main modules are loaded.
    */
   initialized: false,
-
-  /**
-   * Boolean flag to check if the devtools initialization was already sent to telemetry.
-   * We only want to record one devtools entry point per Firefox run, but we are not
-   * interested in all the entry points.
-   */
-  recorded: false,
-
-  get telemetry() {
-    if (!this._telemetry) {
-      this._telemetry = new Telemetry();
-      this._telemetry.setEventRecordingEnabled(true);
-    }
-    return this._telemetry;
-  },
 
   /**
    * Flag that indicates if the developer toggle was already added to customizableUI.
@@ -411,13 +378,6 @@ DevToolsStartup.prototype = {
   onFirstWindowReady(window) {
     if (this.devtoolsFlag) {
       this.handleDevToolsFlag(window);
-
-      // In the case of the --jsconsole and --jsdebugger command line parameters
-      // there was no browser window when they were processed so we act on the
-      // this.commandline flag instead.
-      if (this.commandLine) {
-        this.sendEntryPointTelemetry("CommandLine");
-      }
     }
   },
 
@@ -727,15 +687,11 @@ DevToolsStartup.prototype = {
         const id = key.toolId || key.id;
         this.openInstallPage("KeyShortcut", id);
       } else {
-        // Record the timing at which this event started in order to compute later in
-        // gDevTools.showToolbox, the complete time it takes to open the toolbox.
-        // i.e. especially take `initDevTools` into account.
-        const startTime = Cu.now();
         const require = this.initDevTools("KeyShortcut", key);
         const {
           gDevToolsBrowser,
         } = require("devtools/client/framework/devtools-browser");
-        await gDevToolsBrowser.onKeyShortcut(window, key, startTime);
+        await gDevToolsBrowser.onKeyShortcut(window, key);
       }
     } catch (e) {
       console.error(`Exception while trigerring key ${key}: ${e}\n${e.stack}`);
@@ -779,12 +735,6 @@ DevToolsStartup.prototype = {
     if (!Services.prefs.getBoolPref(DEVTOOLS_ENABLED_PREF)) {
       this.openInstallPage(reason);
       return null;
-    }
-
-    // In the case of the --jsconsole and --jsdebugger command line parameters
-    // there is no browser window yet so we don't send any telemetry yet.
-    if (reason !== "CommandLine") {
-      this.sendEntryPointTelemetry(reason, key);
     }
 
     this.initialized = true;
@@ -991,8 +941,9 @@ DevToolsStartup.prototype = {
       // actors and DebuggingServer itself, especially since we can mark
       // serverLoader as invisible to the debugger (unlike the usual loader
       // settings).
-      const serverLoader = new DevToolsLoader();
-      serverLoader.invisibleToDebugger = true;
+      const serverLoader = new DevToolsLoader({
+        invisibleToDebugger: true,
+      });
       const { DebuggerServer: debuggerServer } = serverLoader.require(
         "devtools/server/debugger-server"
       );
@@ -1014,71 +965,6 @@ DevToolsStartup.prototype = {
     if (cmdLine.state == Ci.nsICommandLine.STATE_REMOTE_AUTO) {
       cmdLine.preventDefault = true;
     }
-  },
-
-  /**
-   * Send entry point telemetry explaining how the devtools were launched. This
-   * functionality also lives inside `devtools/client/framework/browser-menus.js`
-   * because this codepath is only used the first time a toolbox is opened for a
-   * tab.
-   *
-   * @param {String} reason
-   *        One of "KeyShortcut", "SystemMenu", "HamburgerMenu", "ContextMenu",
-   *        "CommandLine".
-   * @param {String} key
-   *        The key used by a key shortcut.
-   */
-  sendEntryPointTelemetry(reason, key = "") {
-    if (!reason) {
-      return;
-    }
-
-    let keys = "";
-
-    if (reason === "KeyShortcut") {
-      let { modifiers, shortcut } = key;
-
-      modifiers = modifiers.replace(",", "+");
-
-      if (shortcut.startsWith("VK_")) {
-        shortcut = shortcut.substr(3);
-      }
-
-      keys = `${modifiers}+${shortcut}`;
-    }
-
-    const window = Services.wm.getMostRecentWindow("navigator:browser");
-
-    this.telemetry.addEventProperty(
-      window,
-      "open",
-      "tools",
-      null,
-      "shortcut",
-      keys
-    );
-    this.telemetry.addEventProperty(
-      window,
-      "open",
-      "tools",
-      null,
-      "entrypoint",
-      reason
-    );
-
-    if (this.recorded) {
-      return;
-    }
-
-    // Only save the first call for each firefox run as next call
-    // won't necessarely start the tool. For example key shortcuts may
-    // only change the currently selected tool.
-    try {
-      this.telemetry.getHistogramById("DEVTOOLS_ENTRY_POINT").add(reason);
-    } catch (e) {
-      dump("DevTools telemetry entry point failed: " + e + "\n");
-    }
-    this.recorded = true;
   },
 
   // Used by tests and the toolbox to register the same key shortcuts in toolboxes loaded

@@ -47,8 +47,7 @@ const asyncStorage = require("devtools/shared/async-storage");
 loader.lazyRequireGetter(
   this,
   "ResponsiveUIManager",
-  "devtools/client/responsive/manager",
-  true
+  "devtools/client/responsive/manager"
 );
 
 const E10S_MULTI_ENABLED =
@@ -195,26 +194,26 @@ function waitForViewportResizeTo(ui, width, height) {
     // See bug 1302879.
     const browser = ui.getViewportBrowser();
 
-    const onResizeViewport = data => {
+    const onContentResize = data => {
       if (!isSizeMatching(data)) {
         return;
       }
-      ui.off("viewport-resize", onResizeViewport);
+      ui.off("content-resize", onContentResize);
       browser.removeEventListener("mozbrowserloadend", onBrowserLoadEnd);
-      info(`Got viewport-resize to ${width} x ${height}`);
+      info(`Got content-resize to ${width} x ${height}`);
       resolve();
     };
 
     const onBrowserLoadEnd = async function() {
       const data = ui.getViewportSize(ui);
-      onResizeViewport(data);
+      onContentResize(data);
     };
 
     info(`Waiting for viewport-resize to ${width} x ${height}`);
     // We're changing the viewport size, which may also change the content
     // size. We wait on the viewport resize event, and check for the
     // desired size.
-    ui.on("viewport-resize", onResizeViewport);
+    ui.on("content-resize", onContentResize);
     browser.addEventListener("mozbrowserloadend", onBrowserLoadEnd, {
       once: true,
     });
@@ -723,24 +722,24 @@ async function testViewportZoomWidthAndHeight(
   }
 
   if (typeof width !== "undefined" || typeof height !== "undefined") {
-    const layoutSize = await spawnViewportTask(ui, {}, function() {
+    const innerSize = await spawnViewportTask(ui, {}, function() {
       return {
-        width: content.screen.width,
-        height: content.screen.height,
+        width: content.innerWidth,
+        height: content.innerHeight,
       };
     });
     if (typeof width !== "undefined") {
       is(
-        layoutSize.width,
+        innerSize.width,
         width,
-        message + " should have expected layout width."
+        message + " should have expected inner width."
       );
     }
     if (typeof height !== "undefined") {
       is(
-        layoutSize.height,
+        innerSize.height,
         height,
-        message + " should have expected layout height."
+        message + " should have expected inner height."
       );
     }
   }

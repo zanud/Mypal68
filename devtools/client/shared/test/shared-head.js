@@ -25,8 +25,9 @@ if (DEBUG_ALLOCATIONS) {
   const { DevToolsLoader } = ChromeUtils.import(
     "resource://devtools/shared/Loader.jsm"
   );
-  const loader = new DevToolsLoader();
-  loader.invisibleToDebugger = true;
+  const loader = new DevToolsLoader({
+    invisibleToDebugger: true,
+  });
 
   const { allocationTracker } = loader.require(
     "devtools/shared/test-helpers/allocation-tracker"
@@ -42,9 +43,6 @@ if (DEBUG_ALLOCATIONS) {
   });
 }
 
-const { ScratchpadManager } = ChromeUtils.import(
-  "resource://devtools/client/scratchpad/scratchpad-manager.jsm"
-);
 const { loader, require } = ChromeUtils.import(
   "resource://devtools/shared/Loader.jsm"
 );

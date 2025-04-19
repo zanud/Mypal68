@@ -3,7 +3,7 @@
  * file, You can obtain one at <http://mozilla.org/MPL/2.0/>. */
 
 // @flow
-/* eslint complexity: ["error", 30]*/
+/* eslint complexity: ["error", 35]*/
 
 /**
  * Pause reducer
@@ -230,13 +230,13 @@ function update(
         ...threadState().frameScopes.original,
         [selectedFrameId]: {
           pending: status !== "done",
-          scope: value && value.scope,
+          scope: value?.scope,
         },
       };
 
       const mappings = {
         ...threadState().frameScopes.mappings,
-        [selectedFrameId]: value && value.mappings,
+        [selectedFrameId]: value?.mappings,
       };
 
       return updateThreadState({
@@ -381,7 +381,7 @@ function getPauseLocation(state, action) {
     return null;
   }
 
-  const frame = frames && frames[0];
+  const frame = frames?.[0];
   if (!frame) {
     return previousLocation;
   }
@@ -635,7 +635,7 @@ export function getInlinePreviewExpression(
   const previews = getThreadPauseState(state.pause, thread).inlinePreview[
     getGeneratedFrameId(frameId)
   ];
-  return previews && previews[line] && previews[line][expression];
+  return previews?.[line]?.[expression];
 }
 
 // NOTE: currently only used for chrome

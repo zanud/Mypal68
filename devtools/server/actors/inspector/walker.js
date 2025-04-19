@@ -8,7 +8,7 @@ const { Cc, Ci, Cu } = require("chrome");
 
 const Services = require("Services");
 const protocol = require("devtools/shared/protocol");
-const { walkerSpec } = require("devtools/shared/specs/inspector");
+const { walkerSpec } = require("devtools/shared/specs/walker");
 const { LongStringActor } = require("devtools/server/actors/string");
 const InspectorUtils = require("InspectorUtils");
 const {
@@ -170,14 +170,22 @@ loader.lazyRequireGetter(
   true
 );
 
+// ContentDOMReference requires ChromeUtils, which isn't available in worker context.
+if (!isWorker) {
+  loader.lazyRequireGetter(
+    this,
+    "ContentDOMReference",
+    "resource://gre/modules/ContentDOMReference.jsm",
+    true
+  );
+}
+
 loader.lazyServiceGetter(
   this,
   "eventListenerService",
   "@mozilla.org/eventlistenerservice;1",
   "nsIEventListenerService"
 );
-
-loader.lazyRequireGetter(this, "ChromeUtils");
 
 // Minimum delay between two "new-mutations" events.
 const MUTATIONS_THROTTLING_DELAY = 100;
@@ -373,7 +381,10 @@ var WalkerActor = protocol.ActorClassWithSpec(walkerSpec, {
     return {
       actor: this.actorID,
       root: this.rootNode.form(),
-      traits: {},
+      traits: {
+        // Firefox 71: getNodeActorFromContentDomReference is available.
+        retrieveNodeFromContentDomReference: true,
+      },
     };
   },
 
@@ -741,7 +752,7 @@ var WalkerActor = protocol.ActorClassWithSpec(walkerSpec, {
       rawNode.nodeName === "SLOT" &&
       isDirectShadowHostChild(firstChild);
 
-    const isFlexItem = !!(firstChild && firstChild.parentFlexElement);
+    const isFlexItem = !!firstChild?.parentFlexElement;
 
     if (
       !firstChild ||
@@ -2413,16 +2424,9 @@ var WalkerActor = protocol.ActorClassWithSpec(walkerSpec, {
     const { readyState } = window.document;
     if (readyState != "interactive" && readyState != "complete") {
       // The document is not loaded, so we want to register to fire again when the
-      // DOM has been loaded. To do this, we need to know if this is a XUL document.
-      // We listen for "DOMContentLoaded" on HTML documents, but XUL documents don't
-      // fire this event, so we fallback to the "load" event for XUL. Unfortunately,
-      // since the document isn't loaded yet, we can't check its namespace declaration
-      // to determine if it is XUL. Instead, we use ChromeUtils to see if the document
-      // object class is XULDocument.
-      const isXULDocument =
-        ChromeUtils.getClassName(window.document) == "XULDocument";
+      // DOM has been loaded.
       window.addEventListener(
-        isXULDocument ? "load" : "DOMContentLoaded",
+        "DOMContentLoaded",
         this.onFrameLoad.bind(this, { window, isTopLevel }),
         { once: true }
       );
@@ -2642,6 +2646,24 @@ var WalkerActor = protocol.ActorClassWithSpec(walkerSpec, {
   },
 
   /**
+   * Given a contentDomReference return the NodeActor for the corresponding frameElement.
+   */
+  getNodeActorFromContentDomReference: function(contentDomReference) {
+    let rawNode = ContentDOMReference.resolve(contentDomReference);
+    if (!rawNode || !this._isInDOMTree(rawNode)) {
+      return null;
+    }
+
+    // This is a special case for the document object whereby it is considered
+    // as document.documentElement (the <html> node)
+    if (rawNode.defaultView && rawNode === rawNode.defaultView.document) {
+      rawNode = rawNode.documentElement;
+    }
+
+    return this.attachElement(rawNode);
+  },
+
+  /**
    * Given a StyleSheetActor (identified by its ID), commonly used in the
    * style-editor, get its ownerNode and return the corresponding walker's
    * NodeActor.
@@ -2660,10 +2682,9 @@ var WalkerActor = protocol.ActorClassWithSpec(walkerSpec, {
    * first retrieve a reference to the walkerFront:
    *
    * // Make sure the inspector/walker have been initialized first.
-   * toolbox.initInspector().then(() => {
-   *  // Retrieve the walker.
-   *  let walker = toolbox.walker;
-   * });
+   * const inspectorFront = await toolbox.target.getFront("inspector");
+   * // Retrieve the walker.
+   * const walker = inspectorFront.walker;
    *
    * And then call this method:
    *

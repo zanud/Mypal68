@@ -9,10 +9,6 @@ const TEST_URI =
   "data:text/html,<meta charset=utf8>Testing jsterm with no input";
 
 add_task(async function() {
-  // For now, let's disable editor as we don't know what the final placement of the
-  // open editor button (which may impact this test).
-  await pushPref("devtools.webconsole.features.editor", false);
-
   const hud = await openNewTabAndConsole(TEST_URI);
   const jsterm = hud.jsterm;
 

@@ -4,4 +4,6 @@
 
 DevToolsModules(
     'process.js',
+    'webextension.js',
 )
+

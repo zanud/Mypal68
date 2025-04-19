@@ -573,7 +573,7 @@ define(function(require, exports, module) {
       }
 
       members.forEach(member => {
-        if (decorator && decorator.renderRow) {
+        if (decorator?.renderRow) {
           renderRow = decorator.renderRow(member.object) || renderRow;
         }
 

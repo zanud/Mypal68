@@ -63,7 +63,8 @@ add_task(async function() {
 async function generateConsoleApiStubs() {
   const { PREFS } = require("devtools/client/webconsole/constants");
   // Hiding log messages so we don't get unwanted client/server communication.
-  Services.prefs.setBoolPref(PREFS.FILTER.LOG, false);
+  const { getPrefsService } = require("devtools/client/webconsole/utils/prefs");
+  getPrefsService({}).setBoolPref(PREFS.FILTER.LOG, false);
 
   const stubs = new Map();
 

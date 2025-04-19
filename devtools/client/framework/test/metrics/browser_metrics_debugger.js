@@ -21,7 +21,7 @@ add_task(async function() {
   const debuggerLoader = panel.panelWin.getBrowserLoaderForWindow();
 
   const loaders = [
-    loader.provider.loader,
+    loader.loader,
     toolboxBrowserLoader.loader,
     debuggerLoader.loader,
   ];

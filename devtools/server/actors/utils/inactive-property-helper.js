@@ -5,8 +5,32 @@
 "use strict";
 
 const Services = require("Services");
+const InspectorUtils = require("InspectorUtils");
 
-const PREF_UNUSED_CSS_ENABLED = "devtools.inspector.inactive.css.enabled";
+loader.lazyRequireGetter(
+  this,
+  "CssLogic",
+  "devtools/server/actors/inspector/css-logic",
+  true
+);
+
+const INACTIVE_CSS_ENABLED = Services.prefs.getBoolPref(
+  "devtools.inspector.inactive.css.enabled",
+  false
+);
+
+const VISITED_MDN_LINK = "https://developer.mozilla.org/docs/Web/CSS/:visited";
+const VISITED_INVALID_PROPERTIES = allCssPropertiesExcept([
+  "color",
+  "background-color",
+  "border-color",
+  "border-bottom-color",
+  "border-left-color",
+  "border-right-color",
+  "border-top-color",
+  "column-rule-color",
+  "outline-color",
+]);
 
 class InactivePropertyHelper {
   /**
@@ -24,10 +48,8 @@ class InactivePropertyHelper {
    * This file contains "rules" in the form of objects with the following
    * properties:
    * {
-   *   invalidProperties (see note):
+   *   invalidProperties:
    *     Array of CSS property names that are inactive if the rule matches.
-   *   validProperties (see note):
-   *     Array of CSS property names that are active if the rule matches.
    *   when:
    *     The rule itself, a JS function used to identify the conditions
    *     indicating whether a property is valid or not.
@@ -41,7 +63,8 @@ class InactivePropertyHelper {
    *     The number of properties we suggest in the fixId string.
    * }
    *
-   * NOTE: validProperties and invalidProperties are mutually exclusive.
+   * If you add a new rule, also add a test for it in:
+   * server/tests/mochitest/test_inspector-inactive-property-helper.html
    *
    * The main export is `isPropertyUsed()`, which can be used to check if a
    * property is used or not, and why.
@@ -173,17 +196,55 @@ class InactivePropertyHelper {
         msgId: "inactive-css-property-because-of-display",
         numFixProps: 1,
       },
+      {
+        invalidProperties: ["display"],
+        when: () =>
+          this.isFloated &&
+          this.checkResolvedStyle("display", [
+            "inline",
+            "inline-block",
+            "inline-table",
+            "inline-flex",
+            "inline-grid",
+            "table-cell",
+            "table-row",
+            "table-row-group",
+            "table-header-group",
+            "table-footer-group",
+            "table-column",
+            "table-column-group",
+            "table-caption",
+          ]),
+        fixId: "inactive-css-not-display-block-on-floated-fix",
+        msgId: "inactive-css-not-display-block-on-floated",
+        numFixProps: 2,
+      },
+      // The property is impossible to override due to :visited restriction.
+      {
+        invalidProperties: VISITED_INVALID_PROPERTIES,
+        when: () => this.isVisitedRule(),
+        fixId: "learn-more",
+        msgId: "inactive-css-property-is-impossible-to-override-in-visited",
+        numFixProps: 1,
+        learnMoreURL: VISITED_MDN_LINK,
+      },
     ];
   }
 
-  get unusedCssEnabled() {
-    if (!this._unusedCssEnabled) {
-      this._unusedCssEnabled = Services.prefs.getBoolPref(
-        PREF_UNUSED_CSS_ENABLED,
-        false
-      );
+  /**
+   * Get a list of unique CSS property names for which there are checks
+   * for used/unused state.
+   *
+   * @return {Set}
+   *         List of CSS properties
+   */
+  get invalidProperties() {
+    if (!this._invalidProperties) {
+      const allProps = this.VALIDATORS.map(v => v.invalidProperties).flat();
+      this._invalidProperties = new Set(allProps);
     }
-    return this._unusedCssEnabled;
+
+    return this._invalidProperties;
   }
 
   /**
@@ -211,17 +272,24 @@ class InactivePropertyHelper {
    *         The number of properties we suggest in the fixId string.
    * @return {String} object.property
    *         The inactive property name.
+   * @return {String} object.learnMoreURL
+   *         An optional link if we need to open an other link than
+   *         the default MDN property one.
    * @return {Boolean} object.used
    *         true if the property is used.
    */
   isPropertyUsed(el, elStyle, cssRule, property) {
-    if (!this.unusedCssEnabled) {
+    // Assume the property is used when:
+    // - the Inactive CSS pref is not enabled
+    // - the property is not in the list of properties to check
+    if (!INACTIVE_CSS_ENABLED || !this.invalidProperties.has(property)) {
       return { used: true };
     }
 
     let fixId = "";
     let msgId = "";
     let numFixProps = 0;
+    let learnMoreURL = null;
     let used = true;
 
     this.VALIDATORS.some(validator => {
@@ -229,11 +297,7 @@ class InactivePropertyHelper {
       let isRuleConcerned = false;
 
       if (validator.invalidProperties) {
-        isRuleConcerned =
-          validator.invalidProperties === "*" ||
-          validator.invalidProperties.includes(property);
-      } else if (validator.validProperties) {
-        isRuleConcerned = !validator.validProperties.includes(property);
+        isRuleConcerned = validator.invalidProperties.includes(property);
       }
 
       if (!isRuleConcerned) {
@@ -248,6 +312,7 @@ class InactivePropertyHelper {
         fixId = validator.fixId;
         msgId = validator.msgId;
         numFixProps = validator.numFixProps;
+        learnMoreURL = validator.learnMoreURL;
         used = false;
 
         return true;
@@ -271,6 +336,7 @@ class InactivePropertyHelper {
       msgId,
       numFixProps,
       property,
+      learnMoreURL,
       used,
     };
   }
@@ -328,22 +394,7 @@ class InactivePropertyHelper {
    * @param {Array} values
    *        Values to compare against.
    */
-  checkStyle(propName, values) {
-    return this.checkStyleForNode(this.node, propName, values);
-  }
-
-  /**
-   * Check if a node's propName is set to one of the values passed in the values
-   * array.
-   *
-   * @param {DOMNode} node
-   *        The node to check.
-   * @param {String} propName
-   *        Property name to check.
-   * @param {Array} values
-   *        Values to compare against.
-   */
-  checkStyleForNode(node, propName, values) {
+  checkComputedStyle(propName, values) {
     if (!this.style) {
       return false;
     }
@@ -351,10 +402,28 @@ class InactivePropertyHelper {
   }
 
   /**
+   * Check if a rule's propName is set to one of the values passed in the values
+   * array.
+   *
+   * @param {String} propName
+   *        Property name to check.
+   * @param {Array} values
+   *        Values to compare against.
+   */
+  checkResolvedStyle(propName, values) {
+    if (!(this.cssRule && this.cssRule.style)) {
+      return false;
+    }
+    const { style } = this.cssRule;
+
+    return values.some(value => style[propName] === value);
+  }
+
+  /**
    *  Check if the current node is an inline-level box.
    */
   isInlineLevel() {
-    return this.checkStyle("display", [
+    return this.checkComputedStyle("display", [
       "inline",
       "inline-block",
       "inline-table",
@@ -373,7 +442,7 @@ class InactivePropertyHelper {
    * of `display:flex` or `display:inline-flex`.
    */
   get flexContainer() {
-    return this.checkStyle("display", ["flex", "inline-flex"]);
+    return this.checkComputedStyle("display", ["flex", "inline-flex"]);
   }
 
   /**
@@ -388,7 +457,7 @@ class InactivePropertyHelper {
    * of `display:grid` or `display:inline-grid`.
    */
   get gridContainer() {
-    return this.checkStyle("display", ["grid", "inline-grid"]);
+    return this.checkComputedStyle("display", ["grid", "inline-grid"]);
   }
 
   /**
@@ -403,8 +472,8 @@ class InactivePropertyHelper {
    * `column-width` or `column-count` property is not `auto`.
    */
   get multiColContainer() {
-    const autoColumnWidth = this.checkStyle("column-width", ["auto"]);
-    const autoColumnCount = this.checkStyle("column-count", ["auto"]);
+    const autoColumnWidth = this.checkComputedStyle("column-width", ["auto"]);
+    const autoColumnCount = this.checkComputedStyle("column-count", ["auto"]);
 
     return !autoColumnWidth || !autoColumnCount;
   }
@@ -454,6 +523,13 @@ class InactivePropertyHelper {
    */
   get nonReplaced() {
     return !this.replaced;
+  }
+
+  /**
+   * Check if the current node is floated
+   */
+  get isFloated() {
+    return this.style && this.style.cssFloat !== "none";
   }
 
   /**
@@ -556,7 +632,45 @@ class InactivePropertyHelper {
     return !!this.getParentGridElement(this.node);
   }
 
+  isVisitedRule() {
+    if (!CssLogic.hasVisitedState(this.node)) {
+      return false;
+    }
+
+    const selectors = CssLogic.getSelectors(this.cssRule);
+    if (!selectors.some(s => s.endsWith(":visited"))) {
+      return false;
+    }
+
+    const { bindingElement, pseudo } = CssLogic.getBindingElementAndPseudo(
+      this.node
+    );
+
+    for (let i = 0; i < selectors.length; i++) {
+      if (
+        !selectors[i].endsWith(":visited") &&
+        InspectorUtils.selectorMatchesElement(
+          bindingElement,
+          this.cssRule,
+          i,
+          pseudo,
+          true
+        )
+      ) {
+        // Match non :visited selector.
+        return false;
+      }
+    }
+
+    return true;
+  }
+
   getParentGridElement(node) {
+    // The documentElement can't be a grid item, only a container, so bail out.
+    if (node.flattenedTreeParentNode === node.ownerDocument) {
+      return null;
+    }
+
     if (node.nodeType === node.ELEMENT_NODE) {
       const display = this.style ? this.style.display : null;
 
@@ -600,3 +714,23 @@ class InactivePropertyHelper {
 }
 
 exports.inactivePropertyHelper = new InactivePropertyHelper();
+
+/**
+ * Returns all CSS property names except given properties.
+ *
+ * @param {Array} - propertiesToIgnore
+ *        Array of property ignored.
+ * @return {Array}
+ *        Array of all CSS property name except propertiesToIgnore.
+ */
+function allCssPropertiesExcept(propertiesToIgnore) {
+  const properties = new Set(
+    InspectorUtils.getCSSPropertyNames({ includeAliases: true })
+  );
+
+  for (const name of propertiesToIgnore) {
+    properties.delete(name);
+  }
+
+  return [...properties];
+}

@@ -353,10 +353,7 @@ class Heap extends Component {
       individuals.state === individualsState.FETCHED,
       "Should have fetched individuals"
     );
-    assert(
-      dominatorTree && dominatorTree.root,
-      "Should have a dominator tree and its root"
-    );
+    assert(dominatorTree?.root, "Should have a dominator tree and its root");
 
     const tree = dom.div(
       {

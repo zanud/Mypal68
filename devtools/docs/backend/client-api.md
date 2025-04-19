@@ -137,8 +137,6 @@ Here is the source code for a complete debugger application:
 ```javascript
 /*
  * Debugger API demo.
- * Try it in Scratchpad with Environment -> Browser, using
- * http://htmlpad.org/debugger/ as the current page.
  */
 Components.utils.import("resource://gre/modules/devtools/dbg-server.jsm");
 Components.utils.import("resource://gre/modules/devtools/dbg-client.jsm");

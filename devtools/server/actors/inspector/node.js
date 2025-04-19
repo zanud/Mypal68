@@ -29,6 +29,12 @@ loader.lazyRequireGetter(
   "devtools/shared/inspector/css-logic",
   true
 );
+loader.lazyRequireGetter(
+  this,
+  "findAllCssSelectors",
+  "devtools/shared/inspector/css-logic",
+  true
+);
 
 loader.lazyRequireGetter(
   this,
@@ -68,12 +74,6 @@ loader.lazyRequireGetter(
 );
 loader.lazyRequireGetter(
   this,
-  "isShadowAnonymous",
-  "devtools/shared/layout/utils",
-  true
-);
-loader.lazyRequireGetter(
-  this,
   "isShadowHost",
   "devtools/shared/layout/utils",
   true
@@ -90,13 +90,6 @@ loader.lazyRequireGetter(
   "devtools/shared/layout/utils",
   true
 );
-loader.lazyRequireGetter(
-  this,
-  "isXBLAnonymous",
-  "devtools/shared/layout/utils",
-  true
-);
-
 loader.lazyRequireGetter(
   this,
   "InspectorActorUtils",
@@ -136,6 +129,12 @@ loader.lazyRequireGetter(
   this,
   "scrollbarTreeWalkerFilter",
   "devtools/server/actors/inspector/utils",
+  true
+);
+loader.lazyRequireGetter(
+  this,
+  "DOMHelpers",
+  "resource://devtools/client/shared/DOMHelpers.jsm",
   true
 );
 
@@ -243,8 +242,6 @@ const NodeActor = protocol.ActorClassWithSpec(nodeSpec, {
       isAfterPseudoElement: isAfterPseudoElement(this.rawNode),
       isAnonymous: isAnonymous(this.rawNode),
       isNativeAnonymous: isNativeAnonymous(this.rawNode),
-      isXBLAnonymous: isXBLAnonymous(this.rawNode),
-      isShadowAnonymous: isShadowAnonymous(this.rawNode),
       isShadowRoot: shadowRoot,
       shadowRootMode: getShadowRootMode(this.rawNode),
       isShadowHost: isShadowHost(this.rawNode),
@@ -257,6 +254,10 @@ const NodeActor = protocol.ActorClassWithSpec(nodeSpec, {
         this.rawNode.ownerDocument &&
         this.rawNode.ownerDocument.contentType === "text/html",
       hasEventListeners: this._hasEventListeners,
+      traits: {
+        supportsGetAllSelectors: true,
+        supportsWaitForFrameLoad: true,
+      },
     };
 
     if (this.isDocumentElement()) {
@@ -310,10 +311,6 @@ const NodeActor = protocol.ActorClassWithSpec(nodeSpec, {
 
     const rawNode = this.rawNode;
     let numChildren = rawNode.childNodes.length;
-    const hasAnonChildren =
-      rawNode.nodeType === Node.ELEMENT_NODE &&
-      rawNode.ownerDocument.getAnonymousNodes(rawNode);
-
     const hasContentDocument = rawNode.contentDocument;
     const hasSVGDocument = rawNode.getSVGDocument && rawNode.getSVGDocument();
     if (numChildren === 0 && (hasContentDocument || hasSVGDocument)) {
@@ -323,11 +320,13 @@ const NodeActor = protocol.ActorClassWithSpec(nodeSpec, {
 
     // Normal counting misses ::before/::after.  Also, some anonymous children
     // may ultimately be skipped, so we have to consult with the walker.
+    //
+    // FIXME: We should be able to just check <slot> rather than
+    // containingShadowRoot.
     if (
       numChildren === 0 ||
-      hasAnonChildren ||
       isShadowHost(this.rawNode) ||
-      isShadowAnonymous(this.rawNode)
+      this.rawNode.containingShadowRoot
     ) {
       numChildren = this.walker.countChildren(this);
     }
@@ -526,9 +525,20 @@ const NodeActor = protocol.ActorClassWithSpec(nodeSpec, {
    */
   getUniqueSelector: function() {
     if (Cu.isDeadWrapper(this.rawNode)) {
-      return "";
+      return [];
     }
     return findCssSelector(this.rawNode);
+  },
+
+  /**
+   * Get the full array of selectors from the topmost document, going through
+   * iframes.
+   */
+  getAllSelectors: function() {
+    if (Cu.isDeadWrapper(this.rawNode)) {
+      return "";
+    }
+    return findAllCssSelectors(this.rawNode);
   },
 
   /**
@@ -670,6 +680,23 @@ const NodeActor = protocol.ActorClassWithSpec(nodeSpec, {
       innerWidth: win.innerWidth,
       innerHeight: win.innerHeight,
     };
+  },
+
+  /**
+   * If the current node is an iframe, wait for the content window to be loaded.
+   */
+  async waitForFrameLoad() {
+    if (Cu.isDeadWrapper(this.rawNode)) {
+      return;
+    }
+
+    const { contentDocument, contentWindow } = this.rawNode;
+    if (contentDocument && contentDocument.readyState !== "complete") {
+      await new Promise(resolve => {
+        const domHelper = new DOMHelpers(contentWindow);
+        domHelper.onceDOMReady(resolve);
+      });
+    }
   },
 });
 

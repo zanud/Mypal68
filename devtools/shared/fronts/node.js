@@ -1,17 +1,16 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
 "use strict";
 
+const promise = require("promise");
 const {
   FrontClassWithSpec,
   types,
   registerFront,
 } = require("devtools/shared/protocol.js");
-
 const { nodeSpec, nodeListSpec } = require("devtools/shared/specs/node");
-
-const promise = require("promise");
 const { SimpleStringFront } = require("devtools/shared/fronts/string");
 
 loader.lazyRequireGetter(
@@ -107,8 +106,8 @@ class AttributeModificationList {
  * to traverse children.
  */
 class NodeFront extends FrontClassWithSpec(nodeSpec) {
-  constructor(conn, form) {
-    super(conn, form);
+  constructor(conn, targetFront, parentFront) {
+    super(conn, targetFront, parentFront);
     // The parent node
     this._parent = null;
     // The first child of this node.
@@ -136,6 +135,8 @@ class NodeFront extends FrontClassWithSpec(nodeSpec) {
       // when calling getNodeValue()
       form.nodeValue = form.incompleteValue ? null : form.shortValue;
     }
+
+    this.traits = form.traits || {};
 
     // Shallow copy of the form.  We could just store a reference, but
     // eventually we'll want to update some of the data.
@@ -390,6 +391,18 @@ class NodeFront extends FrontClassWithSpec(nodeSpec) {
     return true;
   }
 
+  get inspectorFront() {
+    return this.parentFront.parentFront;
+  }
+
+  get highlighterFront() {
+    return this.inspectorFront.highlighter;
+  }
+
+  get walkerFront() {
+    return this.parentFront;
+  }
+
   getNodeValue() {
     // backward-compatibility: if nodevalue is null and shortValue is defined, the actual
     // value of the node needs to be fetched on the server.
@@ -496,6 +509,16 @@ class NodeFront extends FrontClassWithSpec(nodeSpec) {
       return null;
     }
     return actor.rawNode;
+  }
+
+  async getAllSelectors() {
+    if (!this.traits.supportsGetAllSelectors) {
+      // Backward compatibility: if the server does not support getAllSelectors
+      // fallback on getUniqueSelector and wrap the response in an array.
+      const selector = await super.getUniqueSelector();
+      return [selector];
+    }
+    return super.getAllSelectors();
   }
 }
 

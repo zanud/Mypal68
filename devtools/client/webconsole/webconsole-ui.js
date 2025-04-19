@@ -86,10 +86,10 @@ class WebConsoleUI {
   }
 
   destroy() {
-    if (this._destroyer) {
-      return this._destroyer.promise;
+    if (!this.hud) {
+      return;
     }
-    this._destroyer = defer();
+
     this.React = this.ReactDOM = this.FrameView = null;
 
     if (this.outputNode) {
@@ -116,17 +116,10 @@ class WebConsoleUI {
 
     this.window = this.hud = this.wrapper = null;
 
-    const onDestroy = () => {
-      this._destroyer.resolve(null);
-    };
     if (this.proxy) {
-      this.proxy.disconnect().then(onDestroy);
+      this.proxy.disconnect();
       this.proxy = null;
-    } else {
-      onDestroy();
     }
-
-    return this._destroyer.promise;
   }
 
   /**

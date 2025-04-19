@@ -538,7 +538,7 @@ function JSPropertyProvider({
 function getContentPrototypeObject(env, name) {
   // Retrieve the outermost environment to get the global object.
   let outermostEnv = env;
-  while (outermostEnv && outermostEnv.parent) {
+  while (outermostEnv?.parent) {
     outermostEnv = outermostEnv.parent;
   }
 

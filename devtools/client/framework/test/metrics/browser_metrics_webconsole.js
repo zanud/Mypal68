@@ -21,7 +21,7 @@ add_task(async function() {
   const webconsoleLoader = panel._frameWindow.getBrowserLoaderForWindow();
 
   const loaders = [
-    loader.provider.loader,
+    loader.loader,
     toolboxBrowserLoader.loader,
     webconsoleLoader.loader,
   ];
