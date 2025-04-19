@@ -267,12 +267,5 @@ interface nsIXPConnect : nsISupports
                                       in JSContextPtr aJSContext,
                                       in const_JSReadOnlyCompileOptionsRef aOptions);
 
-    [noscript] void writeFunction(in nsIObjectOutputStream aStream,
-                                  in JSContextPtr aJSContext,
-                                  in JSObjectPtr aJSObject);
-
-    [noscript] JSObjectPtr readFunction(in nsIObjectInputStream aStream,
-                                        in JSContextPtr aJSContext);
-
     [infallible] readonly attribute boolean isShuttingDown;
 };

@@ -909,17 +909,10 @@ void SetLocationForGlobal(JSObject* global, nsIURI* locationURI) {
 
 }  // namespace xpc
 
-static nsresult WriteScriptOrFunction(nsIObjectOutputStream* stream,
-                                      JSContext* cx, JSScript* scriptArg,
-                                      HandleObject functionObj) {
-  // Exactly one of script or functionObj must be given
-  MOZ_ASSERT(!scriptArg != !functionObj);
-
+NS_IMETHODIMP
+nsXPConnect::WriteScript(nsIObjectOutputStream* stream, JSContext* cx,
+                         JSScript* scriptArg) {
   RootedScript script(cx, scriptArg);
-  if (!script) {
-    RootedFunction fun(cx, JS_GetObjectFunction(functionObj));
-    script.set(JS_GetFunctionScript(cx, fun));
-  }
 
   uint8_t flags = 0;  // We don't have flags anymore.
   nsresult rv = stream->Write8(flags);
@@ -929,13 +922,7 @@ static nsresult WriteScriptOrFunction(nsIObjectOutputStream* stream,
 
   TranscodeBuffer buffer;
   TranscodeResult code;
-  {
-    if (functionObj) {
-      code = EncodeInterpretedFunction(cx, buffer, functionObj);
-    } else {
-      code = EncodeScript(cx, buffer, script);
-    }
-  }
+  code = EncodeScript(cx, buffer, script);
 
   if (code != TranscodeResult::Ok) {
     if (code == TranscodeResult::Throw) {
@@ -960,14 +947,10 @@ static nsresult WriteScriptOrFunction(nsIObjectOutputStream* stream,
   return rv;
 }
 
-static nsresult ReadScriptOrFunction(nsIObjectInputStream* stream,
-                                     JSContext* cx,
-                                     const JS::ReadOnlyCompileOptions& options,
-                                     JSScript** scriptp,
-                                     JSObject** functionObjp) {
-  // Exactly one of script or functionObj must be given
-  MOZ_ASSERT(!scriptp != !functionObjp);
-
+NS_IMETHODIMP
+nsXPConnect::ReadScript(nsIObjectInputStream* stream, JSContext* cx,
+                        const JS::ReadOnlyCompileOptions& options,
+                        JSScript** scriptp) {
   uint8_t flags;
   nsresult rv = stream->Read8(&flags);
   if (NS_FAILED(rv)) {
@@ -1001,27 +984,14 @@ static nsresult ReadScriptOrFunction(nsIObjectInputStream* stream,
 
   {
     TranscodeResult code;
-    if (scriptp) {
-      Rooted<JSScript*> script(cx);
-      code = DecodeScript(cx, options, buffer, &script);
-      if (code == TranscodeResult::Ok) {
-        *scriptp = script.get();
-      } else {
-        if (code == TranscodeResult::Throw) {
-          JS_ClearPendingException(cx);
-          return NS_ERROR_OUT_OF_MEMORY;
-        }
-      }
+    Rooted<JSScript*> script(cx);
+    code = DecodeScript(cx, options, buffer, &script);
+    if (code == TranscodeResult::Ok) {
+      *scriptp = script.get();
     } else {
-      Rooted<JSFunction*> funobj(cx);
-      code = DecodeInterpretedFunction(cx, options, buffer, &funobj);
-      if (code == TranscodeResult::Ok) {
-        *functionObjp = JS_GetFunctionObject(funobj.get());
-      } else {
-        if (code == TranscodeResult::Throw) {
-          JS_ClearPendingException(cx);
-          return NS_ERROR_OUT_OF_MEMORY;
-        }
+      if (code == TranscodeResult::Throw) {
+        JS_ClearPendingException(cx);
+        return NS_ERROR_OUT_OF_MEMORY;
       }
     }
 
@@ -1030,34 +1000,6 @@ static nsresult ReadScriptOrFunction(nsIObjectInputStream* stream,
   }
 
   return rv;
-}
-
-NS_IMETHODIMP
-nsXPConnect::WriteScript(nsIObjectOutputStream* stream, JSContext* cx,
-                         JSScript* script) {
-  return WriteScriptOrFunction(stream, cx, script, nullptr);
-}
-
-NS_IMETHODIMP
-nsXPConnect::ReadScript(nsIObjectInputStream* stream, JSContext* cx,
-                        const JS::ReadOnlyCompileOptions& options,
-                        JSScript** scriptp) {
-  return ReadScriptOrFunction(stream, cx, options, scriptp, nullptr);
-}
-
-NS_IMETHODIMP
-nsXPConnect::WriteFunction(nsIObjectOutputStream* stream, JSContext* cx,
-                           JSObject* functionObjArg) {
-  RootedObject functionObj(cx, functionObjArg);
-  return WriteScriptOrFunction(stream, cx, nullptr, functionObj);
-}
-
-NS_IMETHODIMP
-nsXPConnect::ReadFunction(nsIObjectInputStream* stream, JSContext* cx,
-                          JSObject** functionObjp) {
-  JS::CompileOptions compileOptions(cx);
-  return ReadScriptOrFunction(stream, cx, compileOptions, nullptr,
-                              functionObjp);
 }
 
 NS_IMETHODIMP
@@ -1144,8 +1086,7 @@ bool IsChromeOrXBL(JSContext* cx, JSObject* /* unused */) {
   // Note that, for performance, we don't check AllowXULXBLForPrincipal here,
   // and instead rely on the fact that AllowContentXBLScope() only returns false
   // in remote XUL situations.
-  return AccessCheck::isChrome(c) || IsContentXBLCompartment(c) ||
-         !AllowContentXBLScope(realm);
+  return AccessCheck::isChrome(c) || !AllowContentXBLScope(realm);
 }
 
 bool IsNotUAWidget(JSContext* cx, JSObject* /* unused */) {

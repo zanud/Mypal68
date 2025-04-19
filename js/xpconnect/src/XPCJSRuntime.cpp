@@ -200,7 +200,6 @@ CompartmentPrivate::CompartmentPrivate(
       wantXrays(false),
       allowWaivers(true),
       isWebExtensionContentScript(false),
-      isContentXBLCompartment(false),
       isUAWidgetCompartment(false),
       hasExclusiveExpandos(false),
       wasShutdown(false),
@@ -495,20 +494,6 @@ void Scriptability::SetDocShellAllowsScript(bool aAllowed) {
 /* static */
 Scriptability& Scriptability::Get(JSObject* aScope) {
   return RealmPrivate::Get(aScope)->scriptability;
-}
-
-bool IsContentXBLCompartment(JS::Compartment* compartment) {
-  // We always eagerly create compartment privates for content XBL compartments.
-  CompartmentPrivate* priv = CompartmentPrivate::Get(compartment);
-  return priv && priv->isContentXBLCompartment;
-}
-
-bool IsContentXBLScope(JS::Realm* realm) {
-  return IsContentXBLCompartment(JS::GetCompartmentForRealm(realm));
-}
-
-bool IsInContentXBLScope(JSObject* obj) {
-  return IsContentXBLCompartment(JS::GetCompartment(obj));
 }
 
 bool IsUAWidgetCompartment(JS::Compartment* compartment) {
@@ -2075,11 +2060,7 @@ class OrphanReporter : public JS::ObjectPrivateVisitor {
 
   virtual size_t sizeOfIncludingThis(nsISupports* aSupports) override {
     nsCOMPtr<nsINode> node = do_QueryInterface(aSupports);
-    // https://bugzilla.mozilla.org/show_bug.cgi?id=773533#c11 explains that we
-    // have to skip XBL elements because they violate certain assumptions.  Yuk.
-    if (!node || node->IsInComposedDoc() ||
-        (node->IsElement() &&
-         node->AsElement()->IsInNamespace(kNameSpaceID_XBL))) {
+    if (!node || node->IsInComposedDoc()) {
       return 0;
     }
 

@@ -66,9 +66,13 @@
 #include "mozilla/dom/XMLHttpRequest.h"
 #include "mozilla/dom/XMLSerializerBinding.h"
 #include "mozilla/dom/FormDataBinding.h"
+#include "mozilla/dom/nsCSPContext.h"
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/DeferredFinalize.h"
+#include "mozilla/ExtensionPolicyService.h"
 #include "mozilla/NullPrincipal.h"
+#include "mozilla/ResultExtensions.h"
+#include "mozilla/StaticPrefs_extensions.h"
 
 using namespace mozilla;
 using namespace JS;
@@ -334,6 +338,46 @@ static bool SandboxCreateFetch(JSContext* cx, HandleObject obj) {
          dom::Request_Binding::GetConstructorObject(cx) &&
          dom::Response_Binding::GetConstructorObject(cx) &&
          dom::Headers_Binding::GetConstructorObject(cx);
+}
+
+static bool SandboxStructuredClone(JSContext* cx, unsigned argc, Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+
+  if (!args.requireAtLeast(cx, "structuredClone", 1)) {
+    return false;
+  }
+
+  RootedDictionary<dom::StructuredSerializeOptions> options(cx);
+  BindingCallContext callCx(cx, "structuredClone");
+  if (!options.Init(cx, args.hasDefined(1) ? args[1] : JS::NullHandleValue,
+                    "Argument 2", false)) {
+    return false;
+  }
+
+  nsIGlobalObject* global = CurrentNativeGlobal(cx);
+  if (!global) {
+    JS_ReportErrorASCII(cx, "structuredClone: Missing global");
+    return false;
+  }
+
+  JS::Rooted<JS::Value> result(cx);
+  ErrorResult rv;
+  nsContentUtils::StructuredClone(cx, global, args[0], options, &result, rv);
+  if (rv.MaybeSetPendingException(cx)) {
+    return false;
+  }
+
+  MOZ_ASSERT_IF(result.isGCThing(),
+                !JS::GCThingIsMarkedGray(result.toGCCellPtr()));
+  args.rval().set(result);
+  return true;
+}
+
+static bool SandboxCreateStructuredClone(JSContext* cx, HandleObject obj) {
+  MOZ_ASSERT(JS_IsGlobalObject(obj));
+
+  return JS_DefineFunction(cx, obj, "structuredClone", SandboxStructuredClone,
+                           1, 0);
 }
 
 static bool SandboxIsProxy(JSContext* cx, unsigned argc, Value* vp) {
@@ -880,6 +924,8 @@ bool xpc::GlobalProperties::Parse(JSContext* cx, JS::HandleObject obj) {
       crypto = true;
     } else if (JS_LinearStringEqualsLiteral(nameStr, "fetch")) {
       fetch = true;
+    } else if (JS_LinearStringEqualsLiteral(nameStr, "structuredClone")) {
+      structuredClone = true;
     } else if (JS_LinearStringEqualsLiteral(nameStr, "indexedDB")) {
       indexedDB = true;
 #ifdef MOZ_WEBRTC
@@ -1000,6 +1046,10 @@ bool xpc::GlobalProperties::Define(JSContext* cx, JS::HandleObject obj) {
     return false;
   }
 
+  if (structuredClone && !SandboxCreateStructuredClone(cx, obj)) {
+    return false;
+  }
+
 #ifdef MOZ_WEBRTC
   if (rtcIdentityProvider && !SandboxCreateRTCIdentityProvider(cx, obj)) {
     return false;
@@ -1027,6 +1077,75 @@ bool xpc::GlobalProperties::DefineInSandbox(JSContext* cx,
     return false;
 
   return Define(cx, obj);
+}
+
+/**
+ * If enabled, apply the extension base CSP, then apply the
+ * content script CSP which will either be a default or one
+ * provided by the extension in its manifest.
+ */
+nsresult ApplyAddonContentScriptCSP(nsISupports* prinOrSop) {
+  if (!StaticPrefs::extensions_content_script_csp_enabled()) {
+    return NS_OK;
+  }
+  nsCOMPtr<nsIPrincipal> principal = do_QueryInterface(prinOrSop);
+  if (!principal) {
+    return NS_OK;
+  }
+
+  auto* basePrin = BasePrincipal::Cast(principal);
+  // We only get an addonPolicy if the principal is an
+  // expanded principal with an extension principal in it.
+  auto* addonPolicy = basePrin->ContentScriptAddonPolicy();
+  if (!addonPolicy) {
+    return NS_OK;
+  }
+
+  nsString url;
+  MOZ_TRY_VAR(url, addonPolicy->GetURL(NS_LITERAL_STRING("")));
+
+  nsCOMPtr<nsIURI> selfURI;
+  MOZ_TRY(NS_NewURI(getter_AddRefs(selfURI), url));
+
+  nsAutoString baseCSP;
+  MOZ_ALWAYS_SUCCEEDS(
+      ExtensionPolicyService::GetSingleton().GetBaseCSP(baseCSP));
+
+  // If we got here, we're definitly an expanded principal.
+  auto expanded = basePrin->As<ExpandedPrincipal>();
+  nsCOMPtr<nsIContentSecurityPolicy> csp;
+
+#ifdef MOZ_DEBUG
+  // Bug 1548468: Move CSP off ExpandedPrincipal
+  expanded->GetCsp(getter_AddRefs(csp));
+  if (csp) {
+    uint32_t count = 0;
+    csp->GetPolicyCount(&count);
+    if (count > 0) {
+      // Ensure that the policy was not already added.
+      nsAutoString parsedPolicyStr;
+      for (uint32_t i = 0; i < count; i++) {
+        csp->GetPolicyString(i, parsedPolicyStr);
+        MOZ_ASSERT(!parsedPolicyStr.Equals(baseCSP));
+      }
+    }
+  }
+#endif
+
+  csp = new nsCSPContext();
+  MOZ_TRY(
+      csp->SetRequestContextWithPrincipal(expanded, selfURI, EmptyString(), 0));
+
+  bool reportOnly = StaticPrefs::extensions_content_script_csp_report_only();
+
+  MOZ_TRY(csp->AppendPolicy(baseCSP, reportOnly, false));
+
+  // Set default or extension provided csp.
+  const nsAString& contentScriptCSP = addonPolicy->ContentScriptCSP();
+  MOZ_TRY(csp->AppendPolicy(contentScriptCSP, reportOnly, false));
+
+  expanded->SetCsp(csp);
+  return NS_OK;
 }
 
 nsresult xpc::CreateSandboxObject(JSContext* cx, MutableHandleValue vp,
@@ -1111,8 +1230,6 @@ nsresult xpc::CreateSandboxObject(JSContext* cx, MutableHandleValue vp,
     MOZ_RELEASE_ASSERT(priv->allowWaivers == options.allowWaivers);
     MOZ_RELEASE_ASSERT(priv->isWebExtensionContentScript ==
                        options.isWebExtensionContentScript);
-    MOZ_RELEASE_ASSERT(priv->isContentXBLCompartment ==
-                       options.isContentXBLScope);
     MOZ_RELEASE_ASSERT(priv->isUAWidgetCompartment == options.isUAWidgetScope);
     MOZ_RELEASE_ASSERT(priv->hasExclusiveExpandos == hasExclusiveExpandos);
     MOZ_RELEASE_ASSERT(priv->wantXrays == wantXrays);
@@ -1120,7 +1237,6 @@ nsresult xpc::CreateSandboxObject(JSContext* cx, MutableHandleValue vp,
     CompartmentPrivate* priv = CompartmentPrivate::Get(sandbox);
     priv->allowWaivers = options.allowWaivers;
     priv->isWebExtensionContentScript = options.isWebExtensionContentScript;
-    priv->isContentXBLCompartment = options.isContentXBLScope;
     priv->isUAWidgetCompartment = options.isUAWidgetScope;
     priv->hasExclusiveExpandos = hasExclusiveExpandos;
     priv->wantXrays = wantXrays;
@@ -1779,6 +1895,8 @@ nsresult nsXPCComponents_utils_Sandbox::CallOrConstruct(
       } else {
         ok = GetExpandedPrincipal(cx, obj, options, getter_AddRefs(expanded));
         prinOrSop = expanded;
+        // If this is an addon content script we need to apply the csp.
+        MOZ_TRY(ApplyAddonContentScriptCSP(prinOrSop));
       }
     } else {
       ok = GetPrincipalOrSOP(cx, obj, getter_AddRefs(prinOrSop));

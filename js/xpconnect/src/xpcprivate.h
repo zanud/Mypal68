@@ -880,12 +880,6 @@ class XPCWrappedNativeScope final
 
   void AddSizeOfIncludingThis(JSContext* cx, ScopeSizeInfo* scopeSizeInfo);
 
-  // Gets the appropriate scope object for XBL in this compartment. This method
-  // relies on compartment-per-global still (and release-asserts this). The
-  // context must be same-realm with this compartment's single global upon
-  // entering, and the scope object is wrapped into this compartment.
-  JSObject* EnsureContentXBLScope(JSContext* cx);
-
   // Check whether our mAllowContentXBLScope state matches the given
   // principal.  This is used to avoid sharing compartments on
   // mismatch.
@@ -906,9 +900,6 @@ class XPCWrappedNativeScope final
     return js::GetFirstGlobalInCompartment(Compartment());
   }
 
-  bool IsContentXBLScope() {
-    return xpc::IsContentXBLCompartment(Compartment());
-  }
   bool AllowContentXBLScope(JS::Realm* aRealm);
 
   // ID Object prototype caches.
@@ -2296,6 +2287,7 @@ struct GlobalProperties {
   bool caches : 1;
   bool crypto : 1;
   bool fetch : 1;
+  bool structuredClone : 1;
   bool indexedDB : 1;
   bool rtcIdentityProvider : 1;
 
@@ -2346,7 +2338,6 @@ class MOZ_STACK_CLASS SandboxOptions : public OptionsBase {
         sameZoneAs(cx),
         freshCompartment(false),
         freshZone(false),
-        isContentXBLScope(false),
         isUAWidgetScope(false),
         invisibleToDebugger(false),
         discardSource(false),
@@ -2366,7 +2357,6 @@ class MOZ_STACK_CLASS SandboxOptions : public OptionsBase {
   JS::RootedObject sameZoneAs;
   bool freshCompartment;
   bool freshZone;
-  bool isContentXBLScope;
   bool isUAWidgetScope;
   bool invisibleToDebugger;
   bool discardSource;
@@ -2644,8 +2634,7 @@ class CompartmentPrivate {
 
     // Don't share if we have any weird state set.
     return !wantXrays && !isWebExtensionContentScript &&
-           !isContentXBLCompartment && !isUAWidgetCompartment &&
-           mScope->XBLScopeStateMatches(principal);
+           !isUAWidgetCompartment && mScope->XBLScopeStateMatches(principal);
   }
 
   CompartmentOriginInfo originInfo;
@@ -2664,10 +2653,6 @@ class CompartmentPrivate {
   // This compartment corresponds to a WebExtension content script, and
   // receives various bits of special compatibility behavior.
   bool isWebExtensionContentScript;
-
-  // True if this compartment is a content XBL compartment. Every global in
-  // such a compartment is a content XBL scope.
-  bool isContentXBLCompartment;
 
   // True if this compartment is a UA widget compartment.
   bool isUAWidgetCompartment;

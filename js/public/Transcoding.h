@@ -19,7 +19,6 @@
 #include "js/RootingAPI.h"  // JS::Handle, JS::MutableHandle
 
 struct JS_PUBLIC_API JSContext;
-class JS_PUBLIC_API JSFunction;
 class JS_PUBLIC_API JSObject;
 class JS_PUBLIC_API JSScript;
 
@@ -102,9 +101,6 @@ extern JS_PUBLIC_API TranscodeResult EncodeScript(JSContext* cx,
                                                   TranscodeBuffer& buffer,
                                                   Handle<JSScript*> script);
 
-extern JS_PUBLIC_API TranscodeResult EncodeInterpretedFunction(
-    JSContext* cx, TranscodeBuffer& buffer, Handle<JSObject*> funobj);
-
 // Decode JSScript from the buffer.
 //
 // The start of `buffer` and `cursorIndex` should meet
@@ -123,11 +119,6 @@ DecodeScript(JSContext* cx, const ReadOnlyCompileOptions& options,
 extern JS_PUBLIC_API TranscodeResult
 DecodeScript(JSContext* cx, const ReadOnlyCompileOptions& options,
              const TranscodeRange& range, MutableHandle<JSScript*> scriptp);
-
-extern JS_PUBLIC_API TranscodeResult DecodeInterpretedFunction(
-    JSContext* cx, const ReadOnlyCompileOptions& options,
-    TranscodeBuffer& buffer, MutableHandle<JSFunction*> funp,
-    size_t cursorIndex = 0);
 
 // If js::UseOffThreadParseGlobal is true, decode JSScript from the buffer.
 //
