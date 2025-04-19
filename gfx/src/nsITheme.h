@@ -7,9 +7,10 @@
 #ifndef nsITheme_h_
 #define nsITheme_h_
 
+#include "mozilla/AlreadyAddRefed.h"
 #include "nsISupports.h"
-#include "nsCOMPtr.h"
-#include "nsColor.h"
+#include "nsID.h"
+#include "nscore.h"
 #include "Units.h"
 
 struct nsRect;
@@ -92,9 +93,9 @@ class nsITheme : public nsISupports {
   /**
    * Return the border for the widget, in device pixels.
    */
-  virtual MOZ_MUST_USE LayoutDeviceIntMargin
-  GetWidgetBorder(nsDeviceContext* aContext, nsIFrame* aFrame,
-                  StyleAppearance aWidgetType) = 0;
+  [[nodiscard]] virtual LayoutDeviceIntMargin GetWidgetBorder(
+      nsDeviceContext* aContext, nsIFrame* aFrame,
+      StyleAppearance aWidgetType) = 0;
 
   /**
    * This method can return false to indicate that the CSS padding

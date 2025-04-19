@@ -761,6 +761,7 @@ class CompositorBridgeParent final : public CompositorBridgeParentBase,
 #ifdef MOZ_BUILD_WEBRENDER
   RefPtr<AsyncImagePipelineManager> mAsyncImageManager;
   RefPtr<WebRenderBridgeParent> mWrBridge;
+  bool mIsForcedFirstPaint;
 #endif
   widget::CompositorWidget* mWidget;
   Maybe<TimeStamp> mTestTime;

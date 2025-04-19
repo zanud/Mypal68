@@ -87,8 +87,8 @@ template <typename Iterator, typename Node, typename PreAction,
 static auto ForEachNode(Node aRoot, const PreAction& aPreAction,
                         const PostAction& aPostAction)
     -> std::enable_if_t<
-        IsSame<decltype(aPreAction(aRoot)), TraversalFlag>::value &&
-            IsSame<decltype(aPostAction(aRoot)), TraversalFlag>::value,
+        std::is_same_v<decltype(aPreAction(aRoot)), TraversalFlag> &&
+            std::is_same_v<decltype(aPostAction(aRoot)), TraversalFlag>,
         bool> {
   if (!aRoot) {
     return false;
@@ -127,8 +127,8 @@ template <typename Iterator, typename Node, typename PreAction,
           typename PostAction>
 static auto ForEachNode(Node aRoot, const PreAction& aPreAction,
                         const PostAction& aPostAction)
-    -> std::enable_if_t<IsSame<decltype(aPreAction(aRoot)), void>::value &&
-                            IsSame<decltype(aPostAction(aRoot)), void>::value,
+    -> std::enable_if_t<std::is_same_v<decltype(aPreAction(aRoot)), void> &&
+                            std::is_same_v<decltype(aPostAction(aRoot)), void>,
                         void> {
   if (!aRoot) {
     return;
@@ -149,7 +149,7 @@ static auto ForEachNode(Node aRoot, const PreAction& aPreAction,
  */
 template <typename Iterator, typename Node, typename PreAction>
 auto ForEachNode(Node aRoot, const PreAction& aPreAction) -> std::enable_if_t<
-    IsSame<decltype(aPreAction(aRoot)), TraversalFlag>::value, bool> {
+    std::is_same_v<decltype(aPreAction(aRoot)), TraversalFlag>, bool> {
   return ForEachNode<Iterator>(
       aRoot, aPreAction, [](Node aNode) { return TraversalFlag::Continue; });
 }
@@ -159,7 +159,7 @@ auto ForEachNode(Node aRoot, const PreAction& aPreAction) -> std::enable_if_t<
  */
 template <typename Iterator, typename Node, typename PreAction>
 auto ForEachNode(Node aRoot, const PreAction& aPreAction)
-    -> std::enable_if_t<IsSame<decltype(aPreAction(aRoot)), void>::value,
+    -> std::enable_if_t<std::is_same_v<decltype(aPreAction(aRoot)), void>,
                         void> {
   ForEachNode<Iterator>(aRoot, aPreAction, [](Node aNode) {});
 }
@@ -170,7 +170,7 @@ auto ForEachNode(Node aRoot, const PreAction& aPreAction)
 template <typename Iterator, typename Node, typename PostAction>
 auto ForEachNodePostOrder(Node aRoot, const PostAction& aPostAction)
     -> std::enable_if_t<
-        IsSame<decltype(aPostAction(aRoot)), TraversalFlag>::value, bool> {
+        std::is_same_v<decltype(aPostAction(aRoot)), TraversalFlag>, bool> {
   return ForEachNode<Iterator>(
       aRoot, [](Node aNode) { return TraversalFlag::Continue; }, aPostAction);
 }
@@ -180,7 +180,7 @@ auto ForEachNodePostOrder(Node aRoot, const PostAction& aPostAction)
  */
 template <typename Iterator, typename Node, typename PostAction>
 auto ForEachNodePostOrder(Node aRoot, const PostAction& aPostAction)
-    -> std::enable_if_t<IsSame<decltype(aPostAction(aRoot)), void>::value,
+    -> std::enable_if_t<std::is_same_v<decltype(aPostAction(aRoot)), void>,
                         void> {
   ForEachNode<Iterator>(
       aRoot, [](Node aNode) {}, aPostAction);

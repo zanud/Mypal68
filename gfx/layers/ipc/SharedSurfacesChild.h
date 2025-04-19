@@ -31,6 +31,7 @@ struct nsTArray_RelocationStrategy<mozilla::layers::AnimationImageKeyData> {
 
 namespace mozilla {
 namespace gfx {
+class SourceSurface;
 class SourceSurfaceSharedData;
 }  // namespace gfx
 

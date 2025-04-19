@@ -324,6 +324,9 @@ CompositorBridgeParent::CompositorBridgeParent(
       mPendingTransaction{0},
       mPaused(false),
       mHaveCompositionRecorder(false),
+#ifdef MOZ_BUILD_WEBRENDER
+      mIsForcedFirstPaint(false),
+#endif
       mUseExternalSurfaceSize(aUseExternalSurfaceSize),
       mEGLSurfaceSize(aSurfaceSize),
       mOptions(aOptions),
@@ -427,7 +430,7 @@ CompositorBridgeParent::~CompositorBridgeParent() {
 void CompositorBridgeParent::ForceIsFirstPaint() {
 #ifdef MOZ_BUILD_WEBRENDER
   if (mWrBridge)
-    mWrBridge->ForceIsFirstPaint();
+    mIsForcedFirstPaint = true;
   else
 #endif
     mCompositionManager->ForceIsFirstPaint();
@@ -2235,18 +2238,21 @@ void CompositorBridgeParent::NotifyPipelineRendered(
   if (mWrBridge->PipelineId() == aPipelineId) {
     mWrBridge->RemoveEpochDataPriorTo(aEpoch);
 
-    if (!mPaused) {
-      TransactionId transactionId = mWrBridge->FlushTransactionIdsForEpoch(
-          aEpoch, aCompositeStartId, aCompositeStart, aRenderStart,
-          aCompositeEnd, uiController);
-      Unused << SendDidComposite(LayersId{0}, transactionId, aCompositeStart,
-                                 aCompositeEnd);
+    if (mIsForcedFirstPaint) {
+      uiController->NotifyFirstPaint();
+      mIsForcedFirstPaint = false;
+    }
 
-      nsTArray<ImageCompositeNotificationInfo> notifications;
-      mWrBridge->ExtractImageCompositeNotifications(&notifications);
-      if (!notifications.IsEmpty()) {
-        Unused << ImageBridgeParent::NotifyImageComposites(notifications);
-      }
+    TransactionId transactionId = mWrBridge->FlushTransactionIdsForEpoch(
+        aEpoch, aCompositeStartId, aCompositeStart, aRenderStart, aCompositeEnd,
+        uiController);
+    Unused << SendDidComposite(LayersId{0}, transactionId, aCompositeStart,
+                               aCompositeEnd);
+
+    nsTArray<ImageCompositeNotificationInfo> notifications;
+    mWrBridge->ExtractImageCompositeNotifications(&notifications);
+    if (!notifications.IsEmpty()) {
+      Unused << ImageBridgeParent::NotifyImageComposites(notifications);
     }
     return;
   }
@@ -2255,14 +2261,11 @@ void CompositorBridgeParent::NotifyPipelineRendered(
   if (wrBridge && wrBridge->GetCompositorBridge()) {
     MOZ_ASSERT(!wrBridge->IsRootWebRenderBridgeParent());
     wrBridge->RemoveEpochDataPriorTo(aEpoch);
-    if (!mPaused) {
-      TransactionId transactionId = wrBridge->FlushTransactionIdsForEpoch(
-          aEpoch, aCompositeStartId, aCompositeStart, aRenderStart,
-          aCompositeEnd, uiController, aStats, &stats);
-      Unused << wrBridge->GetCompositorBridge()->SendDidComposite(
-          wrBridge->GetLayersId(), transactionId, aCompositeStart,
-          aCompositeEnd);
-    }
+    TransactionId transactionId = wrBridge->FlushTransactionIdsForEpoch(
+        aEpoch, aCompositeStartId, aCompositeStart, aRenderStart, aCompositeEnd,
+        uiController, aStats, &stats);
+    Unused << wrBridge->GetCompositorBridge()->SendDidComposite(
+        wrBridge->GetLayersId(), transactionId, aCompositeStart, aCompositeEnd);
   }
 
   if (!stats.IsEmpty()) {

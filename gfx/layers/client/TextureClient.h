@@ -247,7 +247,7 @@ class TextureData {
 
   TextureData() { MOZ_COUNT_CTOR(TextureData); }
 
-  virtual ~TextureData() { MOZ_COUNT_DTOR(TextureData); }
+  MOZ_COUNTED_DTOR_VIRTUAL(TextureData)
 
   virtual void FillInfo(TextureData::Info& aInfo) const = 0;
 

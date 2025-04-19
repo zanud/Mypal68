@@ -7,7 +7,7 @@
 
 #include "mozilla/gfx/RectAbsolute.h"
 #include "nsCoord.h"
-#include "nsPoint.h"
+#include "nsMargin.h"
 #include "nsRect.h"
 
 struct nsRectAbsolute
@@ -38,7 +38,7 @@ struct nsRectAbsolute
     return nsRect(left, top, nscoord(SafeWidth()), nscoord(SafeHeight()));
   }
 
-  MOZ_MUST_USE nsRectAbsolute UnsafeUnion(const nsRectAbsolute& aRect) const {
+  [[nodiscard]] nsRectAbsolute UnsafeUnion(const nsRectAbsolute& aRect) const {
     return Super::Union(aRect);
   }
 
