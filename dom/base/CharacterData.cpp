@@ -26,7 +26,6 @@
 #include "nsChangeHint.h"
 #include "nsCOMArray.h"
 #include "mozilla/dom/DirectionalityUtils.h"
-#include "nsBindingManager.h"
 #include "nsCCUncollectableMarker.h"
 #include "mozAutoDocUpdate.h"
 #include "nsTextNode.h"
@@ -35,6 +34,10 @@
 #include "mozilla/Sprintf.h"
 #include "nsWindowSizes.h"
 #include "nsWrapperCacheInlines.h"
+
+#if defined(ACCESSIBILITY) && defined(DEBUG)
+#  include "nsAccessibilityService.h"
+#endif
 
 namespace mozilla {
 namespace dom {
@@ -396,41 +399,16 @@ nsresult CharacterData::BindToTree(BindContext& aContext, nsINode& aParent) {
   // only assert if our parent is _changing_ while we have a parent.
   MOZ_ASSERT(!GetParentNode() || &aParent == GetParentNode(),
              "Already have a parent.  Unbind first!");
-  MOZ_ASSERT(
-      !GetBindingParent() ||
-          aContext.GetBindingParent() == GetBindingParent() ||
-          (!aContext.GetBindingParent() && aParent.IsContent() &&
-           aParent.AsContent()->GetBindingParent() == GetBindingParent()),
-      "Already have a binding parent.  Unbind first!");
-  MOZ_ASSERT(!IsRootOfNativeAnonymousSubtree() ||
-                 aContext.GetBindingParent() == &aParent,
-             "Native anonymous content must have its parent as its "
-             "own binding parent");
-  MOZ_ASSERT(aContext.GetBindingParent() || !aParent.IsContent() ||
-                 aContext.GetBindingParent() ==
-                     aParent.AsContent()->GetBindingParent(),
-             "We should be passed the right binding parent");
-
-  // First set the binding parent
-  if (Element* bindingParent = aContext.GetBindingParent()) {
-    ExtendedContentSlots()->mBindingParent = bindingParent;
-  }
 
   const bool hadParent = !!GetParentNode();
 
-  NS_ASSERTION(!aContext.GetBindingParent() ||
-                   IsRootOfNativeAnonymousSubtree() ||
-                   !HasFlag(NODE_IS_IN_NATIVE_ANONYMOUS_SUBTREE) ||
-                   aParent.IsInNativeAnonymousSubtree(),
-               "Trying to re-bind content from native anonymous subtree to "
-               "non-native anonymous parent!");
   if (aParent.IsInNativeAnonymousSubtree()) {
     SetFlags(NODE_IS_IN_NATIVE_ANONYMOUS_SUBTREE);
   }
   if (aParent.HasFlag(NODE_HAS_BEEN_IN_UA_WIDGET)) {
     SetFlags(NODE_HAS_BEEN_IN_UA_WIDGET);
   }
-  if (HasFlag(NODE_IS_ANONYMOUS_ROOT)) {
+  if (IsRootOfNativeAnonymousSubtree()) {
     aParent.SetMayHaveAnonymousChildren();
   }
 
@@ -486,8 +464,6 @@ nsresult CharacterData::BindToTree(BindContext& aContext, nsINode& aParent) {
   MOZ_ASSERT(IsInComposedDoc() == aContext.InComposedDoc());
   MOZ_ASSERT(IsInUncomposedDoc() == aContext.InUncomposedDoc());
   MOZ_ASSERT(&aParent == GetParentNode(), "Bound to wrong parent node");
-  MOZ_ASSERT(aContext.GetBindingParent() == GetBindingParent(),
-             "Bound to wrong binding parent");
   MOZ_ASSERT(aParent.IsInUncomposedDoc() == IsInUncomposedDoc());
   MOZ_ASSERT(aParent.IsInComposedDoc() == IsInComposedDoc());
   MOZ_ASSERT(aParent.IsInShadowTree() == IsInShadowTree());
@@ -500,8 +476,6 @@ void CharacterData::UnbindFromTree(bool aNullParent) {
   UnsetFlags(NS_CREATE_FRAME_IF_NON_WHITESPACE | NS_REFRAME_IF_WHITESPACE);
 
   HandleShadowDOMRelatedRemovalSteps(aNullParent);
-
-  Document* document = GetComposedDoc();
 
   if (aNullParent) {
     if (IsRootOfNativeAnonymousSubtree()) {
@@ -524,26 +498,18 @@ void CharacterData::UnbindFromTree(bool aNullParent) {
     SetSubtreeRootPointer(aNullParent ? this : mParent->SubtreeRoot());
   }
 
-  if (document && !GetContainingShadow()) {
-    // Notify XBL- & nsIAnonymousContentCreator-generated
-    // anonymous content that the document is changing.
-    // Unlike XBL, bindings for web components shadow DOM
-    // do not get uninstalled.
-    if (HasFlag(NODE_MAY_BE_IN_BINDING_MNGR)) {
-      nsContentUtils::AddScriptRunner(new RemoveFromBindingManagerRunnable(
-          document->BindingManager(), this, document));
-    }
-  }
-
-  nsExtendedContentSlots* slots = GetExistingExtendedContentSlots();
-  if (slots) {
-    slots->mBindingParent = nullptr;
+  if (nsExtendedContentSlots* slots = GetExistingExtendedContentSlots()) {
     if (aNullParent || !mParent->IsInShadowTree()) {
       slots->mContainingShadow = nullptr;
     }
   }
 
   MutationObservers::NotifyParentChainChanged(this);
+
+#if defined(ACCESSIBILITY) && defined(DEBUG)
+  MOZ_ASSERT(!GetAccService() || !GetAccService()->HasAccessible(this),
+             "An accessible for this element still exists!");
+#endif
 }
 
 //----------------------------------------------------------------------

@@ -1062,92 +1062,16 @@ bool nsTreeSanitizer::MustPrune(int32_t aNamespace, nsAtom* aLocal,
   return false;
 }
 
-bool nsTreeSanitizer::SanitizeStyleDeclaration(DeclarationBlock* aDeclaration) {
-  return aDeclaration->RemovePropertyByID(eCSSProperty__moz_binding);
-}
-
 void nsTreeSanitizer::SanitizeStyleSheet(const nsAString& aOriginal,
                                          nsAString& aSanitized,
                                          Document* aDocument,
                                          nsIURI* aBaseURI) {
   aSanitized.Truncate();
+  NS_ConvertUTF16toUTF8 style(aOriginal);
   RefPtr<nsIReferrerInfo> referrer =
       ReferrerInfo::CreateForInternalCSSResources(aDocument);
-  if (StaticPrefs::layout_css_moz_binding_content_enabled() ||
-      aDocument->IsDocumentURISchemeChrome()) {
-    // aSanitized will hold the permitted CSS text.
-    // -moz-binding is blacklisted.
-    bool didSanitize = false;
-    // Create a sheet to hold the parsed CSS
-    RefPtr<StyleSheet> sheet = new StyleSheet(mozilla::css::eAuthorSheetFeatures,
-                                              CORS_NONE, SRIMetadata());
-    sheet->SetURIs(aDocument->GetDocumentURI(), nullptr, aBaseURI);
-    sheet->SetPrincipal(aDocument->NodePrincipal());
-    sheet->ParseSheetSync(aDocument->CSSLoader(),
-                          NS_ConvertUTF16toUTF8(aOriginal),
-                          /* aLoadData = */ nullptr,
-                          /* aLineNumber = */ 0);
-    // Mark the sheet as complete.
-    MOZ_ASSERT(!sheet->HasForcedUniqueInner(),
-               "should not get a forced unique inner during parsing");
-
-    NS_ConvertUTF16toUTF8 style(aOriginal);
-    sheet->SetComplete();
-    // Loop through all the rules found in the CSS text
-    ErrorResult err;
-    RefPtr<dom::CSSRuleList> rules =
-        sheet->GetCssRules(*nsContentUtils::GetSystemPrincipal(), err);
-    err.SuppressException();
-    if (!rules) {
-      return;
-    }
-    uint32_t ruleCount = rules->Length();
-    for (uint32_t i = 0; i < ruleCount; ++i) {
-      mozilla::css::Rule* rule = rules->Item(i);
-      if (!rule) continue;
-      switch (rule->Type()) {
-        default:
-          didSanitize = true;
-          // Ignore these rule types.
-          break;
-        case StyleCssRuleType::Namespace:
-        case StyleCssRuleType::FontFace: {
-          // Append @namespace and @font-face rules verbatim.
-          nsAutoCString cssText;
-          rule->GetCssText(cssText);
-          aSanitized.Append(NS_ConvertUTF8toUTF16(cssText).get());
-          break;
-        }
-        case StyleCssRuleType::Style: {
-          // For style rules, we will just look for and remove the
-          // -moz-binding properties.
-          auto styleRule = static_cast<BindingStyleRule*>(rule);
-          DeclarationBlock* styleDecl = styleRule->GetDeclarationBlock();
-          MOZ_ASSERT(styleDecl);
-          if (SanitizeStyleDeclaration(styleDecl)) {
-            didSanitize = true;
-          }
-          nsAutoCString decl;
-          styleRule->GetCssText(decl);
-          aSanitized.Append(NS_ConvertUTF8toUTF16(decl).get());
-        }
-      }
-    }
-    if (didSanitize) {
-      if (mLogRemovals) {
-        LogMessage("Removed some rules and/or properties from stylesheet.",
-                   aDocument);
-      }
-    } else {
-      aSanitized.Assign(aOriginal);
-    }
-    return;
-  }
-
-  NS_ConvertUTF16toUTF8 style(aOriginal);
-  RefPtr<URLExtraData> extraData =
-      new URLExtraData(aBaseURI, referrer, aDocument->NodePrincipal());
-  auto sanitizationKind = StyleSanitizationKind::Standard;
+  auto extraData =
+      MakeRefPtr<URLExtraData>(aBaseURI, referrer, aDocument->NodePrincipal());
   RefPtr<RawServoStyleSheetContents> contents =
       Servo_StyleSheet_FromUTF8Bytes(
           /* loader = */ nullptr,
@@ -1156,9 +1080,8 @@ void nsTreeSanitizer::SanitizeStyleSheet(const nsAString& aOriginal,
           css::SheetParsingMode::eAuthorSheetFeatures, extraData.get(),
           /* line_number_offset = */ 0, aDocument->GetCompatibilityMode(),
           /* reusable_sheets = */ nullptr,
-          StyleAllowImportRules::Yes,
-          sanitizationKind, &aSanitized)
-          .Consume();
+          StyleAllowImportRules::Yes, StyleSanitizationKind::Standard,
+          &aSanitized).Consume();
 
   if (mLogRemovals && aSanitized.Length() != aOriginal.Length()) {
     LogMessage("Removed some rules and/or properties from stylesheet.",
@@ -1194,26 +1117,6 @@ void nsTreeSanitizer::SanitizeAttributes(mozilla::dom::Element* aElement,
 
     if (kNameSpaceID_None == attrNs) {
       if (aAllowed.mStyle && nsGkAtoms::style == attrLocal) {
-        nsAutoString value;
-        aElement->GetAttr(attrNs, attrLocal, value);
-        Document* document = aElement->OwnerDoc();
-        RefPtr<URLExtraData> urlExtra(aElement->GetURLDataForStyleAttr());
-        RefPtr<DeclarationBlock> decl = DeclarationBlock::FromCssText(
-            value, urlExtra, document->GetCompatibilityMode(),
-            document->CSSLoader(), StyleCssRuleType::Style);
-        if (decl) {
-          if (SanitizeStyleDeclaration(decl)) {
-            nsAutoCString cleanValue;
-            decl->ToString(cleanValue);
-            aElement->SetAttr(kNameSpaceID_None, nsGkAtoms::style,
-                              NS_ConvertUTF8toUTF16(cleanValue), false);
-            if (mLogRemovals) {
-              LogMessage(
-                  "Removed -moz-binding styling from element style attribute.",
-                  aElement->OwnerDoc(), aElement);
-            }
-          }
-        }
         continue;
       }
       if (aAllowed.mDangerousSrc && nsGkAtoms::src == attrLocal) {

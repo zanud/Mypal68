@@ -19,7 +19,6 @@
 #include "nsString.h"
 #include "mozilla/dom/NodeInfo.h"
 #include "mozilla/ClearOnShutdown.h"
-#include "mozilla/dom/XBLChildrenElement.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/Preferences.h"
 
@@ -70,7 +69,6 @@ bool nsNameSpaceManager::Init() {
   REGISTER_NAMESPACE(nsGkAtoms::nsuri_xhtml, kNameSpaceID_XHTML);
   REGISTER_NAMESPACE(nsGkAtoms::nsuri_xlink, kNameSpaceID_XLink);
   REGISTER_NAMESPACE(nsGkAtoms::nsuri_xslt, kNameSpaceID_XSLT);
-  REGISTER_NAMESPACE(nsGkAtoms::nsuri_xbl, kNameSpaceID_XBL);
   REGISTER_NAMESPACE(nsGkAtoms::nsuri_mathml, kNameSpaceID_MathML);
   REGISTER_NAMESPACE(nsGkAtoms::nsuri_rdf, kNameSpaceID_RDF);
   REGISTER_NAMESPACE(nsGkAtoms::nsuri_xul, kNameSpaceID_XUL);
@@ -165,8 +163,8 @@ int32_t nsNameSpaceManager::GetNameSpaceID(nsAtom* aURI, bool aInChromeDoc) {
 // static
 const char* nsNameSpaceManager::GetNameSpaceDisplayName(uint32_t aNameSpaceID) {
   static const char* kNSURIs[] = {"([none])", "(xmlns)", "(xml)",    "(xhtml)",
-                                  "(XLink)",  "(XSLT)",  "(XBL)",  "(MathML)",
-                                  "(RDF)", "(XUL)",    "(SVG)"};
+                                  "(XLink)",  "(XSLT)",  "(MathML)", "(RDF)",
+                                  "(XUL)",    "(SVG)"};
   if (aNameSpaceID < ArrayLength(kNSURIs)) {
     return kNSURIs[aNameSpaceID];
   }
@@ -211,12 +209,6 @@ nsresult NS_NewElement(Element** aResult,
                                            kNameSpaceID_disabled_SVG,
                                            ni->NodeType(), ni->GetExtraName());
     return NS_NewXMLElement(aResult, genericXMLNI.forget());
-  }
-  if (ns == kNameSpaceID_XBL && ni->Equals(nsGkAtoms::children)) {
-    RefPtr<mozilla::dom::NodeInfo> nodeInfo(ni);
-    auto* nim = nodeInfo->NodeInfoManager();
-    NS_ADDREF(*aResult = new (nim) XBLChildrenElement(nodeInfo.forget()));
-    return NS_OK;
   }
 
   return NS_NewXMLElement(aResult, ni.forget());

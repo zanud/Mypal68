@@ -18,7 +18,6 @@
 #include "nsIContent.h"                    // base class
 #include "nsIHTMLCollection.h"
 #include "nsDataHashtable.h"
-#include "nsXBLBinding.h"
 
 class ContentUnbinder;
 class nsContentList;
@@ -97,7 +96,6 @@ class FragmentOrElement : public nsIContent {
   virtual uint32_t TextLength() const override;
   virtual bool TextIsOnlyWhitespace() override;
   virtual bool ThreadSafeTextIsOnlyWhitespace() const override;
-  virtual nsXBLBinding* DoGetXBLBinding() const override;
   virtual bool IsLink(nsIURI** aURI) const override;
 
   virtual void DestroyContent() override;
@@ -184,11 +182,6 @@ class FragmentOrElement : public nsIContent {
      * ShadowRoot bound to the element.
      */
     RefPtr<ShadowRoot> mShadowRoot;
-
-    /**
-     * XBL binding installed on the element.
-     */
-    RefPtr<nsXBLBinding> mXBLBinding;
 
     /**
      * Web components custom element data.

@@ -20,6 +20,7 @@ namespace dom {
 
 class PerformanceEntry;
 class PerformanceNavigation;
+class PerformancePaintTiming;
 class PerformanceObserver;
 class PerformanceService;
 class PerformanceStorage;
@@ -83,6 +84,8 @@ class Performance : public DOMEventTargetHelper {
 
   virtual PerformanceNavigation* Navigation() = 0;
 
+  virtual void SetFCPTimingEntry(PerformancePaintTiming* aEntry) = 0;
+
   IMPL_EVENT_HANDLER(resourcetimingbufferfull)
 
   virtual void GetMozMemory(JSContext* aCx,
@@ -106,6 +109,10 @@ class Performance : public DOMEventTargetHelper {
   void InsertResourceEntry(PerformanceEntry* aEntry);
 
   virtual void QueueNavigationTimingEntry() = 0;
+
+  virtual void UpdateNavigationTimingEntry() = 0;
+
+  void QueueNotificationObserversTask();
 
  protected:
   explicit Performance(bool aSystemPrincipal);

@@ -303,7 +303,7 @@ nsresult SVGSVGElement::BindToTree(BindContext& aContext, nsINode& aParent) {
   if (Document* doc = aContext.GetUncomposedDoc()) {
     if ((smilController = doc->GetAnimationController())) {
       // SMIL is enabled in this document
-      if (WillBeOutermostSVG(aParent, aContext.GetBindingParent())) {
+      if (WillBeOutermostSVG(aParent)) {
         // We'll be the outermost <svg> element.  We'll need a time container.
         if (!mTimedDocumentRoot) {
           mTimedDocumentRoot = MakeUnique<SMILTimeContainer>();
@@ -413,10 +413,8 @@ void SVGSVGElement::FlushImageTransformInvalidation() {
 //----------------------------------------------------------------------
 // implementation helpers
 
-bool SVGSVGElement::WillBeOutermostSVG(nsINode& aParent,
-                                       Element* aBindingParent) const {
-  nsINode* parent = aBindingParent ? aBindingParent : &aParent;
-
+bool SVGSVGElement::WillBeOutermostSVG(nsINode& aParent) const {
+  nsINode* parent = &aParent;
   while (parent && parent->IsSVGElement()) {
     if (parent->IsSVGElement(nsGkAtoms::foreignObject)) {
       // SVG in a foreignObject must have its own <svg> (SVGOuterSVGFrame).
@@ -425,7 +423,7 @@ bool SVGSVGElement::WillBeOutermostSVG(nsINode& aParent,
     if (parent->IsSVGElement(nsGkAtoms::svg)) {
       return false;
     }
-    parent = parent->GetParent();
+    parent = parent->GetParentOrShadowHostNode();
   }
 
   return true;

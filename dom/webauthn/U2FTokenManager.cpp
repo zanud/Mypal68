@@ -364,7 +364,7 @@ void U2FTokenManager::DoRegister(const WebAuthnMakeCredentialInfo& aInfo,
             U2FTokenManager* mgr = U2FTokenManager::Get();
             mgr->MaybeConfirmRegister(tid, aResult);
             Telemetry::ScalarAdd(Telemetry::ScalarID::SECURITY_WEBAUTHN_USED,
-                                 NS_LITERAL_STRING("U2FRegisterFinish"), 1);
+                                 u"U2FRegisterFinish"_ns, 1);
             Telemetry::AccumulateTimeDelta(
                 Telemetry::WEBAUTHN_CREATE_CREDENTIAL_MS, startTime);
           },
@@ -373,7 +373,7 @@ void U2FTokenManager::DoRegister(const WebAuthnMakeCredentialInfo& aInfo,
             U2FTokenManager* mgr = U2FTokenManager::Get();
             mgr->MaybeAbortRegister(tid, rv);
             Telemetry::ScalarAdd(Telemetry::ScalarID::SECURITY_WEBAUTHN_USED,
-                                 NS_LITERAL_STRING("U2FRegisterAbort"), 1);
+                                 u"U2FRegisterAbort"_ns, 1);
           })
       ->Track(mRegisterPromise);
 }
@@ -423,7 +423,7 @@ void U2FTokenManager::Sign(PWebAuthnTransactionParent* aTransactionParent,
             U2FTokenManager* mgr = U2FTokenManager::Get();
             mgr->MaybeConfirmSign(tid, aResult);
             Telemetry::ScalarAdd(Telemetry::ScalarID::SECURITY_WEBAUTHN_USED,
-                                 NS_LITERAL_STRING("U2FSignFinish"), 1);
+                                 u"U2FSignFinish"_ns, 1);
             Telemetry::AccumulateTimeDelta(Telemetry::WEBAUTHN_GET_ASSERTION_MS,
                                            startTime);
           },
@@ -432,7 +432,7 @@ void U2FTokenManager::Sign(PWebAuthnTransactionParent* aTransactionParent,
             U2FTokenManager* mgr = U2FTokenManager::Get();
             mgr->MaybeAbortSign(tid, rv);
             Telemetry::ScalarAdd(Telemetry::ScalarID::SECURITY_WEBAUTHN_USED,
-                                 NS_LITERAL_STRING("U2FSignAbort"), 1);
+                                 u"U2FSignAbort"_ns, 1);
           })
       ->Track(mSignPromise);
 }

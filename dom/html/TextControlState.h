@@ -43,8 +43,6 @@ class HTMLInputElement;
  *   <input type=email>
  *   <input type=password>
  *   <textarea>
- * and also XUL controls such as <textbox> which use one of these elements
- * behind the scenes.
  *
  * This class is held as a member of HTMLInputElement and HTMLTextAreaElement.
  * The public functions in this class include the public APIs which dom/

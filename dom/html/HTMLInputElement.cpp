@@ -2142,8 +2142,7 @@ void HTMLInputElement::SetFocusState(bool aIsFocused) {
     return;
   }
 
-  EventStates focusStates = NS_EVENT_STATE_FOCUS | NS_EVENT_STATE_FOCUSRING |
-                            NS_EVENT_STATE_FOCUS_VISIBLE;
+  EventStates focusStates = NS_EVENT_STATE_FOCUS | NS_EVENT_STATE_FOCUSRING;
   if (aIsFocused) {
     AddStates(focusStates);
   } else {
@@ -3701,7 +3700,7 @@ nsresult HTMLInputElement::PostHandleEvent(EventChainPostVisitor& aVisitor) {
           // for text and password fields when the field was focused by the
           // keyboard or a navigation, the platform allows it, and it wasn't
           // just because we raised a window.
-          nsIFocusManager* fm = nsFocusManager::GetFocusManager();
+          nsFocusManager* fm = nsFocusManager::GetFocusManager();
           if (fm && IsSingleLineTextControl(false) &&
               !aVisitor.mEvent->AsFocusEvent()->mFromRaise &&
               SelectTextFieldOnFocus()) {

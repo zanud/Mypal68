@@ -43,7 +43,6 @@
 #include "mozilla/dom/L10nOverlays.h"
 #include "mozilla/StaticPrefs_layout.h"
 #include "nsAttrValueOrString.h"
-#include "nsBindingManager.h"
 #include "nsCCUncollectableMarker.h"
 #include "nsContentCreatorFunctions.h"
 #include "nsContentList.h"
@@ -78,7 +77,6 @@
 #include "nsLayoutUtils.h"
 #include "nsNameSpaceManager.h"
 #include "nsNodeInfoManager.h"
-#include "nsPIBoxObject.h"
 #include "nsObjectLoadingContent.h"
 #include "nsPIDOMWindow.h"
 #include "nsPresContext.h"
@@ -88,8 +86,6 @@
 #include "nsStyleConsts.h"
 #include "nsTextNode.h"
 #include "nsUnicharUtils.h"
-#include "nsXBLBinding.h"
-#include "nsXBLPrototypeBinding.h"
 #include "nsWindowSizes.h"
 #include "mozilla/Preferences.h"
 #include "xpcpublic.h"
@@ -497,20 +493,19 @@ static nsIContent* GetRootForContentSubtree(nsIContent* aContent) {
   // Special case for ShadowRoot because the ShadowRoot itself is
   // the root. This is necessary to prevent selection from crossing
   // the ShadowRoot boundary.
-  ShadowRoot* containingShadow = aContent->GetContainingShadow();
-  if (containingShadow) {
+  //
+  // FIXME(emilio): The NAC check should probably be done before this? We can
+  // have NAC inside shadow DOM.
+  if (ShadowRoot* containingShadow = aContent->GetContainingShadow()) {
     return containingShadow;
   }
-
-  nsIContent* stop = aContent->GetBindingParent();
-  while (aContent) {
-    nsIContent* parent = aContent->GetParent();
-    if (parent == stop) {
-      break;
-    }
-    aContent = parent;
+  if (nsIContent* nativeAnonRoot = aContent->GetClosestNativeAnonymousSubtreeRoot()) {
+    return nativeAnonRoot;
   }
-  return aContent;
+  if (Document* doc = aContent->GetUncomposedDoc()) {
+    return doc->GetRootElement();
+  }
+  return nsIContent::FromNode(aContent->SubtreeRoot());
 }
 
 nsIContent* nsINode::GetSelectionRootContent(PresShell* aPresShell) {
@@ -523,7 +518,7 @@ nsIContent* nsINode::GetSelectionRootContent(PresShell* aPresShell) {
     return nullptr;
   }
 
-  if (static_cast<nsIContent*>(this)->HasIndependentSelection()) {
+  if (AsContent()->HasIndependentSelection()) {
     // This node should be a descendant of input/textarea editor.
     nsIContent* content = GetTextEditorRootContent();
     if (content) return content;
@@ -541,7 +536,7 @@ nsIContent* nsINode::GetSelectionRootContent(PresShell* aPresShell) {
         NS_ENSURE_TRUE(editorRoot, nullptr);
         return nsContentUtils::IsInSameAnonymousTree(this, editorRoot)
                    ? editorRoot
-                   : GetRootForContentSubtree(static_cast<nsIContent*>(this));
+                   : GetRootForContentSubtree(AsContent());
       }
       // If the document isn't editable but this is editable, this is in
       // contenteditable.  Use the editing host element for selection root.
@@ -565,7 +560,7 @@ nsIContent* nsINode::GetSelectionRootContent(PresShell* aPresShell) {
   // root.  Otherwise, we can return the content simply.
   NS_ENSURE_TRUE(content, nullptr);
   if (!nsContentUtils::IsInSameAnonymousTree(this, content)) {
-    content = GetRootForContentSubtree(static_cast<nsIContent*>(this));
+    content = GetRootForContentSubtree(AsContent());
     // Fixup for ShadowRoot because the ShadowRoot itself does not have a frame.
     // Use the host as the root.
     if (ShadowRoot* shadowRoot = ShadowRoot::FromNode(content)) {
@@ -680,38 +675,12 @@ void nsINode::LastRelease() {
     UnsetFlags(NODE_HAS_LISTENERMANAGER);
   }
 
-  if (Element* element = Element::FromNode(this)) {
-    element->OwnerDoc()->ClearBoxObjectFor(element);
-    NS_ASSERTION(!element->GetXBLBinding(), "Node has binding on destruction");
-  }
 
   ReleaseWrapper(this);
 
   FragmentOrElement::RemoveBlackMarkedNode(this);
 }
 
-#ifdef DEBUG
-void nsINode::CheckNotNativeAnonymous() const {
-  if (!IsContent()) return;
-  nsIContent* content =
-      static_cast<const nsIContent*>(this)->GetBindingParent();
-  while (content) {
-    if (content->IsRootOfNativeAnonymousSubtree()) {
-      NS_ERROR("Element not marked to be in native anonymous subtree!");
-      break;
-    }
-    content = content->GetBindingParent();
-  }
-}
-#endif
-
-bool nsINode::IsInAnonymousSubtree() const {
-  if (!IsContent()) {
-    return false;
-  }
-
-  return AsContent()->IsInAnonymousSubtree();
-}
 
 std::ostream& operator<<(std::ostream& aStream, const nsINode& aNode) {
   nsAutoString elemDesc;
@@ -740,9 +709,23 @@ std::ostream& operator<<(std::ostream& aStream, const nsINode& aNode) {
   return aStream << str.get();
 }
 
+ShadowRoot* nsINode::GetContainingShadow() const {
+  if (!IsInShadowTree()) {
+    return nullptr;
+  }
+  return AsContent()->GetContainingShadow();
+}
+
+nsIContent* nsINode::GetContainingShadowHost() const {
+  if (ShadowRoot* shadow = GetContainingShadow()) {
+    return shadow->GetHost();
+  }
+  return nullptr;
+}
+
 SVGUseElement* nsINode::DoGetContainingSVGUseShadowHost() const {
   MOZ_ASSERT(IsInShadowTree());
-  return SVGUseElement::FromNodeOrNull(AsContent()->GetContainingShadowHost());
+  return SVGUseElement::FromNodeOrNull(GetContainingShadowHost());
 }
 
 void nsINode::GetNodeValueInternal(nsAString& aNodeValue) {
@@ -1344,12 +1327,7 @@ nsIGlobalObject* nsINode::GetOwnerGlobal() const {
 }
 
 bool nsINode::UnoptimizableCCNode() const {
-  const uintptr_t problematicFlags =
-      (NODE_IS_ANONYMOUS_ROOT | NODE_IS_IN_NATIVE_ANONYMOUS_SUBTREE |
-       NODE_IS_NATIVE_ANONYMOUS_ROOT | NODE_MAY_BE_IN_BINDING_MNGR);
-  return HasFlag(problematicFlags) || NodeType() == ATTRIBUTE_NODE ||
-         // For strange cases like xbl:content/xbl:children
-         (IsElement() && AsElement()->IsInNamespace(kNameSpaceID_XBL));
+  return IsInNativeAnonymousSubtree() || IsAttr();
 }
 
 /* static */
@@ -2801,29 +2779,47 @@ bool nsINode::Contains(const nsINode* aOther) const {
   if (aOther == this) {
     return true;
   }
+
   if (!aOther || OwnerDoc() != aOther->OwnerDoc() ||
       IsInUncomposedDoc() != aOther->IsInUncomposedDoc() ||
-      !aOther->IsContent() || !GetFirstChild()) {
+      !aOther->IsContent() || !HasChildren()) {
     return false;
   }
 
-  const nsIContent* other = static_cast<const nsIContent*>(aOther);
-  if (this == OwnerDoc()) {
+  if (IsDocument()) {
     // document.contains(aOther) returns true if aOther is in the document,
     // but is not in any anonymous subtree.
     // IsInUncomposedDoc() check is done already before this.
-    return !other->IsInAnonymousSubtree();
+    return !aOther->IsInAnonymousSubtree();
   }
 
   if (!IsElement() && !IsDocumentFragment()) {
     return false;
   }
 
-  if (AsContent()->GetBindingParent() != other->GetBindingParent()) {
+  if (IsInShadowTree() != aOther->IsInShadowTree() ||
+      IsInNativeAnonymousSubtree() != aOther->IsInNativeAnonymousSubtree()) {
     return false;
   }
 
-  return other->IsInclusiveDescendantOf(this);
+  if (IsInNativeAnonymousSubtree()) {
+    if (GetClosestNativeAnonymousSubtreeRoot() !=
+        aOther->GetClosestNativeAnonymousSubtreeRoot()) {
+      return false;
+    }
+  }
+
+  if (IsInShadowTree()) {
+    ShadowRoot* otherRoot = aOther->GetContainingShadow();
+    if (IsShadowRoot()) {
+      return otherRoot == this;
+    }
+    if (otherRoot != GetContainingShadow()) {
+      return false;
+    }
+  }
+
+  return aOther->IsInclusiveDescendantOf(this);
 }
 
 uint32_t nsINode::Length() const {
@@ -3174,7 +3170,6 @@ already_AddRefed<nsINode> nsINode::CloneAndAdopt(
 
     bool wasRegistered = false;
     if (elem) {
-      oldDoc->ClearBoxObjectFor(elem);
       wasRegistered = oldDoc->UnregisterActivityObserver(elem);
     }
 
@@ -3478,22 +3473,4 @@ nsNodeWeakReference::QueryReferentFromScript(const nsIID& aIID,
 size_t nsNodeWeakReference::SizeOfOnlyThis(
     mozilla::MallocSizeOf aMallocSizeOf) const {
   return aMallocSizeOf(this);
-}
-
-nsIContent* nsINode::GetClosestNativeAnonymousSubtreeRoot() const {
-  if (!IsInNativeAnonymousSubtree()) {
-    return nullptr;
-  }
-  MOZ_ASSERT(IsContent(), "How did non-content end up in NAC?");
-  for (const nsINode* node = this; node; node = node->GetParentNode()) {
-    if (node->IsRootOfNativeAnonymousSubtree()) {
-      return const_cast<nsINode*>(node)->AsContent();
-    }
-  }
-  // FIXME(emilio): This should not happen, usually, but editor removes nodes
-  // in native anonymous subtrees, and we don't clean nodes from the current
-  // event content stack from ContentRemoved, so it can actually happen, see
-  // bug 1510208.
-  NS_WARNING("GetClosestNativeAnonymousSubtreeRoot on disconnected NAC!");
-  return nullptr;
 }

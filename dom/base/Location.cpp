@@ -43,7 +43,7 @@ Location::Location(nsPIDOMWindowInner* aWindow, nsIDocShell* aDocShell)
   mDocShell = do_GetWeakReference(aDocShell);
 }
 
-Location::~Location() {}
+Location::~Location() = default;
 
 // QueryInterface implementation for Location
 NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(Location)

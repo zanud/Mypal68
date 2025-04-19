@@ -2105,11 +2105,15 @@ void ScriptExecutorRunnable::PostRun(JSContext* aCx,
 }
 
 nsresult ScriptExecutorRunnable::Cancel() {
+  // We need to check first if cancel is called twice
+  nsresult rv = MainThreadWorkerSyncRunnable::Cancel();
+  NS_ENSURE_SUCCESS(rv, rv);
+
   if (mLastIndex == mScriptLoader.mLoadInfos.Length() - 1) {
     ShutdownScriptLoader(mWorkerPrivate->GetJSContext(), mWorkerPrivate, false,
                          false);
   }
-  return MainThreadWorkerSyncRunnable::Cancel();
+  return NS_OK;
 }
 
 void ScriptExecutorRunnable::ShutdownScriptLoader(JSContext* aCx,

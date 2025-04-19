@@ -88,7 +88,7 @@ class FullscreenRequest : public FullscreenChange {
                                             dom::CallerType::NonSystem, false));
   }
 
-  ~FullscreenRequest() { MOZ_COUNT_DTOR(FullscreenRequest); }
+  MOZ_COUNTED_DTOR(FullscreenRequest)
 
   dom::Element* Element() const { return mElement; }
 

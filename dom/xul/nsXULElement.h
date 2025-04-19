@@ -44,7 +44,6 @@ namespace css {
 class StyleRule;
 }  // namespace css
 namespace dom {
-class BoxObject;
 class HTMLIFrameElement;
 class PrototypeDocumentContentSink;
 enum class CallerType : uint32_t;
@@ -127,7 +126,7 @@ class nsXULPrototypeNode {
 
  protected:
   explicit nsXULPrototypeNode(Type aType) : mType(aType) {}
-  virtual ~nsXULPrototypeNode() {}
+  virtual ~nsXULPrototypeNode() = default;
 };
 
 class nsXULPrototypeElement : public nsXULPrototypeNode {
@@ -242,7 +241,7 @@ class nsXULPrototypeText : public nsXULPrototypeNode {
   nsXULPrototypeText() : nsXULPrototypeNode(eType_Text) {}
 
  private:
-  virtual ~nsXULPrototypeText() {}
+  virtual ~nsXULPrototypeText() = default;
 
  public:
   virtual nsresult Serialize(
@@ -261,7 +260,7 @@ class nsXULPrototypePI : public nsXULPrototypeNode {
   nsXULPrototypePI() : nsXULPrototypeNode(eType_PI) {}
 
  private:
-  virtual ~nsXULPrototypePI() {}
+  virtual ~nsXULPrototypePI() = default;
 
  public:
   virtual nsresult Serialize(
@@ -350,8 +349,6 @@ class nsXULElement : public nsStyledElement {
                                 bool aIsTrustedEvent) override;
   void ClickWithInputSource(uint16_t aInputSource, bool aIsTrustedEvent);
 
-  Element* GetBindingParent() const final { return mBindingParent; }
-
   virtual bool IsNodeOfType(uint32_t aFlags) const override;
   virtual bool IsFocusableInternal(int32_t* aTabIndex,
                                    bool aWithMouse) override;
@@ -362,16 +359,8 @@ class nsXULElement : public nsStyledElement {
 
   virtual nsresult Clone(mozilla::dom::NodeInfo*,
                          nsINode** aResult) const override;
-  virtual mozilla::EventStates IntrinsicState() const override;
 
   virtual void RecompileScriptEventListeners() override;
-
-  // This function should ONLY be used by BindToTree implementations.
-  // The function exists solely because XUL elements store the binding
-  // parent as a member instead of in the slots, as Element does.
-  void SetXULBindingParent(Element* aBindingParent) {
-    mBindingParent = aBindingParent;
-  }
 
   virtual bool IsEventAttributeNameInternal(nsAtom* aName) override;
 
@@ -396,35 +385,9 @@ class nsXULElement : public nsStyledElement {
   }
 
   // WebIDL API
-  void GetAlign(DOMString& aValue) const {
-    GetXULAttr(nsGkAtoms::align, aValue);
-  }
-  void SetAlign(const nsAString& aValue, mozilla::ErrorResult& rv) {
-    SetXULAttr(nsGkAtoms::align, aValue, rv);
-  }
-  void GetDir(DOMString& aValue) const { GetXULAttr(nsGkAtoms::dir, aValue); }
-  void SetDir(const nsAString& aValue, mozilla::ErrorResult& rv) {
-    SetXULAttr(nsGkAtoms::dir, aValue, rv);
-  }
   void GetFlex(DOMString& aValue) const { GetXULAttr(nsGkAtoms::flex, aValue); }
   void SetFlex(const nsAString& aValue, mozilla::ErrorResult& rv) {
     SetXULAttr(nsGkAtoms::flex, aValue, rv);
-  }
-  void GetOrdinal(DOMString& aValue) const {
-    GetXULAttr(nsGkAtoms::ordinal, aValue);
-  }
-  void SetOrdinal(const nsAString& aValue, mozilla::ErrorResult& rv) {
-    SetXULAttr(nsGkAtoms::ordinal, aValue, rv);
-  }
-  void GetOrient(DOMString& aValue) const {
-    GetXULAttr(nsGkAtoms::orient, aValue);
-  }
-  void SetOrient(const nsAString& aValue, mozilla::ErrorResult& rv) {
-    SetXULAttr(nsGkAtoms::orient, aValue, rv);
-  }
-  void GetPack(DOMString& aValue) const { GetXULAttr(nsGkAtoms::pack, aValue); }
-  void SetPack(const nsAString& aValue, mozilla::ErrorResult& rv) {
-    SetXULAttr(nsGkAtoms::pack, aValue, rv);
   }
   bool Hidden() const { return BoolAttrIsTrue(nsGkAtoms::hidden); }
   void SetHidden(bool aHidden) { SetXULBoolAttr(nsGkAtoms::hidden, aHidden); }
@@ -511,10 +474,6 @@ class nsXULElement : public nsStyledElement {
     SetXULBoolAttr(nsGkAtoms::allowevents, aAllowEvents);
   }
   nsIControllers* GetControllers(mozilla::ErrorResult& rv);
-  // Note: this can only fail if the do_CreateInstance for the boxobject
-  // contact fails for some reason.
-  already_AddRefed<mozilla::dom::BoxObject> GetBoxObject(
-      mozilla::ErrorResult& rv);
   void Click(mozilla::dom::CallerType aCallerType);
   MOZ_CAN_RUN_SCRIPT_BOUNDARY void DoCommand();
   // Style() inherited from nsStyledElement
@@ -527,6 +486,8 @@ class nsXULElement : public nsStyledElement {
 
   bool IsInteractiveHTMLContent() const override;
 
+  void MaybeUpdatePrivateLifetime();
+
  protected:
   ~nsXULElement();
 
@@ -537,12 +498,6 @@ class nsXULElement : public nsStyledElement {
   nsresult EnsureContentsGenerated(void) const;
 
   nsresult AddPopupListener(nsAtom* aName);
-
-  /**
-   * The nearest enclosing content node with a binding
-   * that created us.
-   */
-  RefPtr<Element> mBindingParent;
 
   /**
    * Abandon our prototype linkage, and copy all attributes locally
@@ -574,17 +529,6 @@ class nsXULElement : public nsStyledElement {
   void AddListenerForAttributeIfNeeded(const nsAttrName& aName);
   void AddListenerForAttributeIfNeeded(nsAtom* aLocalName);
 
-  nsIWidget* GetWindowWidget();
-
-  // attribute setters for widget
-  nsresult HideWindowChrome(bool aShouldHide);
-  void SetChromeMargins(const nsAttrValue* aValue);
-  void ResetChromeMargins();
-
-  void SetDrawsInTitlebar(bool aState);
-  void SetDrawsTitle(bool aState);
-  void UpdateBrightTitlebarForeground(Document* aDocument);
-
  protected:
   void AddTooltipSupport();
   void RemoveTooltipSupport();
@@ -613,15 +557,8 @@ class nsXULElement : public nsStyledElement {
       nsXULPrototypeElement* aPrototype, mozilla::dom::NodeInfo* aNodeInfo,
       bool aIsScriptable, bool aIsRoot);
 
-  bool IsReadWriteTextElement() const {
-    return IsAnyOfXULElements(nsGkAtoms::textbox, nsGkAtoms::textarea) &&
-           !HasAttr(kNameSpaceID_None, nsGkAtoms::readonly);
-  }
-
   virtual JSObject* WrapNode(JSContext* aCx,
                              JS::Handle<JSObject*> aGivenProto) override;
-
-  void MaybeUpdatePrivateLifetime();
 
   bool IsEventStoppedFromAnonymousScrollbar(mozilla::EventMessage aMessage);
 

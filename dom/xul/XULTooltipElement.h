@@ -28,7 +28,7 @@ class XULTooltipElement final : public XULPopupElement {
   virtual nsresult PostHandleEvent(EventChainPostVisitor& aVisitor) override;
 
  protected:
-  virtual ~XULTooltipElement() {}
+  virtual ~XULTooltipElement() = default;
 };
 
 }  // namespace dom

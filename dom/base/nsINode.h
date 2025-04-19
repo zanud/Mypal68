@@ -97,6 +97,7 @@ class Optional;
 class OwningNodeOrString;
 template <typename>
 class Sequence;
+class ShadowRoot;
 class SVGUseElement;
 class Text;
 class TextOrElementOrDocument;
@@ -116,47 +117,35 @@ enum {
   // Whether this node has had any properties set on it
   NODE_HAS_PROPERTIES = NODE_FLAG_BIT(1),
 
-  // Whether this node is the root of an anonymous subtree.  Note that this
-  // need not be a native anonymous subtree.  Any anonymous subtree, including
-  // XBL-generated ones, will do.  This flag is set-once: once a node has it,
-  // it must not be removed.
-  // NOTE: Should only be used on nsIContent nodes
-  NODE_IS_ANONYMOUS_ROOT = NODE_FLAG_BIT(2),
-
   // Whether the node has some ancestor, possibly itself, that is native
   // anonymous.  This includes ancestors crossing XBL scopes, in cases when an
   // XBL binding is attached to an element which has a native anonymous
   // ancestor.  This flag is set-once: once a node has it, it must not be
   // removed.
   // NOTE: Should only be used on nsIContent nodes
-  NODE_IS_IN_NATIVE_ANONYMOUS_SUBTREE = NODE_FLAG_BIT(3),
+  NODE_IS_IN_NATIVE_ANONYMOUS_SUBTREE = NODE_FLAG_BIT(2),
 
   // Whether this node is the root of a native anonymous (from the perspective
   // of its parent) subtree.  This flag is set-once: once a node has it, it
   // must not be removed.
   // NOTE: Should only be used on nsIContent nodes
-  NODE_IS_NATIVE_ANONYMOUS_ROOT = NODE_FLAG_BIT(4),
+  NODE_IS_NATIVE_ANONYMOUS_ROOT = NODE_FLAG_BIT(3),
 
-  // Whether a binding manager may have a pointer to this
-  NODE_MAY_BE_IN_BINDING_MNGR = NODE_FLAG_BIT(5),
-
-  NODE_IS_EDITABLE = NODE_FLAG_BIT(6),
-
-  // Free bit here.
+  NODE_IS_EDITABLE = NODE_FLAG_BIT(4),
 
   // Whether the node participates in a shadow tree.
-  NODE_IS_IN_SHADOW_TREE = NODE_FLAG_BIT(8),
+  NODE_IS_IN_SHADOW_TREE = NODE_FLAG_BIT(5),
 
   // Node has an :empty or :-moz-only-whitespace selector
-  NODE_HAS_EMPTY_SELECTOR = NODE_FLAG_BIT(9),
+  NODE_HAS_EMPTY_SELECTOR = NODE_FLAG_BIT(6),
 
   // A child of the node has a selector such that any insertion,
   // removal, or appending of children requires restyling the parent.
-  NODE_HAS_SLOW_SELECTOR = NODE_FLAG_BIT(10),
+  NODE_HAS_SLOW_SELECTOR = NODE_FLAG_BIT(7),
 
   // A child of the node has a :first-child, :-moz-first-node,
   // :only-child, :last-child or :-moz-last-node selector.
-  NODE_HAS_EDGE_CHILD_SELECTOR = NODE_FLAG_BIT(11),
+  NODE_HAS_EDGE_CHILD_SELECTOR = NODE_FLAG_BIT(8),
 
   // A child of the node has a selector such that any insertion or
   // removal of children requires restyling later siblings of that
@@ -165,7 +154,7 @@ enum {
   // other content tree changes (e.g., the child changes to or from
   // matching :empty due to a grandchild insertion or removal), the
   // child's later siblings must also be restyled.
-  NODE_HAS_SLOW_SELECTOR_LATER_SIBLINGS = NODE_FLAG_BIT(12),
+  NODE_HAS_SLOW_SELECTOR_LATER_SIBLINGS = NODE_FLAG_BIT(9),
 
   NODE_ALL_SELECTOR_FLAGS = NODE_HAS_EMPTY_SELECTOR | NODE_HAS_SLOW_SELECTOR |
                             NODE_HAS_EDGE_CHILD_SELECTOR |
@@ -173,32 +162,32 @@ enum {
 
   // This node needs to go through frame construction to get a frame (or
   // undisplayed entry).
-  NODE_NEEDS_FRAME = NODE_FLAG_BIT(13),
+  NODE_NEEDS_FRAME = NODE_FLAG_BIT(10),
 
   // At least one descendant in the flattened tree has NODE_NEEDS_FRAME set.
   // This should be set on every node on the flattened tree path between the
   // node(s) with NODE_NEEDS_FRAME and the root content.
-  NODE_DESCENDANTS_NEED_FRAMES = NODE_FLAG_BIT(14),
+  NODE_DESCENDANTS_NEED_FRAMES = NODE_FLAG_BIT(11),
 
   // Set if the node has the accesskey attribute set.
-  NODE_HAS_ACCESSKEY = NODE_FLAG_BIT(15),
+  NODE_HAS_ACCESSKEY = NODE_FLAG_BIT(12),
 
   // Set if the node has right-to-left directionality
-  NODE_HAS_DIRECTION_RTL = NODE_FLAG_BIT(16),
+  NODE_HAS_DIRECTION_RTL = NODE_FLAG_BIT(13),
 
   // Set if the node has left-to-right directionality
-  NODE_HAS_DIRECTION_LTR = NODE_FLAG_BIT(17),
+  NODE_HAS_DIRECTION_LTR = NODE_FLAG_BIT(14),
 
   NODE_ALL_DIRECTION_FLAGS = NODE_HAS_DIRECTION_LTR | NODE_HAS_DIRECTION_RTL,
 
-  NODE_HAS_BEEN_IN_UA_WIDGET = NODE_FLAG_BIT(18),
+  NODE_HAS_BEEN_IN_UA_WIDGET = NODE_FLAG_BIT(15),
 
   // Set if the node has a nonce value and a header delivered CSP.
-  NODE_HAS_NONCE_AND_HEADER_CSP = NODE_FLAG_BIT(19),
+  NODE_HAS_NONCE_AND_HEADER_CSP = NODE_FLAG_BIT(16),
 
-  NODE_KEEPS_DOMARENA = NODE_FLAG_BIT(20),
+  NODE_KEEPS_DOMARENA = NODE_FLAG_BIT(17),
   // Remaining bits are node type specific.
-  NODE_TYPE_SPECIFIC_BITS_OFFSET = 21
+  NODE_TYPE_SPECIFIC_BITS_OFFSET = 18
 };
 
 // Make sure we have space for our bits
@@ -463,8 +452,7 @@ class nsINode : public mozilla::dom::EventTarget {
   inline mozilla::dom::DocumentFragment* AsDocumentFragment();
   inline const mozilla::dom::DocumentFragment* AsDocumentFragment() const;
 
-  virtual JSObject* WrapObject(JSContext* aCx,
-                               JS::Handle<JSObject*> aGivenProto) override;
+  JSObject* WrapObject(JSContext*, JS::Handle<JSObject*> aGivenProto) final;
 
   /**
    * Hook for constructing JS::ubi::Concrete specializations for memory
@@ -539,10 +527,18 @@ class nsINode : public mozilla::dom::EventTarget {
 
   /**
    * Return this node as nsIContent.  Should only be used for nodes for which
-   * IsContent() is true.  This is defined inline in nsIContent.h.
+   * IsContent() is true.
+   *
+   * The assertion in nsIContent's constructor makes this safe.
    */
-  inline nsIContent* AsContent();
-  inline const nsIContent* AsContent() const;
+  nsIContent* AsContent() {
+    MOZ_ASSERT(IsContent());
+    return reinterpret_cast<nsIContent*>(this);
+  }
+  const nsIContent* AsContent() const {
+    MOZ_ASSERT(IsContent());
+    return reinterpret_cast<const nsIContent*>(this);
+  }
 
   /*
    * Return whether the node is a Text node (which might be an actual
@@ -957,7 +953,7 @@ class nsINode : public mozilla::dom::EventTarget {
    */
   nsIContent* GetParent() const {
     return MOZ_LIKELY(GetBoolFlag(ParentIsContent))
-               ? reinterpret_cast<nsIContent*>(mParent)
+               ? mParent->AsContent()
                : nullptr;
   }
 
@@ -1269,19 +1265,18 @@ class nsINode : public mozilla::dom::EventTarget {
   void SetFlags(FlagsType aFlagsToSet) {
     NS_ASSERTION(
         !(aFlagsToSet &
-          (NODE_IS_ANONYMOUS_ROOT | NODE_IS_NATIVE_ANONYMOUS_ROOT |
-           NODE_IS_IN_NATIVE_ANONYMOUS_SUBTREE | NODE_DESCENDANTS_NEED_FRAMES |
-           NODE_NEEDS_FRAME | NODE_HAS_BEEN_IN_UA_WIDGET)) ||
+          (NODE_IS_NATIVE_ANONYMOUS_ROOT | NODE_IS_IN_NATIVE_ANONYMOUS_SUBTREE |
+           NODE_DESCENDANTS_NEED_FRAMES | NODE_NEEDS_FRAME |
+           NODE_HAS_BEEN_IN_UA_WIDGET)) ||
             IsContent(),
         "Flag only permitted on nsIContent nodes");
     nsWrapperCache::SetFlags(aFlagsToSet);
   }
 
   void UnsetFlags(FlagsType aFlagsToUnset) {
-    NS_ASSERTION(
-        !(aFlagsToUnset & (NODE_IS_ANONYMOUS_ROOT | NODE_HAS_BEEN_IN_UA_WIDGET |
-                           NODE_IS_NATIVE_ANONYMOUS_ROOT)),
-        "Trying to unset write-only flags");
+    NS_ASSERTION(!(aFlagsToUnset & (NODE_HAS_BEEN_IN_UA_WIDGET |
+                                    NODE_IS_NATIVE_ANONYMOUS_ROOT)),
+                 "Trying to unset write-only flags");
     nsWrapperCache::UnsetFlags(aFlagsToUnset);
   }
 
@@ -1299,25 +1294,41 @@ class nsINode : public mozilla::dom::EventTarget {
    * Returns true if |this| or any of its ancestors is native anonymous.
    */
   bool IsInNativeAnonymousSubtree() const {
-#ifdef DEBUG
-    if (HasFlag(NODE_IS_IN_NATIVE_ANONYMOUS_SUBTREE)) {
-      return true;
-    }
-    CheckNotNativeAnonymous();
-    return false;
-#else
     return HasFlag(NODE_IS_IN_NATIVE_ANONYMOUS_SUBTREE);
-#endif
   }
 
-  bool IsInAnonymousSubtree() const;
+  /**
+   * Returns true if there is NOT a path through child lists
+   * from the top of this node's parent chain back to this node or
+   * if the node is in native anonymous subtree without a parent.
+   *
+   * TODO(emilio):: Remove this function, and use just
+   * IsInNativeAnonymousSubtree, or something?
+   */
+  bool IsInAnonymousSubtree() const { return IsInNativeAnonymousSubtree(); }
 
   /**
    * If |this| or any ancestor is native anonymous, return the root of the
    * native anonymous subtree. Note that in case of nested native anonymous
    * content, this returns the innermost root, not the outermost.
    */
-  nsIContent* GetClosestNativeAnonymousSubtreeRoot() const;
+  nsIContent* GetClosestNativeAnonymousSubtreeRoot() const {
+    if (!IsInNativeAnonymousSubtree()) {
+      return nullptr;
+    }
+    MOZ_ASSERT(IsContent(), "How did non-content end up in NAC?");
+    for (const nsINode* node = this; node; node = node->GetParentNode()) {
+      if (node->IsRootOfNativeAnonymousSubtree()) {
+        return const_cast<nsINode*>(node)->AsContent();
+      }
+    }
+    // FIXME(emilio): This should not happen, usually, but editor removes nodes
+    // in native anonymous subtrees, and we don't clean nodes from the current
+    // event content stack from ContentRemoved, so it can actually happen, see
+    // bug 1510208.
+    NS_WARNING("GetClosestNativeAnonymousSubtreeRoot on disconnected NAC!");
+    return nullptr;
+  }
 
   /**
    * If |this| or any ancestor is native anonymous, return the parent of the
@@ -1333,6 +1344,18 @@ class nsINode : public mozilla::dom::EventTarget {
     // reinterpret_cast, but it doesn't seem worth it.
     return reinterpret_cast<const nsINode*>(root)->GetParent();
   }
+
+  /**
+   * Gets the root of the node tree for this content if it is in a shadow tree.
+   */
+  mozilla::dom::ShadowRoot* GetContainingShadow() const;
+  /**
+   * Gets the shadow host if this content is in a shadow tree. That is, the host
+   * of |GetContainingShadow|, if its not null.
+   *
+   * @return The shadow host, if this is in shadow tree, or null.
+   */
+  nsIContent* GetContainingShadowHost() const;
 
   bool IsInSVGUseShadowTree() const {
     return !!GetContainingSVGUseShadowHost();
@@ -1354,6 +1377,17 @@ class nsINode : public mozilla::dom::EventTarget {
                    NODE_HAS_BEEN_IN_UA_WIDGET);
   }
 
+  const nsIContent* GetChromeOnlyAccessSubtreeRootParent() const {
+    if (!ChromeOnlyAccess()) {
+      return nullptr;
+    }
+    // We can have NAC in UA widgets, but not the other way around.
+    if (IsInNativeAnonymousSubtree()) {
+      return GetClosestNativeAnonymousSubtreeRootParent();
+    }
+    return GetContainingShadowHost();
+  }
+
   bool IsInShadowTree() const { return HasFlag(NODE_IS_IN_SHADOW_TREE); }
 
   /**
@@ -1362,10 +1396,9 @@ class nsINode : public mozilla::dom::EventTarget {
    * @return whether this content is anonymous
    */
   bool IsRootOfNativeAnonymousSubtree() const {
-    NS_ASSERTION(!HasFlag(NODE_IS_NATIVE_ANONYMOUS_ROOT) ||
-                     (HasFlag(NODE_IS_ANONYMOUS_ROOT) &&
-                      HasFlag(NODE_IS_IN_NATIVE_ANONYMOUS_SUBTREE)),
-                 "Some flags seem to be missing!");
+    NS_ASSERTION(
+        !HasFlag(NODE_IS_NATIVE_ANONYMOUS_ROOT) || IsInNativeAnonymousSubtree(),
+        "Some flags seem to be missing!");
     return HasFlag(NODE_IS_NATIVE_ANONYMOUS_ROOT);
   }
 
@@ -2107,12 +2140,6 @@ class nsINode : public mozilla::dom::EventTarget {
   virtual void SetTextContentInternal(const nsAString& aTextContent,
                                       nsIPrincipal* aSubjectPrincipal,
                                       mozilla::ErrorResult& aError) {}
-
-#ifdef DEBUG
-  // Note: virtual so that IsInNativeAnonymousSubtree can be called accross
-  // module boundaries.
-  virtual void CheckNotNativeAnonymous() const;
-#endif
 
   void EnsurePreInsertionValidity1(mozilla::ErrorResult& aError);
   void EnsurePreInsertionValidity2(bool aReplace, nsINode& aNewChild,

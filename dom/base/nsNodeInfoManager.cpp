@@ -25,7 +25,6 @@
 #include "nsGkAtoms.h"
 #include "nsComponentManagerUtils.h"
 #include "nsLayoutStatics.h"
-#include "nsBindingManager.h"
 #include "nsHashKeys.h"
 #include "nsCCUncollectableMarker.h"
 #include "nsNameSpaceManager.h"
@@ -61,8 +60,6 @@ nsNodeInfoManager::~nsNodeInfoManager() {
 
   mArena = nullptr;
 
-  mBindingManager = nullptr;
-
   if (gNodeInfoManagerLeakPRLog)
     MOZ_LOG(gNodeInfoManagerLeakPRLog, LogLevel::Debug,
             ("NODEINFOMANAGER %p destroyed", this));
@@ -77,7 +74,6 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(nsNodeInfoManager)
   if (tmp->mNonDocumentNodeInfos) {
     NS_IMPL_CYCLE_COLLECTION_TRAVERSE_RAWPTR(mDocument)
   }
-  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mBindingManager)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
 NS_IMPL_CYCLE_COLLECTION_ROOT_NATIVE(nsNodeInfoManager, AddRef)
@@ -109,10 +105,6 @@ nsresult nsNodeInfoManager::Init(mozilla::dom::Document* aDocument) {
 
   mPrincipal = NullPrincipal::CreateWithoutOriginAttributes();
 
-  if (aDocument) {
-    mBindingManager = new nsBindingManager(aDocument);
-  }
-
   mDefaultPrincipal = mPrincipal;
 
   mDocument = aDocument;
@@ -125,10 +117,6 @@ nsresult nsNodeInfoManager::Init(mozilla::dom::Document* aDocument) {
 }
 
 void nsNodeInfoManager::DropDocumentReference() {
-  if (mBindingManager) {
-    mBindingManager->DropDocumentReference();
-  }
-
   // This is probably not needed anymore.
   for (auto iter = mNodeInfoHash.Iter(); !iter.Done(); iter.Next()) {
     iter.Data()->mDocument = nullptr;
@@ -413,11 +401,6 @@ bool nsNodeInfoManager::InternalMathMLEnabled() {
 
 void nsNodeInfoManager::AddSizeOfIncludingThis(nsWindowSizes& aSizes) const {
   aSizes.mDOMOtherSize += aSizes.mState.mMallocSizeOf(this);
-
-  if (mBindingManager) {
-    aSizes.mBindingsSize +=
-        mBindingManager->SizeOfIncludingThis(aSizes.mState.mMallocSizeOf);
-  }
 
   // Measurement of the following members may be added later if DMD finds it
   // is worthwhile:

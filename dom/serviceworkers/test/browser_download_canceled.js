@@ -37,7 +37,7 @@ async function clearDownloads() {
  * we have clicked the given button.
  */
 function promiseClickDownloadDialogButton(buttonAction) {
-  const uri = "chrome://mozapps/content/downloads/unknownContentType.xul";
+  const uri = "chrome://mozapps/content/downloads/unknownContentType.xhtml";
   BrowserTestUtils.promiseAlertDialogOpen(buttonAction, uri, async win => {
     // nsHelperAppDlg.js currently uses an eval-based setTimeout(0) to invoke
     // its postShowCallback that results in a misleading error to the console
@@ -50,7 +50,9 @@ function promiseClickDownloadDialogButton(buttonAction) {
 
     await new Promise(resolve => setTimeout(resolve, 0));
 
-    const button = win.document.documentElement.getButton(buttonAction);
+    const button = win.document
+      .getElementById("unknownContentType")
+      .getButton(buttonAction);
     button.disabled = false;
     info(`clicking ${buttonAction} button`);
     button.click();

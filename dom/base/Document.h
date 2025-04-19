@@ -79,7 +79,6 @@ class ElementCreationOptionsOrString;
 
 class gfxUserFontSet;
 class imgIRequest;
-class nsBindingManager;
 class nsCachableElementsByNameNodeList;
 class nsContentList;
 class nsIDocShell;
@@ -124,7 +123,7 @@ class nsWindowSizes;
 class nsDOMCaretPosition;
 class nsViewportInfo;
 class nsIGlobalObject;
-class nsIXULWindow;
+class nsIAppWindow;
 class nsXULPrototypeDocument;
 class nsXULPrototypeElement;
 class PermissionDelegateHandler;
@@ -162,9 +161,9 @@ class Rule;
 namespace dom {
 class AnonymousContent;
 class Attr;
-class BoxObject;
 class XULBroadcastManager;
 class XULPersist;
+class ChromeObserver;
 class ClientInfo;
 class ClientState;
 class CDATASection;
@@ -218,7 +217,6 @@ class XPathEvaluator;
 class XPathExpression;
 class XPathNSResolver;
 class XPathResult;
-class XULDocument;
 template <typename>
 class Sequence;
 
@@ -1019,9 +1017,6 @@ class Document : public nsINode,
   }
 
   void SetLoadedAsData(bool aLoadedAsData) { mLoadedAsData = aLoadedAsData; }
-  void SetLoadedAsInteractiveData(bool aLoadedAsInteractiveData) {
-    mLoadedAsInteractiveData = aLoadedAsInteractiveData;
-  }
 
   /**
    * Normally we assert if a runnable labeled with one DocGroup touches data
@@ -1715,10 +1710,6 @@ class Document : public nsINode,
 
   void DoUnblockOnload();
 
-  void ClearAllBoxObjects();
-
-  void MaybeEndOutermostXBLUpdate();
-
   void RetrieveRelevantHeaders(nsIChannel* aChannel);
 
   void TryChannelCharset(nsIChannel* aChannel, int32_t& aCharsetSource,
@@ -2304,10 +2295,6 @@ class Document : public nsINode,
     DoUpdateSVGUseElementShadowTrees();
   }
 
-  nsBindingManager* BindingManager() const {
-    return mNodeInfoManager->GetBindingManager();
-  }
-
   /**
    * Only to be used inside Gecko, you can't really do anything with the
    * pointer outside Gecko anyway.
@@ -2372,14 +2359,8 @@ class Document : public nsINode,
   bool IsHTMLOrXHTML() const { return mType == eHTML || mType == eXHTML; }
   bool IsXMLDocument() const { return !IsHTMLDocument(); }
   bool IsSVGDocument() const { return mType == eSVG; }
-  bool IsXULDocument() const { return mType == eXUL; }
-  bool IsUnstyledDocument() {
-    return IsLoadedAsData() || IsLoadedAsInteractiveData();
-  }
+  bool IsUnstyledDocument() { return IsLoadedAsData(); }
   bool LoadsFullXULStyleSheetUpFront() {
-    if (IsXULDocument()) {
-      return true;
-    }
     if (IsSVGDocument()) {
       return false;
     }
@@ -2619,20 +2600,6 @@ class Document : public nsINode,
   void RefreshLinkHrefs();
 
   /**
-   * Resets and removes a box object from the document's box object cache
-   *
-   * @param aElement canonical nsIContent pointer of the box object's element
-   */
-  void ClearBoxObjectFor(nsIContent* aContent);
-
-  /**
-   * Get the box object for an element. This is not exposed through a
-   * scriptable interface except for XUL documents.
-   */
-  already_AddRefed<BoxObject> GetBoxObjectFor(Element* aElement,
-                                              ErrorResult& aRv);
-
-  /**
    * Support for window.matchMedia()
    */
 
@@ -2651,10 +2618,6 @@ class Document : public nsINode,
    * document.
    */
   bool HaveFiredDOMTitleChange() const { return mHaveFiredTitleChange; }
-
-  Element* GetAnonymousElementByAttribute(nsIContent* aElement,
-                                          nsAtom* aAttrName,
-                                          const nsAString& aAttrValue) const;
 
   /**
    * To batch DOMSubtreeModified, document needs to be informed when
@@ -2702,8 +2665,6 @@ class Document : public nsINode,
   }
 
   bool IsLoadedAsData() { return mLoadedAsData; }
-
-  bool IsLoadedAsInteractiveData() { return mLoadedAsInteractiveData; }
 
   bool MayStartLayout() { return mMayStartLayout; }
 
@@ -3447,9 +3408,9 @@ class Document : public nsINode,
   Document* GetTopLevelContentDocument();
   const Document* GetTopLevelContentDocument() const;
 
-  // Returns the associated XUL window if this is a top-level chrome document,
+  // Returns the associated app window if this is a top-level chrome document,
   // null otherwise.
-  already_AddRefed<nsIXULWindow> GetXULWindowIfToplevelChrome() const;
+  already_AddRefed<nsIAppWindow> GetAppWindowIfToplevelChrome() const;
 
   already_AddRefed<Element> CreateElement(
       const nsAString& aTagName, const ElementCreationOptionsOrString& aOptions,
@@ -3640,13 +3601,7 @@ class Document : public nsINode,
   bool IsScrollingElement(Element* aElement);
 
   // QuerySelector and QuerySelectorAll already defined on nsINode
-  nsINodeList* GetAnonymousNodes(Element& aElement);
-  Element* GetAnonymousElementByAttribute(Element& aElement,
-                                          const nsAString& aAttrName,
-                                          const nsAString& aAttrValue);
-  Element* GetBindingParent(nsINode& aNode);
-  void LoadBindingDocument(const nsAString& aURI,
-                           nsIPrincipal& aSubjectPrincipal, ErrorResult& rv);
+
   XPathExpression* CreateExpression(const nsAString& aExpression,
                                     XPathNSResolver* aResolver,
                                     ErrorResult& rv);
@@ -3725,12 +3680,6 @@ class Document : public nsINode,
    */
   inline SVGDocument* AsSVGDocument();
   inline const SVGDocument* AsSVGDocument() const;
-
-  /**
-   * Asserts IsXULDocument, and can't return null.
-   * Defined inline in XULDocument.h
-   */
-  inline XULDocument* AsXULDocument();
 
   /*
    * Given a node, get a weak reference to it and append that reference to
@@ -4487,11 +4436,6 @@ class Document : public nsINode,
   // as scripts and plugins, disabled.
   bool mLoadedAsData : 1;
 
-  // This flag is only set in XMLDocument, for e.g. documents used in XBL. We
-  // don't want animations to play in such documents, so we need to store the
-  // flag here so that we can check it in Document::GetAnimationController.
-  bool mLoadedAsInteractiveData : 1;
-
   // If true, whoever is creating the document has gotten it to the
   // point where it's safe to start layout on it.
   bool mMayStartLayout : 1;
@@ -4668,8 +4612,6 @@ class Document : public nsINode,
   bool mScrolledToRefAlready : 1;
   bool mChangeScrollPosWhenScrollingToRef : 1;
 
-  bool mHasWarnedAboutBoxObjects : 1;
-
   bool mDelayFrameLoaderInitialization : 1;
 
   bool mSynchronousDOMContentLoaded : 1;
@@ -4777,8 +4719,7 @@ class Document : public nsINode,
     eHTML,
     eXHTML,
     eGenericXML,
-    eSVG,
-    eXUL
+    eSVG
   };
 
   Type mType;
@@ -5046,8 +4987,6 @@ class Document : public nsINode,
 
   RefPtr<dom::ScriptLoader> mScriptLoader;
 
-  nsRefPtrHashtable<nsPtrHashKey<nsIContent>, BoxObject>* mBoxObjectTable;
-
   // Tracker for animations that are waiting to start.
   // nullptr until GetOrCreatePendingAnimationTracker is called.
   RefPtr<PendingAnimationTracker> mPendingAnimationTracker;
@@ -5100,7 +5039,6 @@ class Document : public nsINode,
 
   RefPtr<EventListenerManager> mListenerManager;
 
-  nsCOMPtr<nsIRunnable> mMaybeEndOutermostXBLUpdateRunner;
   nsCOMPtr<nsIRequest> mOnloadBlocker;
 
   // Gecko-internal sheets used for extensions and such.
@@ -5147,6 +5085,7 @@ class Document : public nsINode,
 
   RefPtr<XULBroadcastManager> mXULBroadcastManager;
   RefPtr<XULPersist> mXULPersist;
+  RefPtr<ChromeObserver> mChromeObserver;
 
   RefPtr<HTMLAllCollection> mAll;
 
@@ -5307,12 +5246,6 @@ nsresult NS_NewDOMDocument(
     const nsAString& aQualifiedName, mozilla::dom::DocumentType* aDoctype,
     nsIURI* aDocumentURI, nsIURI* aBaseURI, nsIPrincipal* aPrincipal,
     bool aLoadedAsData, nsIGlobalObject* aEventObject, DocumentFlavor aFlavor);
-
-// This is used only for xbl documents created from the startup cache.
-// Non-cached documents are created in the same manner as xml documents.
-nsresult NS_NewXBLDocument(mozilla::dom::Document** aInstancePtrResult,
-                           nsIURI* aDocumentURI, nsIURI* aBaseURI,
-                           nsIPrincipal* aPrincipal);
 
 nsresult NS_NewPluginDocument(mozilla::dom::Document** aInstancePtrResult);
 

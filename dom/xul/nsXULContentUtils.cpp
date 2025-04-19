@@ -19,10 +19,8 @@
 #include "nsLayoutCID.h"
 #include "nsString.h"
 #include "nsGkAtoms.h"
-#include "XULDocument.h"
 
 using namespace mozilla;
-using dom::XULDocument;
 
 //------------------------------------------------------------------------
 

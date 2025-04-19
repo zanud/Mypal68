@@ -24,10 +24,9 @@ struct BroadcasterMapEntry : public PLDHashEntryHdr {
 struct nsAttrNameInfo {
   nsAttrNameInfo(int32_t aNamespaceID, nsAtom* aName, nsAtom* aPrefix)
       : mNamespaceID(aNamespaceID), mName(aName), mPrefix(aPrefix) {}
-  nsAttrNameInfo(const nsAttrNameInfo& aOther)
-      : mNamespaceID(aOther.mNamespaceID),
-        mName(aOther.mName),
-        mPrefix(aOther.mPrefix) {}
+  nsAttrNameInfo(const nsAttrNameInfo& aOther) = delete;
+  nsAttrNameInfo(nsAttrNameInfo&& aOther) = default;
+
   int32_t mNamespaceID;
   RefPtr<nsAtom> mName;
   RefPtr<nsAtom> mPrefix;
@@ -93,8 +92,7 @@ void XULBroadcastManager::SynchronizeBroadcastListener(Element* aBroadcaster,
                                                        Element* aListener,
                                                        const nsAString& aAttr) {
   if (!nsContentUtils::IsSafeToRunScript()) {
-    nsDelayedBroadcastUpdate delayedUpdate(aBroadcaster, aListener, aAttr);
-    mDelayedBroadcasters.AppendElement(delayedUpdate);
+    mDelayedBroadcasters.EmplaceBack(aBroadcaster, aListener, aAttr);
     MaybeBroadcast();
     return;
   }
@@ -349,7 +347,8 @@ void XULBroadcastManager::AttributeChanged(Element* aElement,
               mDelayedAttrChangeBroadcasts.RemoveElementAt(index);
             }
 
-            mDelayedAttrChangeBroadcasts.AppendElement(delayedUpdate);
+            mDelayedAttrChangeBroadcasts.AppendElement(
+                std::move(delayedUpdate));
           }
         }
       }

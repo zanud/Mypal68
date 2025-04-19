@@ -979,8 +979,7 @@ static bool IsAccessKeyTarget(nsIContent* aContent, nsIFrame* aFrame,
       !contentKey.Equals(aKey, nsCaseInsensitiveStringComparator))
     return false;
 
-  if (!aContent->OwnerDoc()->IsXULDocument() && !aContent->IsXULElement())
-    return true;
+  if (!aContent->IsXULElement()) return true;
 
   // For XUL we do visibility checks.
   if (!aFrame) return false;
@@ -1023,11 +1022,11 @@ bool EventStateManager::LookForAccessKeyAndExecute(
     nsTArray<uint32_t>& aAccessCharCodes, bool aIsTrustedEvent, bool aIsRepeat,
     bool aExecute) {
   int32_t count, start = -1;
-  nsIContent* focusedContent = GetFocusedContent();
-  if (focusedContent) {
+  if (nsIContent* focusedContent = GetFocusedContent()) {
     start = mAccessKeys.IndexOf(focusedContent);
-    if (start == -1 && focusedContent->GetBindingParent())
-      start = mAccessKeys.IndexOf(focusedContent->GetBindingParent());
+    if (start == -1 && focusedContent->IsInNativeAnonymousSubtree()) {
+      start = mAccessKeys.IndexOf(focusedContent->GetClosestNativeAnonymousSubtreeRootParent());
+    }
   }
   RefPtr<Element> element;
   nsIFrame* frame;
@@ -3051,7 +3050,7 @@ void EventStateManager::PostHandleKeyboardEvent(
         }
 
         EnsureDocument(mPresContext);
-        nsIFocusManager* fm = nsFocusManager::GetFocusManager();
+        nsFocusManager* fm = nsFocusManager::GetFocusManager();
         if (fm && mDocument) {
           // Shift focus forward or back depending on shift key
           bool isDocMove = aKeyboardEvent->IsControl() ||
@@ -3233,7 +3232,7 @@ nsresult EventStateManager::PostHandleEvent(nsPresContext* aPresContext,
 
         MOZ_ASSERT_IF(newFocus, newFocus->IsElement());
 
-        nsIFocusManager* fm = nsFocusManager::GetFocusManager();
+        nsFocusManager* fm = nsFocusManager::GetFocusManager();
         if (fm) {
           // if something was found to focus, focus it. Otherwise, if the
           // element that was clicked doesn't have -moz-user-focus: ignore,
@@ -5468,14 +5467,9 @@ void EventStateManager::RemoveNodeFromChainIfNeeded(EventStates aState,
   // These two NS_ASSERTIONS below can fail for Shadow DOM sometimes, and it's
   // not clear how to best handle it, see
   // https://github.com/whatwg/html/issues/4795 and bug 1551621.
-  //
-  // The NODE_IS_ANONYMOUS_ROOT is there because XBL used to remove content
-  // without notifying, but it shouldn't apply to NAC since
-  // NAC notifies (see NativeAnonymousContentRemoved).
-  NS_ASSERTION(nsContentUtils::ContentIsFlattenedTreeDescendantOf(
-                   leaf, aContentRemoved) ||
-               leaf->SubtreeRoot()->HasFlag(NODE_IS_ANONYMOUS_ROOT),
-               "Flat tree and active / hover chain got out of sync");
+  NS_ASSERTION(
+      nsContentUtils::ContentIsFlattenedTreeDescendantOf(leaf, aContentRemoved),
+      "Flat tree and active / hover chain got out of sync");
 
   nsIContent* newLeaf = aContentRemoved->GetFlattenedTreeParent();
   MOZ_ASSERT(!newLeaf || newLeaf->IsElement());
@@ -5601,7 +5595,7 @@ void EventStateManager::FlushLayout(nsPresContext* aPresContext) {
 }
 
 nsIContent* EventStateManager::GetFocusedContent() {
-  nsIFocusManager* fm = nsFocusManager::GetFocusManager();
+  nsFocusManager* fm = nsFocusManager::GetFocusManager();
   EnsureDocument(mPresContext);
   if (!fm || !mDocument) return nullptr;
 

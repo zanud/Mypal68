@@ -15,10 +15,14 @@ class Document;
 
 class nsContentSecurityUtils {
  public:
-  static bool IsEvalAllowed(JSContext* cx, nsIPrincipal* aSubjectPrincipal,
+  static bool IsEvalAllowed(JSContext* cx, bool aIsSystemPrincipal,
                             const nsAString& aScript);
+  static void NotifyEvalUsage(bool aIsSystemPrincipal,
+                              NS_ConvertUTF8toUTF16& aFileNameA,
+                              uint64_t aWindowID, uint32_t aLineNumber,
+                              uint32_t aColumnNumber);
 
-#if defined(DEBUG) && !defined(ANDROID)
+#if defined(DEBUG)
   static void AssertAboutPageHasCSP(mozilla::dom::Document* aDocument);
 #endif
 };

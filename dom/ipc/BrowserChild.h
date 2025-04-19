@@ -525,6 +525,7 @@ class BrowserChild final : public nsMessageManagerScriptExecutor,
   bool AsyncPanZoomEnabled() const;
 
   ScreenIntSize GetInnerSize();
+  CSSSize GetUnscaledInnerSize() { return mUnscaledInnerSize; }
 
   // Call RecvShow(nsIntSize(0, 0)) and block future calls to RecvShow().
   void DoFakeShow(const ParentShowInfo&);

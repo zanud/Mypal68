@@ -31,6 +31,10 @@ class PerformanceWorker final : public Performance {
     return nullptr;
   }
 
+  virtual void SetFCPTimingEntry(PerformancePaintTiming* aEntry) override {
+    MOZ_CRASH("This should not be called on workers.");
+  }
+
   TimeStamp CreationTimeStamp() const override;
 
   DOMHighResTimeStamp CreationTime() const override;
@@ -53,6 +57,10 @@ class PerformanceWorker final : public Performance {
   }
 
   void QueueNavigationTimingEntry() override {
+    MOZ_CRASH("This should not be called on workers.");
+  }
+
+  void UpdateNavigationTimingEntry() override {
     MOZ_CRASH("This should not be called on workers.");
   }
 

@@ -4,7 +4,13 @@
 
 #include "PerformanceMainThread.h"
 #include "PerformanceNavigation.h"
+#include "PerformancePaintTiming.h"
+#include "mozilla/dom/Event.h"
+#include "mozilla/dom/PerformanceNavigationTiming.h"
+#include "mozilla/dom/PerformanceResourceTiming.h"
+#include "mozilla/dom/PerformanceTiming.h"
 #include "mozilla/StaticPrefs_dom.h"
+#include "mozilla/StaticPrefs_privacy.h"
 
 namespace mozilla {
 namespace dom {
@@ -31,7 +37,7 @@ void GetURLSpecFromChannel(nsITimedChannel* aChannel, nsAString& aSpec) {
     return;
   }
 
-  aSpec = NS_ConvertUTF8toUTF16(spec);
+  CopyUTF8toUTF16(spec, aSpec);
 }
 
 }  // namespace
@@ -40,14 +46,14 @@ NS_IMPL_CYCLE_COLLECTION_CLASS(PerformanceMainThread)
 
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN_INHERITED(PerformanceMainThread,
                                                 Performance)
-  NS_IMPL_CYCLE_COLLECTION_UNLINK(mTiming, mNavigation, mDocEntry)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mTiming, mNavigation, mDocEntry, mFCPTiming)
   tmp->mMozMemory = nullptr;
   mozilla::DropJSObjects(this);
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(PerformanceMainThread,
                                                   Performance)
-  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mTiming, mNavigation, mDocEntry)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mTiming, mNavigation, mDocEntry, mFCPTiming)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
 NS_IMPL_CYCLE_COLLECTION_TRACE_BEGIN_INHERITED(PerformanceMainThread,
@@ -113,7 +119,7 @@ PerformanceTiming* PerformanceMainThread::Timing() {
 void PerformanceMainThread::DispatchBufferFullEvent() {
   RefPtr<Event> event = NS_NewDOMEvent(this, nullptr, nullptr);
   // it bubbles, and it isn't cancelable
-  event->InitEvent(NS_LITERAL_STRING("resourcetimingbufferfull"), true, false);
+  event->InitEvent(u"resourcetimingbufferfull"_ns, true, false);
   event->SetTrusted(true);
   DispatchEvent(*event);
 }
@@ -152,6 +158,14 @@ void PerformanceMainThread::AddEntry(nsIHttpChannel* channel,
 
   performanceEntry->SetInitiatorType(initiatorType);
   InsertResourceEntry(performanceEntry);
+}
+
+void PerformanceMainThread::SetFCPTimingEntry(PerformancePaintTiming* aEntry) {
+  MOZ_ASSERT(aEntry);
+  if (!mFCPTiming) {
+    mFCPTiming = aEntry;
+    QueueEntry(aEntry);
+  }
 }
 
 // To be removed once bug 1124165 lands
@@ -308,7 +322,8 @@ DOMHighResTimeStamp PerformanceMainThread::CreationTime() const {
 void PerformanceMainThread::CreateNavigationTimingEntry() {
   MOZ_ASSERT(!mDocEntry, "mDocEntry should be null.");
 
-  if (!StaticPrefs::dom_enable_performance_navigation_timing()) {
+  if (!StaticPrefs::dom_enable_performance_navigation_timing() ||
+      StaticPrefs::privacy_resistFingerprinting()) {
     return;
   }
 
@@ -326,7 +341,7 @@ void PerformanceMainThread::CreateNavigationTimingEntry() {
   mDocEntry = new PerformanceNavigationTiming(std::move(timing), this, name);
 }
 
-void PerformanceMainThread::QueueNavigationTimingEntry() {
+void PerformanceMainThread::UpdateNavigationTimingEntry() {
   if (!mDocEntry) {
     return;
   }
@@ -336,6 +351,14 @@ void PerformanceMainThread::QueueNavigationTimingEntry() {
   if (httpChannel) {
     mDocEntry->UpdatePropertiesFromHttpChannel(httpChannel, mChannel);
   }
+}
+
+void PerformanceMainThread::QueueNavigationTimingEntry() {
+  if (!mDocEntry) {
+    return;
+  }
+
+  UpdateNavigationTimingEntry();
 
   QueueEntry(mDocEntry);
 }
@@ -355,6 +378,9 @@ void PerformanceMainThread::GetEntries(
     aRetval.AppendElement(mDocEntry);
   }
 
+  if (mFCPTiming) {
+    aRetval.AppendElement(mFCPTiming);
+  }
   aRetval.Sort(PerformanceEntryComparator());
 }
 
@@ -375,6 +401,13 @@ void PerformanceMainThread::GetEntriesByType(
     return;
   }
 
+  if (aEntryType.EqualsLiteral("paint")) {
+    if (mFCPTiming) {
+      aRetval.AppendElement(mFCPTiming);
+      return;
+    }
+  }
+
   Performance::GetEntriesByType(aEntryType, aRetval);
 }
 
@@ -388,6 +421,13 @@ void PerformanceMainThread::GetEntriesByName(
   }
 
   Performance::GetEntriesByName(aName, aEntryType, aRetval);
+
+  if (mFCPTiming && mFCPTiming->GetName().Equals(aName) &&
+      (!aEntryType.WasPassed() ||
+       mFCPTiming->GetEntryType().Equals(aEntryType.Value()))) {
+    aRetval.AppendElement(mFCPTiming);
+    return;
+  }
 
   // The navigation entry is the first one. If it exists and the name matches,
   // let put it in front.

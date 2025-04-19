@@ -62,7 +62,7 @@ class XULFrameElement final : public nsXULElement, public nsFrameLoaderOwner {
                                 bool aNotify) override;
 
  protected:
-  virtual ~XULFrameElement() {}
+  virtual ~XULFrameElement() = default;
 
   RefPtr<BrowsingContext> mOpener;
 

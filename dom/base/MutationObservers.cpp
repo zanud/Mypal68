@@ -20,7 +20,6 @@
 #ifdef MOZ_XUL
 #  include "nsXULElement.h"
 #endif
-#include "nsBindingManager.h"
 #include "nsGenericHTMLElement.h"
 #include "mozilla/AnimationTarget.h"
 #include "mozilla/Assertions.h"
@@ -51,6 +50,10 @@ enum class IsRemoveNotification {
 #  define COMPOSED_DOC_DECL
 #endif
 
+#define CALL_BINDING_MANAGER(func_, params_) \
+  do {                                       \
+  } while (0)
+
 // This macro expects the ownerDocument of content_ to be in scope as
 // |Document* doc|
 #define IMPL_MUTATION_NOTIFICATION(func_, content_, params_, remove_)         \
@@ -67,7 +70,7 @@ enum class IsRemoveNotification {
       presShell->func_ params_;                                               \
     }                                                                         \
   }                                                                           \
-  doc->BindingManager()->func_ params_;                                       \
+  CALL_BINDING_MANAGER(func_, params_);                                       \
   nsINode* last;                                                              \
   do {                                                                        \
     nsINode::nsSlots* slots = node->GetExistingSlots();                       \

@@ -2149,7 +2149,7 @@ XMLHttpRequestMainThread::OnStopRequest(nsIRequest* request, nsresult status) {
       }
 
       ChromeFilePropertyBag bag;
-      bag.mType = NS_ConvertUTF8toUTF16(contentType);
+      CopyUTF8toUTF16(contentType, bag.mType);
 
       nsCOMPtr<nsIGlobalObject> global = GetOwnerGlobal();
 

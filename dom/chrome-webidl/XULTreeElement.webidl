@@ -115,7 +115,7 @@ interface XULTreeElement : XULElement
    * returns -1 for invalid mouse coordinates.
    *
    * The coordinate system is the client coordinate system for the
-   * document this boxObject lives in, and the units are CSS pixels.
+   * document this tree lives in, and the units are CSS pixels.
    */
   long getRowAt(long x, long y);
 
@@ -127,7 +127,7 @@ interface XULTreeElement : XULElement
    * "cell", "twisty", "image", and "text".
    *
    * The coordinate system is the client coordinate system for the
-   * document this boxObject lives in, and the units are CSS pixels.
+   * document this tree lives in, and the units are CSS pixels.
    */
   [Throws]
   TreeCellInfo getCellAt(long x, long y);

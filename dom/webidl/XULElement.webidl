@@ -12,17 +12,7 @@ interface XULElement : Element {
 
   // Layout properties
   [SetterThrows]
-  attribute DOMString align;
-  [SetterThrows]
-  attribute DOMString dir;
-  [SetterThrows]
   attribute DOMString flex;
-  [SetterThrows]
-  attribute DOMString ordinal;
-  [SetterThrows]
-  attribute DOMString orient;
-  [SetterThrows]
-  attribute DOMString pack;
 
   // Properties for hiding elements.
   attribute boolean hidden;
@@ -78,8 +68,6 @@ interface XULElement : Element {
 
   [Throws, ChromeOnly]
   readonly attribute XULControllers             controllers;
-  [Throws]
-  readonly attribute BoxObject?                 boxObject;
 
   [NeedsCallerType]
   void                      click();

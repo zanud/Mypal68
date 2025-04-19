@@ -452,8 +452,6 @@ class nsGlobalWindowInner final : public mozilla::dom::EventTarget,
   static void ShutDown();
   static bool IsCallerChrome();
 
-  void CleanupCachedXBLHandlers();
-
   friend class WindowStateHolder;
 
   NS_DECL_CYCLE_COLLECTION_SKIPPABLE_SCRIPT_HOLDER_CLASS_AMBIGUOUS(
@@ -464,12 +462,6 @@ class nsGlobalWindowInner final : public mozilla::dom::EventTarget,
   // with caution.
   void RiskyUnlink();
 #endif
-
-  virtual JSObject* GetCachedXBLPrototypeHandler(
-      nsXBLPrototypeHandler* aKey) override;
-
-  virtual void CacheXBLPrototypeHandler(
-      nsXBLPrototypeHandler* aKey, JS::Handle<JSObject*> aHandler) override;
 
   virtual bool TakeFocus(bool aFocus, uint32_t aFocusMethod) override;
   virtual void SetReadyForFocus() override;
@@ -894,6 +886,11 @@ class nsGlobalWindowInner final : public mozilla::dom::EventTarget,
       int32_t aSx, int32_t aSy, int32_t aSw, int32_t aSh,
       mozilla::ErrorResult& aRv);
 
+  void StructuredClone(JSContext* aCx, JS::Handle<JS::Value> aValue,
+                       const mozilla::dom::StructuredSerializeOptions& aOptions,
+                       JS::MutableHandle<JS::Value> aRetval,
+                       mozilla::ErrorResult& aError);
+
   // ChromeWindow bits.  Do NOT call these unless your window is in
   // fact chrome.
   uint16_t WindowState();
@@ -1122,13 +1119,13 @@ class nsGlobalWindowInner final : public mozilla::dom::EventTarget,
 
   bool IsInModalState();
 
-  virtual void SetFocusedElement(mozilla::dom::Element* aElement,
-                                 uint32_t aFocusMethod = 0,
-                                 bool aNeedsFocus = false) override;
+  void SetFocusedElement(mozilla::dom::Element* aElement,
+                         uint32_t aFocusMethod = 0, bool aNeedsFocus = false,
+                         bool aWillShowOutline = false) override;
 
-  virtual uint32_t GetFocusMethod() override;
+  uint32_t GetFocusMethod() override;
 
-  virtual bool ShouldShowFocusRing() override;
+  bool ShouldShowFocusRing() override;
 
   // Inner windows only.
   void UpdateCanvasFocus(bool aFocusChanged, nsIContent* aNewContent);
@@ -1364,7 +1361,7 @@ class nsGlobalWindowInner final : public mozilla::dom::EventTarget,
   uint32_t mSerial;
 #endif
 
-  // the method that was used to focus mFocusedNode
+  // the method that was used to focus mFocusedElement
   uint32_t mFocusMethod;
 
   // The current idle request callback handle
@@ -1377,10 +1374,6 @@ class nsGlobalWindowInner final : public mozilla::dom::EventTarget,
 #endif
 
   RefPtr<nsDOMOfflineResourceList> mApplicationCache;
-
-  using XBLPrototypeHandlerTable =
-      nsJSThingHashtable<nsPtrHashKey<nsXBLPrototypeHandler>, JSObject*>;
-  mozilla::UniquePtr<XBLPrototypeHandlerTable> mCachedXBLPrototypeHandlers;
 
   RefPtr<mozilla::dom::IDBFactory> mIndexedDB;
 
@@ -1466,11 +1459,9 @@ class nsGlobalWindowInner final : public mozilla::dom::EventTarget,
   // Members in the mChromeFields member should only be used in chrome windows.
   // All accesses to this field should be guarded by a check of mIsChrome.
   struct ChromeFields {
-    ChromeFields() : mGroupMessageManagers(1) {}
-
     RefPtr<mozilla::dom::ChromeMessageBroadcaster> mMessageManager;
     nsRefPtrHashtable<nsStringHashKey, mozilla::dom::ChromeMessageBroadcaster>
-        mGroupMessageManagers;
+        mGroupMessageManagers{1};
   } mChromeFields;
 
   // These fields are used by the inner and outer windows to prevent

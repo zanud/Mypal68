@@ -13,6 +13,7 @@
 #include "mozilla/CycleCollectedJSContext.h"
 #include "mozilla/MozPromise.h"
 #include "mozilla/StorageAccess.h"
+#include "mozilla/Unused.h"
 #include "mozilla/dom/BindingDeclarations.h"
 #include "mozilla/dom/BlobURLProtocolHandler.h"
 #include "mozilla/dom/CSPEvalChecker.h"
@@ -536,6 +537,14 @@ already_AddRefed<Promise> WorkerGlobalScope::CreateImageBitmap(
                              Some(gfx::IntRect(aSx, aSy, aSw, aSh)), aRv);
 }
 
+// https://html.spec.whatwg.org/#structured-cloning
+void WorkerGlobalScope::StructuredClone(
+    JSContext* aCx, JS::Handle<JS::Value> aValue,
+    const StructuredSerializeOptions& aOptions,
+    JS::MutableHandle<JS::Value> aRetval, ErrorResult& aError) {
+  nsContentUtils::StructuredClone(aCx, this, aValue, aOptions, aRetval, aError);
+}
+
 mozilla::dom::DebuggerNotificationManager*
 WorkerGlobalScope::GetOrCreateDebuggerNotificationManager() {
   if (!mDebuggerNotificationManager) {
@@ -648,10 +657,9 @@ void DedicatedWorkerGlobalScope::PostMessage(
   mWorkerPrivate->PostMessageToParent(aCx, aMessage, aTransferable, aRv);
 }
 
-void DedicatedWorkerGlobalScope::PostMessage(JSContext* aCx,
-                                             JS::Handle<JS::Value> aMessage,
-                                             const PostMessageOptions& aOptions,
-                                             ErrorResult& aRv) {
+void DedicatedWorkerGlobalScope::PostMessage(
+    JSContext* aCx, JS::Handle<JS::Value> aMessage,
+    const StructuredSerializeOptions& aOptions, ErrorResult& aRv) {
   mWorkerPrivate->AssertIsOnWorkerThread();
   mWorkerPrivate->PostMessageToParent(aCx, aMessage, aOptions.mTransfer, aRv);
 }

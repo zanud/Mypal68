@@ -244,8 +244,7 @@ class PerformanceTiming final : public nsWrapperCache {
 
   // PerformanceNavigation WebIDL methods
   DOMTimeMilliSec NavigationStart() const {
-    if (!StaticPrefs::dom_enable_performance() ||
-        nsContentUtils::ShouldResistFingerprinting()) {
+    if (!StaticPrefs::dom_enable_performance()) {
       return 0;
     }
     if (mPerformance->IsSystemPrincipal()) {
@@ -257,8 +256,7 @@ class PerformanceTiming final : public nsWrapperCache {
   }
 
   DOMTimeMilliSec UnloadEventStart() {
-    if (!StaticPrefs::dom_enable_performance() ||
-        nsContentUtils::ShouldResistFingerprinting()) {
+    if (!StaticPrefs::dom_enable_performance()) {
       return 0;
     }
     if (mPerformance->IsSystemPrincipal()) {
@@ -270,8 +268,7 @@ class PerformanceTiming final : public nsWrapperCache {
   }
 
   DOMTimeMilliSec UnloadEventEnd() {
-    if (!StaticPrefs::dom_enable_performance() ||
-        nsContentUtils::ShouldResistFingerprinting()) {
+    if (!StaticPrefs::dom_enable_performance()) {
       return 0;
     }
     if (mPerformance->IsSystemPrincipal()) {
@@ -296,8 +293,7 @@ class PerformanceTiming final : public nsWrapperCache {
   DOMTimeMilliSec ResponseEnd();
 
   DOMTimeMilliSec DomLoading() {
-    if (!StaticPrefs::dom_enable_performance() ||
-        nsContentUtils::ShouldResistFingerprinting()) {
+    if (!StaticPrefs::dom_enable_performance()) {
       return 0;
     }
     if (mPerformance->IsSystemPrincipal()) {
@@ -308,8 +304,7 @@ class PerformanceTiming final : public nsWrapperCache {
   }
 
   DOMTimeMilliSec DomInteractive() const {
-    if (!StaticPrefs::dom_enable_performance() ||
-        nsContentUtils::ShouldResistFingerprinting()) {
+    if (!StaticPrefs::dom_enable_performance()) {
       return 0;
     }
     if (mPerformance->IsSystemPrincipal()) {
@@ -321,8 +316,7 @@ class PerformanceTiming final : public nsWrapperCache {
   }
 
   DOMTimeMilliSec DomContentLoadedEventStart() const {
-    if (!StaticPrefs::dom_enable_performance() ||
-        nsContentUtils::ShouldResistFingerprinting()) {
+    if (!StaticPrefs::dom_enable_performance()) {
       return 0;
     }
     if (mPerformance->IsSystemPrincipal()) {
@@ -334,8 +328,7 @@ class PerformanceTiming final : public nsWrapperCache {
   }
 
   DOMTimeMilliSec DomContentLoadedEventEnd() const {
-    if (!StaticPrefs::dom_enable_performance() ||
-        nsContentUtils::ShouldResistFingerprinting()) {
+    if (!StaticPrefs::dom_enable_performance()) {
       return 0;
     }
     if (mPerformance->IsSystemPrincipal()) {
@@ -347,8 +340,7 @@ class PerformanceTiming final : public nsWrapperCache {
   }
 
   DOMTimeMilliSec DomComplete() const {
-    if (!StaticPrefs::dom_enable_performance() ||
-        nsContentUtils::ShouldResistFingerprinting()) {
+    if (!StaticPrefs::dom_enable_performance()) {
       return 0;
     }
     if (mPerformance->IsSystemPrincipal()) {
@@ -360,8 +352,7 @@ class PerformanceTiming final : public nsWrapperCache {
   }
 
   DOMTimeMilliSec LoadEventStart() const {
-    if (!StaticPrefs::dom_enable_performance() ||
-        nsContentUtils::ShouldResistFingerprinting()) {
+    if (!StaticPrefs::dom_enable_performance()) {
       return 0;
     }
     if (mPerformance->IsSystemPrincipal()) {
@@ -373,8 +364,7 @@ class PerformanceTiming final : public nsWrapperCache {
   }
 
   DOMTimeMilliSec LoadEventEnd() const {
-    if (!StaticPrefs::dom_enable_performance() ||
-        nsContentUtils::ShouldResistFingerprinting()) {
+    if (!StaticPrefs::dom_enable_performance()) {
       return 0;
     }
     if (mPerformance->IsSystemPrincipal()) {
@@ -386,8 +376,7 @@ class PerformanceTiming final : public nsWrapperCache {
   }
 
   DOMTimeMilliSec TimeToNonBlankPaint() const {
-    if (!StaticPrefs::dom_enable_performance() ||
-        nsContentUtils::ShouldResistFingerprinting()) {
+    if (!StaticPrefs::dom_enable_performance()) {
       return 0;
     }
     if (mPerformance->IsSystemPrincipal()) {
@@ -399,8 +388,7 @@ class PerformanceTiming final : public nsWrapperCache {
   }
 
   DOMTimeMilliSec TimeToContentfulPaint() const {
-    if (!StaticPrefs::dom_enable_performance() ||
-        nsContentUtils::ShouldResistFingerprinting()) {
+    if (!StaticPrefs::dom_enable_performance()) {
       return 0;
     }
     if (mPerformance->IsSystemPrincipal()) {
@@ -412,8 +400,7 @@ class PerformanceTiming final : public nsWrapperCache {
   }
 
   DOMTimeMilliSec TimeToDOMContentFlushed() const {
-    if (!StaticPrefs::dom_enable_performance() ||
-        nsContentUtils::ShouldResistFingerprinting()) {
+    if (!StaticPrefs::dom_enable_performance()) {
       return 0;
     }
     if (mPerformance->IsSystemPrincipal()) {
@@ -425,8 +412,7 @@ class PerformanceTiming final : public nsWrapperCache {
   }
 
   DOMTimeMilliSec TimeToFirstInteractive() const {
-    if (!StaticPrefs::dom_enable_performance() ||
-        nsContentUtils::ShouldResistFingerprinting()) {
+    if (!StaticPrefs::dom_enable_performance()) {
       return 0;
     }
     if (mPerformance->IsSystemPrincipal()) {

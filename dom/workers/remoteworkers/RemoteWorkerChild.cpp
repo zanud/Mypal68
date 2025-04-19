@@ -129,6 +129,10 @@ class RemoteWorkerChild::InitializeWorkerRunnable final
   }
 
   nsresult Cancel() override {
+    // We need to check first if cancel is called twice
+    nsresult rv = WorkerRunnable::Cancel();
+    NS_ENSURE_SUCCESS(rv, rv);
+
     mActor->CreationFailedOnAnyThread();
     mActor->ShutdownOnWorker();
     return WorkerRunnable::Cancel();

@@ -23,7 +23,7 @@ class USVStringSequenceSequenceOrUSVStringUSVStringRecordOrUSVString;
 
 class URLSearchParamsObserver : public nsISupports {
  public:
-  virtual ~URLSearchParamsObserver() {}
+  virtual ~URLSearchParamsObserver() = default;
 
   virtual void URLSearchParamsUpdated(URLSearchParams* aFromThis) = 0;
 };
@@ -34,7 +34,7 @@ class URLSearchParamsObserver : public nsISupports {
 
 class URLParams final {
  public:
-  URLParams() {}
+  URLParams() = default;
 
   ~URLParams() { DeleteAll(); }
 

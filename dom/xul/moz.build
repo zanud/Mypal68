@@ -8,9 +8,8 @@ with Files("**"):
 if CONFIG['MOZ_BUILD_APP'] == 'browser':
     DEFINES['MOZ_BREAK_XUL_OVERLAYS'] = True
 
-MOCHITEST_MANIFESTS += ['test/mochitest.ini']
-
 MOCHITEST_CHROME_MANIFESTS += ['test/chrome.ini']
+MOCHITEST_MANIFESTS += ['test/mochitest.ini']
 
 if CONFIG['MOZ_XUL']:
     EXPORTS += [
@@ -41,7 +40,6 @@ if CONFIG['MOZ_XUL']:
         'nsXULPrototypeDocument.cpp',
         'nsXULSortService.cpp',
         'XULBroadcastManager.cpp',
-        'XULDocument.cpp',
         'XULFrameElement.cpp',
         'XULMenuElement.cpp',
         'XULPersist.cpp',
@@ -58,7 +56,13 @@ XPIDL_SOURCES += [
 
 XPIDL_MODULE = 'xul'
 
+EXPORTS.mozilla.dom += [
+    'ChromeObserver.h',
+]
+
+
 UNIFIED_SOURCES += [
+    'ChromeObserver.cpp',
     'nsXULControllers.cpp',
 ]
 
@@ -66,7 +70,6 @@ LOCAL_INCLUDES += [
     '/docshell/base',
     '/dom/base',
     '/dom/html',
-    '/dom/xbl',
     '/dom/xml',
     '/layout/base',
     '/layout/generic',

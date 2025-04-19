@@ -174,7 +174,7 @@ static nsresult GMPPlatformString(nsAString& aOutPlatform) {
   platform.AppendLiteral("_");
   platform.Append(arch);
 
-  aOutPlatform = NS_ConvertUTF8toUTF16(platform);
+  CopyUTF8toUTF16(platform, aOutPlatform);
 
   return NS_OK;
 }

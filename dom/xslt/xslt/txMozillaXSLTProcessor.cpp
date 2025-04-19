@@ -7,6 +7,7 @@
 #include "nsError.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/Document.h"
+#include "nsINodeList.h" //MY68
 #include "nsIStringBundle.h"
 #include "nsIURI.h"
 #include "nsMemory.h"

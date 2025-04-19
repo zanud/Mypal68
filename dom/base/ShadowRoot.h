@@ -151,6 +151,10 @@ class ShadowRoot final : public DocumentFragment,
   void AddSlot(HTMLSlotElement* aSlot);
   void RemoveSlot(HTMLSlotElement* aSlot);
   bool HasSlots() const { return !mSlotMap.IsEmpty(); };
+  HTMLSlotElement* GetDefaultSlot() const {
+    SlotArray* list = mSlotMap.Get(NS_LITERAL_STRING(""));
+    return list ? (*list)->ElementAt(0) : nullptr;
+  }
 
   void PartAdded(const Element&);
   void PartRemoved(const Element&);
@@ -167,8 +171,7 @@ class ShadowRoot final : public DocumentFragment,
 
   mozilla::ServoStyleRuleMap& ServoStyleRuleMap();
 
-  JSObject* WrapObject(JSContext* aCx,
-                       JS::Handle<JSObject*> aGivenProto) override;
+  JSObject* WrapNode(JSContext*, JS::Handle<JSObject*> aGivenProto) final;
 
   void NodeInfoChanged(Document* aOldDoc) override {
     DocumentFragment::NodeInfoChanged(aOldDoc);

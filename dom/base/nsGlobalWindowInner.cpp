@@ -294,9 +294,6 @@
 #  include "nsIWebBrowserPrint.h"
 #endif
 
-#include "nsBindingManager.h"
-#include "nsXBLService.h"
-
 #ifdef HAVE_SIDEBAR
 #  include "mozilla/dom/ExternalBinding.h"
 #endif
@@ -1110,13 +1107,6 @@ void nsGlobalWindowInner::ShutDown() {
   sInnerWindowsById = nullptr;
 }
 
-// static
-void nsGlobalWindowInner::CleanupCachedXBLHandlers() {
-  if (mCachedXBLPrototypeHandlers && mCachedXBLPrototypeHandlers->Count() > 0) {
-    mCachedXBLPrototypeHandlers->Clear();
-  }
-}
-
 void nsGlobalWindowInner::FreeInnerObjects() {
   if (IsDying()) {
     return;
@@ -1205,8 +1195,6 @@ void nsGlobalWindowInner::FreeInnerObjects() {
   UnlinkHostObjectURIs();
 
   NotifyWindowIDDestroyed("inner-window-destroyed");
-
-  CleanupCachedXBLHandlers();
 
   for (uint32_t i = 0; i < mAudioContexts.Length(); ++i) {
     mAudioContexts[i]->Shutdown();
@@ -1332,12 +1320,6 @@ NS_IMPL_CYCLE_COLLECTION_CAN_SKIP_BEGIN(nsGlobalWindowInner)
       return true;
     }
     tmp->mCanSkipCCGeneration = nsCCUncollectableMarker::sGeneration;
-    if (tmp->mCachedXBLPrototypeHandlers) {
-      for (auto iter = tmp->mCachedXBLPrototypeHandlers->Iter(); !iter.Done();
-           iter.Next()) {
-        iter.Data().exposeToActiveJS();
-      }
-    }
     if (EventListenerManager* elm = tmp->GetExistingListenerManager()) {
       elm->MarkForCC();
     }
@@ -1473,8 +1455,6 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsGlobalWindowInner)
     JS::SetRealmNonLive(js::GetNonCCWObjectRealm(wrapper));
   }
 
-  tmp->CleanupCachedXBLHandlers();
-
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mNavigator)
 
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mPerformance)
@@ -1593,12 +1573,6 @@ void nsGlobalWindowInner::RiskyUnlink() {
 #endif
 
 NS_IMPL_CYCLE_COLLECTION_TRACE_BEGIN(nsGlobalWindowInner)
-  if (tmp->mCachedXBLPrototypeHandlers) {
-    for (auto iter = tmp->mCachedXBLPrototypeHandlers->Iter(); !iter.Done();
-         iter.Next()) {
-      aCallbacks.Trace(&iter.Data(), "Cached XBL prototype handler", aClosure);
-    }
-  }
   NS_IMPL_CYCLE_COLLECTION_TRACE_PRESERVED_WRAPPER
 NS_IMPL_CYCLE_COLLECTION_TRACE_END
 
@@ -2021,11 +1995,6 @@ nsresult nsGlobalWindowInner::PostHandleEvent(EventChainPostVisitor& aVisitor) {
       }
     }
 #endif
-    // Execute bindingdetached handlers before we tear ourselves
-    // down.
-    if (mDoc) {
-      mDoc->BindingManager()->ExecuteDetachedHandlers();
-    }
     mIsDocumentLoaded = false;
   } else if (aVisitor.mEvent->mMessage == eLoad &&
              aVisitor.mEvent->IsTrusted()) {
@@ -3888,25 +3857,6 @@ void nsGlobalWindowInner::NotifyDOMWindowThawed(nsGlobalWindowInner* aWindow) {
   }
 }
 
-JSObject* nsGlobalWindowInner::GetCachedXBLPrototypeHandler(
-    nsXBLPrototypeHandler* aKey) {
-  JS::Rooted<JSObject*> handler(RootingCx());
-  if (mCachedXBLPrototypeHandlers) {
-    mCachedXBLPrototypeHandlers->Get(aKey, handler.address());
-  }
-  return handler;
-}
-
-void nsGlobalWindowInner::CacheXBLPrototypeHandler(
-    nsXBLPrototypeHandler* aKey, JS::Handle<JSObject*> aHandler) {
-  if (!mCachedXBLPrototypeHandlers) {
-    mCachedXBLPrototypeHandlers = MakeUnique<XBLPrototypeHandlerTable>();
-    PreserveWrapper(ToSupports(this));
-  }
-
-  mCachedXBLPrototypeHandlers->Put(aKey, aHandler);
-}
-
 Element* nsGlobalWindowInner::GetFrameElement(nsIPrincipal& aSubjectPrincipal,
                                               ErrorResult& aError) {
   FORWARD_TO_OUTER_OR_THROW(GetFrameElementOuter, (aSubjectPrincipal), aError,
@@ -4105,7 +4055,8 @@ void nsGlobalWindowInner::StopVRActivity() {
 
 void nsGlobalWindowInner::SetFocusedElement(Element* aElement,
                                             uint32_t aFocusMethod,
-                                            bool aNeedsFocus) {
+                                            bool aNeedsFocus,
+                                            bool aWillShowOutline) {
   if (aElement && aElement->GetComposedDoc() != mDoc) {
     NS_WARNING("Trying to set focus to a node from a wrong document");
     return;
@@ -4115,12 +4066,16 @@ void nsGlobalWindowInner::SetFocusedElement(Element* aElement,
     NS_ASSERTION(!aElement, "Trying to focus cleaned up window!");
     aElement = nullptr;
     aNeedsFocus = false;
+    aWillShowOutline = false;
   }
   if (mFocusedElement != aElement) {
     UpdateCanvasFocus(false, aElement);
     mFocusedElement = aElement;
+    // TODO: Maybe this should be set on refocus too?
     mFocusMethod = aFocusMethod & FOCUSMETHOD_MASK;
   }
+
+  mFocusedElementShowedOutlines = aWillShowOutline;
 
   if (mFocusedElement) {
     // if a node was focused by a keypress, turn on focus rings for the
@@ -4130,7 +4085,9 @@ void nsGlobalWindowInner::SetFocusedElement(Element* aElement,
     }
   }
 
-  if (aNeedsFocus) mNeedsFocus = aNeedsFocus;
+  if (aNeedsFocus) {
+    mNeedsFocus = aNeedsFocus;
+  }
 }
 
 uint32_t nsGlobalWindowInner::GetFocusMethod() { return mFocusMethod; }
@@ -4175,7 +4132,7 @@ void nsGlobalWindowInner::SetReadyForFocus() {
   bool oldNeedsFocus = mNeedsFocus;
   mNeedsFocus = false;
 
-  nsIFocusManager* fm = nsFocusManager::GetFocusManager();
+  nsFocusManager* fm = nsFocusManager::GetFocusManager();
   if (fm) {
     fm->WindowShown(GetOuterWindow(), oldNeedsFocus);
   }
@@ -4186,7 +4143,7 @@ void nsGlobalWindowInner::PageHidden() {
   // no longer valid. Use the persisted field to determine if the document
   // is being destroyed.
 
-  nsIFocusManager* fm = nsFocusManager::GetFocusManager();
+  nsFocusManager* fm = nsFocusManager::GetFocusManager();
   if (fm) {
     fm->WindowHidden(GetOuterWindow());
   }
@@ -7018,6 +6975,14 @@ mozilla::dom::TabGroup* nsGlobalWindowInner::TabGroupInner() {
   mozilla::dom::TabGroup* tabGroup = MaybeTabGroupInner();
   MOZ_RELEASE_ASSERT(tabGroup);
   return tabGroup;
+}
+
+// https://html.spec.whatwg.org/#structured-cloning
+void nsGlobalWindowInner::StructuredClone(
+    JSContext* aCx, JS::Handle<JS::Value> aValue,
+    const StructuredSerializeOptions& aOptions,
+    JS::MutableHandle<JS::Value> aRetval, ErrorResult& aError) {
+  nsContentUtils::StructuredClone(aCx, this, aValue, aOptions, aRetval, aError);
 }
 
 nsresult nsGlobalWindowInner::Dispatch(

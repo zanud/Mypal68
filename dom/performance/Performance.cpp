@@ -84,7 +84,7 @@ Performance::Performance(nsPIDOMWindowInner* aWindow, bool aSystemPrincipal)
   MOZ_ASSERT(NS_IsMainThread());
 }
 
-Performance::~Performance() {}
+Performance::~Performance() = default;
 
 DOMHighResTimeStamp Performance::Now() {
   DOMHighResTimeStamp rawTime = NowUnclamped();
@@ -235,7 +235,7 @@ void Performance::Mark(const nsAString& aName, ErrorResult& aRv) {
 }
 
 void Performance::ClearMarks(const Optional<nsAString>& aName) {
-  ClearUserEntries(aName, NS_LITERAL_STRING("mark"));
+  ClearUserEntries(aName, u"mark"_ns);
 }
 
 DOMHighResTimeStamp Performance::ResolveTimestampFromName(
@@ -332,7 +332,7 @@ void Performance::Measure(const nsAString& aName,
 }
 
 void Performance::ClearMeasures(const Optional<nsAString>& aName) {
-  ClearUserEntries(aName, NS_LITERAL_STRING("measure"));
+  ClearUserEntries(aName, u"measure"_ns);
 }
 
 void Performance::LogEntry(PerformanceEntry* aEntry,
@@ -355,11 +355,10 @@ void Performance::TimingNotification(PerformanceEntry* aEntry,
   init.mStartTime = aEntry->StartTime();
   init.mDuration = aEntry->Duration();
   init.mEpoch = aEpoch;
-  init.mOrigin = NS_ConvertUTF8toUTF16(aOwner.BeginReading());
+  CopyUTF8toUTF16(aOwner, init.mOrigin);
 
   RefPtr<PerformanceEntryEvent> perfEntryEvent =
-      PerformanceEntryEvent::Constructor(
-          this, NS_LITERAL_STRING("performanceentry"), init);
+      PerformanceEntryEvent::Constructor(this, u"performanceentry"_ns, init);
 
   nsCOMPtr<EventTarget> et = do_QueryInterface(GetOwner());
   if (et) {
@@ -570,10 +569,16 @@ class NotifyObserversTask final : public CancelableRunnable {
   }
 
  private:
-  ~NotifyObserversTask() {}
+  ~NotifyObserversTask() = default;
 
   RefPtr<Performance> mPerformance;
 };
+
+void Performance::QueueNotificationObserversTask() {
+  if (!mPendingNotificationObserversTask) {
+    RunNotificationObserversTask();
+  }
+}
 
 void Performance::RunNotificationObserversTask() {
   mPendingNotificationObserversTask = true;
@@ -611,9 +616,7 @@ void Performance::QueueEntry(PerformanceEntry* aEntry) {
   NS_OBSERVER_ARRAY_NOTIFY_XPCOM_OBSERVERS(
       interestedObservers, PerformanceObserver, QueueEntry, (aEntry));
 
-  if (!mPendingNotificationObserversTask) {
-    RunNotificationObserversTask();
-  }
+  QueueNotificationObserversTask();
 }
 
 void Performance::MemoryPressure() { mUserEntries.Clear(); }

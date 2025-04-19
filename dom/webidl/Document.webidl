@@ -22,6 +22,7 @@ interface URI;
 interface nsIDocShell;
 interface nsILoadGroup;
 interface nsIReferrerInfo;
+interface XULCommandDispatcher;
 
 enum VisibilityState { "hidden", "visible" };
 
@@ -195,8 +196,6 @@ partial interface Document {
    * etc.
    */
   [Func="IsChromeOrXBLOrUAWidget"] readonly attribute boolean mozSyntheticDocument;
-  [Throws, Func="IsChromeOrXBL"]
-  BoxObject? getBoxObjectFor(Element? element);
   /**
    * Returns the script element whose script is currently being processed.
    *
@@ -365,17 +364,6 @@ partial interface Document {
 
 //  Mozilla extensions of various sorts
 partial interface Document {
-  // XBL support.  Wish we could make these [ChromeOnly], but
-  // that would likely break bindings running with the page principal.
-  [Func="IsChromeOrXBL"]
-  NodeList? getAnonymousNodes(Element elt);
-  [Func="IsChromeOrXBL"]
-  Element? getAnonymousElementByAttribute(Element elt, DOMString attrName,
-                                          DOMString attrValue);
-  [Func="IsChromeOrXBL"]
-  Element? getBindingParent(Node node);
-  [Throws, Func="IsChromeOrXBL", NeedsSubjectPrincipal]
-  void loadBindingDocument(DOMString documentURL);
   // Creates a new XUL element regardless of the document's default type.
   [CEReactions, NewObject, Throws, Func="IsChromeOrXBL"]
   Element createXULElement(DOMString localName, optional (ElementCreationOptions or DOMString) options = {});

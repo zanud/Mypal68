@@ -52,6 +52,7 @@
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/DocumentInlines.h"
 #include "mozilla/dom/MessageBroadcaster.h"
+#include "mozilla/dom/MessagePort.h"
 #include "mozilla/dom/DocumentFragment.h"
 #include "mozilla/dom/DOMException.h"
 #include "mozilla/dom/DOMExceptionBinding.h"
@@ -120,7 +121,6 @@
 #include "nsAttrName.h"
 #include "nsAttrValue.h"
 #include "nsAttrValueInlines.h"
-#include "nsBindingManager.h"
 #include "nsCanvasFrame.h"
 #include "nsCaret.h"
 #include "nsCCUncollectableMarker.h"
@@ -565,7 +565,7 @@ class nsContentUtils::UserInteractionObserver final
   static Atomic<bool> sUserActive;
 
  private:
-  ~UserInteractionObserver() {}
+  ~UserInteractionObserver() = default;
 };
 
 /* static */
@@ -2101,7 +2101,7 @@ bool nsContentUtils::IsCallerContentXBL() {
     return true;
   }
 
-  return xpc::IsContentXBLScope(realm);
+  return false;
 }
 
 bool nsContentUtils::IsCallerUAWidget() {
@@ -2134,9 +2134,7 @@ bool nsContentUtils::ThreadsafeIsSystemCaller(JSContext* aCx) {
 bool nsContentUtils::LookupBindingMember(
     JSContext* aCx, nsIContent* aContent, JS::Handle<jsid> aId,
     JS::MutableHandle<JS::PropertyDescriptor> aDesc) {
-  nsXBLBinding* binding = aContent->GetXBLBinding();
-  if (!binding) return true;
-  return binding->LookupMember(aCx, aId, aDesc);
+  return true;
 }
 
 // static
@@ -3551,7 +3549,6 @@ void nsContentUtils::GetEventArgNames(int32_t aNameSpaceID, nsAtom* aEventName,
 static const char* gPropertiesFiles[nsContentUtils::PropertiesFile_COUNT] = {
     // Must line up with the enum values in |PropertiesFile| enum.
     "chrome://global/locale/css.properties",
-    "chrome://global/locale/xbl.properties",
     "chrome://global/locale/xul.properties",
     "chrome://global/locale/layout_errors.properties",
     "chrome://global/locale/layout/HtmlForm.properties",
@@ -4270,7 +4267,7 @@ void nsContentUtils::RequestFrameFocus(Element& aFrameElement, bool aCanRaise) {
     return;
   }
 
-  nsCOMPtr<nsIFocusManager> fm = nsFocusManager::GetFocusManager();
+  RefPtr<nsFocusManager> fm = nsFocusManager::GetFocusManager();
   if (!fm) {
     return;
   }
@@ -4409,14 +4406,6 @@ bool nsContentUtils::HasMutationListeners(nsINode* aNode, uint32_t aType,
       return true;
     }
 
-    if (aNode->IsContent()) {
-      nsIContent* insertionPoint = aNode->AsContent()->GetXBLInsertionPoint();
-      if (insertionPoint) {
-        aNode = insertionPoint->GetParent();
-        MOZ_ASSERT(aNode);
-        continue;
-      }
-    }
     aNode = aNode->GetParentNode();
   }
 
@@ -5173,18 +5162,18 @@ bool nsContentUtils::IsInSameAnonymousTree(const nsINode* aNode,
   MOZ_ASSERT(aNode, "Must have a node to work with");
   MOZ_ASSERT(aContent, "Must have a content to work with");
 
-  if (!aNode->IsContent()) {
-    /**
-     * The root isn't an nsIContent, so it's a document or attribute.  The only
-     * nodes in the same anonymous subtree as it will have a null
-     * bindingParent.
-     *
-     * XXXbz strictly speaking, that's not true for attribute nodes.
-     */
-    return aContent->GetBindingParent() == nullptr;
+  if (aNode->IsInNativeAnonymousSubtree() != aContent->IsInNativeAnonymousSubtree()) {
+    return false;
   }
 
-  return aNode->AsContent()->GetBindingParent() == aContent->GetBindingParent();
+  if (aNode->IsInNativeAnonymousSubtree()) {
+    return aContent->GetClosestNativeAnonymousSubtreeRoot() ==
+           aNode->GetClosestNativeAnonymousSubtreeRoot();
+  }
+
+  // FIXME: This doesn't deal with disconnected nodes whatsoever, but it didn't
+  // use to either. Maybe that's fine.
+  return aNode->GetContainingShadow() == aContent->GetContainingShadow();
 }
 
 /* static */
@@ -5937,7 +5926,7 @@ nsresult nsContentUtils::GetUTFOrigin(nsIPrincipal* aPrincipal,
     asciiOrigin.AssignLiteral("null");
   }
 
-  aOrigin = NS_ConvertUTF8toUTF16(asciiOrigin);
+  CopyUTF8toUTF16(asciiOrigin, aOrigin);
   return NS_OK;
 }
 
@@ -5963,7 +5952,7 @@ nsresult nsContentUtils::GetUTFOrigin(nsIURI* aURI, nsAString& aOrigin) {
   rv = GetASCIIOrigin(aURI, asciiOrigin);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  aOrigin = NS_ConvertUTF8toUTF16(asciiOrigin);
+  CopyUTF8toUTF16(asciiOrigin, aOrigin);
   return NS_OK;
 }
 
@@ -8853,7 +8842,7 @@ void nsContentUtils::GetPresentationURL(nsIDocShell* aDocShell,
 
     nsAutoCString uriStr;
     uri->GetSpec(uriStr);
-    aPresentationUrl = NS_ConvertUTF8toUTF16(uriStr);
+    CopyUTF8toUTF16(uriStr, aPresentationUrl);
     return;
   }
 
@@ -9496,11 +9485,8 @@ void nsContentUtils::AppendDocumentLevelNativeAnonymousContentTo(
           "scroll frame should always implement nsIAnonymousContentCreator");
       creator->AppendAnonymousContentTo(aElements, 0);
     }
-
     if (nsCanvasFrame* canvasFrame = presShell->GetCanvasFrame()) {
-      if (Element* container = canvasFrame->GetCustomContentContainer()) {
-        aElements.AppendElement(container);
-      }
+      canvasFrame->AppendAnonymousContentTo(aElements, 0);
     }
   }
 
@@ -9658,6 +9644,41 @@ nsresult nsContentUtils::CreateJSValueFromSequenceOfObject(
 
   aValue.setObject(*array);
   return NS_OK;
+}
+
+/* static */
+void nsContentUtils::StructuredClone(JSContext* aCx, nsIGlobalObject* aGlobal,
+                                     JS::Handle<JS::Value> aValue,
+                                     const StructuredSerializeOptions& aOptions,
+                                     JS::MutableHandle<JS::Value> aRetval,
+                                     ErrorResult& aError) {
+  JS::Rooted<JS::Value> transferArray(aCx, JS::UndefinedValue());
+  aError = nsContentUtils::CreateJSValueFromSequenceOfObject(
+      aCx, aOptions.mTransfer, &transferArray);
+  if (NS_WARN_IF(aError.Failed())) {
+    return;
+  }
+
+  JS::CloneDataPolicy clonePolicy;
+  //clonePolicy.allowIntraClusterClonableSharedObjects();
+  //clonePolicy.allowSharedMemoryObjects();
+  clonePolicy.denySharedArrayBuffer();
+
+  StructuredCloneHolder holder(StructuredCloneHolder::CloningSupported,
+                               StructuredCloneHolder::TransferringSupported,
+                               JS::StructuredCloneScope::SameProcess);
+  holder.Write(aCx, aValue, transferArray, clonePolicy, aError);
+  if (NS_WARN_IF(aError.Failed())) {
+    return;
+  }
+
+  holder.Read(aGlobal, aCx, aRetval, aError);
+  if (NS_WARN_IF(aError.Failed())) {
+    return;
+  }
+
+  nsTArray<RefPtr<MessagePort>> ports = holder.TakeTransferredPorts();
+  Unused << ports;
 }
 
 /* static */

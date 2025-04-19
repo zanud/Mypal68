@@ -1215,11 +1215,9 @@ class FinalizeOriginEvictionOp : public OriginOperationBase {
 
  public:
   FinalizeOriginEvictionOp(nsIEventTarget* aBackgroundThread,
-                           nsTArray<RefPtr<DirectoryLockImpl>>& aLocks)
-      : OriginOperationBase(aBackgroundThread) {
+                           nsTArray<RefPtr<DirectoryLockImpl>>&& aLocks)
+      : OriginOperationBase(aBackgroundThread), mLocks(std::move(aLocks)) {
     MOZ_ASSERT(!NS_IsMainThread());
-
-    mLocks.SwapElements(aLocks);
   }
 
   void Dispatch();
@@ -3463,7 +3461,7 @@ bool QuotaObject::LockedMaybeUpdateSize(int64_t aSize, bool aTruncate) {
         // However, the origin eviction must be finalized in this case too.
         AutoUnlock autoUnlock(quotaManager->mQuotaMutex);
 
-        quotaManager->FinalizeOriginEviction(locks);
+        quotaManager->FinalizeOriginEviction(std::move(locks));
 
         return false;
       }
@@ -3496,7 +3494,7 @@ bool QuotaObject::LockedMaybeUpdateSize(int64_t aSize, bool aTruncate) {
     // ops for the evicted origins.
     AutoUnlock autoUnlock(quotaManager->mQuotaMutex);
 
-    quotaManager->FinalizeOriginEviction(locks);
+    quotaManager->FinalizeOriginEviction(std::move(locks));
 
     return true;
   }
@@ -7679,11 +7677,11 @@ void QuotaManager::DeleteFilesForOrigin(PersistenceType aPersistenceType,
 }
 
 void QuotaManager::FinalizeOriginEviction(
-    nsTArray<RefPtr<DirectoryLockImpl>>& aLocks) {
+    nsTArray<RefPtr<DirectoryLockImpl>>&& aLocks) {
   NS_ASSERTION(!NS_IsMainThread(), "Wrong thread!");
 
   RefPtr<FinalizeOriginEvictionOp> op =
-      new FinalizeOriginEvictionOp(mOwningThread, aLocks);
+      new FinalizeOriginEvictionOp(mOwningThread, std::move(aLocks));
 
   if (IsOnIOThread()) {
     op->RunOnIOThreadImmediately();
@@ -9241,12 +9239,7 @@ void GetUsageOp::GetResponse(UsageRequestResponse& aResponse) {
 
   aResponse = AllUsageResponse();
 
-  if (!mOriginUsages.IsEmpty()) {
-    nsTArray<OriginUsage>& originUsages =
-        aResponse.get_AllUsageResponse().originUsages();
-
-    mOriginUsages.SwapElements(originUsages);
-  }
+  aResponse.get_AllUsageResponse().originUsages() = std::move(mOriginUsages);
 }
 
 GetOriginUsageOp::GetOriginUsageOp(const UsageRequestParams& aParams)

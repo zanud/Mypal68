@@ -82,7 +82,6 @@ DIRS += [
     'url',
     'webauthn',
     'webidl',
-    'xbl',
     'xml',
     'xslt',
     'xul',

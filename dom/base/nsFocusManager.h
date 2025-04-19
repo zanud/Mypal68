@@ -179,6 +179,53 @@ class nsFocusManager final : public nsIFocusManager,
    */
   void ActivateRemoteFrameIfNeeded(mozilla::dom::Element&);
 
+  /**
+   * Raises the top-level window aWindow at the widget level.
+   */
+  void RaiseWindow(nsPIDOMWindowOuter* aWindow);
+
+  /**
+   * Called when a window has been raised.
+   */
+  void WindowRaised(mozIDOMWindowProxy* aWindow);
+
+  /**
+   * Called when a window has been lowered.
+   */
+  void WindowLowered(mozIDOMWindowProxy* aWindow);
+
+  /**
+   * Called when a new document in a window is shown.
+   *
+   * If aNeedsFocus is true, then focus events are expected to be fired on the
+   * window if this window is in the focused window chain.
+   */
+  void WindowShown(mozIDOMWindowProxy* aWindow, bool aNeedsFocus);
+
+  /**
+   * Called when a document in a window has been hidden or otherwise can no
+   * longer accept focus.
+   */
+  void WindowHidden(mozIDOMWindowProxy* aWindow);
+
+  /**
+   * Fire any events that have been delayed due to synchronized actions.
+   */
+  void FireDelayedEvents(Document* aDocument);
+
+  /**
+   * Used in a child process to indicate that the parent window is now
+   * active or deactive.
+   */
+  void ParentActivated(mozIDOMWindowProxy* aWindow, bool aActive);
+
+  /**
+   * Indicate that a plugin wishes to take the focus. This is similar to a
+   * normal focus except that the widget focus is not changed. Updating the
+   * widget focus state is the responsibility of the caller.
+   */
+  nsresult FocusPlugin(mozilla::dom::Element* aPlugin);
+
   static uint32_t FocusOptionsToFocusManagerFlags(
       const mozilla::dom::FocusOptions& aOptions);
 
@@ -202,6 +249,14 @@ class nsFocusManager final : public nsIFocusManager,
   static bool sMouseFocusesFormControl;
 
   static void MarkUncollectableForCCGeneration(uint32_t aGeneration);
+
+  struct BlurredElementInfo {
+    const mozilla::OwningNonNull<mozilla::dom::Element> mElement;
+    const bool mHadRing;
+
+    explicit BlurredElementInfo(mozilla::dom::Element&);
+    ~BlurredElementInfo();
+  };
 
  protected:
   nsFocusManager();
@@ -311,7 +366,7 @@ class nsFocusManager final : public nsIFocusManager,
   MOZ_CAN_RUN_SCRIPT_BOUNDARY
   bool Blur(nsPIDOMWindowOuter* aWindowToClear,
             nsPIDOMWindowOuter* aAncestorWindowToFocus, bool aIsLeavingDocument,
-            bool aAdjustWidget, nsIContent* aContentToFocus = nullptr);
+            bool aAdjustWidget, mozilla::dom::Element* aElementToFocus = nullptr);
 
   /**
    * Focus an element in the active window and child frame.
@@ -343,7 +398,7 @@ class nsFocusManager final : public nsIFocusManager,
   void Focus(nsPIDOMWindowOuter* aWindow, mozilla::dom::Element* aContent,
              uint32_t aFlags, bool aIsNewDocument, bool aFocusChanged,
              bool aWindowRaised, bool aAdjustWidget,
-             nsIContent* aContentLostFocus = nullptr);
+             const mozilla::Maybe<BlurredElementInfo>& = mozilla::Nothing());
 
   /**
    * Send a focus or blur event at aTarget. It may be added to the delayed
@@ -402,11 +457,6 @@ class nsFocusManager final : public nsIFocusManager,
   MOZ_CAN_RUN_SCRIPT
   void ScrollIntoView(mozilla::PresShell* aPresShell, nsIContent* aContent,
                       uint32_t aFlags);
-
-  /**
-   * Raises the top-level window aWindow at the widget level.
-   */
-  void RaiseWindow(nsPIDOMWindowOuter* aWindow);
 
   /**
    * Updates the caret positon and visibility to match the focus.
@@ -616,18 +666,19 @@ class nsFocusManager final : public nsIFocusManager,
                            nsIContent** aFocusedContent);
 
  private:
-  // Notify that the focus state of aContent has changed.  Note that
-  // we need to pass in whether the window should show a focus ring
-  // before the SetFocusedNode call on it happened when losing focus
-  // and after the SetFocusedNode call when gaining focus, which is
-  // why that information needs to be an explicit argument instead of
-  // just passing in the window and asking it whether it should show
-  // focus rings: in the losing focus case that information could be
-  // wrong..
-  static void NotifyFocusStateChange(nsIContent* aContent,
-                                     nsIContent* aContentToFocus,
-                                     bool aWindowShouldShowFocusRing,
-                                     int32_t aFlags, bool aGettingFocus);
+  // Notify that the focus state of aElement has changed.  Note that we need to
+  // pass in whether the window should show a focus ring before the
+  // SetFocusedNode call on it happened when losing focus and after the
+  // SetFocusedNode call when gaining focus, which is why that information needs
+  // to be an explicit argument instead of just passing in the window and asking
+  // it whether it should show focus rings: in the losing focus case that
+  // information could be wrong.
+  //
+  // aShouldShowFocusRing is only relevant if aGettingFocus is true.
+  static void NotifyFocusStateChange(mozilla::dom::Element* aElement,
+                                     mozilla::dom::Element* aElementToFocus,
+                                     int32_t aFlags, bool aGettingFocus,
+                                     bool aShouldShowFocusRing);
 
   void SetFocusedWindowInternal(nsPIDOMWindowOuter* aWindow);
 

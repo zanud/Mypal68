@@ -19,7 +19,6 @@ class nsAttrValue;
 class nsAttrName;
 class nsTextFragment;
 class nsIFrame;
-class nsXBLBinding;
 
 namespace mozilla {
 class EventChainPreVisitor;
@@ -67,6 +66,7 @@ class nsIContent : public nsINode {
   explicit nsIContent(already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo)
       : nsINode(std::move(aNodeInfo)) {
     MOZ_ASSERT(mNodeInfo);
+    MOZ_ASSERT(static_cast<nsINode*>(this) == reinterpret_cast<nsINode*>(this));
     SetNodeIsContent();
   }
 #endif  // MOZILLA_INTERNAL_API
@@ -125,48 +125,28 @@ class nsIContent : public nsINode {
      *
      * @note the result children order is
      *   1. :before generated node
-     *   2. XBL flattened tree children of this node
+     *   2. Shadow DOM flattened tree children of this node
      *   3. native anonymous nodes
      *   4. :after generated node
      */
     eAllChildren = 0,
 
     /**
-     * All XBL explicit children of the node (see
-     * http://www.w3.org/TR/xbl/#explicit3 ), as well as :before and :after
-     * anonymous content and native anonymous children.
-     *
-     * @note the result children order is
-     *   1. :before generated node
-     *   2. XBL explicit children of the node
-     *   3. native anonymous nodes
-     *   4. :after generated node
+     * Skip native anonymous content created for placeholder of HTML input.
      */
-    eAllButXBL = 1,
-
-    /**
-     * Skip native anonymous content created for placeholder of HTML input,
-     * used in conjunction with eAllChildren or eAllButXBL.
-     */
-    eSkipPlaceholderContent = 2,
+    eSkipPlaceholderContent = 1 << 0,
 
     /**
      * Skip native anonymous content created by ancestor frames of the root
      * element's primary frame, such as scrollbar elements created by the root
      * scroll frame.
      */
-    eSkipDocumentLevelNativeAnonymousContent = 4,
+    eSkipDocumentLevelNativeAnonymousContent = 1 << 1,
   };
 
   /**
-   * Return either the XBL explicit children of the node or the XBL flattened
-   * tree children of the node, depending on the filter, as well as
-   * native anonymous children.
-   *
-   * @note calling this method with eAllButXBL will return children that are
-   *  also in the eAllButXBL and eAllChildren child lists of other descendants
-   *  of this node in the tree, but those other nodes cannot be reached from the
-   *  eAllButXBL child list.
+   * Return the flattened tree children of the node, depending on the filter, as
+   * well as native anonymous children.
    */
   virtual already_AddRefed<nsINodeList> GetChildren(uint32_t aFilter) = 0;
 
@@ -175,7 +155,7 @@ class nsIContent : public nsINode {
    * @see nsIAnonymousContentCreator
    */
   void SetIsNativeAnonymousRoot() {
-    SetFlags(NODE_IS_ANONYMOUS_ROOT | NODE_IS_IN_NATIVE_ANONYMOUS_SUBTREE |
+    SetFlags(NODE_IS_IN_NATIVE_ANONYMOUS_SUBTREE |
              NODE_IS_NATIVE_ANONYMOUS_ROOT);
   }
 
@@ -185,27 +165,15 @@ class nsIContent : public nsINode {
    */
   nsIContent* FindFirstNonChromeOnlyAccessContent() const;
 
-#ifdef DEBUG
-  void AssertAnonymousSubtreeRelatedInvariants() const;
-#endif
-
   /**
    * Returns true if and only if this node has a parent, but is not in
    * its parent's child list.
+   *
+   * FIXME(emilio): Remove along nsINode::IsInAnonymousSubtree.
    */
   bool IsRootOfAnonymousSubtree() const {
-#ifdef DEBUG
-    AssertAnonymousSubtreeRelatedInvariants();
-#endif
-    return HasFlag(NODE_IS_ANONYMOUS_ROOT);
+    return IsRootOfNativeAnonymousSubtree();
   }
-
-  /**
-   * Returns true if there is NOT a path through child lists
-   * from the top of this node's parent chain back to this node or
-   * if the node is in native anonymous subtree without a parent.
-   */
-  inline bool IsInAnonymousSubtree() const;
 
   /**
    * Return true iff this node is in an HTML document (in the HTML5 sense of
@@ -271,8 +239,6 @@ class nsIContent : public nsINode {
   inline bool IsAnyOfMathMLElements(First aFirst, Args... aArgs) const {
     return IsMathMLElement() && IsNodeInternal(aFirst, aArgs...);
   }
-
-  inline bool IsActiveChildrenElement() const;
 
   bool IsGeneratedContentContainerForBefore() const {
     return IsRootOfNativeAnonymousSubtree() &&
@@ -381,36 +347,6 @@ class nsIContent : public nsINode {
   virtual IMEState GetDesiredIMEState();
 
   /**
-   * Gets content node with the binding (or native code, possibly on the
-   * frame) responsible for our construction (and existence).  Used by
-   * anonymous content (both XBL-generated and native-anonymous).
-   *
-   * null for all explicit content (i.e., content reachable from the top
-   * of its GetParent() chain via child lists).
-   *
-   * @return the binding parent
-   */
-  virtual mozilla::dom::Element* GetBindingParent() const {
-    const nsExtendedContentSlots* slots = GetExistingExtendedContentSlots();
-    return slots ? slots->mBindingParent.get() : nullptr;
-  }
-
-  /**
-   * Gets the current XBL binding that is bound to this element.
-   *
-   * @return the current binding.
-   */
-  nsXBLBinding* GetXBLBinding() const {
-    if (!HasFlag(NODE_MAY_BE_IN_BINDING_MNGR)) {
-      return nullptr;
-    }
-
-    return DoGetXBLBinding();
-  }
-
-  virtual nsXBLBinding* DoGetXBLBinding() const = 0;
-
-  /**
    * Gets the ShadowRoot binding for this element.
    *
    * @return The ShadowRoot currently bound to this element.
@@ -419,8 +355,6 @@ class nsIContent : public nsINode {
 
   /**
    * Gets the root of the node tree for this content if it is in a shadow tree.
-   * This method is called |GetContainingShadow| instead of |GetRootShadowRoot|
-   * to avoid confusion with |GetShadowRoot|.
    *
    * @return The ShadowRoot that is the root of the node tree.
    */
@@ -428,14 +362,6 @@ class nsIContent : public nsINode {
     const nsExtendedContentSlots* slots = GetExistingExtendedContentSlots();
     return slots ? slots->mContainingShadow.get() : nullptr;
   }
-
-  /**
-   * Gets the shadow host if this content is in a shadow tree. That is, the host
-   * of |GetContainingShadow|, if its not null.
-   *
-   * @return The shadow host, if this is in shadow tree, or null.
-   */
-  nsIContent* GetContainingShadowHost() const;
 
   /**
    * Gets the assigned slot associated with this content.
@@ -462,29 +388,6 @@ class nsIContent : public nsINode {
    * @return The assigned slot element or null.
    */
   mozilla::dom::HTMLSlotElement* GetAssignedSlotByMode() const;
-
-  nsIContent* GetXBLInsertionParent() const {
-    nsIContent* ip = GetXBLInsertionPoint();
-    return ip ? ip->GetParent() : nullptr;
-  }
-
-  /**
-   * Gets the insertion parent element of the XBL binding.
-   * The insertion parent is our one true parent in the transformed DOM.
-   *
-   * @return the insertion parent element.
-   */
-  nsIContent* GetXBLInsertionPoint() const {
-    const nsExtendedContentSlots* slots = GetExistingExtendedContentSlots();
-    return slots ? slots->mXBLInsertionPoint.get() : nullptr;
-  }
-
-  /**
-   * Sets the insertion parent element of the XBL binding.
-   *
-   * @param aContent The insertion parent element.
-   */
-  void SetXBLInsertionPoint(nsIContent* aContent);
 
   /**
    * Same as GetFlattenedTreeParentNode, but returns null if the parent is
@@ -542,9 +445,8 @@ class nsIContent : public nsINode {
    * For container elements, this is called *before* any of the children are
    * created or added into the tree.
    *
-   * NOTE: this is currently only called for input and button, in the HTML
-   * content sink.  If you want to call it on your element, modify the content
-   * sink of your choice to do so.  This is an efficiency measure.
+   * NOTE: this is only called for elements listed in
+   * RequiresDoneCreatingElement. This is an efficiency measure.
    *
    * If you also need to determine whether the parser is the one creating your
    * element (through createElement() or cloneNode() generally) then add a
@@ -565,10 +467,8 @@ class nsIContent : public nsINode {
    * This method is called when the parser finishes creating the element's
    * children, if any are present.
    *
-   * NOTE: this is currently only called for textarea, select, and object
-   * elements in the HTML content sink. If you want to call it on your element,
-   * modify the content sink of your choice to do so. This is an efficiency
-   * measure.
+   * NOTE: this is only called for elements listed in
+   * RequiresDoneAddingChildren. This is an efficiency measure.
    *
    * If you also need to determine whether the parser is the one creating your
    * element (through createElement() or cloneNode() generally) then add a
@@ -594,6 +494,47 @@ class nsIContent : public nsINode {
    * @returns true otherwise.
    */
   virtual bool IsDoneAddingChildren() { return true; }
+
+  /**
+   * Returns true if an element needs its DoneCreatingElement method to be
+   * called after it has been created.
+   * @see nsIContent::DoneCreatingElement
+   *
+   * @param aNamespaceID the node's namespace ID
+   * @param aName the node's tag name
+   */
+  static inline bool RequiresDoneCreatingElement(int32_t aNamespace,
+                                                 nsAtom* aName) {
+    if (aNamespace == kNameSpaceID_XHTML &&
+        (aName == nsGkAtoms::input || aName == nsGkAtoms::button ||
+         aName == nsGkAtoms::menuitem || aName == nsGkAtoms::audio ||
+         aName == nsGkAtoms::video)) {
+      MOZ_ASSERT(
+          !RequiresDoneAddingChildren(aNamespace, aName),
+          "Both DoneCreatingElement and DoneAddingChildren on a same element "
+          "isn't supported.");
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Returns true if an element needs its DoneAddingChildren method to be
+   * called after all of its children have been added.
+   * @see nsIContent::DoneAddingChildren
+   *
+   * @param aNamespace the node's namespace ID
+   * @param aName the node's tag name
+   */
+  static inline bool RequiresDoneAddingChildren(int32_t aNamespace,
+                                                nsAtom* aName) {
+    return (aNamespace == kNameSpaceID_XHTML &&
+            (aName == nsGkAtoms::select || aName == nsGkAtoms::textarea ||
+             aName == nsGkAtoms::head || aName == nsGkAtoms::title ||
+             aName == nsGkAtoms::object || aName == nsGkAtoms::output)) ||
+           (aNamespace == kNameSpaceID_SVG && aName == nsGkAtoms::title) ||
+           (aNamespace == kNameSpaceID_XUL && aName == nsGkAtoms::linkset);
+  }
 
   /**
    * Get the ID of this content node (the atom corresponding to the
@@ -738,18 +679,6 @@ class nsIContent : public nsINode {
         mozilla::MallocSizeOf aMallocSizeOf) const;
 
     /**
-     * The nearest enclosing content node with a binding that created us.
-     *
-     * @see nsIContent::GetBindingParent
-     */
-    RefPtr<mozilla::dom::Element> mBindingParent;
-
-    /**
-     * @see nsIContent::GetXBLInsertionPoint
-     */
-    nsCOMPtr<nsIContent> mXBLInsertionPoint;
-
-    /**
      * @see nsIContent::GetContainingShadow
      */
     RefPtr<mozilla::dom::ShadowRoot> mContainingShadow;
@@ -886,14 +815,5 @@ class nsIContent : public nsINode {
 };
 
 NS_DEFINE_STATIC_IID_ACCESSOR(nsIContent, NS_ICONTENT_IID)
-
-inline nsIContent* nsINode::AsContent() {
-  MOZ_ASSERT(IsContent());
-  return static_cast<nsIContent*>(this);
-}
-
-inline const nsIContent* nsINode::AsContent() const {
-  return const_cast<nsINode*>(this)->AsContent();
-}
 
 #endif /* nsIContent_h___ */

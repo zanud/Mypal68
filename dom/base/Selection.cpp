@@ -2816,7 +2816,7 @@ nsIFrame* Selection::GetSelectionAnchorGeometry(SelectionRegion aRegion,
   // make focusRect relative to anchorFrame
   focusRect += focusFrame->GetOffsetTo(anchorFrame);
 
-  aRect->UnionRectEdges(anchorRect, focusRect);
+  *aRect = anchorRect.UnionEdges(focusRect);
   return anchorFrame;
 }
 

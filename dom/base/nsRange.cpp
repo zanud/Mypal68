@@ -856,10 +856,10 @@ void nsRange::DoSetRange(const RangeBoundaryBase<SPT, SRT>& aStartBoundary,
       !aRootNode ||
           (aStartBoundary.Container()->IsContent() &&
            aEndBoundary.Container()->IsContent() &&
-           aRootNode == static_cast<nsIContent*>(aStartBoundary.Container())
-                            ->GetBindingParent() &&
-           aRootNode == static_cast<nsIContent*>(aEndBoundary.Container())
-                            ->GetBindingParent()) ||
+           aRootNode ==
+               RangeUtils::ComputeRootNode(aStartBoundary.Container()) &&
+           aRootNode ==
+               RangeUtils::ComputeRootNode(aEndBoundary.Container())) ||
           (!aRootNode->GetParentNode() &&
            (aRootNode->IsDocument() || aRootNode->IsAttr() ||
             aRootNode->IsDocumentFragment() ||
@@ -1286,7 +1286,7 @@ class MOZ_STACK_CLASS RangeSubtreeIterator {
 
  public:
   RangeSubtreeIterator() : mIterState(eDone) {}
-  ~RangeSubtreeIterator() {}
+  ~RangeSubtreeIterator() = default;
 
   nsresult Init(nsRange* aRange);
   already_AddRefed<nsINode> GetCurrentNode();

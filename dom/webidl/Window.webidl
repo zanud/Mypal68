@@ -603,6 +603,6 @@ partial interface Window {
 
 };
 
-dictionary WindowPostMessageOptions : PostMessageOptions {
+dictionary WindowPostMessageOptions : StructuredSerializeOptions {
   USVString targetOrigin = "/";
 };

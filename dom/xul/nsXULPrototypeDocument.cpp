@@ -3,8 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "nsXULPrototypeDocument.h"
-#include "XULDocument.h"
 
+#include "nsXULElement.h"
 #include "nsAString.h"
 #include "nsIObjectInputStream.h"
 #include "nsIObjectOutputStream.h"
@@ -31,7 +31,6 @@
 using namespace mozilla;
 using namespace mozilla::dom;
 using mozilla::dom::DestroyProtoAndIfaceCache;
-using mozilla::dom::XULDocument;
 
 uint32_t nsXULPrototypeDocument::gRefCnt;
 

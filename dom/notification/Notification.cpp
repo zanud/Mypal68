@@ -361,6 +361,10 @@ class ReleaseNotificationRunnable final : public NotificationWorkerRunnable {
   }
 
   nsresult Cancel() override {
+    // We need to check first if cancel is called twice
+    nsresult rv = NotificationWorkerRunnable::Cancel();
+    NS_ENSURE_SUCCESS(rv, rv);
+
     mNotification->ReleaseObject();
     return NS_OK;
   }
@@ -1585,7 +1589,7 @@ nsresult Notification::ResolveIconAndSoundURL(nsString& iconUrl,
       if (NS_SUCCEEDED(rv)) {
         nsAutoCString src;
         srcUri->GetSpec(src);
-        iconUrl = NS_ConvertUTF8toUTF16(src);
+        CopyUTF8toUTF16(src, iconUrl);
       }
     }
     if (mBehavior.mSoundFile.Length() > 0) {
@@ -1595,7 +1599,7 @@ nsresult Notification::ResolveIconAndSoundURL(nsString& iconUrl,
       if (NS_SUCCEEDED(rv)) {
         nsAutoCString src;
         srcUri->GetSpec(src);
-        soundUrl = NS_ConvertUTF8toUTF16(src);
+        CopyUTF8toUTF16(src, soundUrl);
       }
     }
   }

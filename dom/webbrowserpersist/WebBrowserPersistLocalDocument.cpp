@@ -612,7 +612,7 @@ nsresult PersistNodeFixup::FixupURI(nsAString& aURI) {
     return NS_ERROR_FAILURE;
   }
   if (!replacement->IsEmpty()) {
-    aURI = NS_ConvertUTF8toUTF16(*replacement);
+    CopyUTF8toUTF16(*replacement, aURI);
   }
   return NS_OK;
 }
@@ -1003,7 +1003,7 @@ PersistNodeFixup::FixupNode(nsINode* aNodeIn, bool* aSerializeCloneKids,
       FixupAttribute(*aNodeOut, "src");
 
       nsAutoString valueStr;
-      NS_NAMED_LITERAL_STRING(valueAttr, "value");
+      constexpr auto valueAttr = u"value"_ns;
       // Update element node attributes with user-entered form state
       RefPtr<dom::HTMLInputElement> outElt =
           dom::HTMLInputElement::FromNode((*aNodeOut)->AsContent());

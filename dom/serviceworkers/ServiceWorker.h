@@ -19,8 +19,8 @@ class nsIGlobalObject;
 namespace mozilla {
 namespace dom {
 
-struct PostMessageOptions;
 class ServiceWorkerCloneData;
+struct StructuredSerializeOptions;
 
 #define NS_DOM_SERVICEWORKER_IID                     \
   {                                                  \
@@ -91,7 +91,8 @@ class ServiceWorker final : public DOMEventTargetHelper {
                    const Sequence<JSObject*>& aTransferable, ErrorResult& aRv);
 
   void PostMessage(JSContext* aCx, JS::Handle<JS::Value> aMessage,
-                   const PostMessageOptions& aOptions, ErrorResult& aRv);
+                   const StructuredSerializeOptions& aOptions,
+                   ErrorResult& aRv);
 
   const ServiceWorkerDescriptor& Descriptor() const;
 

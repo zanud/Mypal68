@@ -201,7 +201,7 @@ PushRecord.prototype = {
       }
       // `gBrowser` on Desktop; `BrowserApp` on Fennec.
       let tabs = window.gBrowser
-        ? window.gBrowser.tabContainer.children
+        ? window.gBrowser.tabs
         : window.BrowserApp.tabs;
       for (let tab of tabs) {
         // `linkedBrowser` on Desktop; `browser` on Fennec.

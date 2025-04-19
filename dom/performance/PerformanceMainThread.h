@@ -33,6 +33,8 @@ class PerformanceMainThread final : public Performance,
   virtual void AddEntry(nsIHttpChannel* channel,
                         nsITimedChannel* timedChannel) override;
 
+  virtual void SetFCPTimingEntry(PerformancePaintTiming* aEntry) override;
+
   TimeStamp CreationTimeStamp() const override;
 
   DOMHighResTimeStamp CreationTime() const override;
@@ -60,6 +62,7 @@ class PerformanceMainThread final : public Performance,
       const nsAString& aName, const Optional<nsAString>& aEntryType,
       nsTArray<RefPtr<PerformanceEntry>>& aRetval) override;
 
+  void UpdateNavigationTimingEntry() override;
   void QueueNavigationTimingEntry() override;
 
  protected:
@@ -81,6 +84,7 @@ class PerformanceMainThread final : public Performance,
   nsCOMPtr<nsITimedChannel> mChannel;
   RefPtr<PerformanceTiming> mTiming;
   RefPtr<PerformanceNavigation> mNavigation;
+  RefPtr<PerformancePaintTiming> mFCPTiming;
   JS::Heap<JSObject*> mMozMemory;
 };
 

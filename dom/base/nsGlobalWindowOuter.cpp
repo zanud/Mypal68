@@ -20,6 +20,7 @@
 #include "nsISecureBrowserUI.h"
 #include "nsIWebProgressListener.h"
 #include "mozilla/AntiTrackingCommon.h"
+#include "mozilla/dom/BrowserChild.h"
 #include "mozilla/dom/BindingUtils.h"
 #include "mozilla/dom/BrowsingContextBinding.h"
 #include "mozilla/dom/ContentFrameMessageManager.h"
@@ -140,6 +141,7 @@
 #include "nsDOMWindowUtils.h"
 #include "nsIWindowWatcher.h"
 #include "nsPIWindowWatcher.h"
+#include "nsIAppWindow.h"
 #include "nsIContentViewer.h"
 #include "nsIScriptError.h"
 #include "nsIControllers.h"
@@ -153,7 +155,6 @@
 #include "mozilla/EventStateManager.h"
 #include "nsIObserverService.h"
 #include "nsFocusManager.h"
-#include "nsIXULWindow.h"
 #include "nsServiceManagerUtils.h"
 #include "mozilla/dom/CustomEvent.h"
 #include "nsIScreenManager.h"
@@ -171,11 +172,8 @@
 #include "nsNetCID.h"
 #include "nsIArray.h"
 
-#include "XULDocument.h"
 #include "nsIDOMXULCommandDispatcher.h"
 
-#include "nsBindingManager.h"
-#include "nsXBLService.h"
 #include "mozilla/GlobalKeyListener.h"
 
 #include "nsIDragService.h"
@@ -1766,7 +1764,7 @@ void nsGlobalWindowOuter::SetInitialPrincipalToSubject(
   // We should never create windows with an expanded principal.
   // If we have a system principal, make sure we're not using it for a content
   // docshell.
-  // NOTE: Please keep this logic in sync with nsWebShellWindow::Initialize().
+  // NOTE: Please keep this logic in sync with AppWindow::Initialize().
   if (nsContentUtils::IsExpandedPrincipal(newWindowPrincipal) ||
       (newWindowPrincipal->IsSystemPrincipal() &&
        GetDocShell()->ItemType() != nsIDocShellTreeItem::typeChrome)) {
@@ -3557,42 +3555,55 @@ void nsGlobalWindowOuter::SetNameOuter(const nsAString& aName,
 }
 
 // Helper functions used by many methods below.
-int32_t nsGlobalWindowOuter::DevToCSSIntPixels(int32_t px) {
-  if (!mDocShell) return px;  // assume 1:1
-
-  RefPtr<nsPresContext> presContext = mDocShell->GetPresContext();
-  if (!presContext) return px;
-
-  return presContext->DevPixelsToIntCSSPixels(px);
+int32_t nsGlobalWindowOuter::DevToCSSIntPixelsForBaseWindow(
+    int32_t aDevicePixels, nsIBaseWindow* aWindow) {
+  MOZ_ASSERT(aWindow);
+  double scale;
+  aWindow->GetUnscaledDevicePixelsPerCSSPixel(&scale);
+  double zoom = 1.0;
+  if (mDocShell && mDocShell->GetPresContext()) {
+    zoom = mDocShell->GetPresContext()->GetFullZoom();
+  }
+  return std::floor(aDevicePixels / scale / zoom + 0.5);
 }
 
-int32_t nsGlobalWindowOuter::CSSToDevIntPixels(int32_t px) {
-  if (!mDocShell) return px;  // assume 1:1
-
-  RefPtr<nsPresContext> presContext = mDocShell->GetPresContext();
-  if (!presContext) return px;
-
-  return presContext->CSSPixelsToDevPixels(px);
+nsIntSize nsGlobalWindowOuter::DevToCSSIntPixelsForBaseWindow(
+    nsIntSize aDeviceSize, nsIBaseWindow* aWindow) {
+  MOZ_ASSERT(aWindow);
+  double scale;
+  aWindow->GetUnscaledDevicePixelsPerCSSPixel(&scale);
+  double zoom = 1.0;
+  if (mDocShell && mDocShell->GetPresContext()) {
+    zoom = mDocShell->GetPresContext()->GetFullZoom();
+  }
+  return nsIntSize::Round(
+      static_cast<float>(aDeviceSize.width / scale / zoom),
+      static_cast<float>(aDeviceSize.height / scale / zoom));
 }
 
-nsIntSize nsGlobalWindowOuter::DevToCSSIntPixels(nsIntSize px) {
-  if (!mDocShell) return px;  // assume 1:1
-
-  RefPtr<nsPresContext> presContext = mDocShell->GetPresContext();
-  if (!presContext) return px;
-
-  return nsIntSize(presContext->DevPixelsToIntCSSPixels(px.width),
-                   presContext->DevPixelsToIntCSSPixels(px.height));
+int32_t nsGlobalWindowOuter::CSSToDevIntPixelsForBaseWindow(
+    int32_t aCSSPixels, nsIBaseWindow* aWindow) {
+  MOZ_ASSERT(aWindow);
+  double scale;
+  aWindow->GetUnscaledDevicePixelsPerCSSPixel(&scale);
+  double zoom = 1.0;
+  if (mDocShell && mDocShell->GetPresContext()) {
+    zoom = mDocShell->GetPresContext()->GetFullZoom();
+  }
+  return std::floor(aCSSPixels * scale * zoom + 0.5);
 }
 
-nsIntSize nsGlobalWindowOuter::CSSToDevIntPixels(nsIntSize px) {
-  if (!mDocShell) return px;  // assume 1:1
-
-  RefPtr<nsPresContext> presContext = mDocShell->GetPresContext();
-  if (!presContext) return px;
-
-  return nsIntSize(presContext->CSSPixelsToDevPixels(px.width),
-                   presContext->CSSPixelsToDevPixels(px.height));
+nsIntSize nsGlobalWindowOuter::CSSToDevIntPixelsForBaseWindow(
+    nsIntSize aCSSSize, nsIBaseWindow* aWindow) {
+  MOZ_ASSERT(aWindow);
+  double scale;
+  aWindow->GetUnscaledDevicePixelsPerCSSPixel(&scale);
+  double zoom = 1.0;
+  if (mDocShell && mDocShell->GetPresContext()) {
+    zoom = mDocShell->GetPresContext()->GetFullZoom();
+  }
+  return nsIntSize::Round(static_cast<float>(aCSSSize.width * scale * zoom),
+                          static_cast<float>(aCSSSize.height * scale * zoom));
 }
 
 nsresult nsGlobalWindowOuter::GetInnerSize(CSSIntSize& aSize) {
@@ -3605,12 +3616,6 @@ nsresult nsGlobalWindowOuter::GetInnerSize(CSSIntSize& aSize) {
 
   if (!presContext || !presShell) {
     aSize = CSSIntSize(0, 0);
-    return NS_OK;
-  }
-
-  // If the visual viewport has been overriden, return that.
-  if (presShell->IsVisualViewportSizeSet()) {
-    aSize = CSSIntRect::FromAppUnitsRounded(presShell->GetVisualViewportSize());
     return NS_OK;
   }
 
@@ -3646,24 +3651,8 @@ void nsGlobalWindowOuter::SetInnerWidthOuter(int32_t aInnerWidth,
   CheckSecurityWidthAndHeight(&aInnerWidth, nullptr, aCallerType);
   RefPtr<PresShell> presShell = mDocShell->GetPresShell();
 
-  // Setting inner width should set the visual viewport. Most of the
-  // time, this is the same as the CSS viewport, and when we set one,
-  // we implicitly set both of them. But if
-  // presShell->IsVisualViewportSizeSet() returns true, that means
-  // that the two diverge. In that case we only set the visual viewport.
-  // This mirrors the logic in ::GetInnerSize() and ensures that JS
-  // behaves sanely when setting and then getting the innerWidth.
-  if (presShell && presShell->IsVisualViewportSizeSet()) {
-    CSSSize viewportSize =
-        CSSRect::FromAppUnits(presShell->GetVisualViewportSize());
-    viewportSize.width = aInnerWidth;
-    nsLayoutUtils::SetVisualViewportSize(presShell, viewportSize);
-    return;
-  }
-
-  // We're going to set both viewports. If the css viewport has been
-  // overridden, change the css viewport override. The visual viewport
-  // will adopt this value via the logic in ::GetInnerSize().
+  // Setting inner width should set the CSS viewport. If the CSS viewport
+  // has been overridden, change the override.
   if (presShell && presShell->GetIsViewportOverridden()) {
     nscoord height = 0;
 
@@ -3677,14 +3666,14 @@ void nsGlobalWindowOuter::SetInnerWidthOuter(int32_t aInnerWidth,
     return;
   }
 
-  // Nothing has been overriden, so change the docshell itself, which will
-  // affect both viewports.
+  // Nothing has been overriden, so change the docshell itself.
   int32_t height = 0;
   int32_t unused = 0;
 
   nsCOMPtr<nsIBaseWindow> docShellAsWin(do_QueryInterface(mDocShell));
   docShellAsWin->GetSize(&unused, &height);
-  aError = SetDocShellWidthAndHeight(CSSToDevIntPixels(aInnerWidth), height);
+  aError = SetDocShellWidthAndHeight(
+      CSSToDevIntPixelsForBaseWindow(aInnerWidth, docShellAsWin), height);
 }
 
 int32_t nsGlobalWindowOuter::GetInnerHeightOuter(ErrorResult& aError) {
@@ -3708,24 +3697,8 @@ void nsGlobalWindowOuter::SetInnerHeightOuter(int32_t aInnerHeight,
   CheckSecurityWidthAndHeight(nullptr, &aInnerHeight, aCallerType);
   RefPtr<PresShell> presShell = mDocShell->GetPresShell();
 
-  // Setting inner height should set the visual viewport. Most of the
-  // time, this is the same as the CSS viewport, and when we set one,
-  // we implicitly set both of them. But if
-  // presShell->IsVisualViewportSizeSet() returns true, that means
-  // that the two diverge. In that case we only set the visual viewport.
-  // This mirrors the logic in ::GetInnerSize() and ensures that JS
-  // behaves sanely when setting and then getting the innerHeight.
-  if (presShell && presShell->IsVisualViewportSizeSet()) {
-    CSSSize viewportSize =
-        CSSRect::FromAppUnits(presShell->GetVisualViewportSize());
-    viewportSize.height = aInnerHeight;
-    nsLayoutUtils::SetVisualViewportSize(presShell, viewportSize);
-    return;
-  }
-
-  // We're going to set both viewports. If the css viewport has been
-  // overridden, change the css viewport override. The visual viewport
-  // will adopt this value via the logic in ::GetInnerSize().
+  // Setting inner height should set the CSS viewport. If the CSS viewport
+  // has been overridden, change the override.
   if (presShell && presShell->GetIsViewportOverridden()) {
     nscoord width = 0;
 
@@ -3739,14 +3712,14 @@ void nsGlobalWindowOuter::SetInnerHeightOuter(int32_t aInnerHeight,
     return;
   }
 
-  // Nothing has been overriden, so change the docshell itself, which will
-  // affect both viewports.
+  // Nothing has been overriden, so change the docshell itself.
   int32_t height = 0;
   int32_t width = 0;
 
   nsCOMPtr<nsIBaseWindow> docShellAsWin(do_QueryInterface(mDocShell));
   docShellAsWin->GetSize(&width, &height);
-  aError = SetDocShellWidthAndHeight(width, CSSToDevIntPixels(aInnerHeight));
+  aError = SetDocShellWidthAndHeight(
+      width, CSSToDevIntPixelsForBaseWindow(aInnerHeight, docShellAsWin));
 }
 
 nsIntSize nsGlobalWindowOuter::GetOuterSize(CallerType aCallerType,
@@ -3757,23 +3730,13 @@ nsIntSize nsGlobalWindowOuter::GetOuterSize(CallerType aCallerType,
     return nsIntSize(size.width, size.height);
   }
 
-  if (mDoc && mDoc->InRDMPane()) {
-    CSSIntSize size;
-    aError = GetInnerSize(size);
-
-    // Obtain the current zoom of the presentation shell. The zoom value will
-    // be used to scale the size of the visual viewport to the device browser's
-    // outer size values. Once RDM no longer relies on the having the page
-    // content being embedded in a <iframe mozbrowser>, we can do away with
-    // this approach and retrieve the size of the frame containing the browser
-    // content.
-    RefPtr<nsPresContext> presContext = mDocShell->GetPresContext();
-
-    if (presContext) {
-      float zoom = presContext->GetDeviceFullZoom();
-      int32_t width = std::round(size.width * zoom);
-      int32_t height = std::round(size.height * zoom);
-      return nsIntSize(width, height);
+  // Windows showing documents in RDM panes and any subframes within them
+  // return the simulated device size.
+  if (mDoc) {
+    Maybe<CSSIntSize> deviceSize = GetRDMDeviceSize(*mDoc);
+    if (deviceSize.isSome()) {
+      const CSSIntSize& size = deviceSize.value();
+      return nsIntSize(size.width, size.height);
     }
   }
 
@@ -3789,7 +3752,7 @@ nsIntSize nsGlobalWindowOuter::GetOuterSize(CallerType aCallerType,
     return nsIntSize();
   }
 
-  return DevToCSSIntPixels(sizeDevPixels);
+  return DevToCSSIntPixelsForBaseWindow(sizeDevPixels, treeOwnerAsWin);
 }
 
 int32_t nsGlobalWindowOuter::GetOuterWidthOuter(CallerType aCallerType,
@@ -3821,7 +3784,8 @@ void nsGlobalWindowOuter::SetOuterSize(int32_t aLengthCSSPixels, bool aIsWidth,
     return;
   }
 
-  int32_t lengthDevPixels = CSSToDevIntPixels(aLengthCSSPixels);
+  int32_t lengthDevPixels =
+      CSSToDevIntPixelsForBaseWindow(aLengthCSSPixels, treeOwnerAsWin);
   if (aIsWidth) {
     width = lengthDevPixels;
   } else {
@@ -3915,6 +3879,41 @@ nsRect nsGlobalWindowOuter::GetInnerScreenRect() {
   return rootFrame->GetScreenRectInAppUnits();
 }
 
+Maybe<CSSIntSize> nsGlobalWindowOuter::GetRDMDeviceSize(
+    const Document& aDocument) {
+  // RDM device size should reflect the simulated device resolution, and
+  // be independent of any full zoom or resolution zoom applied to the
+  // content. To get this value, we get the "unscaled" browser child size,
+  // and divide by the full zoom. "Unscaled" in this case means unscaled
+  // from device to screen but it has been affected (multipled) by the
+  // full zoom and we need to compensate for that.
+  MOZ_RELEASE_ASSERT(NS_IsMainThread());
+
+  // Bug 1576256: This does not work for cross-process subframes.
+  const Document* topInProcessContentDoc =
+      aDocument.GetTopLevelContentDocument();
+  if (topInProcessContentDoc && topInProcessContentDoc->InRDMPane()) {
+    nsIDocShell* docShell = topInProcessContentDoc->GetDocShell();
+    if (docShell) {
+      nsPresContext* presContext = docShell->GetPresContext();
+      if (presContext) {
+        nsCOMPtr<nsIBrowserChild> child = docShell->GetBrowserChild();
+        if (child) {
+          // We intentionally use GetFullZoom here instead of
+          // GetDeviceFullZoom, because the unscaledInnerSize is based
+          // on the full zoom and not the device full zoom (which is
+          // rounded to result in integer device pixels).
+          float zoom = presContext->GetFullZoom();
+          BrowserChild* bc = static_cast<BrowserChild*>(child.get());
+          CSSSize unscaledSize = bc->GetUnscaledInnerSize();
+          return Some(CSSIntSize(gfx::RoundedToInt(unscaledSize / zoom)));
+        }
+      }
+    }
+  }
+  return Nothing();
+}
+
 float nsGlobalWindowOuter::GetMozInnerScreenXOuter(CallerType aCallerType) {
   // When resisting fingerprinting, always return 0.
   if (nsContentUtils::ResistFingerprinting(aCallerType)) {
@@ -3990,7 +3989,7 @@ void nsGlobalWindowOuter::SetScreenXOuter(int32_t aScreenX,
   }
 
   CheckSecurityLeftAndTop(&aScreenX, nullptr, aCallerType);
-  x = CSSToDevIntPixels(aScreenX);
+  x = CSSToDevIntPixelsForBaseWindow(aScreenX, treeOwnerAsWin);
 
   aError = treeOwnerAsWin->SetPosition(x, y);
 
@@ -4018,7 +4017,7 @@ void nsGlobalWindowOuter::SetScreenYOuter(int32_t aScreenY,
   }
 
   CheckSecurityLeftAndTop(nullptr, &aScreenY, aCallerType);
-  y = CSSToDevIntPixels(aScreenY);
+  y = CSSToDevIntPixelsForBaseWindow(aScreenY, treeOwnerAsWin);
 
   aError = treeOwnerAsWin->SetPosition(x, y);
 
@@ -4105,22 +4104,23 @@ void nsGlobalWindowOuter::CheckSecurityLeftAndTop(int32_t* aLeft, int32_t* aTop,
       rootWindow->FlushPendingNotifications(FlushType::Layout);
     }
 
-    nsCOMPtr<nsIBaseWindow> treeOwner = GetTreeOwnerWindow();
+    nsCOMPtr<nsIBaseWindow> treeOwnerAsWin = GetTreeOwnerWindow();
 
     RefPtr<nsScreen> screen = GetScreen();
 
-    if (treeOwner && screen) {
+    if (treeOwnerAsWin && screen) {
       int32_t winLeft, winTop, winWidth, winHeight;
 
       // Get the window size
-      treeOwner->GetPositionAndSize(&winLeft, &winTop, &winWidth, &winHeight);
+      treeOwnerAsWin->GetPositionAndSize(&winLeft, &winTop, &winWidth,
+                                         &winHeight);
 
       // convert those values to CSS pixels
       // XXX four separate retrievals of the prescontext
-      winLeft = DevToCSSIntPixels(winLeft);
-      winTop = DevToCSSIntPixels(winTop);
-      winWidth = DevToCSSIntPixels(winWidth);
-      winHeight = DevToCSSIntPixels(winHeight);
+      winLeft = DevToCSSIntPixelsForBaseWindow(winLeft, treeOwnerAsWin);
+      winTop = DevToCSSIntPixelsForBaseWindow(winTop, treeOwnerAsWin);
+      winWidth = DevToCSSIntPixelsForBaseWindow(winWidth, treeOwnerAsWin);
+      winHeight = DevToCSSIntPixelsForBaseWindow(winHeight, treeOwnerAsWin);
 
       // Get the screen dimensions
       // XXX This should use nsIScreenManager once it's fully fleshed out.
@@ -4646,9 +4646,9 @@ nsresult nsGlobalWindowOuter::SetFullscreenInternal(FullscreenReason aReason,
   // Prevent chrome documents which are still loading from resizing
   // the window after we set fullscreen mode.
   nsCOMPtr<nsIBaseWindow> treeOwnerAsWin = GetTreeOwnerWindow();
-  nsCOMPtr<nsIXULWindow> xulWin(do_GetInterface(treeOwnerAsWin));
-  if (aFullscreen && xulWin) {
-    xulWin->SetIntrinsicallySized(false);
+  nsCOMPtr<nsIAppWindow> appWin(do_GetInterface(treeOwnerAsWin));
+  if (aFullscreen && appWin) {
+    appWin->SetIntrinsicallySized(false);
   }
 
   // Set this before so if widget sends an event indicating its
@@ -5159,10 +5159,7 @@ void nsGlobalWindowOuter::FocusOuter() {
     // if there is no parent, this must be a toplevel window, so raise the
     // window if canFocus is true. If this is a child process, the raise
     // window request will get forwarded to the parent by the puppet widget.
-    DebugOnly<nsresult> rv = fm->SetActiveWindow(this);
-    MOZ_ASSERT(NS_SUCCEEDED(rv),
-               "SetActiveWindow only fails if passed null or a non-toplevel "
-               "window, which is not the case here.");
+    fm->RaiseWindow(this);
   }
 }
 
@@ -5187,7 +5184,7 @@ void nsGlobalWindowOuter::BlurOuter() {
     siteWindow->Blur();
 
     // if the root is focused, clear the focus
-    nsIFocusManager* fm = nsFocusManager::GetFocusManager();
+    nsFocusManager* fm = nsFocusManager::GetFocusManager();
     if (fm && mDoc) {
       RefPtr<Element> element;
       fm->GetFocusedElementForWindow(this, false, nullptr,
@@ -5373,14 +5370,15 @@ void nsGlobalWindowOuter::MoveByOuter(int32_t aXDif, int32_t aYDif,
   }
 
   // mild abuse of a "size" object so we don't need more helper functions
-  nsIntSize cssPos(DevToCSSIntPixels(nsIntSize(x, y)));
+  nsIntSize cssPos(
+      DevToCSSIntPixelsForBaseWindow(nsIntSize(x, y), treeOwnerAsWin));
 
   cssPos.width += aXDif;
   cssPos.height += aYDif;
 
   CheckSecurityLeftAndTop(&cssPos.width, &cssPos.height, aCallerType);
 
-  nsIntSize newDevPos(CSSToDevIntPixels(cssPos));
+  nsIntSize newDevPos(CSSToDevIntPixelsForBaseWindow(cssPos, treeOwnerAsWin));
 
   aError = treeOwnerAsWin->SetPosition(newDevPos.width, newDevPos.height);
 
@@ -5415,7 +5413,7 @@ void nsGlobalWindowOuter::ResizeToOuter(int32_t aWidth, int32_t aHeight,
   nsIntSize cssSize(aWidth, aHeight);
   CheckSecurityWidthAndHeight(&cssSize.width, &cssSize.height, aCallerType);
 
-  nsIntSize devSz(CSSToDevIntPixels(cssSize));
+  nsIntSize devSz(CSSToDevIntPixelsForBaseWindow(cssSize, treeOwnerAsWin));
 
   aError = treeOwnerAsWin->SetSize(devSz.width, devSz.height, true);
 
@@ -5450,14 +5448,15 @@ void nsGlobalWindowOuter::ResizeByOuter(int32_t aWidthDif, int32_t aHeightDif,
   // into CSS pixels, add the arguments, do the security check, and
   // then convert back to device pixels for the call to SetSize.
 
-  nsIntSize cssSize(DevToCSSIntPixels(nsIntSize(width, height)));
+  nsIntSize cssSize(
+      DevToCSSIntPixelsForBaseWindow(nsIntSize(width, height), treeOwnerAsWin));
 
   cssSize.width += aWidthDif;
   cssSize.height += aHeightDif;
 
   CheckSecurityWidthAndHeight(&cssSize.width, &cssSize.height, aCallerType);
 
-  nsIntSize newDevSize(CSSToDevIntPixels(cssSize));
+  nsIntSize newDevSize(CSSToDevIntPixelsForBaseWindow(cssSize, treeOwnerAsWin));
 
   aError = treeOwnerAsWin->SetSize(newDevSize.width, newDevSize.height, true);
 
@@ -5488,8 +5487,8 @@ void nsGlobalWindowOuter::SizeToContentOuter(CallerType aCallerType,
     return;
   }
 
-  int32_t width, height;
-  aError = cv->GetContentSize(&width, &height);
+  nsIntSize contentSize;
+  aError = cv->GetContentSize(&contentSize.width, &contentSize.height);
   if (aError.Failed()) {
     return;
   }
@@ -5502,10 +5501,21 @@ void nsGlobalWindowOuter::SizeToContentOuter(CallerType aCallerType,
     return;
   }
 
-  nsIntSize cssSize(DevToCSSIntPixels(nsIntSize(width, height)));
+  // Don't use DevToCSSIntPixelsForBaseWindow() nor
+  // CSSToDevIntPixelsForBaseWindow() here because contentSize is comes from
+  // nsIContentViewer::GetContentSize() and it's computed with nsPresContext so
+  // that we need to work with nsPresContext here too.
+  RefPtr<nsPresContext> presContext = cv->GetPresContext();
+  MOZ_ASSERT(
+      presContext,
+      "Should be non-nullptr if nsIContentViewer::GetContentSize() succeeded");
+  nsIntSize cssSize(presContext->DevPixelsToIntCSSPixels(contentSize.width),
+                    presContext->DevPixelsToIntCSSPixels(contentSize.height));
+
   CheckSecurityWidthAndHeight(&cssSize.width, &cssSize.height, aCallerType);
 
-  nsIntSize newDevSize(CSSToDevIntPixels(cssSize));
+  nsIntSize newDevSize(presContext->CSSPixelsToDevPixels(cssSize.width),
+                       presContext->CSSPixelsToDevPixels(cssSize.height));
 
   nsCOMPtr<nsIDocShell> docShell = mDocShell;
   aError =
@@ -6050,7 +6060,7 @@ bool nsGlobalWindowOuter::GatherPostMessageData(
   if (!callerPrin->IsSystemPrincipal()) {
     nsAutoCString asciiOrigin;
     callerPrin->GetAsciiOrigin(asciiOrigin);
-    aOrigin = NS_ConvertUTF8toUTF16(asciiOrigin);
+    CopyUTF8toUTF16(asciiOrigin, aOrigin);
   } else if (callerInnerWin) {
     if (!*aCallerDocumentURI) {
       return false;
@@ -6916,10 +6926,10 @@ void nsGlobalWindowOuter::ActivateOrDeactivate(bool aActivate) {
     // Get the top level widget's nsGlobalWindowOuter
     nsCOMPtr<nsPIDOMWindowOuter> topLevelWindow;
 
-    // widgetListener should be a nsXULWindow
+    // widgetListener should be an AppWindow
     nsIWidgetListener* listener = topLevelWidget->GetWidgetListener();
     if (listener) {
-      nsCOMPtr<nsIXULWindow> window = listener->GetXULWindow();
+      nsCOMPtr<nsIAppWindow> window = listener->GetAppWindow();
       nsCOMPtr<nsIInterfaceRequestor> req(do_QueryInterface(window));
       topLevelWindow = do_GetInterface(req);
     }
@@ -7022,9 +7032,10 @@ void nsGlobalWindowOuter::SetChromeEventHandler(
 
 void nsGlobalWindowOuter::SetFocusedElement(Element* aElement,
                                             uint32_t aFocusMethod,
-                                            bool aNeedsFocus) {
-  FORWARD_TO_INNER_VOID(SetFocusedElement,
-                        (aElement, aFocusMethod, aNeedsFocus));
+                                            bool aNeedsFocus,
+                                            bool aWillShowOutline) {
+  FORWARD_TO_INNER_VOID(SetFocusedElement, (aElement, aFocusMethod, aNeedsFocus,
+                                            aWillShowOutline));
 }
 
 uint32_t nsGlobalWindowOuter::GetFocusMethod() {
@@ -7625,7 +7636,7 @@ nsresult nsGlobalWindowOuter::RestoreWindowState(nsISupports* aState) {
   // it easy to tell which link was last clicked when going back a page.
   Element* focusedElement = inner->GetFocusedElement();
   if (nsContentUtils::ContentIsLink(focusedElement)) {
-    nsIFocusManager* fm = nsFocusManager::GetFocusManager();
+    nsFocusManager* fm = nsFocusManager::GetFocusManager();
     if (fm) {
       // XXXbz Do we need the stack strong ref here?
       RefPtr<Element> kungFuDeathGrip(focusedElement);

@@ -44,7 +44,6 @@
 #include "nsXMLContentSink.h"
 #include "nsIScriptError.h"
 #include "nsContentTypeParser.h"
-#include "XULDocument.h"
 
 static mozilla::LazyLogModule gContentSinkLog("nsXULContentSink");
 

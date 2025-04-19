@@ -191,27 +191,6 @@ nsresult NS_NewXMLDocument(Document** aInstancePtrResult, bool aLoadedAsData,
   return NS_OK;
 }
 
-nsresult NS_NewXBLDocument(Document** aInstancePtrResult, nsIURI* aDocumentURI,
-                           nsIURI* aBaseURI, nsIPrincipal* aPrincipal) {
-  nsresult rv = NS_NewDOMDocument(
-      aInstancePtrResult, NS_LITERAL_STRING("http://www.mozilla.org/xbl"),
-      NS_LITERAL_STRING("bindings"), nullptr, aDocumentURI, aBaseURI,
-      aPrincipal, false, nullptr, DocumentFlavorLegacyGuess);
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  Document* doc = *aInstancePtrResult;
-
-  // XBL documents must allow XUL and XBL elements in them but the usual check
-  // only checks if the document is loaded in the system principal which is
-  // sometimes not the case.
-  doc->ForceEnableXULXBL();
-
-  doc->SetLoadedAsInteractiveData(true);
-  doc->SetReadyStateInternal(Document::READYSTATE_COMPLETE);
-
-  return NS_OK;
-}
-
 namespace mozilla {
 namespace dom {
 
@@ -273,11 +252,6 @@ nsresult XMLDocument::StartDocumentLoad(const char* aCommand,
       aCommand, aChannel, aLoadGroup, aContainer, aDocListener, aReset, aSink);
   if (NS_FAILED(rv)) return rv;
 
-  if (nsCRT::strcmp("loadAsInteractiveData", aCommand) == 0) {
-    mLoadedAsInteractiveData = true;
-    aCommand = kLoadAsData;  // XBL, for example, needs scripts and styles
-  }
-
   int32_t charsetSource = kCharsetFromDocTypeDefault;
   NotNull<const Encoding*> encoding = UTF_8_ENCODING;
   TryChannelCharset(aChannel, charsetSource, encoding, nullptr);
@@ -325,7 +299,7 @@ nsresult XMLDocument::StartDocumentLoad(const char* aCommand,
 void XMLDocument::EndLoad() {
   mChannelIsPending = false;
 
-  mSynchronousDOMContentLoaded = (mLoadedAsData || mLoadedAsInteractiveData);
+  mSynchronousDOMContentLoaded = mLoadedAsData;
   Document::EndLoad();
   if (mSynchronousDOMContentLoaded) {
     mSynchronousDOMContentLoaded = false;

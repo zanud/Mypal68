@@ -44,7 +44,7 @@ class HTMLFormSubmission {
                               NotNull<const Encoding*>& aEncoding,
                               HTMLFormSubmission** aFormSubmission);
 
-  virtual ~HTMLFormSubmission() { MOZ_COUNT_DTOR(HTMLFormSubmission); }
+  MOZ_COUNTED_DTOR_VIRTUAL(HTMLFormSubmission)
 
   /**
    * Submit a name/value pair

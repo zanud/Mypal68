@@ -46,7 +46,7 @@ PostMessageEvent::PostMessageEvent(BrowsingContext* aSource,
       mCallerDocumentURI(aCallerDocumentURI),
       mIsFromPrivateWindow(aIsFromPrivateWindow) {}
 
-PostMessageEvent::~PostMessageEvent() {}
+PostMessageEvent::~PostMessageEvent() = default;
 
 NS_IMETHODIMP
 PostMessageEvent::Run() {

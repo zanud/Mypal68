@@ -552,7 +552,7 @@ class QuotaManager final : public BackgroundThreadObject {
   void DeleteFilesForOrigin(PersistenceType aPersistenceType,
                             const nsACString& aOrigin);
 
-  void FinalizeOriginEviction(nsTArray<RefPtr<DirectoryLockImpl>>& aLocks);
+  void FinalizeOriginEviction(nsTArray<RefPtr<DirectoryLockImpl>>&& aLocks);
 
   void ReleaseIOThreadObjects() {
     AssertIsOnIOThread();

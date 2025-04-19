@@ -48,6 +48,7 @@
 #include "mozilla/Preferences.h"
 #include "mozilla/dom/Navigator.h"
 #include "mozilla/Monitor2.h"
+#include "nsContentSecurityUtils.h"
 #include "nsContentUtils.h"
 #include "nsCycleCollector.h"
 #include "nsDOMJSUtils.h"
@@ -382,8 +383,8 @@ void LoadJSGCMemoryOptions(const char* aPrefName, void* /* aClosure */) {
     return;
   }
 
-  NS_NAMED_LITERAL_CSTRING(jsPrefix, PREF_JS_OPTIONS_PREFIX);
-  NS_NAMED_LITERAL_CSTRING(workersPrefix, PREF_WORKERS_OPTIONS_PREFIX);
+  constexpr auto jsPrefix = nsLiteralCString{PREF_JS_OPTIONS_PREFIX};
+  constexpr auto workersPrefix = nsLiteralCString{PREF_WORKERS_OPTIONS_PREFIX};
 
   const nsDependentCString fullPrefName(aPrefName);
 
@@ -534,13 +535,18 @@ bool ContentSecurityPolicyAllows(JSContext* aCx, JS::HandleString aCode) {
   WorkerPrivate* worker = GetWorkerPrivateFromContext(aCx);
   worker->AssertIsOnWorkerThread();
 
-  if (worker->GetReportCSPViolations()) {
-    nsAutoJSString scriptSample;
-    if (NS_WARN_IF(!scriptSample.init(aCx, aCode))) {
-      JS_ClearPendingException(aCx);
-      return false;
-    }
+  nsAutoJSString scriptSample;
+  if (NS_WARN_IF(!scriptSample.init(aCx, aCode))) {
+    JS_ClearPendingException(aCx);
+    return false;
+  }
 
+  if (!nsContentSecurityUtils::IsEvalAllowed(aCx, worker->UsesSystemPrincipal(),
+                                             scriptSample)) {
+    return false;
+  }
+
+  if (worker->GetReportCSPViolations()) {
     nsString fileName;
     uint32_t lineNum = 0;
     uint32_t columnNum = 0;
@@ -548,7 +554,7 @@ bool ContentSecurityPolicyAllows(JSContext* aCx, JS::HandleString aCode) {
     JS::AutoFilename file;
     if (JS::DescribeScriptedCaller(aCx, &file, &lineNum, &columnNum) &&
         file.get()) {
-      fileName = NS_ConvertUTF8toUTF16(file.get());
+      CopyUTF8toUTF16(MakeStringSpan(file.get()), fileName);
     } else {
       MOZ_ASSERT(!JS_IsExceptionPending(aCx));
     }
@@ -647,6 +653,10 @@ class JSDispatchableRunnable final : public WorkerRunnable {
   }
 
   nsresult Cancel() override {
+    // We need to check first if cancel is called twice
+    nsresult rv = WorkerRunnable::Cancel();
+    NS_ENSURE_SUCCESS(rv, rv);
+
     MOZ_ASSERT(mDispatchable);
 
     AutoJSAPI jsapi;
@@ -656,7 +666,7 @@ class JSDispatchableRunnable final : public WorkerRunnable {
                        JS::Dispatchable::ShuttingDown);
     mDispatchable = nullptr;  // mDispatchable may delete itself
 
-    return WorkerRunnable::Cancel();
+    return NS_OK;
   }
 };
 
@@ -1604,6 +1614,10 @@ class CrashIfHangingRunnable : public WorkerControlRunnable {
   }
 
   nsresult Cancel() override {
+    // We need to check first if cancel is called twice
+    nsresult rv = WorkerRunnable::Cancel();
+    NS_ENSURE_SUCCESS(rv, rv);
+
     mMsg.Assign("Canceled");
 
     Monitor2AutoLock lock(mMonitor);

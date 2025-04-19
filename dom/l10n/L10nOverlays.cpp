@@ -6,6 +6,7 @@
 #include "mozilla/dom/HTMLTemplateElement.h"
 #include "mozilla/dom/HTMLInputElement.h"
 #include "HTMLSplitOnSpacesTokenizer.h"
+#include "nsINodeList.h" //MY68
 #include "nsHtml5StringParser.h"
 #include "nsTextNode.h"
 
@@ -96,9 +97,6 @@ bool L10nOverlays::IsAttrNameLocalizable(
     }
     if (elemName == nsGkAtoms::label) {
       return nameAtom == nsGkAtoms::value;
-    }
-    if (elemName == nsGkAtoms::textbox) {
-      return nameAtom == nsGkAtoms::placeholder || nameAtom == nsGkAtoms::value;
     }
   }
 
@@ -317,9 +315,11 @@ already_AddRefed<Element> L10nOverlays::CreateSanitizedElement(
   // Start with an empty element of the same type to remove nested children
   // and non-localizable attributes defined by the translation.
 
+  nsAutoString nameSpaceURI;
+  aElement->NodeInfo()->GetNamespaceURI(nameSpaceURI);
   ElementCreationOptionsOrString options;
-  RefPtr<Element> clone = aElement->OwnerDoc()->CreateElement(
-      aElement->NodeInfo()->LocalName(), options, aRv);
+  RefPtr<Element> clone = aElement->OwnerDoc()->CreateElementNS(
+      nameSpaceURI, aElement->NodeInfo()->LocalName(), options, aRv);
   if (NS_WARN_IF(aRv.Failed())) {
     return nullptr;
   }
@@ -451,7 +451,15 @@ void L10nOverlays::TranslateElement(Element& aElement,
                                     nsTArray<L10nOverlaysError>& aErrors,
                                     ErrorResult& aRv) {
   if (!aTranslation.mValue.IsVoid()) {
-    if (!ContainsMarkup(aTranslation.mValue)) {
+    NodeInfo* nodeInfo = aElement.NodeInfo();
+    if (nodeInfo->NameAtom() == nsGkAtoms::title &&
+        nodeInfo->NamespaceID() == kNameSpaceID_XHTML) {
+      // A special case for the HTML title element whose content must be text.
+      aElement.SetTextContent(aTranslation.mValue, aRv);
+      if (NS_WARN_IF(aRv.Failed())) {
+        return;
+      }
+    } else if (!ContainsMarkup(aTranslation.mValue)) {
       // If the translation doesn't contain any markup skip the overlay logic.
       aElement.SetTextContent(aTranslation.mValue, aRv);
       if (NS_WARN_IF(aRv.Failed())) {

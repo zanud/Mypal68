@@ -33,7 +33,7 @@ class TimeoutHandler : public nsISupports {
   TimeoutHandler() : mFileName(""), mLineNo(0), mColumn(0) {}
   explicit TimeoutHandler(JSContext* aCx);
 
-  virtual ~TimeoutHandler() {}
+  virtual ~TimeoutHandler() = default;
 
   // filename, line number and JS language version string of the
   // caller of setTimeout()
@@ -60,7 +60,7 @@ class ScriptTimeoutHandler : public TimeoutHandler {
   };
 
  protected:
-  virtual ~ScriptTimeoutHandler() {}
+  virtual ~ScriptTimeoutHandler() = default;
 
   nsCOMPtr<nsIGlobalObject> mGlobal;
   // The expression to evaluate or function to call. If mFunction is non-null

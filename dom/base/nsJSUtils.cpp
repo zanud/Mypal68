@@ -36,7 +36,6 @@
 #include "nsINode.h"
 #include "nsString.h"
 #include "nsTPromiseFlatString.h"
-#include "nsXBLPrototypeBinding.h"
 #include "nscore.h"
 
 #if !defined(DEBUG) && !defined(MOZ_ENABLE_JS_DUMP)
@@ -215,29 +214,6 @@ bool nsJSUtils::GetScopeChainForElement(
     }
   }
 
-  return true;
-}
-
-/* static */
-bool nsJSUtils::GetScopeChainForXBL(
-    JSContext* aCx, Element* aElement,
-    const nsXBLPrototypeBinding& aProtoBinding,
-    JS::MutableHandleVector<JSObject*> aScopeChain) {
-  if (!aElement) {
-    return true;
-  }
-
-  if (!aProtoBinding.SimpleScopeChain()) {
-    return GetScopeChainForElement(aCx, aElement, aScopeChain);
-  }
-
-  if (!AddScopeChainItem(aCx, aElement, aScopeChain)) {
-    return false;
-  }
-
-  if (!AddScopeChainItem(aCx, aElement->OwnerDoc(), aScopeChain)) {
-    return false;
-  }
   return true;
 }
 
