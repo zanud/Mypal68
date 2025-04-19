@@ -12,8 +12,6 @@ var resultObserver = {
     this.removedNode = node;
   },
 
-  nodeAnnotationChanged() {},
-
   newTitle: "",
   nodeChangedByTitle: null,
   nodeTitleChanged(node, newTitle) {

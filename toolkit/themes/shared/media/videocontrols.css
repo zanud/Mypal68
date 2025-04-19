@@ -472,19 +472,24 @@
   min-width: max-content;
 }
 
+.statusIcon[type="pictureInPicture"]:dir(rtl),
+.pictureInPictureToggleIcon:dir(rtl) {
+  transform: scaleX(-1);
+}
+
 .pictureInPictureToggleLabel {
   margin-inline-start: var(--pip-toggle-padding);
 }
 
-.controlsOverlay:hover > .pictureInPictureToggleButton {
+.controlsOverlay.hovering > .pictureInPictureToggleButton {
   opacity: 0.8;
 }
 
-.controlsOverlay:hover[hidetoggle="true"] > .pictureInPictureToggleButton:not(:hover) {
+.controlsOverlay[hidetoggle="true"].hovering > .pictureInPictureToggleButton:not(.hovering) {
   opacity: 0;
 }
 
-.controlsOverlay:hover > .pictureInPictureToggleButton:hover {
+.controlsOverlay.hovering > .pictureInPictureToggleButton.hovering {
   opacity: 1;
   transform: translateY(-50%) translateX(0);
 }

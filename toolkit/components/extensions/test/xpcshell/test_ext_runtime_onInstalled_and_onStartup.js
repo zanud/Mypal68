@@ -20,9 +20,6 @@ const {
 
 AddonTestUtils.init(this);
 
-// Allow for unsigned addons.
-AddonTestUtils.overrideCertDB();
-
 createAppInfo("xpcshell@tests.mozilla.org", "XPCShell", "42", "42");
 
 // Ensure that the background page is automatically started after using

@@ -12,7 +12,6 @@ const { XPCOMUtils } = ChromeUtils.import(
 
 XPCOMUtils.defineLazyModuleGetters(this, {
   ExtensionProcessScript: "resource://gre/modules/ExtensionProcessScript.jsm",
-  ExtensionTelemetry: "resource://gre/modules/ExtensionTelemetry.jsm",
   LanguageDetector: "resource:///modules/translation/LanguageDetector.jsm",
   MessageChannel: "resource://gre/modules/MessageChannel.jsm",
   Schemas: "resource://gre/modules/Schemas.jsm",
@@ -352,7 +351,7 @@ class Script {
   }
 
   get requiresCleanup() {
-    return !this.removeCSS && (this.css.length > 0 || this.cssCodeHash);
+    return !this.removeCSS && (!!this.css.length || this.cssCodeHash);
   }
 
   async addCSSCode(cssCode) {
@@ -527,7 +526,7 @@ class Script {
         // problem since there are no network loads involved, and since we cache
         // the stylesheets on first load. We should fix this up if it does becomes
         // a problem.
-        if (this.css.length > 0) {
+        if (this.css.length) {
           context.contentWindow.document.blockParsing(cssPromise, {
             blockScriptCreated: false,
           });
@@ -546,10 +545,6 @@ class Script {
 
     // The evaluations below may throw, in which case the promise will be
     // automatically rejected.
-    ExtensionTelemetry.contentScriptInjection.stopwatchStart(
-      extension,
-      context
-    );
     try {
       for (let script of scripts) {
         result = script.executeInGlobal(context.cloneScope);
@@ -559,14 +554,12 @@ class Script {
         result = Cu.evalInSandbox(
           this.matcher.jsCode,
           context.cloneScope,
-          "latest"
+          "latest",
+          "sandbox eval code",
+          1
         );
       }
     } finally {
-      ExtensionTelemetry.contentScriptInjection.stopwatchFinish(
-        extension,
-        context
-      );
     }
 
     await cssPromise;
@@ -666,7 +659,6 @@ class UserScript extends Script {
 
     // The evaluations below may throw, in which case the promise will be
     // automatically rejected.
-    ExtensionTelemetry.userScriptInjection.stopwatchStart(extension, context);
     try {
       let userScriptSandbox = this.sandboxes.get(context);
 
@@ -693,10 +685,6 @@ class UserScript extends Script {
         script.executeInGlobal(userScriptSandbox);
       }
     } finally {
-      ExtensionTelemetry.userScriptInjection.stopwatchFinish(
-        extension,
-        context
-      );
     }
   }
 

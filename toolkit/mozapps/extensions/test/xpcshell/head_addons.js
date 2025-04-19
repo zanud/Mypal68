@@ -131,7 +131,6 @@ const {
 ExtensionTestUtils.init(this);
 
 AddonTestUtils.init(this);
-AddonTestUtils.overrideCertDB();
 
 XPCOMUtils.defineLazyGetter(
   this,
@@ -863,7 +862,7 @@ class EventChecker {
     }
 
     let events = this.expectedEvents[aId];
-    Assert.ok(events.length > 0, `Should be expecting events for ${aId}`);
+    Assert.ok(!!events.length, `Should be expecting events for ${aId}`);
 
     return events.shift();
   }

@@ -20,3 +20,7 @@ fieldset {
   list-style-image: url("chrome://global/skin/icons/Landscape.png");
 }
 
+#header-footer-grid {
+  display: grid;
+  grid-template-columns: auto auto auto;
+}

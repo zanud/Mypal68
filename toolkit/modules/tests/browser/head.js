@@ -80,7 +80,7 @@ function promiseEnterStringIntoFindField(findbar, str) {
       0,
       str.charCodeAt(i)
     );
-    findbar._findField.inputField.dispatchEvent(event);
+    findbar._findField.dispatchEvent(event);
   }
   return promise;
 }

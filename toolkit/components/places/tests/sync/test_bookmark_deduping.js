@@ -22,6 +22,7 @@ add_task(async function test_duping_local_newer() {
         parentid: "places",
         type: "folder",
         children: ["bookmarkAAA5"],
+        dateAdded: localModified.getTime(),
       },
       {
         id: "bookmarkAAA5",
@@ -29,6 +30,7 @@ add_task(async function test_duping_local_newer() {
         type: "bookmark",
         bmkUri: "http://example.com/a",
         title: "A",
+        dateAdded: localModified.getTime(),
       },
     ],
     { needsMerge: false }
@@ -96,21 +98,10 @@ add_task(async function test_duping_local_newer() {
   let changesToUpload = await buf.apply({
     remoteTimeSeconds: localModified / 1000,
   });
-  deepEqual(await buf.fetchUnmergedGuids(), [], "Should merge all items");
   deepEqual(
-    mergeTelemetryEvents,
-    [
-      {
-        value: "structure",
-        extra: {
-          remoteRevives: 0,
-          localDeletes: 0,
-          localRevives: 0,
-          remoteDeletes: 0,
-        },
-      },
-    ],
-    "Should record telemetry with dupe counts"
+    await buf.fetchUnmergedGuids(),
+    ["bookmarkAAA4", "bookmarkAAAA", PlacesUtils.bookmarks.menuGuid],
+    "Should leave A4, A, menu with new remote structure unmerged"
   );
 
   let menuInfo = await PlacesUtils.bookmarks.fetch(
@@ -179,6 +170,21 @@ add_task(async function test_duping_local_newer() {
         synced: false,
         cleartext: {
           id: "bookmarkAAA3",
+          type: "bookmark",
+          parentid: "menu",
+          hasDupe: true,
+          parentName: menuInfo.title,
+          dateAdded: localModified.getTime(),
+          title: "A",
+          bmkUri: "http://example.com/a",
+        },
+      },
+      bookmarkAAA5: {
+        tombstone: false,
+        counter: 1,
+        synced: false,
+        cleartext: {
+          id: "bookmarkAAA5",
           type: "bookmark",
           parentid: "menu",
           hasDupe: true,
@@ -445,7 +451,11 @@ add_task(async function test_duping_remote_newer() {
   let changesToUpload = await buf.apply({
     remoteTimeSeconds: localModified / 1000,
   });
-  deepEqual(await buf.fetchUnmergedGuids(), [], "Should merge all items");
+  deepEqual(
+    await buf.fetchUnmergedGuids(),
+    [PlacesUtils.bookmarks.menuGuid],
+    "Should leave menu with new remote structure unmerged"
+  );
 
   let idsToUpload = inspectChangeRecords(changesToUpload);
   deepEqual(
@@ -600,6 +610,9 @@ add_task(async function test_duping_remote_newer() {
       info => info.syncStatus == PlacesUtils.bookmarks.SYNC_STATUS.NORMAL
     )
   );
+
+  await storeChangesInMirror(buf, changesToUpload);
+  deepEqual(await buf.fetchUnmergedGuids(), [], "Should merge all items");
 
   await buf.finalize();
   await PlacesUtils.bookmarks.eraseEverything();
@@ -1040,7 +1053,11 @@ add_task(async function test_applying_two_empty_folders_matches_only_one() {
 
   info("Apply remote");
   let changesToUpload = await buf.apply();
-  deepEqual(await buf.fetchUnmergedGuids(), [], "Should merge all items");
+  deepEqual(
+    await buf.fetchUnmergedGuids(),
+    [PlacesUtils.bookmarks.mobileGuid],
+    "Should leave mobile with new remote structure unmerged"
+  );
 
   let idsToUpload = inspectChangeRecords(changesToUpload);
   deepEqual(
@@ -1082,6 +1099,9 @@ add_task(async function test_applying_two_empty_folders_matches_only_one() {
     },
     "Should apply 1 and dedupe L0 to 3"
   );
+
+  await storeChangesInMirror(buf, changesToUpload);
+  deepEqual(await buf.fetchUnmergedGuids(), [], "Should merge all items");
 
   await buf.finalize();
   await PlacesUtils.bookmarks.eraseEverything();
@@ -1132,7 +1152,11 @@ add_task(async function test_duping_mobile_bookmarks() {
 
   info("Apply remote");
   let changesToUpload = await buf.apply();
-  deepEqual(await buf.fetchUnmergedGuids(), [], "Should merge all items");
+  deepEqual(
+    await buf.fetchUnmergedGuids(),
+    [PlacesUtils.bookmarks.mobileGuid],
+    "Should leave mobile with new remote structure unmerged"
+  );
 
   let idsToUpload = inspectChangeRecords(changesToUpload);
   deepEqual(
@@ -1163,6 +1187,9 @@ add_task(async function test_duping_mobile_bookmarks() {
     },
     "Should dedupe A1 to A with different parent title"
   );
+
+  await storeChangesInMirror(buf, changesToUpload);
+  deepEqual(await buf.fetchUnmergedGuids(), [], "Should merge all items");
 
   await buf.finalize();
   await PlacesUtils.bookmarks.eraseEverything();

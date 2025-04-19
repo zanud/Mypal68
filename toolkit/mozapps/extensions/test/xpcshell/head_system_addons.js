@@ -266,10 +266,6 @@ async function checkInstalledSystemAddons(conditions, distroDir) {
 
       Assert.ok(uri instanceof Ci.nsIFileURL);
       Assert.equal(uri.file.path, file.path);
-
-      if (isUpgrade) {
-        Assert.equal(addon.signedState, AddonManager.SIGNEDSTATE_SYSTEM);
-      }
     } else {
       info(`Checking state of add-on ${id}, expecting it to be missing`);
 

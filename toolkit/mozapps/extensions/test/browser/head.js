@@ -224,7 +224,7 @@ function run_next_test() {
     info("Test " + gTestsRun + " took " + (Date.now() - gTestStart) + "ms");
   }
 
-  if (gPendingTests.length == 0) {
+  if (!gPendingTests.length) {
     executeSoon(end_test);
     return;
   }
@@ -242,63 +242,23 @@ function run_next_test() {
 }
 
 var get_tooltip_info = async function(addonEl, managerWindow) {
-  if (managerWindow && managerWindow.useHtmlViews) {
-    // Extract from title attribute.
-    const { addon } = addonEl;
-    const name = addon.name;
-    const nameEl = addonEl.addonNameEl;
+  // Extract from title attribute.
+  const { addon } = addonEl;
+  const name = addon.name;
+  const nameEl = addonEl.addonNameEl;
 
-    let nameWithVersion = nameEl.title;
-    if (addonEl.addon.userDisabled) {
-      // TODO - Bug 1558077: Currently Fluent is clearing the addon title
-      // when the addon is disabled, fixing it requires changes to the
-      // HTML about:addons localized strings, and then remove this
-      // workaround.
-      nameWithVersion = `${name} ${addon.version}`;
-    }
-
-    return {
-      name,
-      version: nameWithVersion.substring(name.length + 1),
-    };
+  let nameWithVersion = nameEl.title;
+  if (addonEl.addon.userDisabled) {
+    // TODO - Bug 1558077: Currently Fluent is clearing the addon title
+    // when the addon is disabled, fixing it requires changes to the
+    // HTML about:addons localized strings, and then remove this
+    // workaround.
+    nameWithVersion = `${name} ${addon.version}`;
   }
 
-  // Retrieve the tooltip from the XUL about:addons view,
-  // the popup code uses a triggering event's target to set the
-  // document.tooltipNode property.
-  let doc = addonEl.ownerDocument;
-  let nameNode = doc.getAnonymousElementByAttribute(addonEl, "anonid", "name");
-  let event = new doc.ownerGlobal.CustomEvent("TriggerEvent");
-  nameNode.dispatchEvent(event);
-
-  let tooltip = doc.getElementById("addonitem-tooltip");
-
-  let promise = BrowserTestUtils.waitForEvent(tooltip, "popupshown");
-  tooltip.openPopup(nameNode, "after_start", 0, 0, false, false, event);
-  await promise;
-
-  let tiptext = tooltip.label;
-
-  promise = BrowserTestUtils.waitForEvent(tooltip, "popuphidden");
-  tooltip.hidePopup();
-  await promise;
-
-  let expectedName = addonEl.getAttribute("name");
-  is(
-    tiptext.substring(0, expectedName.length),
-    expectedName,
-    "Tooltip should always start with the expected name"
-  );
-
-  if (expectedName.length == tiptext.length) {
-    return {
-      name: tiptext,
-      version: undefined,
-    };
-  }
   return {
-    name: tiptext.substring(0, expectedName.length),
-    version: tiptext.substring(expectedName.length + 1),
+    name,
+    version: nameWithVersion.substring(name.length + 1),
   };
 };
 
@@ -365,28 +325,12 @@ function check_all_in_list(aManager, aIds, aIgnoreExtras) {
 }
 
 function get_addon_element(aManager, aId) {
-  if (aManager.useHtmlViews) {
-    const doc = aManager.getHtmlBrowser().contentDocument;
-    return doc.querySelector(`addon-card[addon-id="${aId}"]`);
-  }
+  const win = aManager.getHtmlBrowser().contentWindow;
+  return getAddonCard(win, aId);
+}
 
-  const doc = aManager.document;
-  const view = get_current_view(aManager);
-  let listid = "addon-list";
-  if (view.id == "updates-view") {
-    listid = "updates-list";
-  }
-  const list = doc.getElementById(listid);
-
-  let node = list.firstChild;
-  while (node) {
-    if (node.value == aId) {
-      return node;
-    }
-    node = node.nextSibling;
-  }
-
-  return null;
+function getAddonCard(win, id) {
+  return win.document.querySelector(`addon-card[addon-id="${id}"]`);
 }
 
 function wait_for_view_load(
@@ -558,7 +502,7 @@ function get_string(aName, ...aArgs) {
   var bundle = Services.strings.createBundle(
     "chrome://mozapps/locale/extensions/extensions.properties"
   );
-  if (aArgs.length == 0) {
+  if (!aArgs.length) {
     return bundle.GetStringFromName(aName);
   }
   return bundle.formatStringFromName(aName, aArgs);
@@ -854,7 +798,7 @@ MockProvider.prototype = {
    */
   addAddon: function MP_addAddon(aAddon) {
     var oldAddons = this.addons.filter(aOldAddon => aOldAddon.id == aAddon.id);
-    var oldAddon = oldAddons.length > 0 ? oldAddons[0] : null;
+    var oldAddon = oldAddons.length ? oldAddons[0] : null;
 
     this.addons = this.addons.filter(aOldAddon => aOldAddon.id != aAddon.id);
 
@@ -1028,7 +972,7 @@ MockProvider.prototype = {
         "MockProvider: pending callbacks at shutdown(): calling immediately"
       );
     }
-    while (this.callbackTimers.length > 0) {
+    while (this.callbackTimers.length) {
       // When we notify the callback timer, it removes itself from our array
       let timer = this.callbackTimers[0];
       try {
@@ -1070,7 +1014,7 @@ MockProvider.prototype = {
    */
   async getAddonsByTypes(aTypes) {
     var addons = this.addons.filter(function(aAddon) {
-      if (aTypes && aTypes.length > 0 && !aTypes.includes(aAddon.type)) {
+      if (aTypes && !!aTypes.length && !aTypes.includes(aAddon.type)) {
         return false;
       }
       return true;
@@ -1091,7 +1035,7 @@ MockProvider.prototype = {
         return false;
       }
 
-      if (aTypes && aTypes.length > 0 && !aTypes.includes(aInstall.type)) {
+      if (aTypes && !!aTypes.length && !aTypes.includes(aInstall.type)) {
         return false;
       }
 
@@ -1212,13 +1156,6 @@ function MockAddon(aId, aName, aType, aOperationsRequiringRestart) {
 }
 
 MockAddon.prototype = {
-  get isCorrectlySigned() {
-    if (this.signedState === AddonManager.SIGNEDSTATE_NOT_REQUIRED) {
-      return true;
-    }
-    return this.signedState > AddonManager.SIGNEDSTATE_MISSING;
-  },
-
   get shouldBeActive() {
     return (
       !this.appDisabled &&

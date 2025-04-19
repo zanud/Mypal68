@@ -177,8 +177,10 @@ nsFaviconService::ExpireAllFavicons() {
       mDB->GetAsyncStatement("DELETE FROM moz_icons_to_pages");
   NS_ENSURE_STATE(unlinkIconsStmt);
 
-  mozIStorageBaseStatement* stmts[] = {
-      removePagesStmt.get(), removeIconsStmt.get(), unlinkIconsStmt.get()};
+  nsTArray<RefPtr<mozIStorageBaseStatement>> stmts = {removePagesStmt.forget(),
+
+                                                      removeIconsStmt.forget(),
+                                                      unlinkIconsStmt.forget()};
   nsCOMPtr<mozIStorageConnection> conn = mDB->MainConn();
   if (!conn) {
     return NS_ERROR_UNEXPECTED;
@@ -186,8 +188,7 @@ nsFaviconService::ExpireAllFavicons() {
   nsCOMPtr<mozIStoragePendingStatement> ps;
   RefPtr<ExpireFaviconsStatementCallbackNotifier> callback =
       new ExpireFaviconsStatementCallbackNotifier();
-  return conn->ExecuteAsync(stmts, ArrayLength(stmts), callback,
-                            getter_AddRefs(ps));
+  return conn->ExecuteAsync(stmts, callback, getter_AddRefs(ps));
 }
 
 ////////////////////////////////////////////////////////////////////////////////

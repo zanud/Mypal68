@@ -509,7 +509,7 @@ PluginWrapper.prototype = {
 
   get optionsURL() {
     return (
-      "chrome://mozapps/content/extensions/pluginPrefs.xul#id=" +
+      "chrome://mozapps/content/extensions/pluginPrefs.xhtml#id=" +
       encodeURIComponent(this.id)
     );
   },

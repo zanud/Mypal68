@@ -556,7 +556,7 @@ this.downloads = class extends ExtensionAPI {
           }
 
           if (filename != null) {
-            if (filename.length == 0) {
+            if (!filename.length) {
               return Promise.reject({ message: "filename must not be empty" });
             }
 
@@ -1067,7 +1067,7 @@ this.downloads = class extends ExtensionAPI {
                 };
               }
             });
-            if (Object.keys(changes).length > 0) {
+            if (Object.keys(changes).length) {
               changes.id = item.id;
               fire.async(changes);
             }

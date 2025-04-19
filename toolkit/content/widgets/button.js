@@ -105,13 +105,8 @@
           }
         }
 
-        // Test anonymous buttons
-        var dlg = window.top.document;
-        var buttonBox = dlg.getAnonymousElementByAttribute(
-          dlg.documentElement,
-          "anonid",
-          "buttons"
-        );
+        // Test dialog buttons
+        let buttonBox = window.top.document.querySelector("dialog")?.buttonBox;
         if (buttonBox) {
           this.fireAccessKeyButton(buttonBox, charPressedLower);
         }
@@ -138,15 +133,6 @@
 
     get disabled() {
       return this.getAttribute("disabled") == "true";
-    }
-
-    set dlgType(val) {
-      this.setAttribute("dlgtype", val);
-      return val;
-    }
-
-    get dlgType() {
-      return this.getAttribute("dlgtype");
     }
 
     set group(val) {
@@ -248,6 +234,8 @@
   MozXULElement.implementCustomInterface(MozButtonBase, [
     Ci.nsIDOMXULButtonElement,
   ]);
+
+  MozElements.ButtonBase = MozButtonBase;
 
   class MozButton extends MozButtonBase {
     static get inheritedAttributes() {

@@ -3,7 +3,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "StartupTimeline.h"
-#include "mozilla/Telemetry.h"
 #include "mozilla/TimeStamp.h"
 #include "nsXULAppAPI.h"
 
@@ -47,9 +46,5 @@ void StartupTimeline::RecordOnce(Event ev) {
     uint32_t firstPaintTime =
         (uint32_t)(Get(ev) - TimeStamp::ProcessCreation(&error))
             .ToMilliseconds();
-    if (!error) {
-      Telemetry::ScalarSet(Telemetry::ScalarID::TIMESTAMPS_FIRST_PAINT,
-                           firstPaintTime);
-    }
   }
 }

@@ -1047,6 +1047,10 @@ const FORMATS = {
   contentSecurityPolicy(string, context) {
     let error = contentPolicyService.validateAddonCSP(string);
     if (error != null) {
+      // The SyntaxError raised below is not reported as part of the "choices" error message,
+      // we log the CSP validation error explicitly here to make it easier for the addon developers
+      // to see and fix the extension CSP.
+      context.logError(`Error processing ${context.currentTarget}: ${error}`);
       throw new SyntaxError(error);
     }
     return string;
@@ -3151,7 +3155,7 @@ class SchemaRoots extends Namespaces {
       return results[0];
     }
 
-    if (results.length > 0) {
+    if (results.length) {
       return new Namespaces(this.root, name, name.split("."), results);
     }
     return null;

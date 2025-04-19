@@ -22,11 +22,6 @@ const { ExtensionStorageIDB } = ChromeUtils.import(
   "resource://gre/modules/ExtensionStorageIDB.jsm"
 );
 
-const { getTrimmedString } = ChromeUtils.import(
-  "resource://gre/modules/ExtensionTelemetry.jsm",
-  null
-);
-
 XPCOMUtils.defineLazyModuleGetters(this, {
   OS: "resource://gre/modules/osfile.jsm",
 });

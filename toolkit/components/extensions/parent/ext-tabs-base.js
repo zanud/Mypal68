@@ -841,14 +841,14 @@ class WindowBase {
   }
 
   /**
-   * @property {nsIXULWindow} xulWindow
-   *        The nsIXULWindow object for this browser window.
+   * @property {nsIAppWindow} appWindow
+   *        The nsIAppWindow object for this browser window.
    *        @readonly
    */
-  get xulWindow() {
+  get appWindow() {
     return this.window.docShell.treeOwner
       .QueryInterface(Ci.nsIInterfaceRequestor)
-      .getInterface(Ci.nsIXULWindow);
+      .getInterface(Ci.nsIAppWindow);
   }
 
   /**
@@ -874,7 +874,7 @@ class WindowBase {
    *        @readonly
    */
   get type() {
-    let { chromeFlags } = this.xulWindow;
+    let { chromeFlags } = this.appWindow;
 
     if (chromeFlags & Ci.nsIWebBrowserChrome.CHROME_OPENAS_DIALOG) {
       return "popup";

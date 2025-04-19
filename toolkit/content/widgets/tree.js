@@ -9,6 +9,10 @@
 // This is loaded into all XUL windows. Wrap in a block to prevent
 // leaking to window scope.
 {
+  const { AppConstants } = ChromeUtils.import(
+    "resource://gre/modules/AppConstants.jsm"
+  );
+
   class MozTreeChildren extends MozElements.BaseControl {
     constructor() {
       super();
@@ -207,9 +211,8 @@
           tree.stopEditing(true);
           var menuitem = this.querySelector('[anonid="menuitem"]');
           if (event.originalTarget == menuitem) {
-            tree.columns.restoreNaturalOrder();
-            this.removeAttribute("ordinal");
-            tree._ensureColumnOrder();
+            this.style.MozBoxOrdinalGroup = "";
+            tree._ensureColumnOrder(tree.NATURAL_ORDER);
           } else {
             var colindex = event.originalTarget.getAttribute("colindex");
             var column = tree.columns[colindex];
@@ -265,7 +268,7 @@
         // it is not being shown.
         var currElement = currCol.element;
         if (!currElement.hasAttribute("ignoreincolumnpicker")) {
-          var popupChild = document.createElement("menuitem");
+          var popupChild = document.createXULElement("menuitem");
           popupChild.setAttribute("type", "checkbox");
           var columnName =
             currElement.getAttribute("display") ||
@@ -277,6 +280,12 @@
           }
           if (currCol.primary) {
             popupChild.setAttribute("disabled", "true");
+          }
+          if (currElement.hasAttribute("closemenu")) {
+            popupChild.setAttribute(
+              "closemenu",
+              currElement.getAttribute("closemenu")
+            );
           }
           aPopup.insertBefore(popupChild, refChild);
         }
@@ -347,7 +356,7 @@
 
         // On Windows multiple clicking on tree columns only cycles one time
         // every 2 clicks.
-        if (/Win/.test(navigator.platform) && event.detail % 2 == 0) {
+        if (AppConstants.platform == "win" && event.detail % 2 == 0) {
           return;
         }
 
@@ -366,15 +375,19 @@
       this.textContent = "";
       this.appendChild(this.content);
       this.initializeAttributeInheritance();
+      if (this.hasAttribute("ordinal")) {
+        this.style.MozBoxOrdinalGroup = this.getAttribute("ordinal");
+      }
     }
 
     set ordinal(val) {
+      this.style.MozBoxOrdinalGroup = val;
       this.setAttribute("ordinal", val);
       return val;
     }
 
     get ordinal() {
-      var val = this.getAttribute("ordinal");
+      var val = this.style.MozBoxOrdinalGroup;
       if (val == "") {
         return "1";
       }
@@ -580,9 +593,13 @@
     constructor() {
       super();
 
+      // These enumerated constants are used as the first argument to
+      // _ensureColumnOrder to specify what column ordering should be used.
+      this.CURRENT_ORDER = 0;
+      this.NATURAL_ORDER = 1; // The original order, which is the DOM ordering
+
       this.attachShadow({ mode: "open" });
-      this.shadowRoot.appendChild(
-        MozXULElement.parseXULToFragment(`
+      let fragment = MozXULElement.parseXULToFragment(`
         <html:link rel="stylesheet" href="chrome://global/content/widgets.css" />
         <html:slot name="treecols"></html:slot>
         <stack class="tree-stack" flex="1">
@@ -591,25 +608,29 @@
               <html:slot name="treechildren"></html:slot>
             </hbox>
             <scrollbar height="0" minwidth="0" minheight="0" orient="vertical"
-                       class="hidevscroll-scrollbar"
-                       style="position:relative; z-index:2147483647;"
-                       oncontextmenu="event.stopPropagation(); event.preventDefault();"
-                       onclick="event.stopPropagation(); event.preventDefault();"
-                       ondblclick="event.stopPropagation();"
-                       oncommand="event.stopPropagation();"></scrollbar>
+                       class="hidevscroll-scrollbar scrollbar-topmost"
+                       ></scrollbar>
           </hbox>
-          <textbox class="tree-input" left="0" top="0" hidden="true"></textbox>
+          <html:input class="tree-input" type="text" hidden="true"/>
         </stack>
         <hbox class="hidehscroll-box">
-          <scrollbar orient="horizontal" flex="1" increment="16" style="position:relative; z-index:2147483647;" oncontextmenu="event.stopPropagation(); event.preventDefault();" onclick="event.stopPropagation(); event.preventDefault();" ondblclick="event.stopPropagation();" oncommand="event.stopPropagation();"></scrollbar>
-          <scrollcorner class="hidevscroll-scrollcorner"
-                        oncontextmenu="event.stopPropagation(); event.preventDefault();"
-                        onclick="event.stopPropagation(); event.preventDefault();"
-                        ondblclick="event.stopPropagation();"
-                        oncommand="event.stopPropagation();"></scrollcorner>
+          <scrollbar orient="horizontal" flex="1" increment="16" class="scrollbar-topmost" ></scrollbar>
+          <scrollcorner class="hidevscroll-scrollcorner"></scrollcorner>
         </hbox>
-      `)
-      );
+      `);
+      let handledElements = fragment.querySelectorAll("scrollbar,scrollcorner");
+      let stopAndPrevent = e => {
+        e.stopPropagation();
+        e.preventDefault();
+      };
+      let stopProp = e => e.stopPropagation();
+      for (let el of handledElements) {
+        el.addEventListener("click", stopAndPrevent);
+        el.addEventListener("contextmenu", stopAndPrevent);
+        el.addEventListener("dblclick", stopProp);
+        el.addEventListener("command", stopProp);
+      }
+      this.shadowRoot.appendChild(fragment);
     }
 
     static get inheritedAttributes() {
@@ -635,7 +656,7 @@
 
       this.initializeAttributeInheritance();
 
-      this.pageUpOrDownMovesSelection = !/Mac/.test(navigator.platform);
+      this.pageUpOrDownMovesSelection = AppConstants.platform != "macosx";
 
       this._inputField = null;
 
@@ -724,7 +745,8 @@
         this._touchY = -1;
       });
 
-      this.addEventListener("MozMousePixelScroll", event => {
+      // This event doesn't retarget, so listen on the shadow DOM directly
+      this.shadowRoot.addEventListener("MozMousePixelScroll", event => {
         if (
           !(
             this.getAttribute("allowunderflowscroll") == "true" &&
@@ -735,7 +757,8 @@
         }
       });
 
-      this.addEventListener("DOMMouseScroll", event => {
+      // This event doesn't retarget, so listen on the shadow DOM directly
+      this.shadowRoot.addEventListener("DOMMouseScroll", event => {
         if (
           !(
             this.getAttribute("allowunderflowscroll") == "true" &&
@@ -794,7 +817,7 @@
         "blur",
         event => {
           this.focused = false;
-          if (event.originalTarget == this.inputField.inputField) {
+          if (event.target == this.inputField) {
             this.stopEditing(true);
           }
         },
@@ -802,6 +825,55 @@
       );
 
       this.addEventListener("keydown", event => {
+        let toggleClose = () => {
+          if (this._editingColumn) {
+            return;
+          }
+
+          let row = this.currentIndex;
+          if (row < 0) {
+            return;
+          }
+
+          if (this.changeOpenState(this.currentIndex, false)) {
+            event.preventDefault();
+            return;
+          }
+
+          let parentIndex = this.view.getParentIndex(this.currentIndex);
+          if (parentIndex >= 0) {
+            this.view.selection.select(parentIndex);
+            this.ensureRowIsVisible(parentIndex);
+            event.preventDefault();
+          }
+        };
+
+        let toggleOpen = () => {
+          if (this._editingColumn) {
+            return;
+          }
+
+          let row = this.currentIndex;
+          if (row < 0) {
+            return;
+          }
+
+          if (this.changeOpenState(row, true)) {
+            event.preventDefault();
+            return;
+          }
+          let c = row + 1;
+          let view = this.view;
+          if (c < view.rowCount && view.getParentIndex(c) == row) {
+            // If already opened, select the first child.
+            // The getParentIndex test above ensures that the children
+            // are already populated and ready.
+            this.view.selection.timedSelect(c, this._selectDelay);
+            this.ensureRowIsVisible(c);
+            event.preventDefault();
+          }
+        };
+
         switch (event.keyCode) {
           case KeyEvent.DOM_VK_RETURN: {
             if (this._handleEnter(event)) {
@@ -820,50 +892,18 @@
             break;
           }
           case KeyEvent.DOM_VK_LEFT: {
-            if (this._editingColumn) {
-              return;
-            }
-
-            let row = this.currentIndex;
-            if (row < 0) {
-              return;
-            }
-
-            if (this.changeOpenState(this.currentIndex, false)) {
-              event.preventDefault();
-              return;
-            }
-            let parentIndex = this.view.getParentIndex(this.currentIndex);
-            if (parentIndex >= 0) {
-              this.view.selection.select(parentIndex);
-              this.ensureRowIsVisible(parentIndex);
-              event.preventDefault();
+            if (!this.isRTL) {
+              toggleClose();
+            } else {
+              toggleOpen();
             }
             break;
           }
           case KeyEvent.DOM_VK_RIGHT: {
-            if (this._editingColumn) {
-              return;
-            }
-
-            let row = this.currentIndex;
-            if (row < 0) {
-              return;
-            }
-
-            if (this.changeOpenState(row, true)) {
-              event.preventDefault();
-              return;
-            }
-            let c = row + 1;
-            let view = this.view;
-            if (c < view.rowCount && view.getParentIndex(c) == row) {
-              // If already opened, select the first child.
-              // The getParentIndex test above ensures that the children
-              // are already populated and ready.
-              this.view.selection.timedSelect(c, this._selectDelay);
-              this.ensureRowIsVisible(c);
-              event.preventDefault();
+            if (!this.isRTL) {
+              toggleOpen();
+            } else {
+              toggleClose();
             }
             break;
           }
@@ -977,6 +1017,10 @@
       return this.treeBody;
     }
 
+    get isRTL() {
+      return document.defaultView.getComputedStyle(this).direction == "rtl";
+    }
+
     set editable(val) {
       if (val) {
         this.setAttribute("editable", "true");
@@ -1041,11 +1085,7 @@
     get inputField() {
       if (!this._inputField) {
         this._inputField = this.shadowRoot.querySelector(".tree-input");
-        this._inputField.addEventListener(
-          "blur",
-          () => this.stopEditing(true),
-          true
-        );
+        this._inputField.addEventListener("blur", () => this.stopEditing(true));
       }
       return this._inputField;
     }
@@ -1079,27 +1119,36 @@
       return this.getAttribute("_selectDelay") || 50;
     }
 
-    _ensureColumnOrder() {
+    // The first argument (order) can be either one of these constants:
+    //   this.CURRENT_ORDER
+    //   this.NATURAL_ORDER
+    _ensureColumnOrder(order = this.CURRENT_ORDER) {
       if (this.columns) {
         // update the ordinal position of each column to assure that it is
         // an odd number and 2 positions above its next sibling
         var cols = [];
 
-        for (
-          let col = this.columns.getFirstColumn();
-          col;
-          col = col.getNext()
-        ) {
-          cols.push(col.element);
+        if (order == this.CURRENT_ORDER) {
+          for (
+            let col = this.columns.getFirstColumn();
+            col;
+            col = col.getNext()
+          ) {
+            cols.push(col.element);
+          }
+        } else {
+          // order == this.NATURAL_ORDER
+          cols = this.getElementsByTagName("treecol");
         }
+
         for (let i = 0; i < cols.length; ++i) {
-          cols[i].setAttribute("ordinal", i * 2 + 1);
+          cols[i].ordinal = i * 2 + 1;
         }
         // update the ordinal positions of splitters to even numbers, so that
         // they are in between columns
         var splitters = this.getElementsByTagName("splitter");
         for (let i = 0; i < splitters.length; ++i) {
-          splitters[i].setAttribute("ordinal", (i + 1) * 2);
+          splitters[i].style.MozBoxOrdinalGroup = (i + 1) * 2;
         }
       }
     }
@@ -1146,8 +1195,7 @@
     }
 
     _getColumnAtX(aX, aThresh, aPos) {
-      var isRTL =
-        document.defaultView.getComputedStyle(this).direction == "rtl";
+      let isRTL = this.isRTL;
 
       if (aPos) {
         aPos.value = isRTL ? "after" : "before";
@@ -1254,10 +1302,7 @@
       if (row < 0 || row >= this.view.rowCount || !column) {
         return false;
       }
-      if (
-        column.type != window.TreeColumn.TYPE_TEXT &&
-        column.type != window.TreeColumn.TYPE_PASSWORD
-      ) {
+      if (column.type !== window.TreeColumn.TYPE_TEXT) {
         return false;
       }
       if (column.cycler || !this.view.isEditable(row, column)) {
@@ -1282,7 +1327,7 @@
       // Calculate the top offset of the textbox.
       var style = window.getComputedStyle(input);
       var topadj = parseInt(style.borderTopWidth) + parseInt(style.paddingTop);
-      input.top = textRect.y - topadj;
+      input.style.top = `${textRect.y - topadj}px`;
 
       // The leftside of the textbox is aligned to the left side of the text
       // in LTR mode, and left side of the cell in RTL mode.
@@ -1295,19 +1340,18 @@
         widthdiff = textRect.x - cellRect.x;
       }
 
-      input.left = left;
-      input.height =
-        textRect.height +
+      input.style.left = `${left}px`;
+      input.style.height = `${textRect.height +
         topadj +
         parseInt(style.borderBottomWidth) +
-        parseInt(style.paddingBottom);
-      input.width = cellRect.width - widthdiff;
+        parseInt(style.paddingBottom)}px`;
+      input.style.width = `${cellRect.width - widthdiff}px`;
       input.hidden = false;
 
       input.value = this.view.getCellText(row, column);
 
       input.select();
-      input.inputField.focus();
+      input.focus();
 
       this._editingRow = row;
       this._editingColumn = column;

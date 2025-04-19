@@ -114,7 +114,7 @@ var dialog = {
       (window.opener && PrivateBrowsingUtils.isWindowPrivate(window.opener));
 
     this._itemChoose = document.getElementById("item-choose");
-    this._okButton = document.documentElement.getButton("extra1");
+    this._okButton = document.getElementById("handling").getButton("extra1");
 
     var description = {
       image: document.getElementById("description-image"),
@@ -172,7 +172,7 @@ var dialog = {
     var preferredHandler = this._handlerInfo.preferredApplicationHandler;
     for (let i = possibleHandlers.length - 1; i >= 0; --i) {
       let app = possibleHandlers.queryElementAt(i, Ci.nsIHandlerApp);
-      let elm = document.createElement("richlistitem", {
+      let elm = document.createXULElement("richlistitem", {
         is: "mozapps-handler",
       });
       elm.setAttribute("name", app.name);
@@ -225,7 +225,7 @@ var dialog = {
     }
 
     if (this._handlerInfo.hasDefaultHandler) {
-      let elm = document.createElement("richlistitem", {
+      let elm = document.createXULElement("richlistitem", {
         is: "mozapps-handler",
       });
       elm.id = "os-default-handler";
@@ -261,7 +261,7 @@ var dialog = {
           }
         }
         if (!appAlreadyInHandlers) {
-          let elm = document.createElement("richlistitem", {
+          let elm = document.createXULElement("richlistitem", {
             is: "mozapps-handler",
           });
           elm.setAttribute("name", handler.name);
@@ -308,7 +308,7 @@ var dialog = {
           }
         }
 
-        let elm = document.createElement("richlistitem", {
+        let elm = document.createXULElement("richlistitem", {
           is: "mozapps-handler",
         });
         elm.setAttribute("name", fp.file.leafName);

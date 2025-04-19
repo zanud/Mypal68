@@ -6,13 +6,15 @@
 
 let htmlAboutAddonsWindow;
 
+const HTML_NS = "http://www.w3.org/1999/xhtml";
+
 function clickElement(el) {
   el.dispatchEvent(new CustomEvent("click"));
 }
 
 function createMessageBar(messageBarStack, { attrs, children, onclose } = {}) {
   const win = messageBarStack.ownerGlobal;
-  const messageBar = win.document.createElement("message-bar");
+  const messageBar = win.document.createElementNS(HTML_NS, "message-bar");
   if (attrs) {
     for (const [k, v] of Object.entries(attrs)) {
       messageBar.setAttribute(k, v);
@@ -31,20 +33,14 @@ function createMessageBar(messageBarStack, { attrs, children, onclose } = {}) {
 }
 
 add_task(async function setup() {
-  await SpecialPowers.pushPrefEnv({
-    set: [["extensions.htmlaboutaddons.enabled", true]],
-  });
-
   htmlAboutAddonsWindow = await loadInitialView("extension");
-  registerCleanupFunction(async () => {
-    await closeView(htmlAboutAddonsWindow);
-  });
+  registerCleanupFunction(() => closeView(htmlAboutAddonsWindow));
 });
 
 add_task(async function test_message_bar_stack() {
   const win = htmlAboutAddonsWindow;
 
-  let messageBarStack = win.document.querySelector("message-bar-stack");
+  let messageBarStack = win.document.getElementById("xz-reports-messages");
 
   ok(messageBarStack, "Got a message-bar-stack in HTML about:addons page");
 
@@ -63,11 +59,11 @@ add_task(async function test_message_bar_stack() {
 
 add_task(async function test_create_message_bar_create_and_onclose() {
   const win = htmlAboutAddonsWindow;
-  const messageBarStack = win.document.querySelector("message-bar-stack");
+  const messageBarStack = win.document.getElementById("xz-reports-messages");
 
-  let messageEl = win.document.createElement("span");
+  let messageEl = win.document.createElementNS(HTML_NS, "span");
   messageEl.textContent = "A message bar text";
-  let buttonEl = win.document.createElement("button");
+  let buttonEl = win.document.createElementNS(HTML_NS, "button");
   buttonEl.textContent = "An action button";
 
   let messageBar;
@@ -116,10 +112,10 @@ add_task(async function test_create_message_bar_create_and_onclose() {
 
 add_task(async function test_max_message_bar_count() {
   const win = htmlAboutAddonsWindow;
-  const messageBarStack = win.document.querySelector("message-bar-stack");
+  const messageBarStack = win.document.getElementById("xz-reports-messages");
 
   info("Create a new message-bar");
-  let messageElement = document.createElement("span");
+  let messageElement = document.createElementNS(HTML_NS, "span");
   messageElement = "message bar label";
 
   let onceMessageBarClosed = new Promise(resolve => {

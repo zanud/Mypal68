@@ -81,10 +81,6 @@ async function check_installed(conditions) {
       Assert.ok(file.isFile());
 
       Assert.equal(getAddonFile(addon).path, file.path);
-
-      if (isUpgrade) {
-        Assert.equal(addon.signedState, AddonManager.SIGNEDSTATE_SYSTEM);
-      }
     } else if (isUpgrade) {
       // Add-on should not be installed
       Assert.equal(addon, null);
@@ -474,7 +470,6 @@ add_task(async function test_bad_app_cert() {
   // Add-on will still be present
   let addon = await promiseAddonByID("system1@tests.mozilla.org");
   Assert.notEqual(addon, null);
-  Assert.equal(addon.signedState, AddonManager.SIGNEDSTATE_NOT_REQUIRED);
 
   let conditions = [
     { isUpgrade: false, version: "1.0" },

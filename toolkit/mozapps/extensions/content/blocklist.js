@@ -28,7 +28,9 @@ function init() {
   let bundle = Services.strings.createBundle(
     "chrome://mozapps/locale/update/updates.properties"
   );
-  let cancelButton = document.documentElement.getButton("cancel");
+  let cancelButton = document
+    .getElementById("BlocklistDialog")
+    .getButton("cancel");
   cancelButton.setAttribute(
     "label",
     bundle.GetStringFromName("restartLaterButton")
@@ -63,7 +65,7 @@ function init() {
     nameVersion.append(name, version);
 
     const fragment = document.createXULElement("hbox");
-    fragment.pack = "end";
+    fragment.setAttribute("pack", "end");
 
     if (listItem.blocked) {
       fragment.appendChild(

@@ -619,8 +619,7 @@ class _RFPHelper {
     }
   }
 
-  _handleDOMWindowOpened(aSubject) {
-    let win = aSubject.QueryInterface(Ci.nsIDOMWindow);
+  _handleDOMWindowOpened(win) {
     let self = this;
 
     win.addEventListener(

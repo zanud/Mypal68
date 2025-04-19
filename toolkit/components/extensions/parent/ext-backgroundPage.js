@@ -7,11 +7,6 @@ var { HiddenExtensionPage, promiseExtensionViewLoaded } = ExtensionParent;
 
 ChromeUtils.defineModuleGetter(
   this,
-  "ExtensionTelemetry",
-  "resource://gre/modules/ExtensionTelemetry.jsm"
-);
-ChromeUtils.defineModuleGetter(
-  this,
   "PrivateBrowsingUtils",
   "resource://gre/modules/PrivateBrowsingUtils.jsm"
 );
@@ -42,8 +37,6 @@ class BackgroundPage extends HiddenExtensionPage {
   async build() {
     const { extension } = this;
 
-    ExtensionTelemetry.backgroundPageLoad.stopwatchStart(extension, this);
-
     let context;
     try {
       await this.createBrowserElement();
@@ -65,12 +58,10 @@ class BackgroundPage extends HiddenExtensionPage {
     } catch (e) {
       // Extension was down before the background page has loaded.
       Cu.reportError(e);
-      ExtensionTelemetry.backgroundPageLoad.stopwatchCancel(extension, this);
+      EventManager.clearPrimedListeners(this.extension, false);
       extension.emit("background-page-aborted");
       return;
     }
-
-    ExtensionTelemetry.backgroundPageLoad.stopwatchFinish(extension, this);
 
     if (context) {
       // Wait until all event listeners registered by the script so far

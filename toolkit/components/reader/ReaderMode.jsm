@@ -5,16 +5,6 @@
 
 var EXPORTED_SYMBOLS = ["ReaderMode"];
 
-// Constants for telemetry.
-const DOWNLOAD_SUCCESS = 0;
-const DOWNLOAD_ERROR_XHR = 1;
-const DOWNLOAD_ERROR_NO_DOC = 2;
-
-const PARSE_SUCCESS = 0;
-const PARSE_ERROR_TOO_MANY_ELEMENTS = 1;
-const PARSE_ERROR_WORKER = 2;
-const PARSE_ERROR_NO_ARTICLE = 3;
-
 // Class names to preserve in the readerized output. We preserve these class
 // names so that rules in aboutReader.css can match them.
 const CLASSES_TO_PRESERVE = [
@@ -254,9 +244,6 @@ var ReaderMode = {
       );
       return null;
     }
-    let histogram = Services.telemetry.getHistogramById(
-      "READER_MODE_DOWNLOAD_RESULT"
-    );
     return new Promise((resolve, reject) => {
       let xhr = new XMLHttpRequest();
       xhr.open("GET", url, true);
@@ -265,14 +252,12 @@ var ReaderMode = {
       xhr.onload = evt => {
         if (xhr.status !== 200) {
           reject("Reader mode XHR failed with status: " + xhr.status);
-          histogram.add(DOWNLOAD_ERROR_XHR);
           return;
         }
 
         let doc = xhr.responseXML;
         if (!doc) {
           reject("Reader mode XHR didn't return a document");
-          histogram.add(DOWNLOAD_ERROR_NO_DOC);
           return;
         }
 
@@ -340,7 +325,6 @@ var ReaderMode = {
           return;
         }
         resolve(doc);
-        histogram.add(DOWNLOAD_SUCCESS);
       };
       xhr.send();
     });
@@ -421,9 +405,6 @@ var ReaderMode = {
    * @resolves JS object representing the article, or null if no article is found.
    */
   async _readerParse(doc) {
-    let histogram = Services.telemetry.getHistogramById(
-      "READER_MODE_PARSE_RESULT"
-    );
     if (this.parseNodeLimit) {
       let numTags = doc.getElementsByTagName("*").length;
       if (numTags > this.parseNodeLimit) {
@@ -434,7 +415,6 @@ var ReaderMode = {
             numTags +
             " elements found"
         );
-        histogram.add(PARSE_ERROR_TOO_MANY_ELEMENTS);
         return null;
       }
     }
@@ -472,7 +452,6 @@ var ReaderMode = {
       ]);
     } catch (e) {
       Cu.reportError("Error in ReaderWorker: " + e);
-      histogram.add(PARSE_ERROR_WORKER);
     }
 
     // Explicitly null out doc to make it clear it might not be available from this
@@ -481,7 +460,6 @@ var ReaderMode = {
 
     if (!article) {
       this.log("Worker did not return an article");
-      histogram.add(PARSE_ERROR_NO_ARTICLE);
       return null;
     }
 
@@ -504,7 +482,6 @@ var ReaderMode = {
 
     this._assignReadTime(article);
 
-    histogram.add(PARSE_SUCCESS);
     return article;
   },
 

@@ -119,8 +119,6 @@ const STARTUP_MTIME_SCOPES = [
 const NOTIFICATION_FLUSH_PERMISSIONS = "flush-pending-permissions";
 const XPI_PERMISSION = "install";
 
-const XPI_SIGNATURE_CHECK_PERIOD = 24 * 60 * 60;
-
 const DB_SCHEMA = 31;
 
 XPCOMUtils.defineLazyPreferenceGetter(
@@ -455,7 +453,6 @@ const JSON_FIELDS = Object.freeze([
   "path",
   "rootURI",
   "runInSafeMode",
-  "signedState",
   "startupData",
   "type",
   "version",
@@ -546,7 +543,6 @@ class XPIState {
       path: this.relativePath,
       rootURI: this.rootURI,
       runInSafeMode: this.runInSafeMode,
-      signedState: this.signedState,
       version: this.version,
     };
     if (this.type != "extension") {
@@ -621,7 +617,6 @@ class XPIState {
 
     this.dependencies = aDBAddon.dependencies;
     this.runInSafeMode = canRunInSafeMode(aDBAddon);
-    this.signedState = aDBAddon.signedState;
     this.file = aDBAddon._sourceBundle;
     this.rootURI = aDBAddon.rootURI;
 
@@ -1756,7 +1751,6 @@ class BootstrapScope {
         id: addon.id,
         version: addon.version,
         resourceURI: addon.resolvedRootURI,
-        signedState: addon.signedState,
         temporarilyInstalled: addon.location.isTemporary,
         builtIn: addon.location.isBuiltin,
       };
@@ -2518,14 +2512,6 @@ var XPIProvider = {
           Services.obs.addObserver(observer, event);
         }
       }
-
-      timerManager.registerTimer(
-        "xpi-signature-verification",
-        () => {
-          XPIDatabase.verifySignatures();
-        },
-        XPI_SIGNATURE_CHECK_PERIOD
-      );
     } catch (e) {
       logger.error("startup failed", e);
       AddonManagerPrivate.recordException("XPI", "startup failed", e);
@@ -2836,7 +2822,7 @@ var XPIProvider = {
       let extensionListChanged = false;
       // If the database needs to be updated then open it and then update it
       // from the filesystem
-      if (updateReasons.length > 0) {
+      if (updateReasons.length) {
         AddonManagerPrivate.recordSimpleMeasure(
           "XPIDB_startup_load_reasons",
           updateReasons

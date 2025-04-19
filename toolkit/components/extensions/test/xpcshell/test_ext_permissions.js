@@ -576,6 +576,7 @@ const GRANTED_WITHOUT_USER_PROMPT = [
   "storage",
   "telemetry",
   "theme",
+  "urlbar",
   "webRequest",
   "webRequestBlocking",
 ];

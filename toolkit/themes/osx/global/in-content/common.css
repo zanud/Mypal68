@@ -58,12 +58,12 @@ xul|tab:-moz-focusring > .tab-middle > .tab-text {
   outline-offset: 1px;
 }
 
-textbox[is="search-textbox"] {
+xul|search-textbox {
   appearance: none;
   padding-inline: 8px;
 }
 
-xul|textbox[is="search-textbox"] > .textbox-search-sign {
+xul|search-textbox > .textbox-search-sign {
   -moz-context-properties: fill, fill-opacity;
   fill: currentColor;
   fill-opacity: 0.8;

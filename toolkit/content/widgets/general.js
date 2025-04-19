@@ -44,13 +44,12 @@
   customElements.define("deck", MozDeck);
 
   class MozDropmarker extends MozXULElement {
-    connectedCallback() {
-      // Only create the image the first time we are connected
-      if (!this.firstElementChild) {
-        let image = document.createXULElement("image");
-        image.classList.add("dropmarker-icon");
-        this.appendChild(image);
-      }
+    constructor() {
+      super();
+      let shadowRoot = this.attachShadow({mode: "open"});
+      let image = document.createXULElement("image");
+      image.setAttribute("part", "icon");
+      shadowRoot.appendChild(image);
     }
   }
 

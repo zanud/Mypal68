@@ -786,7 +786,7 @@ class BrowserExtensionContent extends EventEmitter {
 
     /* eslint-disable mozilla/balanced-listeners */
     this.on("add-permissions", (ignoreEvent, permissions) => {
-      if (permissions.permissions.length > 0) {
+      if (permissions.permissions.length) {
         let perms = new Set(this.policy.permissions);
         for (let perm of permissions.permissions) {
           perms.add(perm);
@@ -794,7 +794,7 @@ class BrowserExtensionContent extends EventEmitter {
         this.policy.permissions = perms;
       }
 
-      if (permissions.origins.length > 0) {
+      if (permissions.origins.length) {
         let patterns = this.whiteListedHosts.patterns.map(host => host.pattern);
 
         this.policy.allowedOrigins = new MatchPatternSet(
@@ -805,7 +805,7 @@ class BrowserExtensionContent extends EventEmitter {
     });
 
     this.on("remove-permissions", (ignoreEvent, permissions) => {
-      if (permissions.permissions.length > 0) {
+      if (permissions.permissions.length) {
         let perms = new Set(this.policy.permissions);
         for (let perm of permissions.permissions) {
           perms.delete(perm);
@@ -813,7 +813,7 @@ class BrowserExtensionContent extends EventEmitter {
         this.policy.permissions = perms;
       }
 
-      if (permissions.origins.length > 0) {
+      if (permissions.origins.length) {
         let origins = permissions.origins.map(
           origin => new MatchPattern(origin, { ignorePath: true }).pattern
         );
@@ -1135,7 +1135,7 @@ class ChildAPIManager {
 
     this.permissionsChangedCallbacks = new Set();
     this.updatePermissions = null;
-    if (this.context.extension.optionalPermissions.length > 0) {
+    if (this.context.extension.optionalPermissions.length) {
       this.updatePermissions = () => {
         for (let callback of this.permissionsChangedCallbacks) {
           try {

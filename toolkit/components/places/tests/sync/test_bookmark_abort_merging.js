@@ -1,31 +1,100 @@
 /* Any copyright is dedicated to the Public Domain.
  * http://creativecommons.org/publicdomain/zero/1.0/ */
 
+var { AsyncShutdown } = ChromeUtils.import(
+  "resource://gre/modules/AsyncShutdown.jsm"
+);
+
+add_task(async function test_abort_store() {
+  let buf = await openMirror("abort_store");
+
+  let controller = new AbortController();
+  controller.abort();
+  await Assert.rejects(
+    storeRecords(
+      buf,
+      [
+        {
+          id: "menu",
+          parentid: "places",
+          type: "folder",
+          children: [],
+        },
+      ],
+      { signal: controller.signal }
+    ),
+    ex => ex.name == "InterruptedError",
+    "Should abort storing when signaled"
+  );
+
+  await buf.finalize();
+  await PlacesUtils.bookmarks.eraseEverything();
+  await PlacesSyncUtils.bookmarks.reset();
+});
+
 add_task(async function test_abort_merging() {
   let buf = await openMirror("abort_merging");
 
-  let promise = new Promise((resolve, reject) => {
-    let callback = {
-      handleResult() {
-        reject(new Error("Shouldn't have merged after aborting"));
-      },
-      handleError(code, message) {
-        equal(code, Cr.NS_ERROR_ABORT, "Should abort merge with result code");
-        resolve();
-      },
-    };
-    // `merge` schedules a runnable to start the merge on the storage thread, on
-    // the next turn of the event loop. In the same turn, before the runnable is
-    // scheduled, we call `finalize`, which sets the abort controller's aborted
-    // flag.
-    buf.merger.merge(0, 0, [], callback);
-    buf.merger.finalize();
-  });
-
-  await promise;
+  let controller = new AbortController();
+  controller.abort();
+  await Assert.rejects(
+    buf.apply({ signal: controller.signal }),
+    ex => ex.name == "InterruptedError",
+    "Should abort merge when signaled"
+  );
 
   // Even though the merger is already finalized on the Rust side, the DB
   // connection is still open on the JS side. Finalizing `buf` closes it.
+  await buf.finalize();
+  await PlacesUtils.bookmarks.eraseEverything();
+  await PlacesSyncUtils.bookmarks.reset();
+});
+
+add_task(async function test_blocker_state() {
+  let barrier = new AsyncShutdown.Barrier("Test");
+  let buf = await SyncedBookmarksMirror.open({
+    path: "blocker_state_buf.sqlite",
+    finalizeAt: barrier.client,
+  });
+  await storeRecords(buf, [
+    {
+      id: "menu",
+      parentid: "places",
+      type: "folder",
+      children: ["bookmarkAAAA"],
+    },
+    {
+      id: "bookmarkAAAA",
+      parentid: "menu",
+      type: "bookmark",
+      title: "A",
+      bmkUri: "http://example.com/a",
+    },
+  ]);
+
+  await buf.tryApply(buf.finalizeController.signal);
+  await barrier.wait();
+
+  let state = buf.progress.fetchState();
+  let steps = state.steps;
+  deepEqual(
+    steps.map(s => s.step),
+    [
+      "fetchLocalTree",
+      "fetchRemoteTree",
+      "merge",
+      "apply",
+      "notifyObservers",
+      "fetchLocalChangeRecords",
+      "finalize",
+    ],
+    "Should report merge progress after waiting on blocker"
+  );
+  ok(
+    buf.finalizeController.signal.aborted,
+    "Should abort finalize signal on shutdown"
+  );
+
   await buf.finalize();
   await PlacesUtils.bookmarks.eraseEverything();
   await PlacesSyncUtils.bookmarks.reset();

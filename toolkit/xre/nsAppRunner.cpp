@@ -233,7 +233,7 @@ extern void InstallSignalHandlers(const char* ProgramName);
 int gArgc;
 char** gArgv;
 
-static const char gToolkitVersion[] = MOZ_STRINGIFY(GRE_MILESTONE);
+static const char gToolkitVersion[] = "74";
 // The gToolkitBuildID global is defined to MOZ_BUILDID via gen_buildid.py
 // in toolkit/library. See related comment in toolkit/library/moz.build.
 extern const char gToolkitBuildID[];
@@ -1533,7 +1533,7 @@ static ReturnAbortOnError ProfileLockedDialog(nsIFile* aProfileDir,
 }
 
 static const char kProfileManagerURL[] =
-    "chrome://mozapps/content/profile/profileSelection.xul";
+    "chrome://mozapps/content/profile/profileSelection.xhtml";
 
 static ReturnAbortOnError ShowProfileManager(
     nsIToolkitProfileService* aProfileSvc, nsINativeAppSupport* aNative) {
@@ -1744,15 +1744,8 @@ static nsresult SelectProfile(nsToolkitProfileService* aProfileSvc,
 }
 
 #ifdef MOZ_BLOCK_PROFILE_DOWNGRADE
-struct FileWriteFunc : public JSONWriteFunc {
-  FILE* mFile;
-  explicit FileWriteFunc(FILE* aFile) : mFile(aFile) {}
-
-  void Write(const char* aStr) override { fprintf(mFile, "%s", aStr); }
-};
-
 static const char kProfileDowngradeURL[] =
-    "chrome://mozapps/content/profile/profileDowngrade.xul";
+    "chrome://mozapps/content/profile/profileDowngrade.xhtml";
 
 static ReturnAbortOnError CheckDowngrade(nsIFile* aProfileDir,
                                          nsINativeAppSupport* aNative,
@@ -2726,7 +2719,7 @@ int XREMain::XRE_mainInit(bool* aExitFlag) {
     mAppData->maxVersion = "1.*";
   }
 
-  if (mozilla::Version(mAppData->minVersion) > gToolkitVersion ||
+  /*if (mozilla::Version(mAppData->minVersion) > gToolkitVersion ||
       mozilla::Version(mAppData->maxVersion) < gToolkitVersion) {
     Output(true,
            "Error: Platform version '%s' is not compatible with\n"
@@ -2734,7 +2727,7 @@ int XREMain::XRE_mainInit(bool* aExitFlag) {
            (const char*)gToolkitVersion, (const char*)mAppData->minVersion,
            (const char*)mAppData->maxVersion);
     return 1;
-  }
+  }*/
 
   rv = mDirProvider.Initialize(mAppData->directory, mAppData->xreDirectory);
   if (NS_FAILED(rv)) return 1;
@@ -3376,7 +3369,7 @@ int XREMain::XRE_mainStartup(bool* aExitFlag) {
       nsString leafName;
       rv = mProfD->GetLeafName(leafName);
       if (NS_SUCCEEDED(rv)) {
-        profileName = NS_ConvertUTF16toUTF8(leafName);
+        CopyUTF16toUTF8(leafName, profileName);
       }
     }
 

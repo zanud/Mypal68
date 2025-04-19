@@ -46,44 +46,9 @@
         });
       }
 
-      this.addEventListener("click", event => {
-        if (
-          this.clickSelectsAll &&
-          document.activeElement == this.inputField &&
-          this.inputField.selectionStart == this.inputField.selectionEnd
-        ) {
-          this.editor.selectAll();
-        }
-      });
-
-      this.addEventListener("input", event => {
-        if (this.searchButton) {
-          this._searchIcons.selectedIndex = 0;
-          return;
-        }
-        if (this._timer) {
-          clearTimeout(this._timer);
-        }
-        this._timer =
-          this.timeout && setTimeout(this._fireCommand, this.timeout, this);
-        this._searchIcons.selectedIndex = this.value ? 1 : 0;
-      });
-
-      this.addEventListener("keypress", event => {
-        switch (event.keyCode) {
-          case KeyEvent.DOM_VK_ESCAPE:
-            if (this._clearSearch()) {
-              event.preventDefault();
-              event.stopPropagation();
-            }
-            break;
-          case KeyEvent.DOM_VK_RETURN:
-            this._enterSearch();
-            event.preventDefault();
-            event.stopPropagation();
-            break;
-        }
-      });
+      this.addEventListener("input", this);
+      this.addEventListener("keypress", this);
+      this.addEventListener("mousedown", this);
     }
 
     static get inheritedAttributes() {
@@ -108,10 +73,8 @@
       const input = this.inputField;
       input.className = "textbox-input";
       input.setAttribute("mozactionhint", "search");
-      input.addEventListener("focus", () =>
-        this.setAttribute("focused", "true")
-      );
-      input.addEventListener("blur", () => this.removeAttribute("focused"));
+      input.addEventListener("focus", this);
+      input.addEventListener("blur", this);
 
       const searchBtn = (this._searchButtonIcon = document.createXULElement(
         "image"
@@ -139,10 +102,8 @@
       this._timer = null;
 
       // Ensure the button state is up to date:
+      // eslint-disable-next-line no-self-assign
       this.searchButton = this.searchButton;
-
-      // Set is attribute for styling
-      this.setAttribute("is", "search-textbox");
 
       this.initializeAttributeInheritance();
     }
@@ -161,6 +122,9 @@
         this.setAttribute("searchbutton", "true");
         this.removeAttribute("aria-autocomplete");
         // Hack for the button to get the right accessible:
+        // If you update the 'onclick' event handler code within the
+        // _searchButtonIcon you also have to update the sha512 hash in the
+        // CSP of about:addons within extensions.xhtml.
         this._searchButtonIcon.setAttribute("onclick", "true");
       } else {
         this.removeAttribute("searchbutton");
@@ -211,26 +175,48 @@
       return this.inputField.disabled;
     }
 
-    get clickSelectsAll() {
-      return this.getAttribute("clickSelectsAll") == "true";
+    on_blur() {
+      this.removeAttribute("focused");
     }
 
-    set clickSelectsAll(val) {
-      if (val) {
-        this.setAttribute("clickSelectsAll", "true");
-      } else {
-        this.removeAttribute("clickSelectsAll");
+    on_focus() {
+      this.setAttribute("focused", "true");
+    }
+
+    on_input() {
+      if (this.searchButton) {
+        this._searchIcons.selectedIndex = 0;
+        return;
+      }
+      if (this._timer) {
+        clearTimeout(this._timer);
+      }
+      this._timer =
+        this.timeout && setTimeout(this._fireCommand, this.timeout, this);
+      this._searchIcons.selectedIndex = this.value ? 1 : 0;
+    }
+
+    on_keypress(event) {
+      switch (event.keyCode) {
+        case KeyEvent.DOM_VK_ESCAPE:
+          if (this._clearSearch()) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+          break;
+        case KeyEvent.DOM_VK_RETURN:
+          this._enterSearch();
+          event.preventDefault();
+          event.stopPropagation();
+          break;
       }
     }
 
-    reset() {
-      this.value = this.defaultValue;
-      // XXX: Is this still needed ?
-      try {
-        this.editor.transactionManager.clear();
-        return true;
-      } catch (e) {}
-      return false;
+    on_mousedown(event) {
+      if (!this.hasAttribute("focused")) {
+        this.setSelectionRange(0, 0);
+        this.focus();
+      }
     }
 
     _fireCommand(me) {
@@ -270,7 +256,5 @@
     }
   }
 
-  customElements.define("search-textbox", MozSearchTextbox, {
-    extends: "textbox",
-  });
+  customElements.define("search-textbox", MozSearchTextbox);
 }

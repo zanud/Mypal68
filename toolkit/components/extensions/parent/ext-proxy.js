@@ -6,13 +6,8 @@
 
 ChromeUtils.defineModuleGetter(
   this,
-  "ProxyScriptContext",
-  "resource://gre/modules/ProxyScriptContext.jsm"
-);
-ChromeUtils.defineModuleGetter(
-  this,
   "ProxyChannelFilter",
-  "resource://gre/modules/ProxyScriptContext.jsm"
+  "resource://gre/modules/ProxyChannelFilter.jsm"
 );
 var { ExtensionPreferencesManager } = ChromeUtils.import(
   "resource://gre/modules/ExtensionPreferencesManager.jsm"
@@ -20,9 +15,6 @@ var { ExtensionPreferencesManager } = ChromeUtils.import(
 
 var { ExtensionError } = ExtensionUtils;
 var { getSettingsAPI } = ExtensionPreferencesManager;
-
-// WeakMap[Extension -> ProxyScriptContext]
-const proxyScriptContextMap = new WeakMap();
 
 const proxySvc = Ci.nsIProtocolProxyService;
 
@@ -134,16 +126,6 @@ function registerProxyFilterEvent(
 }
 
 this.proxy = class extends ExtensionAPI {
-  onShutdown() {
-    let { extension } = this;
-
-    let proxyScriptContext = proxyScriptContextMap.get(extension);
-    if (proxyScriptContext) {
-      proxyScriptContext.unload();
-      proxyScriptContextMap.delete(extension);
-    }
-  }
-
   primeListener(extension, event, fire, params) {
     if (event === "onRequest") {
       return registerProxyFilterEvent(undefined, extension, fire, ...params);
@@ -153,45 +135,8 @@ this.proxy = class extends ExtensionAPI {
   getAPI(context) {
     let { extension } = context;
 
-    // Leaving as non-persistent.  By itself it's not useful since proxy-error
-    // is emitted from the proxy filter.
-    let onError = new EventManager({
-      context,
-      name: "proxy.onError",
-      register: fire => {
-        let listener = (name, error) => {
-          fire.async(error);
-        };
-        extension.on("proxy-error", listener);
-        return () => {
-          extension.off("proxy-error", listener);
-        };
-      },
-    }).api();
-
     return {
       proxy: {
-        register(url) {
-          this.unregister();
-
-          let proxyScriptContext = new ProxyScriptContext(extension, url);
-          if (proxyScriptContext.load()) {
-            proxyScriptContextMap.set(extension, proxyScriptContext);
-          }
-        },
-
-        unregister() {
-          // Unload the current proxy script if one is loaded.
-          if (proxyScriptContextMap.has(extension)) {
-            proxyScriptContextMap.get(extension).unload();
-            proxyScriptContextMap.delete(extension);
-          }
-        },
-
-        registerProxyScript(url) {
-          this.register(url);
-        },
-
         onRequest: new EventManager({
           context,
           name: `proxy.onRequest`,
@@ -210,10 +155,21 @@ this.proxy = class extends ExtensionAPI {
           },
         }).api(),
 
-        onError,
-
-        // TODO Bug 1388619 deprecate onProxyError.
-        onProxyError: onError,
+        // Leaving as non-persistent.  By itself it's not useful since proxy-error
+        // is emitted from the proxy filter.
+        onError: new EventManager({
+          context,
+          name: "proxy.onError",
+          register: fire => {
+            let listener = (name, error) => {
+              fire.async(error);
+            };
+            extension.on("proxy-error", listener);
+            return () => {
+              extension.off("proxy-error", listener);
+            };
+          },
+        }).api(),
 
         settings: Object.assign(
           getSettingsAPI(
@@ -301,7 +257,7 @@ this.proxy = class extends ExtensionAPI {
                 // Match what about:preferences does with proxy settings
                 // since the proxy service does not check the value
                 // of share_proxy_settings.
-                for (let prop of ["ftp", "ssl", "socks"]) {
+                for (let prop of ["ftp", "ssl"]) {
                   value[prop] = value.http;
                 }
               }

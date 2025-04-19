@@ -10,7 +10,7 @@
 #include "nsIDocShellTreeOwner.h"
 #include "nsIInterfaceRequestorUtils.h"
 #include "nsIPrintSettings.h"
-#include "nsIXULWindow.h"
+#include "nsIAppWindow.h"
 #include "nsXPCOM.h"
 #include "nsIObserver.h"
 #include "nsISupportsPrimitives.h"
@@ -74,8 +74,8 @@ NS_IMETHODIMP nsPrintProgress::OpenProgressDialog(
     nsCOMPtr<nsIDocShellTreeOwner> owner;
     docShell->GetTreeOwner(getter_AddRefs(owner));
 
-    nsCOMPtr<nsIXULWindow> ownerXULWindow = do_GetInterface(owner);
-    nsCOMPtr<mozIDOMWindowProxy> ownerWindow = do_GetInterface(ownerXULWindow);
+    nsCOMPtr<nsIAppWindow> ownerAppWindow = do_GetInterface(owner);
+    nsCOMPtr<mozIDOMWindowProxy> ownerWindow = do_GetInterface(ownerAppWindow);
     NS_ENSURE_STATE(ownerWindow);
 
     nsCOMPtr<nsPIDOMWindowOuter> piOwnerWindow =

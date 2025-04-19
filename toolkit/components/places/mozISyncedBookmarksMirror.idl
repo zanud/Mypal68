@@ -4,11 +4,12 @@
 
 #include "nsISupports.idl"
 
+interface mozIPlacesPendingOperation;
 interface mozIStorageConnection;
 
 [scriptable, uuid(d23fdfea-92c8-409d-a516-08ae395d578f)]
 interface mozISyncedBookmarksMirrorCallback : nsISupports {
-  void handleResult(in nsISupports result);
+  void handleSuccess(in bool result);
   void handleError(in nsresult code, in AString message);
 };
 
@@ -47,24 +48,28 @@ interface mozISyncedBookmarksMerger : nsISupports {
   const short VALIDITY_REPLACE = 3;
 
   // The mirror database connection to use for merging. The merge runs on the
-  // connection's async thread, to avoid blocking the main thread. The database
-  // schema, temp tables, and triggers must be set up before calling
-  // `merge`.
+  // connection's async thread, to avoid blocking the main thread. The
+  // connection must be open, and the database schema, temp tables, and
+  // triggers must be set up before calling `merge`.
   attribute mozIStorageConnection db;
 
   // Optional; used for logging.
   attribute mozISyncedBookmarksMirrorLogger logger;
 
-  // Merges the local and remote bookmark trees. Stores the merged tree in the
-  // `mergeStates` table. Calls `callback.handleResult(nsIPropertyBag2)` with
-  // telemetry stats on success, or `callback.handleError(error)` if an error
-  // occurs.
-  void merge(in long long localTimeSeconds,
-             in long long remoteTimeSeconds,
-             in Array<AString> weakUploads,
-             in mozISyncedBookmarksMirrorCallback callback);
+  // Merges the local and remote bookmark trees, applies the merged tree to
+  // Places, and stages locally changed and reconciled items for upload. When
+  // the merge finishes, either `callback.handleSuccess` or
+  // `callback.handleError` are called.-  // after each step.
+  // after each step. Returns an object with a `cancel` method that can be used
+  // to interrupt the merge.
+  mozIPlacesPendingOperation merge(
+    in long long localTimeSeconds,
+    in long long remoteTimeSeconds,
+    in Array<AString> weakUploads,
+    in mozISyncedBookmarksMirrorCallback callback
+  );
 
-  // Finalizes the merger. This does _not_ automatically close the database
-  // connection.
-  void finalize();
+  // Resets the database connection and logger. This does _not_ automatically
+  // close the database connection.
+  void reset();
 };

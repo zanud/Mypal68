@@ -22,7 +22,6 @@ add_task(async function test_non_ascii_path() {
   env.set(PROFILE_VAR, profileDir);
 
   AddonTestUtils.init(global);
-  AddonTestUtils.overrideCertDB();
   AddonTestUtils.createAppInfo(
     "xpcshell@tests.mozilla.org",
     "XPCShell",

@@ -132,7 +132,7 @@ var CharsetMenu = {
       );
     }
     function createDOMNode(doc, nodeInfo) {
-      let node = doc.createElement("menuitem");
+      let node = doc.createXULElement("menuitem");
       node.setAttribute("type", "radio");
       node.setAttribute("name", nodeInfo.name + "Group");
       node.setAttribute(nodeInfo.name, nodeInfo.value);
@@ -151,7 +151,7 @@ var CharsetMenu = {
     let doc = parent.ownerDocument;
 
     if (showDetector) {
-      let menuNode = doc.createElement("menu");
+      let menuNode = doc.createXULElement("menu");
       menuNode.setAttribute(
         "label",
         gBundle.GetStringFromName("charsetMenuAutodet")
@@ -162,7 +162,7 @@ var CharsetMenu = {
       );
       parent.appendChild(menuNode);
 
-      let menuPopupNode = doc.createElement("menupopup");
+      let menuPopupNode = doc.createXULElement("menupopup");
       menuNode.appendChild(menuPopupNode);
       menuPopupNode.addEventListener("command", SetDetector);
       menuPopupNode.addEventListener("popupshown", UpdateDetectorMenu);
@@ -170,13 +170,13 @@ var CharsetMenu = {
       gDetectorInfoCache.forEach(detectorInfo =>
         menuPopupNode.appendChild(createDOMNode(doc, detectorInfo))
       );
-      parent.appendChild(doc.createElement("menuseparator"));
+      parent.appendChild(doc.createXULElement("menuseparator"));
     }
 
     gPinnedInfoCache.forEach(charsetInfo =>
       parent.appendChild(createDOMNode(doc, charsetInfo))
     );
-    parent.appendChild(doc.createElement("menuseparator"));
+    parent.appendChild(doc.createXULElement("menuseparator"));
     gCharsetInfoCache.forEach(charsetInfo =>
       parent.appendChild(createDOMNode(doc, charsetInfo))
     );

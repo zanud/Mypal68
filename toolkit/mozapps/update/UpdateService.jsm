@@ -2462,9 +2462,9 @@ UpdateService.prototype = {
         );
         cleanupActiveUpdate();
       } else {
-        let uri = "chrome://mozapps/content/update/updateElevation.xul";
+        let uri = "chrome://mozapps/content/update/updateElevation.xhtml";
         let features =
-          "chrome,centerscreen,resizable=no,titlebar,toolbar=no," + "dialog=no";
+          "chrome,centerscreen,resizable=no,titlebar,toolbar=no,dialog=no";
         Services.ww.openWindow(null, uri, "Update:Elevation", features, null);
       }
     } else {

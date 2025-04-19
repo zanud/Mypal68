@@ -17,6 +17,7 @@
 #include "nsIObserverService.h"
 #include "nsISimpleEnumerator.h"
 #include "nsIToolkitProfileService.h"
+#include "nsIXULRuntime.h" //mypal
 #include "commonupdatedir.h"
 
 #include "nsAppDirectoryServiceDefs.h"
@@ -31,6 +32,7 @@
 #include "nsEnumeratorUtils.h"
 #include "nsReadableUtils.h"
 
+#include "GeckoProfiler.h"
 #include "SpecialSystemDirectory.h"
 
 #include "mozilla/dom/ScriptSettings.h"
@@ -41,6 +43,7 @@
 #include "mozilla/Omnijar.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/Telemetry.h"
+#include "mozilla/XREAppData.h"
 
 #include <stdlib.h>
 
@@ -738,7 +741,7 @@ nsresult nsXREDirProvider::LoadPluginProcessTempDir() {
 }
 
 static bool IsContentSandboxDisabled() {
-  return !mozilla::BrowserTabsRemoteAutostart() ||
+  return !BrowserTabsRemoteAutostart() ||
          (!mozilla::IsContentSandboxEnabled());
 }
 

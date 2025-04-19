@@ -37,7 +37,6 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   XPIInstall: "resource://gre/modules/addons/XPIInstall.jsm",
   XPIInternal: "resource://gre/modules/addons/XPIProvider.jsm",
   XPIProvider: "resource://gre/modules/addons/XPIProvider.jsm",
-  verifyBundleSignedState: "resource://gre/modules/addons/XPIInstall.jsm",
 });
 
 XPCOMUtils.defineLazyPreferenceGetter(
@@ -141,7 +140,6 @@ const PROP_JSON_FIELDS = [
   "locales",
   "targetApplications",
   "targetPlatforms",
-  "signedState",
   "seen",
   "dependencies",
   "incognito",
@@ -379,35 +377,6 @@ class AddonInternal {
     return !this.updateURL || this.updateURL.startsWith("https:");
   }
 
-  get isCorrectlySigned() {
-    switch (this.location.name) {
-      case KEY_APP_SYSTEM_ADDONS:
-        // System add-ons must be signed by the system key.
-        return this.signedState == AddonManager.SIGNEDSTATE_SYSTEM;
-
-      case KEY_APP_SYSTEM_DEFAULTS:
-      case KEY_APP_BUILTINS:
-      case KEY_APP_TEMPORARY:
-        // Temporary and built-in add-ons do not require signing.
-        return true;
-
-      case KEY_APP_SYSTEM_SHARE:
-      case KEY_APP_SYSTEM_LOCAL:
-        // On UNIX platforms except OSX, an additional location for system
-        // add-ons exists in /usr/{lib,share}/mozilla/extensions. Add-ons
-        // installed there do not require signing.
-        if (Services.appinfo.OS != "Darwin") {
-          return true;
-        }
-        break;
-    }
-
-    if (this.signedState === AddonManager.SIGNEDSTATE_NOT_REQUIRED) {
-      return true;
-    }
-    return this.signedState > AddonManager.SIGNEDSTATE_MISSING;
-  }
-
   get isCompatible() {
     return this.isCompatibleWith();
   }
@@ -415,8 +384,6 @@ class AddonInternal {
   // This matches Extension.isPrivileged with the exception of temporarily installed extensions.
   get isPrivileged() {
     return (
-      this.signedState === AddonManager.SIGNEDSTATE_PRIVILEGED ||
-      this.signedState === AddonManager.SIGNEDSTATE_SYSTEM ||
       this.location.isBuiltin
     );
   }
@@ -434,7 +401,7 @@ class AddonInternal {
   }
 
   get isPlatformCompatible() {
-    if (this.targetPlatforms.length == 0) {
+    if (!this.targetPlatforms.length) {
       return true;
     }
 
@@ -695,8 +662,6 @@ class AddonInternal {
       !allowPrivateBrowsingByDefault &&
       this.type === "extension" &&
       this.incognito !== "not_allowed" &&
-      this.signedState !== AddonManager.SIGNEDSTATE_PRIVILEGED &&
-      this.signedState !== AddonManager.SIGNEDSTATE_SYSTEM &&
       !this.location.isBuiltin
     ) {
       permissions |= AddonManager.PERM_CAN_CHANGE_PRIVATEBROWSING_ACCESS;
@@ -1179,8 +1144,6 @@ function defineAddonWrapperProperty(name, getter) {
   "strictCompatibility",
   "updateURL",
   "dependencies",
-  "signedState",
-  "isCorrectlySigned",
 ].forEach(function(aProp) {
   defineAddonWrapperProperty(aProp, function() {
     let addon = addonFor(this);
@@ -1670,56 +1633,6 @@ this.XPIDatabase = {
       delete this._saveTask;
       // re-enable the schema version setter
       delete this._schemaVersionSet;
-    }
-  },
-
-  /**
-   * Verifies that all installed add-ons are still correctly signed.
-   */
-  async verifySignatures() {
-    try {
-      let addons = await this.getAddonList(a => true);
-
-      let changes = {
-        enabled: [],
-        disabled: [],
-      };
-
-      for (let addon of addons) {
-        // The add-on might have vanished, we'll catch that on the next startup
-        if (!addon._sourceBundle || !addon._sourceBundle.exists()) {
-          continue;
-        }
-
-        let signedState = await verifyBundleSignedState(
-          addon._sourceBundle,
-          addon
-        );
-
-        if (signedState != addon.signedState) {
-          addon.signedState = signedState;
-          AddonManagerPrivate.callAddonListeners(
-            "onPropertyChanged",
-            addon.wrapper,
-            ["signedState"]
-          );
-        }
-
-        let disabled = await this.updateAddonDisabledState(addon);
-        if (disabled !== undefined) {
-          changes[disabled ? "disabled" : "enabled"].push(addon.id);
-        }
-      }
-
-      this.saveChanges();
-
-      Services.obs.notifyObservers(
-        null,
-        "xpi-signature-changed",
-        JSON.stringify(changes)
-      );
-    } catch (err) {
-      logger.error("XPI_verifySignature: " + err);
     }
   },
 
@@ -2683,11 +2596,8 @@ this.XPIDatabaseReconcile = {
       `Updating compatibility for add-on ${aOldAddon.id} in ${aLocation.name}`
     );
 
-    let checkSigning =
-      aOldAddon.signedState === undefined && SIGNED_TYPES.has(aOldAddon.type);
-
     let manifest = null;
-    if (checkSigning || aReloadMetadata) {
+    if (aReloadMetadata) {
       try {
         manifest = XPIInstall.syncLoadManifest(aAddonState, aLocation);
       } catch (err) {
@@ -2696,12 +2606,6 @@ this.XPIDatabaseReconcile = {
         aOldAddon.appDisabled = true;
         return aOldAddon;
       }
-    }
-
-    // If updating from a version of the app that didn't support signedState
-    // then update that property now
-    if (checkSigning) {
-      aOldAddon.signedState = manifest.signedState;
     }
 
     // May be updating from a version of the app that didn't support all the

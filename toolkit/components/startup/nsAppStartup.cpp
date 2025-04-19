@@ -17,7 +17,7 @@
 #include "nsIWebBrowserChrome.h"
 #include "nsIWindowMediator.h"
 #include "nsIXULRuntime.h"
-#include "nsIXULWindow.h"
+#include "nsIAppWindow.h"
 #include "nsNativeCharsetUtils.h"
 #include "nsThreadUtils.h"
 #include "nsAutoPtr.h"
@@ -49,7 +49,6 @@
 #endif
 
 #include "mozilla/IOInterposer.h"
-#include "mozilla/Telemetry.h"
 #include "mozilla/StartupTimeline.h"
 
 static NS_DEFINE_CID(kAppShellCID, NS_APPSHELL_CID);
@@ -221,11 +220,7 @@ nsAppStartup::Quit(uint32_t aMode) {
 #ifdef XP_MACOSX
     nsCOMPtr<nsIAppShellService> appShell(
         do_GetService(NS_APPSHELLSERVICE_CONTRACTID));
-    bool hasHiddenPrivateWindow = false;
-    if (appShell) {
-      appShell->GetHasHiddenPrivateWindow(&hasHiddenPrivateWindow);
-    }
-    int32_t suspiciousCount = hasHiddenPrivateWindow ? 2 : 1;
+    int32_t suspiciousCount = 1;
 #endif
 
     if (mConsiderQuitStopper == 0) {
@@ -241,15 +236,10 @@ nsAppStartup::Quit(uint32_t aMode) {
 
       bool usefulHiddenWindow;
       appShell->GetApplicationProvidedHiddenWindow(&usefulHiddenWindow);
-      nsCOMPtr<nsIXULWindow> hiddenWindow;
+      nsCOMPtr<nsIAppWindow> hiddenWindow;
       appShell->GetHiddenWindow(getter_AddRefs(hiddenWindow));
       // If the remaining windows are useful, we won't quit:
-      nsCOMPtr<nsIXULWindow> hiddenPrivateWindow;
-      if (hasHiddenPrivateWindow) {
-        appShell->GetHiddenPrivateWindow(getter_AddRefs(hiddenPrivateWindow));
-        if ((!hiddenWindow && !hiddenPrivateWindow) || usefulHiddenWindow)
-          return NS_OK;
-      } else if (!hiddenWindow || usefulHiddenWindow) {
+      if (!hiddenWindow || usefulHiddenWindow) {
         return NS_OK;
       }
 
@@ -526,16 +516,16 @@ nsAppStartup::CreateChromeWindow(nsIWebBrowserChrome* aParent,
     return NS_ERROR_FAILURE;
   }
 
-  nsCOMPtr<nsIXULWindow> newWindow;
+  nsCOMPtr<nsIAppWindow> newWindow;
 
   if (aParent) {
-    nsCOMPtr<nsIXULWindow> xulParent(do_GetInterface(aParent));
-    NS_ASSERTION(xulParent,
-                 "window created using non-XUL parent. that's unexpected, but "
+    nsCOMPtr<nsIAppWindow> appParent(do_GetInterface(aParent));
+    NS_ASSERTION(appParent,
+                 "window created using non-app parent. that's unexpected, but "
                  "may work.");
 
-    if (xulParent)
-      xulParent->CreateNewWindow(aChromeFlags, aOpeningTab, aOpener,
+    if (appParent)
+      appParent->CreateNewWindow(aChromeFlags, aOpeningTab, aOpener,
                                  aNextRemoteTabId, getter_AddRefs(newWindow));
     // And if it fails, don't try again without a parent. It could fail
     // intentionally (bug 115969).
@@ -621,11 +611,6 @@ nsAppStartup::GetStartupInfo(JSContext* aCx,
 
     procTime = TimeStamp::ProcessCreation(&error);
 
-    if (error) {
-      Telemetry::Accumulate(Telemetry::STARTUP_MEASUREMENT_ERRORS,
-                            StartupTimeline::PROCESS_CREATION);
-    }
-
     StartupTimeline::Record(StartupTimeline::PROCESS_CREATION, procTime);
   }
 
@@ -638,8 +623,6 @@ nsAppStartup::GetStartupInfo(JSContext* aCx,
       // Always define main to aid with bug 689256.
       stamp = procTime;
       MOZ_ASSERT(!stamp.IsNull());
-      Telemetry::Accumulate(Telemetry::STARTUP_MEASUREMENT_ERRORS,
-                            StartupTimeline::MAIN);
     }
 
     if (!stamp.IsNull()) {
@@ -649,8 +632,6 @@ nsAppStartup::GetStartupInfo(JSContext* aCx,
             aCx, JS::NewDateObject(aCx, JS::TimeClip(prStamp)));
         JS_DefineProperty(aCx, obj, StartupTimeline::Describe(ev), date,
                           JSPROP_ENUMERATE);
-      } else {
-        Telemetry::Accumulate(Telemetry::STARTUP_MEASUREMENT_ERRORS, ev);
       }
     }
   }
@@ -748,10 +729,6 @@ nsAppStartup::TrackStartupCrashBegin(bool* aIsSafeModeNecessary) {
   // current time
   if (PR_Now() / PR_USEC_PER_SEC <= lastSuccessfulStartup)
     return NS_ERROR_FAILURE;
-
-  // The last startup was a crash so include it in the count regardless of when
-  // it happened.
-  Telemetry::Accumulate(Telemetry::STARTUP_CRASH_DETECTED, true);
 
   if (inSafeMode) {
     GetAutomaticSafeModeNecessary(aIsSafeModeNecessary);

@@ -101,26 +101,32 @@ add_task(async function test_popup_url() {
     "Should get maxResults=" + maxResults + " results"
   );
 
-  let popup = UrlbarTestUtils.getPanel(window);
-  let popupCS = window.getComputedStyle(popup);
+  let popup = gURLBar.view.panel;
 
-  Assert.equal(
-    popupCS.backgroundColor,
-    `rgb(${hexToRGB(POPUP_COLOR).join(", ")})`,
-    `Popup background color should be set to ${POPUP_COLOR}`
-  );
+  if (!gURLBar.megabar) {
+    // The urlbar popup supports these colors only with the legacy non-megabar
+    // design. With megabar, the popup visually extends the textbox and use its
+    // colors.
+    let popupCS = window.getComputedStyle(popup);
 
-  Assert.equal(
-    popupCS.borderBottomColor,
-    `rgb(${hexToRGB(CHROME_CONTENT_SEPARATOR_COLOR).join(", ")})`,
-    `Popup bottom color should be set to ${CHROME_CONTENT_SEPARATOR_COLOR}`
-  );
+    Assert.equal(
+      popupCS.backgroundColor,
+      `rgb(${hexToRGB(POPUP_COLOR).join(", ")})`,
+      `Popup background color should be set to ${POPUP_COLOR}`
+    );
 
-  Assert.equal(
-    popupCS.color,
-    `rgb(${hexToRGB(POPUP_TEXT_COLOR_DARK).join(", ")})`,
-    `Popup color should be set to ${POPUP_TEXT_COLOR_DARK}`
-  );
+    Assert.equal(
+      popupCS.borderBottomColor,
+      `rgb(${hexToRGB(CHROME_CONTENT_SEPARATOR_COLOR).join(", ")})`,
+      `Popup bottom color should be set to ${CHROME_CONTENT_SEPARATOR_COLOR}`
+    );
+
+    Assert.equal(
+      popupCS.color,
+      `rgb(${hexToRGB(POPUP_TEXT_COLOR_DARK).join(", ")})`,
+      `Popup color should be set to ${POPUP_TEXT_COLOR_DARK}`
+    );
+  }
 
   // Set the selected attribute to true to test the highlight popup properties
   UrlbarTestUtils.setSelectedIndex(window, 1);
@@ -158,8 +164,8 @@ add_task(async function test_popup_url() {
 
   let root = document.documentElement;
   Assert.equal(
-    root.getAttribute("lwt-popup-brighttext"),
-    "",
+    root.hasAttribute("lwt-popup-brighttext"),
+    false,
     "brighttext should not be set!"
   );
   Assert.equal(
@@ -200,12 +206,16 @@ add_task(async function test_popup_url() {
 
   await extension.startup();
 
-  popupCS = window.getComputedStyle(popup);
-  Assert.equal(
-    popupCS.color,
-    `rgb(${hexToRGB(POPUP_TEXT_COLOR_BRIGHT).join(", ")})`,
-    `Popup color should be set to ${POPUP_TEXT_COLOR_BRIGHT}`
-  );
+  if (!gURLBar.megabar) {
+    // The urlbar popup supports this color only with the legacy non-megabar
+    // design. With megabar, the popup visually extends the textbox and use its
+    // colors.
+    Assert.equal(
+      window.getComputedStyle(popup).color,
+      `rgb(${hexToRGB(POPUP_TEXT_COLOR_BRIGHT).join(", ")})`,
+      `Popup color should be set to ${POPUP_TEXT_COLOR_BRIGHT}`
+    );
+  }
 
   Assert.equal(
     window.getComputedStyle(urlResult.element.url).color,
@@ -233,8 +243,8 @@ add_task(async function test_popup_url() {
     "brighttext should be set to true!"
   );
   Assert.equal(
-    root.getAttribute("lwt-popup-darktext"),
-    "",
+    root.hasAttribute("lwt-popup-darktext"),
+    false,
     "darktext should not be set!"
   );
 
@@ -243,26 +253,29 @@ add_task(async function test_popup_url() {
   // Check to see if popup-brighttext and secondary color are not set after
   // unload of theme
   Assert.equal(
-    root.getAttribute("lwt-popup-brighttext"),
-    "",
+    root.hasAttribute("lwt-popup-brighttext"),
+    false,
     "brighttext should not be set!"
   );
   Assert.equal(
-    root.getAttribute("lwt-popup-darktext"),
-    "",
+    root.hasAttribute("lwt-popup-darktext"),
+    false,
     "darktext should not be set!"
   );
 
-  // Calculate what GrayText should be. May differ between platforms.
-  let span = document.createXULElement("span");
-  span.style.color = "GrayText";
-  document.documentElement.appendChild(span);
-  let GRAY_TEXT = window.getComputedStyle(span).color;
-  span.remove();
+  // Calculate what GrayText should be. Differs between platforms.
+  // We don't use graytext for urlbar results on Mac as it's too faint.
+  if (AppConstants.platform != "macosx") {
+    let span = document.createXULElement("span");
+    span.style.color = "GrayText";
+    document.documentElement.appendChild(span);
+    let GRAY_TEXT = window.getComputedStyle(span).color;
+    span.remove();
 
-  Assert.equal(
-    window.getComputedStyle(urlResult.element.separator, ":before").color,
-    GRAY_TEXT,
-    `Urlbar popup separator color should be set to ${GRAY_TEXT}`
-  );
+    Assert.equal(
+      window.getComputedStyle(urlResult.element.separator, ":before").color,
+      GRAY_TEXT,
+      `Urlbar popup separator color should be set to ${GRAY_TEXT}`
+    );
+  }
 });

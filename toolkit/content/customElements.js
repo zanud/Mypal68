@@ -4,7 +4,7 @@
 
 // This file defines these globals on the window object.
 // Define them here so that ESLint can find them:
-/* globals MozXULElement, MozElements */
+/* globals MozXULElement, MozHTMLElement, MozElements */
 
 "use strict";
 
@@ -414,6 +414,18 @@
       }
 
       /**
+       * Passes DOM events to the on_<event type> methods.
+       */
+      handleEvent(event) {
+        let methodName = "on_" + event.type;
+        if (methodName in this) {
+          this[methodName](event);
+        } else {
+          throw new Error("Unrecognized event: " + event.type);
+        }
+      }
+
+      /**
        * Allows eager deterministic construction of XUL elements with XBL attached, by
        * parsing an element tree and returning a DOM fragment to be inserted in the
        * document before any of the inner elements is referenced by JavaScript.
@@ -496,7 +508,10 @@
       static insertFTLIfNeeded(path) {
         let container = document.head || document.querySelector("linkset");
         if (!container) {
-          if (document.contentType == "application/vnd.mozilla.xul+xml") {
+          if (
+            document.documentElement.namespaceURI ===
+            "http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+          ) {
             container = document.createXULElement("linkset");
             document.documentElement.appendChild(container);
           } else if (document.documentURI == AppConstants.BROWSER_CHROME_URL) {
@@ -570,6 +585,7 @@
   };
 
   const MozXULElement = MozElements.MozElementMixin(XULElement);
+  const MozHTMLElement = MozElements.MozElementMixin(HTMLElement);
 
   /**
    * Given an object, add a proxy that reflects interface implementations
@@ -691,6 +707,7 @@
 
   // Attach the base class to the window so other scripts can use it:
   window.MozXULElement = MozXULElement;
+  window.MozHTMLElement = MozHTMLElement;
 
   customElements.setElementCreationCallback("browser", () => {
     Services.scriptloader.loadSubScript(
@@ -702,15 +719,18 @@
   // For now, don't load any elements in the extension dummy document.
   // We will want to load <browser> when that's migrated (bug 1441935).
   const isDummyDocument =
-    document.documentURI == "chrome://extensions/content/dummy.xul";
+    document.documentURI == "chrome://extensions/content/dummy.xhtml";
   if (!isDummyDocument) {
     for (let script of [
+      "chrome://global/content/elements/arrowscrollbox.js",
+      "chrome://global/content/elements/dialog.js",
       "chrome://global/content/elements/general.js",
       "chrome://global/content/elements/button.js",
       "chrome://global/content/elements/checkbox.js",
       "chrome://global/content/elements/menu.js",
       "chrome://global/content/elements/menupopup.js",
       "chrome://global/content/elements/notificationbox.js",
+      "chrome://global/content/elements/panel.js",
       "chrome://global/content/elements/popupnotification.js",
       "chrome://global/content/elements/radio.js",
       "chrome://global/content/elements/richlistbox.js",
@@ -719,6 +739,7 @@
       "chrome://global/content/elements/textbox.js",
       "chrome://global/content/elements/tabbox.js",
       "chrome://global/content/elements/text.js",
+      "chrome://global/content/elements/toolbarbutton.js",
       "chrome://global/content/elements/tree.js",
       "chrome://global/content/elements/wizard.js",
     ]) {
@@ -729,6 +750,10 @@
       ["findbar", "chrome://global/content/elements/findbar.js"],
       ["menulist", "chrome://global/content/elements/menulist.js"],
       ["search-textbox", "chrome://global/content/elements/search-textbox.js"],
+      [
+        "autocomplete-input",
+        "chrome://global/content/elements/autocomplete-input.js",
+      ],
       ["stringbundle", "chrome://global/content/elements/stringbundle.js"],
       [
         "printpreview-toolbar",

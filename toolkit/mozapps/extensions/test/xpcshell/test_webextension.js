@@ -102,7 +102,6 @@ add_task(async function test_1() {
     isSystem: false,
     type: "extension",
     isWebExtension: true,
-    signedState: AddonManager.SIGNEDSTATE_PRIVILEGED,
     iconURL: `${uri}icon48.png`,
   });
 
@@ -128,7 +127,6 @@ add_task(async function test_1() {
     isActive: true,
     isSystem: false,
     type: "extension",
-    signedState: AddonManager.SIGNEDSTATE_PRIVILEGED,
     iconURL: `${uri}icon48.png`,
   });
 
@@ -176,7 +174,6 @@ add_task(async function test_2() {
     isActive: true,
     isSystem: false,
     type: "extension",
-    signedState: AddonManager.SIGNEDSTATE_PRIVILEGED,
   });
 
   await addon.uninstall();
@@ -388,6 +385,7 @@ add_task(async function developerEmpty() {
 });
 
 add_task(async function authorNotString() {
+  ExtensionTestUtils.failOnSchemaWarnings(false);
   for (let author of [{}, [], 42]) {
     let addon = await promiseInstallWebExtension({
       manifest: {
@@ -404,6 +402,7 @@ add_task(async function authorNotString() {
 
     await addon.uninstall();
   }
+  ExtensionTestUtils.failOnSchemaWarnings(true);
 });
 
 add_task(async function testThemeExtension() {
@@ -413,7 +412,7 @@ add_task(async function testThemeExtension() {
       manifest_version: 2,
       name: "Web Extension Name",
       version: "1.0",
-      theme: { images: { headerURL: "example.png" } },
+      theme: { images: { theme_frame: "example.png" } },
     },
   });
 
@@ -428,12 +427,12 @@ add_task(async function testThemeExtension() {
     isSystem: false,
     type: "theme",
     isWebExtension: true,
-    signedState: AddonManager.SIGNEDSTATE_PRIVILEGED,
   });
 
   await addon.uninstall();
 
   // Also test one without a proper 'theme' section.
+  ExtensionTestUtils.failOnSchemaWarnings(false);
   addon = await promiseInstallWebExtension({
     manifest: {
       author: "Some author",
@@ -443,6 +442,7 @@ add_task(async function testThemeExtension() {
       theme: null,
     },
   });
+  ExtensionTestUtils.failOnSchemaWarnings(true);
 
   checkAddon(ID, addon, {
     type: "extension",
@@ -474,7 +474,6 @@ add_task(async function test_theme_upgrade() {
     appDisabled: false,
     isActive: true,
     type: "extension",
-    signedState: AddonManager.SIGNEDSTATE_PRIVILEGED,
   });
 
   // Create a webextension theme with the same ID
@@ -487,7 +486,7 @@ add_task(async function test_theme_upgrade() {
           id: ID,
         },
       },
-      theme: { images: { headerURL: "example.png" } },
+      theme: { images: { theme_frame: "example.png" } },
     },
   });
 

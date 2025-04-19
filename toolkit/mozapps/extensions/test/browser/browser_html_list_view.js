@@ -8,6 +8,11 @@ AddonTestUtils.initMochitest(this);
 
 let promptService;
 
+const SUPPORT_URL = Services.urlFormatter.formatURL(
+  Services.prefs.getStringPref("app.support.baseURL")
+);
+const REMOVE_SUMO_URL = SUPPORT_URL + "cant-remove-addon";
+
 const SECTION_INDEXES = {
   enabled: 0,
   disabled: 1,
@@ -25,7 +30,7 @@ function getCardByAddonId(root, id) {
 }
 
 function isEmpty(el) {
-  return el.children.length == 0;
+  return !el.children.length;
 }
 
 function waitForThemeChange(list) {
@@ -34,10 +39,10 @@ function waitForThemeChange(list) {
   return BrowserTestUtils.waitForEvent(list, "move", () => ++moveCount == 2);
 }
 
-add_task(async function enableHtmlViews() {
-  await SpecialPowers.pushPrefEnv({
-    set: [["extensions.htmlaboutaddons.enabled", true]],
-  });
+let mockProvider;
+
+add_task(async function setup() {
+  mockProvider = new MockProvider();
   promptService = mockPromptService();
 });
 
@@ -100,15 +105,18 @@ add_task(async function testExtensionList() {
   ok(icon.src.endsWith("/test-icon.png"), "The icon is set");
 
   // Disable the extension.
-  let disableButton = card.querySelector('[action="toggle-disabled"]');
+  let disableToggle = card.querySelector('[action="toggle-disabled"]');
+  ok(disableToggle.checked, "The disable toggle is checked");
   is(
-    doc.l10n.getAttributes(disableButton).id,
-    "disable-addon-button",
-    "The button has the disable label"
+    doc.l10n.getAttributes(disableToggle).id,
+    "extension-enable-addon-button-label",
+    "The toggle has the enable label"
   );
+  ok(disableToggle.getAttribute("aria-label"), "There's an aria-label");
+  ok(!disableToggle.hidden, "The toggle is visible");
 
   let disabled = BrowserTestUtils.waitForEvent(list, "move");
-  disableButton.click();
+  disableToggle.click();
   await disabled;
   is(
     card.parentNode,
@@ -117,11 +125,13 @@ add_task(async function testExtensionList() {
   );
 
   // The disable button is now enable.
+  ok(!disableToggle.checked, "The disable toggle is unchecked");
   is(
-    doc.l10n.getAttributes(disableButton).id,
-    "enable-addon-button",
-    "The button has the enable label"
+    doc.l10n.getAttributes(disableToggle).id,
+    "extension-enable-addon-button-label",
+    "The button has the same enable label"
   );
+  ok(disableToggle.getAttribute("aria-label"), "There's an aria-label");
 
   // Remove the add-on.
   let removeButton = card.querySelector('[action="remove"]');
@@ -130,6 +140,9 @@ add_task(async function testExtensionList() {
     "remove-addon-button",
     "The button has the remove label"
   );
+  // There is a support link when the add-on isn't removeable, verify we don't
+  // always include one.
+  ok(!removeButton.querySelector("a"), "There isn't a link in the item");
 
   // Remove but cancel.
   let cancelled = BrowserTestUtils.waitForEvent(card, "remove-cancelled");
@@ -343,63 +356,47 @@ add_task(async function testKeyboardSupport() {
   // Test opening and closing the menu.
   let moreOptionsMenu = card.querySelector("panel-list");
   let expandButton = moreOptionsMenu.querySelector('[action="expand"]');
-  let toggleDisableButton = card.querySelector('[action="toggle-disabled"]');
+  let removeButton = card.querySelector('[action="remove"]');
   is(moreOptionsMenu.open, false, "The menu is closed");
   let shown = BrowserTestUtils.waitForEvent(moreOptionsMenu, "shown");
   space();
   await shown;
   is(moreOptionsMenu.open, true, "The menu is open");
-  isFocused(toggleDisableButton, "The disable button is now focused");
-  EventUtils.synthesizeKey("Escape", {});
-  is(moreOptionsMenu.open, false, "The menu is closed");
-  isFocused(moreOptionsButton, "The more options button is focused");
-
-  // Test tabbing out of the menu.
-  space();
-  shown = BrowserTestUtils.waitForEvent(moreOptionsMenu, "shown");
-  is(moreOptionsMenu.open, true, "The menu is open");
-  await shown;
+  isFocused(removeButton, "The remove button is now focused");
   tab({ shiftKey: true });
   is(moreOptionsMenu.open, true, "The menu stays open");
   isFocused(expandButton, "The focus has looped to the bottom");
   tab();
   is(moreOptionsMenu.open, true, "The menu stays open");
-  isFocused(toggleDisableButton, "The focus has looped to the top");
+  isFocused(removeButton, "The focus has looped to the top");
 
   let hidden = BrowserTestUtils.waitForEvent(moreOptionsMenu, "hidden");
   EventUtils.synthesizeKey("Escape", {});
   await hidden;
   isFocused(moreOptionsButton, "Escape closed the menu");
 
-  // Open the menu to test contents.
-  shown = BrowserTestUtils.waitForEvent(moreOptionsMenu, "shown");
-  space();
-  is(moreOptionsMenu.open, true, "The menu is open");
-  // Wait for the panel to be shown.
-  await shown;
-
   // Disable the add-on.
-  isFocused(toggleDisableButton, "The disable button is focused");
+  let disableButton = card.querySelector('[action="toggle-disabled"]');
+  tab({ shiftKey: true });
+  isFocused(disableButton, "The disable toggle is focused");
   is(card.parentNode, enabledSection, "The card is in the enabled section");
   let disabled = BrowserTestUtils.waitForEvent(list, "move");
   space();
   await disabled;
-  is(moreOptionsMenu.open, false, "The menu is closed");
   is(
     card.parentNode,
     disabledSection,
     "The card is now in the disabled section"
   );
-
-  // Open the menu again.
-  shown = BrowserTestUtils.waitForEvent(moreOptionsMenu, "shown");
-  isFocused(moreOptionsButton, "The more options button is focused");
-  space();
-  await shown;
+  isFocused(disableButton, "The disable button is still focused");
 
   // Remove the add-on.
   tab();
-  let removeButton = card.querySelector('[action="remove"]');
+  isFocused(moreOptionsButton, "The more options button is focused again");
+  shown = BrowserTestUtils.waitForEvent(moreOptionsMenu, "shown");
+  space();
+  is(moreOptionsMenu.open, true, "The menu is open");
+  await shown;
   isFocused(removeButton, "The remove button is focused");
   let removed = BrowserTestUtils.waitForEvent(list, "remove");
   space();
@@ -666,6 +663,49 @@ add_task(async function testBuiltInThemeButtons() {
   await closeView(win);
 });
 
+add_task(async function testSideloadRemoveButton() {
+  const id = "sideload@mochi.test";
+  mockProvider.createAddons([
+    {
+      id,
+      name: "Sideloaded",
+      permissions: 0,
+    },
+  ]);
+
+  let win = await loadInitialView("extension");
+  let doc = win.document;
+
+  let card = getCardByAddonId(doc, id);
+
+  let moreOptionsPanel = card.querySelector("panel-list");
+  let moreOptionsButton = card.querySelector('[action="more-options"]');
+  let panelOpened = BrowserTestUtils.waitForEvent(moreOptionsPanel, "shown");
+  EventUtils.synthesizeMouseAtCenter(moreOptionsButton, {}, win);
+  await panelOpened;
+
+  // Verify the remove button is visible with a SUMO link.
+  let removeButton = card.querySelector('[action="remove"]');
+  ok(removeButton.disabled, "Remove is disabled");
+  ok(!removeButton.hidden, "Remove is visible");
+
+  let sumoLink = removeButton.querySelector("a");
+  ok(sumoLink, "There's a link");
+  is(
+    doc.l10n.getAttributes(removeButton).id,
+    "remove-addon-disabled-button",
+    "The can't remove text is shown"
+  );
+  sumoLink.focus();
+  is(doc.activeElement, sumoLink, "The link can be focused");
+
+  let newTabOpened = BrowserTestUtils.waitForNewTab(gBrowser, REMOVE_SUMO_URL);
+  sumoLink.click();
+  BrowserTestUtils.removeTab(await newTabOpened);
+
+  await closeView(win);
+});
+
 add_task(async function testOnlyTypeIsShown() {
   let win = await loadInitialView("theme");
   let doc = win.document;
@@ -704,7 +744,7 @@ add_task(async function testPluginIcons() {
 
   // Check that the icons are set to the plugin icon.
   let icons = doc.querySelectorAll(".card-heading-icon");
-  ok(icons.length > 0, "There are some plugins listed");
+  ok(!!icons.length, "There are some plugins listed");
 
   for (let icon of icons) {
     is(icon.src, pluginIconUrl, "Plugins use the plugin icon");
@@ -736,4 +776,116 @@ add_task(async function testExtensionGenericIcon() {
 
   await extension.unload();
   await closeView(win);
+});
+
+add_task(async function testSectionHeadingKeys() {
+  mockProvider.createAddons([
+    {
+      id: "test-theme",
+      name: "Test Theme",
+      type: "theme",
+    },
+    {
+      id: "test-extension-disabled",
+      name: "Test Disabled Extension",
+      type: "extension",
+      userDisabled: true,
+    },
+    {
+      id: "test-plugin-disabled",
+      name: "Test Disabled Plugin",
+      type: "plugin",
+      userDisabled: true,
+    },
+    {
+      id: "test-locale",
+      name: "Test Enabled Locale",
+      type: "locale",
+    },
+    {
+      id: "test-locale-disabled",
+      name: "Test Disabled Locale",
+      type: "locale",
+      userDisabled: true,
+    },
+    {
+      id: "test-dictionary",
+      name: "Test Enabled Dictionary",
+      type: "dictionary",
+    },
+    {
+      id: "test-dictionary-disabled",
+      name: "Test Disabled Dictionary",
+      type: "dictionary",
+      userDisabled: true,
+    },
+  ]);
+
+  for (let type of ["extension", "theme", "plugin", "locale", "dictionary"]) {
+    let win = await loadInitialView(type);
+    let doc = win.document;
+
+    for (let status of ["enabled", "disabled"]) {
+      let section = getSection(doc, status);
+      let el = section.querySelector(".list-section-heading");
+      isnot(el, null, "Should have heading present");
+      is(
+        doc.l10n.getAttributes(el).id,
+        `${type}-${status}-heading`,
+        `Should have correct ${status} heading for ${type} section`
+      );
+    }
+
+    await closeView(win);
+  }
+});
+
+add_task(async function testDisabledDimming() {
+  const id = "disabled@mochi.test";
+  let extension = ExtensionTestUtils.loadExtension({
+    manifest: {
+      name: "Disable me",
+      applications: { gecko: { id } },
+    },
+    useAddonManager: "temporary",
+  });
+  await extension.startup();
+
+  let addon = await AddonManager.getAddonByID(id);
+
+  let win = await loadInitialView("extension");
+  let doc = win.document;
+
+  const checkOpacity = (card, expected, msg) => {
+    let { opacity } = card.ownerGlobal.getComputedStyle(card.firstElementChild);
+    is(opacity, expected, msg);
+  };
+  const waitForTransition = card =>
+    BrowserTestUtils.waitForEvent(
+      card.firstElementChild,
+      "transitionend",
+      e => e.propertyName === "opacity"
+    );
+
+  let card = getCardByAddonId(doc, id);
+  checkOpacity(card, "1", "The opacity is 1 when enabled");
+
+  // Disable the add-on, check again.
+  await addon.disable();
+  checkOpacity(card, "0.6", "The opacity is dimmed when disabled");
+
+  // Click on the menu button, this should un-dim the card.
+  let transitionEnded = waitForTransition(card);
+  card.panel.open = true;
+  await transitionEnded;
+  checkOpacity(card, "1", "The opacity is 1 when the menu is open");
+
+  // Close the menu, opacity should return.
+  transitionEnded = waitForTransition(card);
+  card.panel.open = false;
+  await transitionEnded;
+  checkOpacity(card, "0.6", "The card is dimmed again");
+
+  await closeView(win);
+  await extension.unload();
 });

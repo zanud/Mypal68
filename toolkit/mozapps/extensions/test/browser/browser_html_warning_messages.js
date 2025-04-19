@@ -23,9 +23,6 @@ const SUPPORT_URL = Services.urlFormatter.formatURL(
 );
 
 add_task(async function setup() {
-  await SpecialPowers.pushPrefEnv({
-    set: [["extensions.htmlaboutaddons.enabled", true]],
-  });
   gProvider = new MockProvider();
 });
 
@@ -101,7 +98,6 @@ add_task(async function testNoMessageLangpack() {
       appDisabled: true,
       id,
       name: "Signed Langpack",
-      signedState: AddonManager.SIGNEDSTATE_SIGNED,
       type: "locale",
     },
   ]);
@@ -144,26 +140,6 @@ add_task(async function testIncompatible() {
   await checkMessageState(id, "extension", {
     text:
       "Incompatible is incompatible with " + appName + " " + appVersion + ".",
-    type: "warning",
-  });
-});
-
-add_task(async function testUnsignedEnabled() {
-  let id = "unsigned-allowed@mochi.test";
-  gProvider.createAddons([
-    {
-      id,
-      name: "Unsigned",
-      signedState: AddonManager.SIGNEDSTATE_MISSING,
-    },
-  ]);
-  await checkMessageState(id, "extension", {
-    linkText: "More Information",
-    linkUrl: SUPPORT_URL + "unsigned-addons",
-    text:
-      "Unsigned could not be verified for use in " +
-      appName +
-      ". Proceed with caution.",
     type: "warning",
   });
 });

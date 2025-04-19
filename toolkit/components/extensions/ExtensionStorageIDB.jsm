@@ -15,7 +15,6 @@ const { IndexedDB } = ChromeUtils.import(
 
 XPCOMUtils.defineLazyModuleGetters(this, {
   ExtensionStorage: "resource://gre/modules/ExtensionStorage.jsm",
-  getTrimmedString: "resource://gre/modules/ExtensionTelemetry.jsm",
   Services: "resource://gre/modules/Services.jsm",
   OS: "resource://gre/modules/osfile.jsm",
 });
@@ -665,6 +664,9 @@ this.ExtensionStorageIDB = {
 
         promise = migrateJSONFileData(extension, storagePrincipal)
           .then(() => {
+            extension.setSharedData("storageIDBBackend", true);
+            extension.setSharedData("storageIDBPrincipal", storagePrincipal);
+            Services.ppmm.sharedData.flush();
             return {
               backendEnabled: true,
               storagePrincipal: serializedPrincipal,
@@ -684,6 +686,9 @@ this.ExtensionStorageIDB = {
               "JSONFile backend is being kept enabled by an unexpected " +
                 `IDBBackend failure: ${err.message}::${err.stack}`
             );
+            extension.setSharedData("storageIDBBackend", false);
+            Services.ppmm.sharedData.flush();
+
             return { backendEnabled: false };
           });
       }

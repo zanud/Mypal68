@@ -27,23 +27,13 @@
   box-sizing: border-box;
 }
 
-:root {
-  text-rendering: optimizeLegibility;
-  -moz-control-character-visibility: visible;
-}
-
-:root:-moz-locale-dir(rtl) {
-  direction: rtl;
-}
-
 /* hide the content and destroy the frame */
 [hidden="true"] {
   display: none;
 }
 
 /* hide the content, but don't destroy the frames */
-[collapsed="true"],
-[moz-collapsed="true"] {
+[collapsed="true"] {
   visibility: collapse;
 }
 
@@ -117,10 +107,19 @@
   }
 }
 
+scrollbar[orient="vertical"],
+slider[orient="vertical"],
+thumb[orient="vertical"] {
+  -moz-box-orient: vertical;
+}
+
 thumb {
   /* Prevent -moz-user-modify declaration from designmode.css having an
    * effect. */
   -moz-user-modify: initial;
+
+  -moz-box-align: center;
+  -moz-box-pack: center;
 }
 
 /********** resizer **********/

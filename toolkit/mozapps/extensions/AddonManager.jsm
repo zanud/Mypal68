@@ -86,7 +86,7 @@ XPCOMUtils.defineLazyPreferenceGetter(
 // since it needs to be able to track things like new frameLoader globals that
 // are created before other framework code has been initialized.
 Services.ppmm.loadProcessScript(
-  "data:,ChromeUtils.import('resource://gre/modules/ExtensionProcessScript.jsm')",
+  "resource://gre/modules/extensionProcessScriptLoader.js",
   true
 );
 
@@ -956,7 +956,7 @@ var AddonManagerInternal = {
       this.types[type].providers = this.types[type].providers.filter(
         p => p != aProvider
       );
-      if (this.types[type].providers.length == 0) {
+      if (!this.types[type].providers.length) {
         let oldType = this.types[type].type;
         delete this.types[type];
 
@@ -1315,7 +1315,7 @@ var AddonManagerInternal = {
     let difference = Extension.comparePermissions(oldPerms, newPerms);
 
     // If there are no new permissions, just go ahead with the update
-    if (difference.origins.length == 0 && difference.permissions.length == 0) {
+    if (!difference.origins.length && !difference.permissions.length) {
       return Promise.resolve();
     }
 
@@ -3642,8 +3642,6 @@ var AddonManager = {
     ["ERROR_CORRUPT_FILE", -3],
     // An error occurred trying to write to the filesystem.
     ["ERROR_FILE_ACCESS", -4],
-    // The add-on must be signed and isn't.
-    ["ERROR_SIGNEDSTATE_REQUIRED", -5],
     // The downloaded add-on had a different type than expected.
     ["ERROR_UNEXPECTED_ADDON_TYPE", -6],
     // The addon did not have the expected ID
@@ -3806,26 +3804,6 @@ var AddonManager = {
   // an application change making an add-on compatible. Doesn't include
   // add-ons that were pending being enabled the last time the application ran.
   STARTUP_CHANGE_ENABLED: "enabled",
-
-  // Constants for Addon.signedState. Any states that should cause an add-on
-  // to be unusable in builds that require signing should have negative values.
-  // Add-on signing is not required, e.g. because the pref is disabled.
-  SIGNEDSTATE_NOT_REQUIRED: undefined,
-  // Add-on is signed but signature verification has failed.
-  SIGNEDSTATE_BROKEN: -2,
-  // Add-on may be signed but by an certificate that doesn't chain to our
-  // our trusted certificate.
-  SIGNEDSTATE_UNKNOWN: -1,
-  // Add-on is unsigned.
-  SIGNEDSTATE_MISSING: 0,
-  // Add-on is preliminarily reviewed.
-  SIGNEDSTATE_PRELIMINARY: 1,
-  // Add-on is fully reviewed.
-  SIGNEDSTATE_SIGNED: 2,
-  // Add-on is system add-on.
-  SIGNEDSTATE_SYSTEM: 3,
-  // Add-on is signed with a "Mozilla Extensions" certificate
-  SIGNEDSTATE_PRIVILEGED: 4,
 
   // Constants for the Addon.userDisabled property
   // Indicates that the userDisabled state of this add-on is currently

@@ -283,7 +283,7 @@
   customElements.define("menuitem", MozMenuItem);
 
   const isHiddenWindow =
-    document.documentURI == "chrome://browser/content/hiddenWindow.xul";
+    document.documentURI == "chrome://browser/content/hiddenWindowMac.xhtml";
 
   class MozMenu extends MozMenuBaseMixin(
     MozElements.MozElementMixin(XULMenuElement)

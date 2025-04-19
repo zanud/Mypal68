@@ -55,7 +55,7 @@ var ResetProfile = {
       reset: false,
     };
     window.openDialog(
-      "chrome://global/content/resetProfile.xul",
+      "chrome://global/content/resetProfile.xhtml",
       null,
       "chrome,modal,centerscreen,titlebar,dialog=yes",
       params

@@ -236,7 +236,7 @@ add_task(async function e10sLostKeys() {
       // content browser wouldn't work.
       isnot(
         document.activeElement,
-        findBar._findField.inputField,
+        findBar._findField,
         "findbar is not yet focused"
       );
       EventUtils.synthesizeKey("a");
@@ -255,7 +255,7 @@ add_task(async function e10sLostKeys() {
   );
   is(
     document.activeElement,
-    findBar._findField.inputField,
+    findBar._findField,
     "findbar is now focused"
   );
   is(findBar._findField.value, "abc", "abc fully entered as find query");

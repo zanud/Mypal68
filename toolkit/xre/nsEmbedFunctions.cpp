@@ -95,6 +95,7 @@
 #endif
 
 #if defined(MOZ_SANDBOX)
+#  include "XREChildData.h"
 #  include "mozilla/SandboxSettings.h"
 #  include "mozilla/Preferences.h"
 #endif

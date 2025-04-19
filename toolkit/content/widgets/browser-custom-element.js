@@ -10,6 +10,9 @@
   const { Services } = ChromeUtils.import(
     "resource://gre/modules/Services.jsm"
   );
+  const {AppConstants} = ChromeUtils.import(
+    "resource://gre/modules/AppConstants.jsm"
+  );
 
   const elementsToDestroyOnUnload = new Set();
 
@@ -453,6 +456,30 @@
 
     get dateTimePicker() {
       return document.getElementById(this.getAttribute("datetimepicker"));
+    }
+
+    /**
+     * Provides a node to hang popups (such as the datetimepicker) from.
+     * If this <browser> isn't the descendant of a <stack>, null is returned
+     * instead and popup code must handle this case.
+     */
+    get popupAnchor() {
+      let stack = this.closest("stack");
+      if (!stack) {
+        return null;
+      }
+
+      let popupAnchor = stack.querySelector(".popup-anchor");
+      if (popupAnchor) {
+        return popupAnchor;
+      }
+
+      // Create an anchor for the popup
+      popupAnchor = document.createElement("div");
+      popupAnchor.className = "popup-anchor";
+      popupAnchor.hidden = true;
+      stack.appendChild(popupAnchor);
+      return popupAnchor;
     }
 
     set docShellIsActive(val) {
@@ -1715,9 +1742,6 @@
     _createAutoScrollPopup() {
       var popup = document.createXULElement("panel");
       popup.className = "autoscroller";
-      // We set this attribute on the element so that mousemove
-      // events can be handled by browser-content.js.
-      popup.setAttribute("mousethrough", "always");
       popup.setAttribute("consumeoutsideclicks", "true");
       popup.setAttribute("rolluponmousewheel", "true");
       popup.setAttribute("hidden", "true");
@@ -1761,7 +1785,7 @@
         // Enable translucency on Windows and Mac
         this._autoScrollPopup.setAttribute(
           "translucent",
-          /Win|Mac/.test(navigator.platform)
+          AppConstants.platform == "win" || AppConstants.platform == "macosx"
         );
       }
 

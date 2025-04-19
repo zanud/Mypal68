@@ -197,7 +197,7 @@ class KintoServer {
         }),
       };
 
-      if (this.conflicts.length > 0) {
+      if (this.conflicts.length) {
         const nextConflict = this.conflicts.shift();
         if (!nextConflict.transient) {
           this.records.push(nextConflict);

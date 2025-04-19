@@ -4,6 +4,7 @@
 
 addons-window =
     .title = Add-ons Manager
+addons-page-title = Add-ons Manager
 
 search-header =
     .placeholder = Search addons.mozilla.org
@@ -30,10 +31,6 @@ list-empty-find-updates =
 list-empty-button =
     .label = Learn more about add-ons
 
-install-addon-from-file =
-    .label = Install Add-on From File…
-    .accesskey = I
-
 help-button = Add-ons Support
 
 preferences =
@@ -42,18 +39,8 @@ preferences =
        *[other] { -brand-short-name } Preferences
     }
 
-tools-menu =
-    .tooltiptext = Tools for all add-ons
-
-show-unsigned-extensions-button =
-    .label = Some extensions could not be verified
-
 show-all-extensions-button =
     .label = Show all extensions
-
-debug-addons =
-    .label = Debug Add-ons
-    .accesskey = b
 
 cmd-show-details =
     .label = Show More Information
@@ -212,44 +199,26 @@ extensions-view-available-updates =
 
 ## These are global warnings
 
-extensions-warning-safe-mode-label =
-    .value = All add-ons have been disabled by safe mode.
-extensions-warning-safe-mode-container =
-    .tooltiptext = { extensions-warning-safe-mode-label.value }
+extensions-warning-safe-mode = All add-ons have been disabled by safe mode.
+extensions-warning-check-compatibility = Add-on compatibility checking is disabled. You may have incompatible add-ons.
+extensions-warning-check-compatibility-button = Enable
+    .title = Enable add-on compatibility checking
+extensions-warning-update-security = Add-on update security checking is disabled. You may be compromised by updates.
+extensions-warning-update-security-button = Enable
+    .title = Enable add-on update security checking
 
-extensions-warning-check-compatibility-label =
-    .value = Add-on compatibility checking is disabled. You may have incompatible add-ons.
-extensions-warning-check-compatibility-container =
-    .tooltiptext = { extensions-warning-check-compatibility-label.value }
-
-extensions-warning-check-compatibility-enable =
-    .label = Enable
-    .tooltiptext = Enable add-on compatibility checking
-
-extensions-warning-update-security-label =
-    .value = Add-on update security checking is disabled. You may be compromised by updates.
-extensions-warning-update-security-container =
-    .tooltiptext = { extensions-warning-update-security-label.value }
-
-extensions-warning-update-security-enable =
-    .label = Enable
-    .tooltiptext = Enable add-on update security checking
 
 ## Strings connected to add-on updates
 
-extensions-updates-check-for-updates =
-    .label = Check for Updates
+addon-updates-check-for-updates = Check for Updates
     .accesskey = C
-
-extensions-updates-view-updates =
-    .label = View Recent Updates
+addon-updates-view-updates = View Recent Updates
     .accesskey = V
 
 # This menu item is a checkbox that toggles the default global behavior for
 # add-on update checking.
 
-extensions-updates-update-addons-automatically =
-    .label = Update Add-ons Automatically
+addon-updates-update-addons-automatically = Update Add-ons Automatically
     .accesskey = A
 
 ## Specific add-ons can have custom update checking behaviors ("Manually",
@@ -258,37 +227,33 @@ extensions-updates-update-addons-automatically =
 ## (which itself is either "Automatically" or "Manually", controlled by the
 ## extensions-updates-update-addons-automatically.label menu item).
 
-extensions-updates-reset-updates-to-automatic =
-    .label = Reset All Add-ons to Update Automatically
+addon-updates-reset-updates-to-automatic = Reset All Add-ons to Update Automatically
     .accesskey = R
-
-extensions-updates-reset-updates-to-manual =
-    .label = Reset All Add-ons to Update Manually
+addon-updates-reset-updates-to-manual = Reset All Add-ons to Update Manually
     .accesskey = R
 
 ## Status messages displayed when updating add-ons
 
-extensions-updates-updating =
-    .value = Updating add-ons
-extensions-updates-installed =
-    .value = Your add-ons have been updated.
-extensions-updates-downloaded =
-    .value = Your add-on updates have been downloaded.
-extensions-updates-restart =
-    .label = Restart now to complete installation
-extensions-updates-none-found =
-    .value = No updates found
-extensions-updates-manual-updates-found =
-    .label = View Available Updates
-extensions-updates-update-selected =
-    .label = Install Updates
-    .tooltiptext = Install available updates in this list
+addon-updates-updating = Updating add-ons
+addon-updates-installed = Your add-ons have been updated.
+addon-updates-none-found = No updates found
+addon-updates-manual-updates-found = View Available Updates
+
+## Add-on install/debug strings for page options menu
+
+addon-install-from-file = Install Add-on From File…
+    .accesskey = I
+addon-install-from-file-dialog-title = Select add-on to install
+addon-install-from-file-filter-name = Add-ons
+addon-open-about-debugging = Debug Add-ons
+    .accesskey = b
 
 ## Extension shortcut management
 
-manage-extensions-shortcuts =
-    .label = Manage Extension Shortcuts
+# This is displayed in the page options menu
+addon-manage-extensions-shortcuts = Manage Extension Shortcuts
     .accesskey = S
+
 shortcuts-no-addons = You don’t have any extensions enabled.
 shortcuts-no-commands = The following extensions do not have shortcuts:
 shortcuts-input =
@@ -303,6 +268,15 @@ shortcuts-modifier-other = Include Ctrl or Alt
 shortcuts-invalid = Invalid combination
 shortcuts-letter = Type a letter
 shortcuts-system = Can’t override a { -brand-short-name } shortcut
+
+# String displayed in warning label when there is a duplicate shortcut
+shortcuts-duplicate = Duplicate shortcut
+
+# String displayed when a keyboard shortcut is already assigned to more than one add-on
+# Variables:
+#   $shortcut (string) - Shortcut string for the add-on
+shortcuts-duplicate-warning-message = { $shortcut } is being used as a shortcut in more than one case. Duplicate shortcuts may cause unexpected behavior.
+
 # String displayed when a keyboard shortcut is already used by another add-on
 # Variables:
 #   $addon (string) - Name of the add-on
@@ -335,11 +309,21 @@ install-theme-button = Install Theme
 manage-addon-button = Manage
 find-more-addons = Find more add-ons
 
+# This is a label for the button to open the "more options" menu, it is only
+# used for screen readers.
+addon-options-button =
+    .aria-label = More Options
+
 ## Add-on actions
 remove-addon-button = Remove
+# The link will always be shown after the other text.
+remove-addon-disabled-button = Can’t Be Removed <a data-l10n-name="link">Why?</a>
 disable-addon-button = Disable
 enable-addon-button = Enable
-expand-addon-button = More Options
+# This is used for the toggle on the extension card, it's a checkbox and this
+# is always its label.
+extension-enable-addon-button-label =
+    .aria-label = Enable
 preferences-addon-button =
     { PLATFORM() ->
         [windows] Options
@@ -349,8 +333,20 @@ details-addon-button = Details
 release-notes-addon-button = Release Notes
 permissions-addon-button = Permissions
 
-addons-enabled-heading = Enabled
-addons-disabled-heading = Disabled
+extension-enabled-heading = Enabled
+extension-disabled-heading = Disabled
+
+theme-enabled-heading = Enabled
+theme-disabled-heading = Disabled
+
+plugin-enabled-heading = Enabled
+plugin-disabled-heading = Disabled
+
+dictionary-enabled-heading = Enabled
+dictionary-disabled-heading = Disabled
+
+locale-enabled-heading = Enabled
+locale-disabled-heading = Disabled
 
 ask-to-activate-button = Ask to Activate
 always-activate-button = Always Activate
@@ -401,3 +397,16 @@ release-notes-loading = Loading…
 release-notes-error = Sorry, but there was an error loading the release notes.
 
 addon-permissions-empty = This extension doesn’t require any permissions
+
+## Page headings
+
+extension-heading = Manage Your Extensions
+theme-heading = Manage Your Themes
+plugin-heading = Manage Your Plugins
+dictionary-heading = Manage Your Dictionaries
+locale-heading = Manage Your Languages
+updates-heading = Manage Your Updates
+shortcuts-heading = Manage Extension Shortcuts
+
+addon-page-options-button =
+    .title = Tools for all add-ons

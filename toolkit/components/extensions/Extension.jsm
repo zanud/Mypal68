@@ -50,7 +50,6 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   ExtensionProcessScript: "resource://gre/modules/ExtensionProcessScript.jsm",
   ExtensionStorage: "resource://gre/modules/ExtensionStorage.jsm",
   ExtensionStorageIDB: "resource://gre/modules/ExtensionStorageIDB.jsm",
-  ExtensionTelemetry: "resource://gre/modules/ExtensionTelemetry.jsm",
   FileSource: "resource://gre/modules/L10nRegistry.jsm",
   L10nRegistry: "resource://gre/modules/L10nRegistry.jsm",
   LightweightThemeManager: "resource://gre/modules/LightweightThemeManager.jsm",
@@ -147,6 +146,7 @@ const PRIVILEGED_PERMS = new Set([
   "mozillaAddons",
   "geckoViewAddons",
   "telemetry",
+  "urlbar",
 ]);
 
 /**
@@ -937,7 +937,7 @@ class ExtensionData {
       // Check if there's a root directory `/localization` in the langpack.
       // If there is one, add it with the name `toolkit` as a FileSource.
       const entries = await this.readDirectory("localization");
-      if (entries.length > 0) {
+      if (entries.length) {
         l10nRegistrySources.toolkit = "";
       }
 
@@ -1271,8 +1271,6 @@ class ExtensionData {
    *                        Origin permissions requested.
    * @param {array<string>} info.permissions.permissions
    *                        Regular (non-origin) permissions requested.
-   * @param {boolean} info.unsigned
-   *                  True if the prompt is for installing an unsigned addon.
    * @param {string} info.type
    *                 The type of prompt being shown.  May be one of "update",
    *                 "sideload", "optional", or omitted for a regular
@@ -1404,9 +1402,6 @@ class ExtensionData {
       "webextPerms.header",
       ["<>"]
     );
-    result.text = info.unsigned
-      ? bundle.GetStringFromName("webextPerms.unsignedWarning")
-      : "";
     result.listIntro = bundle.GetStringFromName("webextPerms.listIntro");
 
     result.acceptText = bundle.GetStringFromName("webextPerms.add.label");
@@ -1423,10 +1418,9 @@ class ExtensionData {
         "webextPerms.sideloadHeader",
         ["<>"]
       );
-      let key =
-        result.msgs.length == 0
-          ? "webextPerms.sideloadTextNoPerms"
-          : "webextPerms.sideloadText2";
+      let key = !result.msgs.length
+        ? "webextPerms.sideloadTextNoPerms"
+        : "webextPerms.sideloadText2";
       result.text = bundle.GetStringFromName(key);
       result.acceptText = bundle.GetStringFromName(
         "webextPerms.sideloadEnable.label"
@@ -1672,7 +1666,7 @@ class Extension extends ExtensionData {
         this.permissions.add(perm);
       }
 
-      if (permissions.origins.length > 0) {
+      if (permissions.origins.length) {
         let patterns = this.whiteListedHosts.patterns.map(host => host.pattern);
 
         this.whiteListedHosts = new MatchPatternSet(
@@ -1883,8 +1877,25 @@ class Extension extends ExtensionData {
     return manifest;
   }
 
-  get contentSecurityPolicy() {
-    return this.manifest.content_security_policy;
+  get extensionPageCSP() {
+    const { content_security_policy } = this.manifest;
+    if (
+      content_security_policy &&
+      typeof content_security_policy === "object"
+    ) {
+      return content_security_policy.extension_pages;
+    }
+    return content_security_policy;
+  }
+
+  get contentScriptCSP() {
+    let { content_security_policy } = this.manifest;
+    if (
+      content_security_policy &&
+      typeof content_security_policy === "object"
+    ) {
+      return content_security_policy.content_scripts;
+    }
   }
 
   get backgroundScripts() {
@@ -1911,7 +1922,8 @@ class Extension extends ExtensionData {
       id: this.id,
       uuid: this.uuid,
       name: this.name,
-      contentSecurityPolicy: this.contentSecurityPolicy,
+      extensionPageCSP: this.extensionPageCSP,
+      contentScriptCSP: this.contentScriptCSP,
       instanceId: this.instanceId,
       resourceURL: this.resourceURL,
       contentScripts: this.contentScripts,
@@ -2174,7 +2186,6 @@ class Extension extends ExtensionData {
     });
     sharedData.set("extensions/pending", pendingExtensions);
 
-    ExtensionTelemetry.extensionStartup.stopwatchStart(this);
     try {
       this.state = "Startup: Loading manifest";
       await this.loadManifest();
@@ -2279,7 +2290,6 @@ class Extension extends ExtensionData {
 
       throw errors;
     } finally {
-      ExtensionTelemetry.extensionStartup.stopwatchFinish(this);
     }
   }
 
@@ -2486,7 +2496,7 @@ class Langpack extends ExtensionData {
 
   async startup(reason) {
     this.chromeRegistryHandle = null;
-    if (this.startupData.chromeEntries.length > 0) {
+    if (this.startupData.chromeEntries.length) {
       const manifestURI = Services.io.newURI(
         "manifest.json",
         null,

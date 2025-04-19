@@ -20,7 +20,6 @@
 var EXPORTED_SYMBOLS = [
   "UpdateChecker",
   "XPIInstall",
-  "verifyBundleSignedState",
 ];
 
 const { Services } = ChromeUtils.import("resource://gre/modules/Services.jsm");
@@ -247,19 +246,6 @@ class Package {
     return new TextDecoder().decode(buffer);
   }
 
-  async verifySignedState(addon) {
-    if (!shouldVerifySignedState(addon)) {
-      return {
-        signedState: AddonManager.SIGNEDSTATE_NOT_REQUIRED,
-        cert: null,
-      };
-    }
-
-    let root = Ci.nsIX509CertDB.AddonsPublicRoot;
-
-    return this.verifySignedStateForRoot(addon, root);
-  }
-
   flushCache() {}
 }
 
@@ -301,10 +287,6 @@ DirPackage = class DirPackage extends Package {
   readBinary(...path) {
     return OS.File.read(OS.Path.join(this.filePath, ...path));
   }
-
-  async verifySignedStateForRoot(addon, root) {
-    return { signedState: AddonManager.SIGNEDSTATE_UNKNOWN, cert: null };
-  }
 };
 
 XPIPackage = class XPIPackage extends Package {
@@ -339,27 +321,6 @@ XPIPackage = class XPIPackage extends Package {
     return response.arrayBuffer();
   }
 
-  verifySignedStateForRoot(addon, root) {
-    return new Promise(resolve => {
-      let callback = {
-        openSignedAppFileFinished(aRv, aZipReader, aCert) {
-          if (aZipReader) {
-            aZipReader.close();
-          }
-          resolve({
-            signedState: getSignedStatus(aRv, aCert, addon.id),
-            cert: aCert,
-          });
-        },
-      };
-      // This allows the certificate DB to get the raw JS callback object so the
-      // test code can pass through objects that XPConnect would reject.
-      callback.wrappedJSObject = callback;
-
-      gCertDB.openSignedAppFileAsync(root, this.file, callback);
-    });
-  }
-
   flushCache() {
     flushJarCache(this.file);
   }
@@ -378,12 +339,6 @@ function builtinPackage(baseURL) {
     rootURI: baseURL,
     filePath: baseURL.spec,
     file: null,
-    verifySignedState() {
-      return {
-        signedState: AddonManager.SIGNEDSTATE_NOT_REQUIRED,
-        cert: null,
-      };
-    },
     async hasResource(path) {
       try {
         let response = await fetch(this.rootURI.resolve(path));
@@ -448,10 +403,11 @@ async function loadManifestFromWebManifest(aPackage) {
 
   // Read the list of available locales, and pre-load messages for
   // all locales.
-  let locales =
-    extension.errors.length == 0 ? await extension.initAllLocales() : null;
+  let locales = !extension.errors.length
+    ? await extension.initAllLocales()
+    : null;
 
-  if (extension.errors.length > 0) {
+  if (extension.errors.length) {
     let error = new Error("Extension is invalid");
     // Add detailed errors on the error object so that the front end can display them
     // if needed (eg in about:debugging).
@@ -482,7 +438,7 @@ async function loadManifestFromWebManifest(aPackage) {
   addon.type = extension.type === "langpack" ? "locale" : extension.type;
   addon.loader = null;
   addon.strictCompatibility = true;
-  addon.internalName = null;
+  addon.internalName = manifest.name;
   addon.updateURL = bss.update_url;
   addon.optionsBrowserStyle = true;
   addon.optionsURL = null;
@@ -590,21 +546,15 @@ function defineSyncGUID(aAddon) {
 }
 
 // Generate a unique ID based on the path to this temporary add-on location.
-function generateInstallID(str, isTemp = false) {
+function generateTemporaryInstallID(aFile) {
   const hasher = CryptoHash("sha1");
-  const data = new TextEncoder().encode(str);
-  let suffix = "@addon";
+  const data = new TextEncoder().encode(aFile.path);
+  // Make it so this ID cannot be guessed.
   const sess = TEMP_INSTALL_ID_GEN_SESSION;
-  if (isTemp) {
-    // Make it so this ID cannot be guessed.
-    hasher.update(sess, sess.length);
-    suffix = TEMPORARY_ADDON_SUFFIX;
-  }
+  hasher.update(sess, sess.length);
   hasher.update(data, data.length);
-  let id = `${getHashStringForCrypto(hasher)}${suffix}`;
-  if (isTemp) {
-    logger.info(`Generated temp id ${id} (${sess.join("")}) for ${str}`);
-  }
+  let id = `${getHashStringForCrypto(hasher)}${TEMPORARY_ADDON_SUFFIX}`;
+  logger.info(`Generated temp id ${id} (${sess.join("")}) for ${aFile.path}`);
   return id;
 }
 
@@ -632,24 +582,14 @@ var loadManifest = async function(aPackage, aLocation, aOldAddon) {
   addon.rootURI = aPackage.rootURI.spec;
   addon.location = aLocation;
 
-  let { signedState, cert } = await aPackage.verifySignedState(addon);
-  addon.signedState = signedState;
   if (!addon.isPrivileged) {
     addon.hidden = false;
   }
 
   if (!addon.id) {
-    if (cert) {
-      addon.id = cert.commonName;
-      if (!gIDTest.test(addon.id)) {
-        throw new Error(`Extension is signed with an invalid id (${addon.id})`);
-      }
-    }
-    if (!addon.id && aLocation.isTemporary) {
-      addon.id = generateInstallID(aPackage.file.path, true);
-    } 
-    if (!addon.id) {
-      addon.id = generateInstallID(addon.name);
+    addon.id = addon.internalName.split(' ').join('') + "@noid";
+    if (aLocation.isTemporary) {
+      addon.id = generateTemporaryInstallID(aPackage.file);
     }
   }
 
@@ -727,107 +667,6 @@ function getTemporaryFile() {
   file.createUnique(Ci.nsIFile.NORMAL_FILE_TYPE, FileUtils.PERMS_FILE);
   return file;
 }
-
-/**
- * Returns the signedState for a given return code and certificate by verifying
- * it against the expected ID.
- *
- * @param {nsresult} aRv
- *        The result code returned by the signature checker for the
- *        signature check operation.
- * @param {nsIX509Cert?} aCert
- *        The certificate the add-on was signed with, if a valid
- *        certificate exists.
- * @param {string?} aAddonID
- *        The expected ID of the add-on. If passed, this must match the
- *        ID in the certificate's CN field.
- * @returns {number}
- *        A SIGNEDSTATE result code constant, as defined on the
- *        AddonManager class.
- */
-function getSignedStatus(aRv, aCert, aAddonID) {
-  let expectedCommonName = aAddonID;
-  if (aAddonID && aAddonID.length > 64) {
-    let data = new Uint8Array(new TextEncoder().encode(aAddonID));
-
-    let crypto = CryptoHash("sha256");
-    crypto.update(data, data.length);
-    expectedCommonName = getHashStringForCrypto(crypto);
-  }
-
-  switch (aRv) {
-    case Cr.NS_OK:
-      if (expectedCommonName && expectedCommonName != aCert.commonName) {
-        return AddonManager.SIGNEDSTATE_BROKEN;
-      }
-
-      if (aCert.organizationalUnit == "Mozilla Components") {
-        return AddonManager.SIGNEDSTATE_SYSTEM;
-      }
-
-      if (aCert.organizationalUnit == "Mozilla Extensions") {
-        return AddonManager.SIGNEDSTATE_PRIVILEGED;
-      }
-
-      return /preliminary/i.test(aCert.organizationalUnit)
-        ? AddonManager.SIGNEDSTATE_PRELIMINARY
-        : AddonManager.SIGNEDSTATE_SIGNED;
-    case Cr.NS_ERROR_SIGNED_JAR_NOT_SIGNED:
-      return AddonManager.SIGNEDSTATE_MISSING;
-    case Cr.NS_ERROR_SIGNED_JAR_MANIFEST_INVALID:
-    case Cr.NS_ERROR_SIGNED_JAR_ENTRY_INVALID:
-    case Cr.NS_ERROR_SIGNED_JAR_ENTRY_MISSING:
-    case Cr.NS_ERROR_SIGNED_JAR_ENTRY_TOO_LARGE:
-    case Cr.NS_ERROR_SIGNED_JAR_UNSIGNED_ENTRY:
-    case Cr.NS_ERROR_SIGNED_JAR_MODIFIED_ENTRY:
-      return AddonManager.SIGNEDSTATE_BROKEN;
-    default:
-      // Any other error indicates that either the add-on isn't signed or it
-      // is signed by a signature that doesn't chain to the trusted root.
-      return AddonManager.SIGNEDSTATE_UNKNOWN;
-  }
-}
-
-function shouldVerifySignedState(aAddon) {
-  // Updated system add-ons should always have their signature checked
-  if (aAddon.location.name == KEY_APP_SYSTEM_ADDONS) {
-    return true;
-  }
-
-  // We don't care about signatures for default system add-ons
-  if (aAddon.location.name == KEY_APP_SYSTEM_DEFAULTS) {
-    return false;
-  }
-
-  if (aAddon.location.scope & AppConstants.MOZ_UNSIGNED_SCOPES) {
-    return false;
-  }
-
-  // Otherwise only check signatures if the add-on is one of the signed
-  // types.
-  return XPIDatabase.SIGNED_TYPES.has(aAddon.type);
-}
-
-/**
- * Verifies that a bundle's contents are all correctly signed by an
- * AMO-issued certificate
- *
- * @param {nsIFile} aBundle
- *        The nsIFile for the bundle to check, either a directory or zip file.
- * @param {AddonInternal} aAddon
- *        The add-on object to verify.
- * @returns {Promise<number>}
- *        A Promise that resolves to an AddonManager.SIGNEDSTATE_* constant.
- */
-var verifyBundleSignedState = async function(aBundle, aAddon) {
-  let pkg = Package.get(aBundle);
-  try {
-    let { signedState } = await pkg.verifySignedState(aAddon);
-    return signedState;
-  } finally {
-    pkg.close();
-  }
-};
 
 /**
  * Replaces %...% strings in an addon url (update and updateInfo) with
@@ -1119,7 +958,7 @@ SafeInstallOperation.prototype = {
    * state
    */
   rollback() {
-    while (this._installedFiles.length > 0) {
+    while (this._installedFiles.length) {
       let move = this._installedFiles.pop();
       if (move.isMoveTo) {
         move.newFile.moveTo(move.oldDir.parent, move.oldDir.leafName);
@@ -1134,7 +973,7 @@ SafeInstallOperation.prototype = {
       }
     }
 
-    while (this._createdDirs.length > 0) {
+    while (this._createdDirs.length) {
       recursiveRemove(this._createdDirs.pop());
     }
   },
@@ -3455,7 +3294,7 @@ class SystemAddonInstaller extends DirectoryInstaller {
         AddonManagerPrivate.hasUpgradeListener(addon.id)
       );
 
-      if (blockers.length > 0) {
+      if (blockers.length) {
         await waitForAllPromises(installs.map(postponeAddon));
       } else {
         await waitForAllPromises(installs.map(installAddon));
@@ -3609,7 +3448,7 @@ var XPIInstall = {
 
   cancelAll() {
     // Cancelling one may alter _inProgress, so don't use a simple iterator
-    while (this._inProgress.length > 0) {
+    while (this._inProgress.length) {
       let c = this._inProgress.shift();
       try {
         c.cancel();

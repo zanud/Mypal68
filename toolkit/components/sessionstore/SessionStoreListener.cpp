@@ -19,7 +19,7 @@
 #include "nsIPrefService.h"
 #include "nsITimer.h"
 #include "nsIXPConnect.h"
-#include "nsIXULWindow.h"
+#include "nsIAppWindow.h"
 #include "nsIWebProgress.h"
 #include "nsPresContext.h"
 #include "nsPrintfCString.h"
@@ -668,7 +668,7 @@ bool TabListener::UpdateSessionStore(uint32_t aFlushId, bool aIsFinal) {
   if (!treeOwner) {
     return false;
   }
-  nsCOMPtr<nsIXULWindow> window(do_GetInterface(treeOwner));
+  nsCOMPtr<nsIAppWindow> window(do_GetInterface(treeOwner));
   if (!window) {
     return false;
   }

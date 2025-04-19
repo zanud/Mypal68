@@ -18,7 +18,7 @@ function createTestData() {
         title: aPage.title,
         uri: aPage.uri,
         lastVisit: newTimeInMicroseconds(),
-        isTag: aPage.tags && aPage.tags.length > 0,
+        isTag: aPage.tags && !!aPage.tags.length,
         tagArray: aPage.tags,
       });
     }

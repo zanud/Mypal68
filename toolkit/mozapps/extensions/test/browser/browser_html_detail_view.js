@@ -110,12 +110,24 @@ async function hasPrivateAllowed(id) {
   return perms.permissions.includes("internal:privateBrowsingAllowed");
 }
 
+async function assertBackButtonIsDisabled(win) {
+  await win.htmlBrowserLoaded;
+
+  let backButton = await BrowserTestUtils.waitForCondition(async () => {
+    let doc = win.getHtmlBrowser().contentDocument;
+    let backButton = doc.querySelector(".back-button");
+
+    // Wait until the button is visible in the page.
+    return backButton && !backButton.hidden ? backButton : false;
+  });
+
+  ok(backButton, "back button is rendered");
+  ok(backButton.disabled, "back button is disabled");
+}
+
 add_task(async function enableHtmlViews() {
   await SpecialPowers.pushPrefEnv({
-    set: [
-      ["extensions.htmlaboutaddons.enabled", true],
-      ["extensions.allowPrivateBrowsingByDefault", false],
-    ],
+    set: [["extensions.allowPrivateBrowsingByDefault", false]],
   });
 
   gProvider = new MockProvider();
@@ -195,7 +207,9 @@ add_task(async function testOpenDetailView() {
 
   const goBack = async win => {
     let loaded = waitForViewLoad(win);
-    win.managerWindow.document.getElementById("go-back").click();
+    let backButton = win.document.querySelector(".back-button");
+    ok(!backButton.disabled, "back button is enabled");
+    backButton.click();
     await loaded;
   };
 
@@ -260,7 +274,7 @@ add_task(async function testDetailOperations() {
   let panel = card.querySelector("panel-list");
 
   // Check button visibility.
-  let disableButton = panel.querySelector('[action="toggle-disabled"]');
+  let disableButton = card.querySelector('[action="toggle-disabled"]');
   ok(!disableButton.hidden, "The disable button is visible");
 
   let removeButton = panel.querySelector('[action="remove"]');
@@ -507,20 +521,19 @@ add_task(async function testDefaultTheme() {
   let card = getAddonCard(doc, DEFAULT_THEME_ID);
   ok(!card.hasAttribute("expanded"), "The list card is not expanded");
 
-  // Make sure the preview is hidden.
   let preview = card.querySelector(".card-heading-image");
   ok(preview, "There is a preview");
-  is(preview.hidden, true, "The preview is hidden");
+  ok(!preview.hidden, "The preview is visible");
+
   let loaded = waitForViewLoad(win);
   card.querySelector('[action="expand"]').click();
   await loaded;
 
   card = getAddonCard(doc, DEFAULT_THEME_ID);
 
-  // Make sure the preview is hidden.
   preview = card.querySelector(".card-heading-image");
   ok(preview, "There is a preview");
-  is(preview.hidden, true, "The preview is hidden");
+  ok(!preview.hidden, "The preview is visible");
 
   // Check all the deck buttons are hidden.
   assertDeckHeadingHidden(card.details.tabGroup);
@@ -632,14 +645,31 @@ add_task(async function testPrivateBrowsingExtension() {
   ok(!(await hasPrivateAllowed(id)), "PB is not allowed");
 
   let pbRow = card.querySelector(".addon-detail-row-private-browsing");
+  let name = card.querySelector(".addon-name");
 
   // Allow private browsing.
   let [allow, disallow] = pbRow.querySelectorAll("input");
   let updated = BrowserTestUtils.waitForEvent(card, "update");
+
+  // Check that the disabled state isn't shown while reloading the add-on.
+  let addonDisabled = AddonTestUtils.promiseAddonEvent("onDisabled");
   allow.click();
+  await addonDisabled;
+  is(
+    doc.l10n.getAttributes(name).id,
+    null,
+    "The disabled message is not shown for the add-on"
+  );
+
+  // Check the PB stuff.
   await updated;
   ok(!badge.hidden, "The PB badge is now shown");
   ok(await hasPrivateAllowed(id), "PB is allowed");
+  is(
+    doc.l10n.getAttributes(name).id,
+    null,
+    "The disabled message is not shown for the add-on"
+  );
 
   // Disable the add-on and change the value.
   updated = BrowserTestUtils.waitForEvent(card, "update");
@@ -852,7 +882,7 @@ add_task(async function testGoBackButton() {
   let id = "addon1@mochi.test";
   let win = await loadInitialView("extension");
   let doc = win.document;
-  let backButton = win.managerWindow.document.getElementById("go-back");
+  let backButton = doc.querySelector(".back-button");
 
   let loadDetailView = () => {
     let loaded = waitForViewLoad(win);
@@ -902,33 +932,102 @@ add_task(async function testEmptyMoreOptionsMenu() {
   await loaded;
 
   card = getAddonCard(doc, DEFAULT_THEME_ID);
+  let toggleDisabledButton = card.querySelector('[action="toggle-disabled"]');
   enabledItems = card.options.visibleItems;
   is(enabledItems.length, 0, "There are no enabled items");
   moreOptionsButton = card.querySelector(".more-options-button");
   ok(moreOptionsButton.hidden, "The more options button is now hidden");
+  ok(toggleDisabledButton.hidden, "The disable button is hidden");
 
-  // Switch themes, this should show the menu again.
+  // Switch themes, the menu should be hidden, but enable button should appear.
   let darkTheme = await AddonManager.getAddonByID(DARK_THEME_ID);
   let updated = BrowserTestUtils.waitForEvent(card, "update");
   await darkTheme.enable();
   await updated;
 
-  enabledItems = card.options.visibleItems;
-  is(enabledItems.length, 1, "There is one item visible");
-  is(
-    enabledItems[0].getAttribute("action"),
-    "toggle-disabled",
-    "Enable is the item"
-  );
-  ok(!moreOptionsButton.hidden, "The more options button is now visible");
+  ok(moreOptionsButton.hidden, "The more options button is still hidden");
+  ok(!toggleDisabledButton.hidden, "The enable button is visible");
 
   updated = BrowserTestUtils.waitForEvent(card, "update");
-  await enabledItems[0].click();
+  await toggleDisabledButton.click();
   await updated;
 
-  enabledItems = card.options.visibleItems;
-  is(enabledItems.length, 0, "There are no items visible");
-  ok(moreOptionsButton.hidden, "The more options button is hidden again");
+  ok(moreOptionsButton.hidden, "The more options button is hidden");
+  ok(toggleDisabledButton.hidden, "The disable button is hidden");
 
   await closeView(win);
+});
+
+add_task(async function testGoBackButtonIsDisabledWhenHistoryIsEmpty() {
+  let extension = ExtensionTestUtils.loadExtension({
+    manifest: { name: "Test Go Back Button" },
+    useAddonManager: "temporary",
+  });
+  await extension.startup();
+
+  let viewID = `addons://detail/${encodeURIComponent(extension.id)}`;
+
+  // When we have a fresh new tab, `about:addons` is opened in it.
+  let tab = await BrowserTestUtils.openNewForegroundTab(gBrowser, null);
+  // Simulate a click on "Manage extension" from a context menu.
+  let win = await BrowserOpenAddonsMgr(viewID);
+  await assertBackButtonIsDisabled(win);
+
+  BrowserTestUtils.removeTab(tab);
+  await extension.unload();
+});
+
+add_task(async function testGoBackButtonIsDisabledWhenHistoryIsEmptyInNewTab() {
+  let extension = ExtensionTestUtils.loadExtension({
+    manifest: { name: "Test Go Back Button" },
+    useAddonManager: "temporary",
+  });
+  await extension.startup();
+
+  let viewID = `addons://detail/${encodeURIComponent(extension.id)}`;
+
+  // When we have a tab with a page loaded, `about:addons` will be opened in a
+  // new tab.
+  let tab = await BrowserTestUtils.openNewForegroundTab(
+    gBrowser,
+    "https://example.org"
+  );
+  let addonsTabLoaded = BrowserTestUtils.waitForNewTab(
+    gBrowser,
+    "about:addons"
+  );
+  // Simulate a click on "Manage extension" from a context menu.
+  let win = await BrowserOpenAddonsMgr(viewID);
+  let addonsTab = await addonsTabLoaded;
+  await assertBackButtonIsDisabled(win);
+
+  BrowserTestUtils.removeTab(addonsTab);
+  BrowserTestUtils.removeTab(tab);
+  await extension.unload();
+});
+
+add_task(async function testGoBackButtonIsDisabledAfterBrowserBackButton() {
+  let extension = ExtensionTestUtils.loadExtension({
+    manifest: { name: "Test Go Back Button" },
+    useAddonManager: "temporary",
+  });
+  await extension.startup();
+
+  let viewID = `addons://detail/${encodeURIComponent(extension.id)}`;
+
+  // When we have a fresh new tab, `about:addons` is opened in it.
+  let tab = await BrowserTestUtils.openNewForegroundTab(gBrowser, null);
+  // Simulate a click on "Manage extension" from a context menu.
+  let win = await BrowserOpenAddonsMgr(viewID);
+  await assertBackButtonIsDisabled(win);
+
+  // Navigate to the extensions list.
+  await new CategoryUtilities(win).openType("extension");
+
+  // Click on the browser back button.
+  gBrowser.goBack();
+  await assertBackButtonIsDisabled(win);
+
+  BrowserTestUtils.removeTab(tab);
+  await extension.unload();
 });

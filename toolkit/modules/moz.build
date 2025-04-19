@@ -174,7 +174,6 @@ EXTRA_JS_MODULES += [
     'Console.jsm',
     'ContentDOMReference.jsm',
     'CreditCard.jsm',
-    'css-selector.js',
     'DateTimePickerPanel.jsm',
     'DateTimePickerParent.jsm',
     'DeferredTask.jsm',

@@ -914,7 +914,7 @@ nsPlacesExpiration.prototype = {
       }
 
       // Execute statements asynchronously in a transaction.
-      this._db.executeAsync(boundStatements, boundStatements.length, this);
+      this._db.executeAsync(boundStatements, this);
     })().catch(Cu.reportError);
   },
 

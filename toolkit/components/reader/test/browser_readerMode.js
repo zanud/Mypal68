@@ -81,20 +81,16 @@ add_task(async function test_reader_button() {
     readerButton,
     "Reader mode button is present on about:reader"
   );
-  let iconEl = document.getAnonymousElementByAttribute(
-    tab,
-    "anonid",
-    "tab-icon-image"
-  );
+  let iconEl = tab.iconImage;
   await TestUtils.waitForCondition(
     () => iconEl.getBoundingClientRect().width != 0
   );
   is_element_visible(iconEl, "Favicon should be visible");
   is(iconEl.src, favicon, "Correct favicon should be loaded");
 
-  is(gURLBar.value, readerUrl, "gURLBar value is about:reader URL");
+  is(gURLBar.untrimmedValue, readerUrl, "gURLBar value is about:reader URL");
   is(
-    gURLBar.textValue,
+    gURLBar.value,
     url.substring("http://".length),
     "gURLBar is displaying original article URL"
   );

@@ -108,7 +108,6 @@ add_task(async function test_new_temporary() {
     appDisabled: false,
     isActive: true,
     type: "extension",
-    signedState: AddonManager.SIGNEDSTATE_PRIVILEGED,
     temporarilyInstalled: true,
   });
 
@@ -148,7 +147,6 @@ add_task(async function test_replace_temporary() {
     appDisabled: false,
     isActive: true,
     type: "extension",
-    signedState: AddonManager.SIGNEDSTATE_PRIVILEGED,
     temporarilyInstalled: false,
   });
 
@@ -212,10 +210,6 @@ add_task(async function test_replace_temporary() {
 
       addon = await promiseAddonByID(ID);
 
-      let signedState = packed
-        ? AddonManager.SIGNEDSTATE_PRIVILEGED
-        : AddonManager.SIGNEDSTATE_UNKNOWN;
-
       // temporary add-on is installed and started
       checkAddon(ID, addon, {
         version: newversion,
@@ -224,7 +218,6 @@ add_task(async function test_replace_temporary() {
         appDisabled: false,
         isActive: true,
         type: "extension",
-        signedState,
         temporarilyInstalled: true,
       });
 
@@ -280,7 +273,6 @@ add_task(async function test_replace_temporary() {
         appDisabled: false,
         isActive: true,
         type: "extension",
-        signedState: AddonManager.SIGNEDSTATE_PRIVILEGED,
         temporarilyInstalled: false,
       });
 
@@ -328,7 +320,6 @@ add_task(async function test_samefile() {
     appDisabled: false,
     isActive: true,
     type: "extension",
-    signedState: AddonManager.SIGNEDSTATE_PRIVILEGED,
     temporarilyInstalled: true,
   });
 
@@ -357,7 +348,6 @@ add_task(async function test_samefile() {
     isActive: true,
     type: "extension",
     isWebExtension: true,
-    signedState: AddonManager.SIGNEDSTATE_PRIVILEGED,
     temporarilyInstalled: true,
   });
 
@@ -438,7 +428,6 @@ add_task(async function test_replace_permanent() {
     appDisabled: false,
     isActive: true,
     type: "extension",
-    signedState: AddonManager.SIGNEDSTATE_UNKNOWN,
     temporarilyInstalled: true,
   });
 
@@ -457,7 +446,6 @@ add_task(async function test_replace_permanent() {
     appDisabled: false,
     isActive: true,
     type: "extension",
-    signedState: AddonManager.SIGNEDSTATE_PRIVILEGED,
     temporarilyInstalled: false,
   });
 
@@ -711,7 +699,6 @@ add_task(async function test_replace_permanent_disabled() {
     appDisabled: false,
     isActive: true,
     type: "extension",
-    signedState: AddonManager.SIGNEDSTATE_UNKNOWN,
     temporarilyInstalled: true,
   });
 
@@ -733,7 +720,6 @@ add_task(async function test_replace_permanent_disabled() {
     appDisabled: false,
     isActive: true,
     type: "extension",
-    signedState: AddonManager.SIGNEDSTATE_PRIVILEGED,
     temporarilyInstalled: false,
   });
 

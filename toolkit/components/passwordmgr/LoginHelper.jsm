@@ -699,7 +699,7 @@ this.LoginHelper = {
       win.focus();
     } else {
       window.openDialog(
-        "chrome://passwordmgr/content/passwordManager.xul",
+        "chrome://passwordmgr/content/passwordManager.xhtml",
         "Toolkit:PasswordManager",
         "",
         { filterString }
