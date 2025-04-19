@@ -150,10 +150,14 @@ private:
     return Success;
   }
 
-  Result CheckRevocation(EndEntityOrCA, const CertID&, Time, Duration,
+  Result CheckRevocation(EndEntityOrCA, const CertID&, Time,
+                         Time validityBeginning, Duration,
                          /*optional*/ const Input*, /*optional*/ const Input*)
                          override
   {
+    // All of the certificates in this test for which this is called have a
+    // validity period that begins "one day before now".
+    EXPECT_EQ(TimeFromEpochInSeconds(oneDayBeforeNow), validityBeginning);
     return Success;
   }
 
@@ -299,10 +303,14 @@ public:
     return Success;
   }
 
-  Result CheckRevocation(EndEntityOrCA, const CertID&, Time, Duration,
+  Result CheckRevocation(EndEntityOrCA, const CertID&, Time,
+                         Time validityBeginning, Duration,
                          /*optional*/ const Input*, /*optional*/ const Input*)
                          override
   {
+    // All of the certificates in this test for which this is called have a
+    // validity period that begins "one day before now".
+    EXPECT_EQ(TimeFromEpochInSeconds(oneDayBeforeNow), validityBeginning);
     return Success;
   }
 
@@ -319,7 +327,7 @@ public:
   {
   }
 
-  Result CheckRevocation(EndEntityOrCA, const CertID&, Time, Duration,
+  Result CheckRevocation(EndEntityOrCA, const CertID&, Time, Time, Duration,
                          /*optional*/ const Input*, /*optional*/ const Input*)
                          override
   {
@@ -440,10 +448,14 @@ public:
     return Success;
   }
 
-  Result CheckRevocation(EndEntityOrCA, const CertID&, Time, Duration,
+  Result CheckRevocation(EndEntityOrCA, const CertID&, Time,
+                         Time validityBeginning, Duration,
                          /*optional*/ const Input*, /*optional*/ const Input*)
                          override
   {
+    // All of the certificates in this test for which this is called have a
+    // validity period that begins "one day before now".
+    EXPECT_EQ(TimeFromEpochInSeconds(oneDayBeforeNow), validityBeginning);
     return Success;
   }
 
@@ -663,10 +675,14 @@ private:
     return Success;
   }
 
-  Result CheckRevocation(EndEntityOrCA, const CertID&, Time, Duration,
+  Result CheckRevocation(EndEntityOrCA, const CertID&, Time,
+                         Time validityBeginning, Duration,
                          /*optional*/ const Input*,
                          /*optional*/ const Input*) override
   {
+    // All of the certificates in this test for which this is called have a
+    // validity period that begins "one day before now".
+    EXPECT_EQ(TimeFromEpochInSeconds(oneDayBeforeNow), validityBeginning);
     return Success;
   }
 
@@ -721,7 +737,7 @@ class RevokedEndEntityTrustDomain final : public MultiplePathTrustDomain
 {
 public:
   Result CheckRevocation(EndEntityOrCA endEntityOrCA, const CertID&, Time,
-                         Duration, /*optional*/ const Input*,
+                         Time, Duration, /*optional*/ const Input*,
                          /*optional*/ const Input*) override
   {
     if (endEntityOrCA == EndEntityOrCA::MustBeEndEntity) {
@@ -826,10 +842,14 @@ private:
     return Success;
   }
 
-  Result CheckRevocation(EndEntityOrCA, const CertID&, Time, Duration,
+  Result CheckRevocation(EndEntityOrCA, const CertID&, Time,
+                         Time validityBeginning, Duration,
                          /*optional*/ const Input*, /*optional*/ const Input*)
                          override
   {
+    // All of the certificates in this test for which this is called have a
+    // validity period that begins "one day before now".
+    EXPECT_EQ(TimeFromEpochInSeconds(oneDayBeforeNow), validityBeginning);
     return Success;
   }
 

@@ -169,6 +169,10 @@ elif CONFIG['OS_ARCH'] == 'WINNT':
     LOCAL_INCLUDES += ['/security/sandbox/chromium']
     LOCAL_INCLUDES += ['/nsprpub']
 
+    OS_LIBS += [
+        'ntdll',
+    ]
+
     DisableStlWrapping()
 
     # Suppress warnings in third-party code.

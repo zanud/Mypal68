@@ -34,7 +34,7 @@ Result OCSPVerificationTrustDomain::IsChainValid(const DERArray&, Time,
 }
 
 Result OCSPVerificationTrustDomain::CheckRevocation(EndEntityOrCA,
-                                                    const CertID&, Time,
+                                                    const CertID&, Time, Time,
                                                     Duration, const Input*,
                                                     const Input*) {
   // We do not expect this to be called for OCSP signers

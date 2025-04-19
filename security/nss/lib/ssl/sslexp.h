@@ -536,7 +536,7 @@ typedef SECStatus(PR_CALLBACK *SSLResumptionTokenCallback)(
  * group -- the named group this key corresponds to
  * pubKey -- the public key for the key pair
  * pad -- the length to pad to
- * notBefore/notAfter -- validity range
+ * notBefore/notAfter -- validity range in seconds since epoch
  * out/outlen/maxlen -- where to output the data
  */
 #define SSL_EncodeESNIKeys(cipherSuites, cipherSuiteCount,          \

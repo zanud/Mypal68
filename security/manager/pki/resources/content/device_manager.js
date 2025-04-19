@@ -326,7 +326,7 @@ function doLogout() {
 
 // load a new device
 function doLoad() {
-  window.open("load_device.xul", "loaddevice", "chrome,centerscreen,modal");
+  window.open("load_device.xhtml", "loaddevice", "chrome,centerscreen,modal");
   ClearDeviceList();
   RefreshDeviceList();
 }
@@ -362,7 +362,7 @@ function changePassword() {
   objects.appendElement(selected_slot.getToken());
   params.objects = objects;
   window.openDialog(
-    "changepassword.xul",
+    "changepassword.xhtml",
     "",
     "chrome,centerscreen,modal",
     params

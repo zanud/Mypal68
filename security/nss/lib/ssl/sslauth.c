@@ -244,7 +244,6 @@ SSL_AuthCertificate(void *arg, PRFileDesc *fd, PRBool checkSig, PRBool isServer)
     sslSocket *ss;
     SECCertUsage certUsage;
     const char *hostname = NULL;
-    PRTime now = PR_Now();
     SECItemArray *certStatusArray;
 
     ss = ssl_FindSocket(fd);
@@ -256,6 +255,7 @@ SSL_AuthCertificate(void *arg, PRFileDesc *fd, PRBool checkSig, PRBool isServer)
     handle = (CERTCertDBHandle *)arg;
     certStatusArray = &ss->sec.ci.sid->peerCertStatus;
 
+    PRTime now = ssl_Time(ss);
     if (certStatusArray->len) {
         PORT_SetError(0);
         if (CERT_CacheOCSPResponseFromSideChannel(handle, ss->sec.peerCert, now,

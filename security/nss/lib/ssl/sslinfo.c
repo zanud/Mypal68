@@ -153,6 +153,10 @@ SSL_GetPreliminaryChannelInfo(PRFileDesc *fd,
     }
     inf.zeroRttCipherSuite = ss->ssl3.hs.zeroRttSuite;
 
+    inf.peerDelegCred = tls13_IsVerifyingWithDelegatedCredential(ss);
+    inf.authKeyBits = ss->sec.authKeyBits;
+    inf.signatureScheme = ss->sec.signatureScheme;
+
     memcpy(info, &inf, inf.length);
     return SECSuccess;
 }

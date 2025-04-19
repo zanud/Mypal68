@@ -276,6 +276,7 @@ class TrustDomain {
 
   virtual Result CheckRevocation(EndEntityOrCA endEntityOrCA,
                                  const CertID& certID, Time time,
+                                 Time validityBeginning,
                                  Duration validityDuration,
                                  /*optional*/ const Input* stapledOCSPresponse,
                                  /*optional*/ const Input* aiaExtension) = 0;

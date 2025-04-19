@@ -164,10 +164,10 @@ bool ApplyProcessMitigationsToCurrentProcess(MitigationFlags flags) {
     policy.ProhibitDynamicCode = true;
 
     // Per-thread opt-out is only supported on >= Anniversary.
-    if (version >= base::win::VERSION_WIN10_RS1 &&
+    /*if (version >= base::win::VERSION_WIN10_RS1 &&
         flags & MITIGATION_DYNAMIC_CODE_DISABLE_WITH_OPT_OUT) {
       policy.AllowThreadOptOut = true;
-    }
+    }*/
 
     if (!set_process_mitigation_policy(ProcessDynamicCodePolicy, &policy,
                                        sizeof(policy)) &&
@@ -180,7 +180,7 @@ bool ApplyProcessMitigationsToCurrentProcess(MitigationFlags flags) {
     return true;
 
   // Enable font policies.
-  if (flags & MITIGATION_NONSYSTEM_FONT_DISABLE) {
+  /*if (flags & MITIGATION_NONSYSTEM_FONT_DISABLE) {
     PROCESS_MITIGATION_FONT_DISABLE_POLICY policy = {};
     policy.DisableNonSystemFonts = true;
 
@@ -189,7 +189,7 @@ bool ApplyProcessMitigationsToCurrentProcess(MitigationFlags flags) {
         ERROR_ACCESS_DENIED != ::GetLastError()) {
       return false;
     }
-  }
+  }*/
 
   if (version < base::win::VERSION_WIN10_TH2)
     return true;
@@ -211,7 +211,7 @@ bool ApplyProcessMitigationsToCurrentProcess(MitigationFlags flags) {
   }
 
   // Enable image load policies.
-  if (flags & MITIGATION_IMAGE_LOAD_NO_REMOTE ||
+  /*if (flags & MITIGATION_IMAGE_LOAD_NO_REMOTE ||
       flags & MITIGATION_IMAGE_LOAD_NO_LOW_LABEL ||
       flags & MITIGATION_IMAGE_LOAD_PREFER_SYS32) {
     PROCESS_MITIGATION_IMAGE_LOAD_POLICY policy = {};
@@ -230,7 +230,7 @@ bool ApplyProcessMitigationsToCurrentProcess(MitigationFlags flags) {
         ERROR_ACCESS_DENIED != ::GetLastError()) {
       return false;
     }
-  }
+  }*/
 
   return true;
 }

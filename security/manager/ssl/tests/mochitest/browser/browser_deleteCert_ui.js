@@ -82,7 +82,7 @@ function openDeleteCertConfirmDialog(tabID) {
     deleteConfirmed: false,
   };
   let win = window.openDialog(
-    "chrome://pippki/content/deletecert.xul",
+    "chrome://pippki/content/deletecert.xhtml",
     "",
     "",
     tabID,

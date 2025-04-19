@@ -51,6 +51,7 @@ class nsSecureBrowserUIImpl : public nsISecureBrowserUI,
 
   uint32_t mState;
   uint32_t mEvent;
+  bool mIsSecureContext;
   nsWeakPtr mDocShell;
   nsWeakPtr mWebProgress;
   nsCOMPtr<nsITransportSecurityInfo> mTopLevelSecurityInfo;

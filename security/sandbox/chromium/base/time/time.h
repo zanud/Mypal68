@@ -871,13 +871,6 @@ class BASE_EXPORT ThreadTicks : public time_internal::TimeBase<ThreadTicks> {
   // absolutely needed, call WaitUntilInitialized() before this method.
   static ThreadTicks Now();
 
-#if defined(OS_WIN)
-  // Similar to Now() above except this returns thread-specific CPU time for an
-  // arbitrary thread. All comments for Now() method above apply apply to this
-  // method as well.
-  static ThreadTicks GetForThread(const PlatformThreadHandle& thread_handle);
-#endif
-
  private:
   friend class time_internal::TimeBase<ThreadTicks>;
 
