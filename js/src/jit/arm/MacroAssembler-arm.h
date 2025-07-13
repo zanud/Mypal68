@@ -11,7 +11,9 @@
 #include "jit/MoveResolver.h"
 #include "vm/BigIntType.h"
 #include "vm/BytecodeUtil.h"
-#include "wasm/WasmTypes.h"
+#include "wasm/WasmBuiltins.h"
+#include "wasm/WasmCodegenTypes.h"
+#include "wasm/WasmTlsData.h"
 
 namespace js {
 namespace jit {
@@ -64,6 +66,7 @@ class MacroAssemblerARM : public Assembler {
     return Operand(Register::FromCode(base.base()), base.disp());
   }
   Address ToPayload(const Address& base) const { return base; }
+  BaseIndex ToPayload(const BaseIndex& base) const { return base; }
 
  protected:
   Operand ToType(Operand base) const {
@@ -72,6 +75,10 @@ class MacroAssemblerARM : public Assembler {
   }
   Address ToType(const Address& base) const {
     return ToType(Operand(base)).toAddress();
+  }
+  BaseIndex ToType(const BaseIndex& base) const {
+    return BaseIndex(base.base, base.index, base.scale,
+                     base.offset + sizeof(void*));
   }
 
   Address ToPayloadAfterStackPush(const Address& base) const {
@@ -1080,6 +1087,11 @@ class MacroAssemblerARMCompat : public MacroAssemblerARM {
 
     load32(ToPayload(src), temp);
     store32(temp, ToPayload(dest));
+  }
+
+  void storePrivateValue(Register src, const Address& dest) {
+    store32(Imm32(0), ToType(dest));
+    store32(src, ToPayload(dest));
   }
 
   void loadValue(Address src, ValueOperand val);

@@ -7,7 +7,6 @@
 #include "mozilla/DebugOnly.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/ScopeExit.h"
-#include "mozilla/Unused.h"
 #include "mozilla/Utf8.h"  // mozilla::Utf8Unit
 
 #include <algorithm>
@@ -48,7 +47,6 @@ using namespace js;
 using mozilla::Maybe;
 using mozilla::TimeDuration;
 using mozilla::TimeStamp;
-using mozilla::Unused;
 using mozilla::Utf8Unit;
 
 using JS::CompileOptions;
@@ -162,7 +160,7 @@ size_t js::RemovePendingWasmCompileTasks(
 }
 
 void js::StartOffThreadWasmTier2Generator(wasm::UniqueTier2GeneratorTask task) {
-  Unused << HelperThreadState().submitTask(std::move(task));
+  (void)HelperThreadState().submitTask(std::move(task));
 }
 
 bool GlobalHelperThreadState::submitTask(wasm::UniqueTier2GeneratorTask task) {
@@ -172,7 +170,7 @@ bool GlobalHelperThreadState::submitTask(wasm::UniqueTier2GeneratorTask task) {
   if (!wasmTier2GeneratorWorklist(lock).append(task.get())) {
     return false;
   }
-  Unused << task.release();
+  (void)task.release();
 
   dispatch(lock);
   return true;
@@ -180,7 +178,7 @@ bool GlobalHelperThreadState::submitTask(wasm::UniqueTier2GeneratorTask task) {
 
 static void CancelOffThreadWasmTier2GeneratorLocked(
     AutoLockHelperThreadState& lock) {
-  if (HelperThreadState().threads(lock).empty()) {
+  if (!CanUseExtraThreads()) {
     return;
   }
 
@@ -343,7 +341,7 @@ static bool IonCompileTaskMatches(const CompilationSelector& selector,
 
 static void CancelOffThreadIonCompileLocked(const CompilationSelector& selector,
                                             AutoLockHelperThreadState& lock) {
-  if (HelperThreadState().threads(lock).empty()) {
+  if (!CanUseExtraThreads()) {
     return;
   }
 
@@ -420,11 +418,11 @@ void js::CancelOffThreadIonCompile(const CompilationSelector& selector) {
 
 #ifdef DEBUG
 bool js::HasOffThreadIonCompile(Realm* realm) {
-  AutoLockHelperThreadState lock;
-
-  if (HelperThreadState().threads(lock).empty()) {
+  if (!CanUseExtraThreads()) {
     return false;
   }
+
+  AutoLockHelperThreadState lock;
 
   GlobalHelperThreadState::IonCompileTaskVector& worklist =
       HelperThreadState().ionWorklist(lock);
@@ -503,7 +501,6 @@ AutoSetHelperThreadContext::AutoSetHelperThreadContext(
   cx = HelperThreadState().getFirstUnusedContext(lock);
   MOZ_ASSERT(cx);
   cx->setHelperThread(lock);
-  cx->nativeStackBase = GetNativeStackBase();
   // When we set the JSContext, we need to reset the computed stack limits for
   // the current thread, so we also set the native stack quota.
   JS_SetNativeStackQuota(cx, HELPER_STACK_QUOTA);
@@ -585,7 +582,6 @@ void ParseTask::trace(JSTracer* trc) {
   }
 
   gcOutput_.trace(trc);
-  gcOutputForDelazification_.trace(trc);
 }
 
 size_t ParseTask::sizeOfExcludingThis(
@@ -605,8 +601,7 @@ size_t ParseTask::sizeOfExcludingThis(
          scripts.sizeOfExcludingThis(mallocSizeOf) +
          sourceObjects.sizeOfExcludingThis(mallocSizeOf) + stencilInputSize +
          stencilSize + extensibleStencilSize +
-         gcOutput_.sizeOfExcludingThis(mallocSizeOf) +
-         gcOutputForDelazification_.sizeOfExcludingThis(mallocSizeOf);
+         gcOutput_.sizeOfExcludingThis(mallocSizeOf);
 }
 
 void ParseTask::runHelperThreadTask(AutoLockHelperThreadState& locked) {
@@ -708,24 +703,57 @@ void ScriptParseTask<Unit>::parse(JSContext* cx) {
   }
 
   if (options.useOffThreadParseGlobal) {
-    Unused << instantiateStencils(cx);
+    (void)instantiateStencils(cx);
+  }
+}
+
+template <typename Unit>
+struct CompileToStencilTask : public ParseTask {
+  JS::SourceText<Unit> data;
+
+  CompileToStencilTask(JSContext* cx, JS::SourceText<Unit>& srcBuf,
+                       JS::OffThreadCompileCallback callback,
+                       void* callbackData);
+  void parse(JSContext* cx) override;
+};
+
+template <typename Unit>
+CompileToStencilTask<Unit>::CompileToStencilTask(
+    JSContext* cx, JS::SourceText<Unit>& srcBuf,
+    JS::OffThreadCompileCallback callback, void* callbackData)
+    : ParseTask(ParseTaskKind::ScriptStencil, cx, callback, callbackData),
+      data(std::move(srcBuf)) {}
+
+template <typename Unit>
+void CompileToStencilTask<Unit>::parse(JSContext* cx) {
+  MOZ_ASSERT(cx->isHelperThreadContext());
+
+  ScopeKind scopeKind =
+      options.nonSyntacticScope ? ScopeKind::NonSyntactic : ScopeKind::Global;
+
+  stencilInput_ = cx->make_unique<frontend::CompilationInput>(options);
+
+  if (stencilInput_) {
+    extensibleStencil_ = frontend::CompileGlobalScriptToExtensibleStencil(
+        cx, *stencilInput_, data, scopeKind);
   }
 }
 
 bool ParseTask::instantiateStencils(JSContext* cx) {
+  MOZ_ASSERT(kind != ParseTaskKind::ScriptStencil);
+
   if (!stencil_ && !extensibleStencil_) {
     return false;
   }
 
   bool result;
   if (stencil_) {
-    result = frontend::InstantiateStencils(
-        cx, *stencilInput_, *stencil_, gcOutput_, &gcOutputForDelazification_);
+    result =
+        frontend::InstantiateStencils(cx, *stencilInput_, *stencil_, gcOutput_);
   } else {
     frontend::BorrowingCompilationStencil borrowingStencil(*extensibleStencil_);
-    result =
-        frontend::InstantiateStencils(cx, *stencilInput_, borrowingStencil,
-                                      gcOutput_, &gcOutputForDelazification_);
+    result = frontend::InstantiateStencils(cx, *stencilInput_, borrowingStencil,
+                                           gcOutput_);
   }
 
   // Whatever happens to the top-level script compilation (even if it fails),
@@ -785,7 +813,7 @@ void ModuleParseTask<Unit>::parse(JSContext* cx) {
   }
 
   if (options.useOffThreadParseGlobal) {
-    Unused << instantiateStencils(cx);
+    (void)instantiateStencils(cx);
   }
 }
 
@@ -821,31 +849,29 @@ void ScriptDecodeTask::parse(JSContext* cx) {
       return;
     }
 
-    XDRStencilDecoder decoder(cx, &options, range);
-    XDRResult res = decoder.codeStencils(*stencilInput_, *stencil_);
+    XDRStencilDecoder decoder(cx, range);
+    XDRResult res = decoder.codeStencil(stencilInput_->options, *stencil_);
     if (!res.isOk()) {
       stencil_.reset();
       return;
     }
 
     if (!frontend::PrepareForInstantiate(cx, *stencilInput_, *stencil_,
-                                         gcOutput_,
-                                         &gcOutputForDelazification_)) {
+                                         gcOutput_)) {
       stencil_.reset();
     }
 
     if (options.useOffThreadParseGlobal) {
-      Unused << instantiateStencils(cx);
+      (void)instantiateStencils(cx);
     }
 
     return;
   }
 
   // The buffer contains JSScript.
-  Rooted<UniquePtr<XDROffThreadDecoder>> decoder(
-      cx, js::MakeUnique<XDROffThreadDecoder>(
-              cx, &options, XDROffThreadDecoder::Type::Single,
-              /* sourceObjectOut = */ &sourceObject.get(), range));
+  auto decoder = js::MakeUnique<XDROffThreadDecoder>(
+      cx, &options, XDROffThreadDecoder::Type::Single,
+      /* sourceObjectOut = */ &sourceObject.get(), range);
   if (!decoder) {
     ReportOutOfMemory(cx);
     return;
@@ -885,10 +911,9 @@ void MultiScriptsDecodeTask::parse(JSContext* cx) {
     RootedScript resultScript(cx);
     Rooted<ScriptSourceObject*> sourceObject(cx);
 
-    Rooted<UniquePtr<XDROffThreadDecoder>> decoder(
-        cx, js::MakeUnique<XDROffThreadDecoder>(
-                cx, &opts, XDROffThreadDecoder::Type::Multi,
-                &sourceObject.get(), source.range));
+    auto decoder = js::MakeUnique<XDROffThreadDecoder>(
+        cx, &opts, XDROffThreadDecoder::Type::Multi, &sourceObject.get(),
+        source.range);
     if (!decoder) {
       ReportOutOfMemory(cx);
       return;
@@ -912,7 +937,7 @@ void MultiScriptsDecodeTask::parse(JSContext* cx) {
 
 static void WaitForOffThreadParses(JSRuntime* rt,
                                    AutoLockHelperThreadState& lock) {
-  if (HelperThreadState().threads(lock).empty()) {
+  if (!CanUseExtraThreads()) {
     return;
   }
 
@@ -1015,9 +1040,9 @@ static bool EnsureConstructor(JSContext* cx, Handle<GlobalObject*> global,
     return false;
   }
 
-  MOZ_ASSERT(global->getPrototype(key).toObject().isDelegate(),
-             "standard class prototype wasn't a delegate from birth");
-  return true;
+  // Set the used-as-prototype flag here because we can't GC in mergeRealms.
+  RootedObject proto(cx, &global->getPrototype(key));
+  return JSObject::setIsUsedAsPrototype(cx, proto);
 }
 
 // Initialize all classes potentially created during parsing for use in parser
@@ -1049,9 +1074,14 @@ static bool EnsureParserCreatedClasses(JSContext* cx, ParseTaskKind kind) {
     return false;  // needed by async function*() {}
   }
 
-  if (kind == ParseTaskKind::Module &&
-      !GlobalObject::ensureModulePrototypesCreated(cx, global)) {
-    return false;
+  if (kind == ParseTaskKind::Module) {
+    // Set the used-as-prototype flag on the prototype objects because we can't
+    // GC in mergeRealms.
+    bool setUsedAsPrototype = true;
+    if (!GlobalObject::ensureModulePrototypesCreated(cx, global,
+                                                     setUsedAsPrototype)) {
+      return false;
+    }
   }
 
   return true;
@@ -1197,6 +1227,37 @@ JS::OffThreadToken* js::StartOffThreadParseScript(
     void* callbackData) {
   return StartOffThreadParseScriptInternal(cx, options, srcBuf, callback,
                                            callbackData);
+}
+
+template <typename Unit>
+static JS::OffThreadToken* StartOffThreadCompileToStencilInternal(
+    JSContext* cx, const ReadOnlyCompileOptions& options,
+    JS::SourceText<Unit>& srcBuf, JS::OffThreadCompileCallback callback,
+    void* callbackData) {
+  MOZ_ASSERT(!options.useOffThreadParseGlobal);
+  auto task = cx->make_unique<CompileToStencilTask<Unit>>(cx, srcBuf, callback,
+                                                          callbackData);
+  if (!task) {
+    return nullptr;
+  }
+
+  return StartOffThreadParseTask(cx, std::move(task), options);
+}
+
+JS::OffThreadToken* js::StartOffThreadCompileToStencil(
+    JSContext* cx, const ReadOnlyCompileOptions& options,
+    JS::SourceText<char16_t>& srcBuf, JS::OffThreadCompileCallback callback,
+    void* callbackData) {
+  return StartOffThreadCompileToStencilInternal(cx, options, srcBuf, callback,
+                                                callbackData);
+}
+
+JS::OffThreadToken* js::StartOffThreadCompileToStencil(
+    JSContext* cx, const ReadOnlyCompileOptions& options,
+    JS::SourceText<Utf8Unit>& srcBuf, JS::OffThreadCompileCallback callback,
+    void* callbackData) {
+  return StartOffThreadCompileToStencilInternal(cx, options, srcBuf, callback,
+                                                callbackData);
 }
 
 template <typename Unit>
@@ -1655,7 +1716,8 @@ size_t GlobalHelperThreadState::maxIonCompilationThreads() const {
 }
 
 size_t GlobalHelperThreadState::maxWasmCompilationThreads() const {
-  if (IsHelperThreadSimulatingOOM(js::THREAD_TYPE_WASM)) {
+  if (IsHelperThreadSimulatingOOM(js::THREAD_TYPE_WASM_COMPILE_TIER1) ||
+      IsHelperThreadSimulatingOOM(js::THREAD_TYPE_WASM_COMPILE_TIER2)) {
     return 1;
   }
   return cpuCount;
@@ -1666,7 +1728,8 @@ size_t GlobalHelperThreadState::maxWasmTier2GeneratorThreads() const {
 }
 
 size_t GlobalHelperThreadState::maxPromiseHelperThreads() const {
-  if (IsHelperThreadSimulatingOOM(js::THREAD_TYPE_WASM)) {
+  if (IsHelperThreadSimulatingOOM(js::THREAD_TYPE_WASM_COMPILE_TIER1) ||
+      IsHelperThreadSimulatingOOM(js::THREAD_TYPE_WASM_COMPILE_TIER2)) {
     return 1;
   }
   return cpuCount;
@@ -1737,21 +1800,24 @@ HelperThreadTask* GlobalHelperThreadState::maybeGetWasmCompile(
   size_t physCoresAvailable = size_t(ceil(cpuCount / 3.0));
 
   size_t threads;
+  ThreadType threadType;
   if (mode == wasm::CompileMode::Tier2) {
     if (tier2oversubscribed) {
       threads = maxWasmCompilationThreads();
     } else {
       threads = physCoresAvailable;
     }
+    threadType = THREAD_TYPE_WASM_COMPILE_TIER2;
   } else {
     if (tier2oversubscribed) {
       threads = 0;
     } else {
       threads = maxWasmCompilationThreads();
     }
+    threadType = THREAD_TYPE_WASM_COMPILE_TIER1;
   }
 
-  if (!threads || !checkTaskThreadLimit(THREAD_TYPE_WASM, threads, lock)) {
+  if (!threads || !checkTaskThreadLimit(threadType, threads, lock)) {
     return nullptr;
   }
 
@@ -1761,7 +1827,7 @@ HelperThreadTask* GlobalHelperThreadState::maybeGetWasmCompile(
 HelperThreadTask* GlobalHelperThreadState::maybeGetWasmTier2GeneratorTask(
     const AutoLockHelperThreadState& lock) {
   if (wasmTier2GeneratorWorklist(lock).empty() ||
-      !checkTaskThreadLimit(THREAD_TYPE_WASM_TIER2,
+      !checkTaskThreadLimit(THREAD_TYPE_WASM_GENERATOR_TIER2,
                             maxWasmTier2GeneratorThreads(),
                             /*isMaster=*/true, lock)) {
     return nullptr;
@@ -1884,7 +1950,7 @@ void GlobalHelperThreadState::startHandlingCompressionTasks(
         (task->runtimeMatches(maybeRuntime) && task->shouldStart())) {
       // OOMing during appending results in the task not being scheduled
       // and deleted.
-      Unused << submitTask(std::move(task), lock);
+      (void)submitTask(std::move(task), lock);
       remove(pending, &i);
     }
   }
@@ -2104,7 +2170,7 @@ JSScript* GlobalHelperThreadState::finishSingleParseTask(
 
     // The Debugger only needs to be told about the topmost script that was
     // compiled.
-    if (!parseTask->options.hideScriptFromDebugger) {
+    if (!parseTask->options.hideFromNewScriptInitial()) {
       DebugAPI::onNewScript(cx, script);
     }
   } else {
@@ -2123,27 +2189,57 @@ JSScript* GlobalHelperThreadState::finishSingleParseTask(
   if (startEncoding == StartEncoding::Yes) {
     MOZ_DIAGNOSTIC_ASSERT(parseTask->options.useStencilXDR);
 
-    UniquePtr<XDRIncrementalStencilEncoder> xdrEncoder;
-
     if (parseTask->stencil_) {
-      auto* stencil = parseTask->stencil_.get();
-      if (!stencil->source->xdrEncodeStencils(cx, *parseTask->stencilInput_,
-                                              *stencil, xdrEncoder)) {
+      auto initial = js::MakeUnique<frontend::ExtensibleCompilationStencil>(
+          cx, *parseTask->stencilInput_);
+      if (!initial) {
+        ReportOutOfMemory(cx);
+        return nullptr;
+      }
+      if (!initial->steal(cx, std::move(*parseTask->stencil_))) {
+        return nullptr;
+      }
+
+      if (!script->scriptSource()->startIncrementalEncoding(
+              cx, parseTask->options, std::move(initial))) {
         return nullptr;
       }
     } else if (parseTask->extensibleStencil_) {
-      frontend::BorrowingCompilationStencil borrowingStencil(
-          *parseTask->extensibleStencil_);
-      if (!borrowingStencil.source->xdrEncodeStencils(
-              cx, *parseTask->stencilInput_, borrowingStencil, xdrEncoder)) {
+      if (!script->scriptSource()->startIncrementalEncoding(
+              cx, parseTask->options,
+              std::move(parseTask->extensibleStencil_))) {
         return nullptr;
       }
     }
-
-    script->scriptSource()->setIncrementalEncoder(xdrEncoder.release());
   }
 
   return script;
+}
+
+UniquePtr<frontend::CompilationStencil>
+GlobalHelperThreadState::finishCompileToStencilTask(JSContext* cx,
+                                                    ParseTaskKind kind,
+                                                    JS::OffThreadToken* token) {
+  Rooted<UniquePtr<ParseTask>> parseTask(
+      cx, finishParseTaskCommon(cx, kind, token));
+  if (!parseTask) {
+    return nullptr;
+  }
+
+  MOZ_ASSERT(parseTask->stencilInput_.get());
+  MOZ_ASSERT(parseTask->extensibleStencil_.get());
+
+  auto stencil = cx->make_unique<frontend::CompilationStencil>(
+      parseTask->stencilInput_->source);
+  if (!stencil) {
+    return nullptr;
+  }
+
+  if (!stencil->steal(cx, std::move(*parseTask->extensibleStencil_))) {
+    return nullptr;
+  }
+
+  return stencil;
 }
 
 bool GlobalHelperThreadState::finishMultiParseTask(
@@ -2178,7 +2274,7 @@ bool GlobalHelperThreadState::finishMultiParseTask(
 
   // The Debugger only needs to be told about the topmost scripts that were
   // compiled.
-  if (!parseTask->options.hideScriptFromDebugger) {
+  if (!parseTask->options.hideFromNewScriptInitial()) {
     JS::RootedScript rooted(cx);
     for (auto& script : scripts) {
       MOZ_ASSERT(script->isGlobalCode());
@@ -2198,6 +2294,12 @@ JSScript* GlobalHelperThreadState::finishScriptParseTask(
       finishSingleParseTask(cx, ParseTaskKind::Script, token, startEncoding);
   MOZ_ASSERT_IF(script, script->isGlobalCode());
   return script;
+}
+
+UniquePtr<frontend::CompilationStencil>
+GlobalHelperThreadState::finishCompileToStencilTask(JSContext* cx,
+                                                    JS::OffThreadToken* token) {
+  return finishCompileToStencilTask(cx, ParseTaskKind::ScriptStencil, token);
 }
 
 JSScript* GlobalHelperThreadState::finishScriptDecodeTask(
@@ -2223,6 +2325,37 @@ JSObject* GlobalHelperThreadState::finishModuleParseTask(
   }
 
   return script->module();
+}
+
+frontend::CompilationStencil* GlobalHelperThreadState::finishStencilParseTask(
+    JSContext* cx, JS::OffThreadToken* token) {
+  // TODO: The Script and Module task kinds should be combined in future since
+  //       they both generate the same Stencil type.
+  auto task = static_cast<ParseTask*>(token);
+  MOZ_RELEASE_ASSERT(task->kind == ParseTaskKind::Script ||
+                     task->kind == ParseTaskKind::Module);
+
+  Rooted<UniquePtr<ParseTask>> parseTask(
+      cx, finishParseTaskCommon(cx, task->kind, token));
+  if (!parseTask) {
+    return nullptr;
+  }
+
+  MOZ_ASSERT(!parseTask->options.useOffThreadParseGlobal);
+  MOZ_ASSERT(parseTask->extensibleStencil_);
+
+  UniquePtr<frontend::CompilationStencil> stencil =
+      cx->make_unique<frontend::CompilationStencil>(
+          parseTask->stencilInput_->source);
+  if (!stencil) {
+    return nullptr;
+  }
+
+  if (!stencil->steal(cx, std::move(*parseTask->extensibleStencil_))) {
+    return nullptr;
+  }
+
+  return stencil.release();
 }
 
 void GlobalHelperThreadState::cancelParseTask(JSRuntime* rt, ParseTaskKind kind,
@@ -2426,11 +2559,11 @@ static void ClearCompressionTaskList(T& list, JSRuntime* runtime) {
 }
 
 void js::CancelOffThreadCompressions(JSRuntime* runtime) {
-  AutoLockHelperThreadState lock;
-
-  if (HelperThreadState().threads(lock).empty()) {
+  if (!CanUseExtraThreads()) {
     return;
   }
+
+  AutoLockHelperThreadState lock;
 
   // Cancel all pending compression tasks.
   ClearCompressionTaskList(HelperThreadState().compressionPendingList(lock),
@@ -2486,11 +2619,11 @@ void js::SweepPendingCompressions(AutoLockHelperThreadState& lock) {
 }
 
 void js::RunPendingSourceCompressions(JSRuntime* runtime) {
-  AutoLockHelperThreadState lock;
-
-  if (HelperThreadState().threads(lock).empty()) {
+  if (!CanUseExtraThreads()) {
     return;
   }
+
+  AutoLockHelperThreadState lock;
 
   HelperThreadState().startHandlingCompressionTasks(
       GlobalHelperThreadState::ScheduleCompressionTask::API, nullptr, lock);
@@ -2537,7 +2670,7 @@ bool js::StartOffThreadPromiseHelperTask(JSContext* cx,
     return false;
   }
 
-  Unused << task.release();
+  (void)task.release();
   return true;
 }
 

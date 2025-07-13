@@ -166,6 +166,12 @@ void JitRuntime::generateEnterJIT(JSContext* cx, MacroAssembler& masm) {
   }
   masm.checkStackAlignment();
 
+  // Calculate the number of bytes pushed so far.
+  masm.subStackPtrFrom(r19);
+
+  // Create the frame descriptor.
+  masm.makeFrameDescriptor(r19, FrameType::CppToJSJit, JitFrameLayout::Size());
+
   // Push the number of actual arguments and the calleeToken.
   // The result address is used to store the actual number of arguments
   // without adding an argument to EnterJIT.
@@ -178,11 +184,7 @@ void JitRuntime::generateEnterJIT(JSContext* cx, MacroAssembler& masm) {
   }
   masm.checkStackAlignment();
 
-  // Calculate the number of bytes pushed so far.
-  masm.subStackPtrFrom(r19);
-
-  // Push the frameDescriptor.
-  masm.makeFrameDescriptor(r19, FrameType::CppToJSJit, JitFrameLayout::Size());
+  // Push the descriptor.
   masm.Push(r19);
 
   Label osrReturnPoint;
@@ -266,10 +268,13 @@ void JitRuntime::generateEnterJIT(JSContext* cx, MacroAssembler& masm) {
   // Interpreter -> Baseline OSR will return here.
   masm.bind(&osrReturnPoint);
 
-  // Return back to SP.
-  masm.Pop(r19);
+  masm.Pop(r19);       // Pop frame descriptor.
+  masm.pop(r24, r23);  // Discard calleeToken, numActualArgs.
+
+  // Discard arguments and the stack alignment padding.
   masm.Add(masm.GetStackPointer64(), masm.GetStackPointer64(),
            Operand(x19, vixl::LSR, FRAMESIZE_SHIFT));
+
   masm.syncStackPtr();
   masm.SetStackPointer64(sp);
 
@@ -308,6 +313,15 @@ void JitRuntime::generateEnterJIT(JSContext* cx, MacroAssembler& masm) {
 
   // Reset stack pointer.
   masm.SetStackPointer64(PseudoStackPointer64);
+}
+
+// static
+mozilla::Maybe<::JS::ProfilingFrameIterator::RegisterState>
+JitRuntime::getCppEntryRegisters(JitFrameLayout* frameStackAddress) {
+  // Not supported, or not implemented yet.
+  // TODO: Implement along with the corresponding stack-walker changes, in
+  // coordination with the Gecko Profiler, see bug 1635987 and follow-ups.
+  return mozilla::Nothing{};
 }
 
 static void PushRegisterDump(MacroAssembler& masm) {
@@ -505,6 +519,8 @@ void JitRuntime::generateArgumentsRectifier(MacroAssembler& masm,
 }
 
 static void PushBailoutFrame(MacroAssembler& masm, Register spArg) {
+  // This assumes no SIMD registers, as JS does not support SIMD.
+
   // The stack saved in spArg must be (higher entries have higher memory
   // addresses):
   // - snapshotOffset_

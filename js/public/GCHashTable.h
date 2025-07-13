@@ -11,7 +11,9 @@
 #include "js/HashTable.h"
 #include "js/RootingAPI.h"
 #include "js/SweepingAPI.h"
-#include "js/TracingAPI.h"
+#include "js/TypeDecls.h"
+
+class JSTracer;
 
 namespace JS {
 
@@ -360,6 +362,11 @@ class MutableWrappedPtrOperations<JS::GCHashSet<Args...>, Wrapper>
   void remove(Ptr p) { set().remove(p); }
   void remove(const Lookup& l) { set().remove(l); }
   AddPtr lookupForAdd(const Lookup& l) { return set().lookupForAdd(l); }
+
+  template <typename TInput>
+  void replaceKey(Ptr p, const Lookup& l, TInput&& newValue) {
+    set().replaceKey(p, l, std::forward<TInput>(newValue));
+  }
 
   template <typename TInput>
   bool add(AddPtr& p, TInput&& t) {
@@ -761,6 +768,11 @@ class WeakCache<GCHashSet<T, HashPolicy, AllocPolicy>>
     if (p) {
       remove(p);
     }
+  }
+
+  template <typename TInput>
+  void replaceKey(Ptr p, const Lookup& l, TInput&& newValue) {
+    set.replaceKey(p, l, std::forward<TInput>(newValue));
   }
 
   template <typename TInput>

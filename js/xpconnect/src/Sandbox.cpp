@@ -8,10 +8,13 @@
 
 #include "AccessCheck.h"
 #include "jsfriendapi.h"
-#include "js/Array.h"  // JS::GetArrayLength, JS::IsArrayObject
+#include "js/Array.h"             // JS::GetArrayLength, JS::IsArrayObject
+#include "js/CallAndConstruct.h"  // JS::Call, JS::IsCallable
 #include "js/CharacterEncoding.h"
 #include "js/CompilationAndEvaluation.h"
 #include "js/Object.h"  // JS::GetClass, JS::GetCompartment, JS::GetReservedSlot
+#include "js/PropertyAndElement.h"  // JS_DefineFunction, JS_DefineFunctions, JS_DefineProperty, JS_GetElement, JS_GetProperty, JS_HasProperty, JS_SetProperty, JS_SetPropertyById
+#include "js/PropertyDescriptor.h"  // JS::PropertyDescriptor, JS_GetOwnPropertyDescriptorById, JS_GetPropertyDescriptorById
 #include "js/PropertySpec.h"
 #include "js/Proxy.h"
 #include "js/SourceText.h"
@@ -30,6 +33,7 @@
 #include "xpc_make_class.h"
 #include "XPCWrapper.h"
 #include "Crypto.h"
+#include "mozilla/dom/AutoEntryScript.h"
 #include "mozilla/dom/BindingCallContext.h"
 #include "mozilla/dom/BindingUtils.h"
 #include "mozilla/dom/BlobBinding.h"
@@ -37,20 +41,26 @@
 #include "mozilla/dom/CSSBinding.h"
 #include "mozilla/dom/CSSRuleBinding.h"
 #include "mozilla/dom/DirectoryBinding.h"
+#include "mozilla/dom/DocumentBinding.h"
 #include "mozilla/dom/DOMExceptionBinding.h"
 #include "mozilla/dom/DOMParserBinding.h"
+#include "mozilla/dom/DOMTokenListBinding.h"
 #include "mozilla/dom/ElementBinding.h"
 #include "mozilla/dom/EventBinding.h"
+#include "mozilla/dom/Exceptions.h"
 #include "mozilla/dom/IndexedDatabaseManager.h"
 #include "mozilla/dom/Fetch.h"
 #include "mozilla/dom/FileBinding.h"
+#include "mozilla/dom/HeadersBinding.h"
 #include "mozilla/dom/InspectorUtilsBinding.h"
 #include "mozilla/dom/MessageChannelBinding.h"
 #include "mozilla/dom/MessagePortBinding.h"
 #include "mozilla/dom/NodeBinding.h"
 #include "mozilla/dom/NodeFilterBinding.h"
+#include "mozilla/dom/PerformanceBinding.h"
 #include "mozilla/dom/PromiseBinding.h"
 #include "mozilla/dom/PromiseDebuggingBinding.h"
+#include "mozilla/dom/RangeBinding.h"
 #include "mozilla/dom/RequestBinding.h"
 #include "mozilla/dom/ResponseBinding.h"
 #ifdef MOZ_WEBRTC
@@ -58,6 +68,7 @@
 #endif
 #include "mozilla/dom/FileReaderBinding.h"
 #include "mozilla/dom/ScriptSettings.h"
+#include "mozilla/dom/SelectionBinding.h"
 #include "mozilla/dom/TextDecoderBinding.h"
 #include "mozilla/dom/TextEncoderBinding.h"
 #include "mozilla/dom/UnionConversions.h"
@@ -70,6 +81,7 @@
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/DeferredFinalize.h"
 #include "mozilla/ExtensionPolicyService.h"
+#include "mozilla/Maybe.h"
 #include "mozilla/NullPrincipal.h"
 #include "mozilla/ResultExtensions.h"
 #include "mozilla/StaticPrefs_extensions.h"
@@ -460,29 +472,27 @@ static bool SandboxCloneInto(JSContext* cx, unsigned argc, Value* vp) {
 }
 
 static void sandbox_finalize(JSFreeOp* fop, JSObject* obj) {
-  nsIScriptObjectPrincipal* sop =
-      static_cast<nsIScriptObjectPrincipal*>(xpc_GetJSPrivate(obj));
-  if (!sop) {
-    // sop can be null if CreateSandboxObject fails in the middle.
+  SandboxPrivate* priv = SandboxPrivate::GetPrivate(obj);
+  if (!priv) {
+    // priv can be null if CreateSandboxObject fails in the middle.
     return;
   }
 
-  static_cast<SandboxPrivate*>(sop)->ForgetGlobalObject(obj);
+  priv->ForgetGlobalObject(obj);
   DestroyProtoAndIfaceCache(obj);
-  DeferredFinalize(sop);
+  DeferredFinalize(static_cast<nsIScriptObjectPrincipal*>(priv));
 }
 
 static size_t sandbox_moved(JSObject* obj, JSObject* old) {
   // Note that this hook can be called before the private pointer is set. In
   // this case the SandboxPrivate will not exist yet, so there is nothing to
   // do.
-  nsIScriptObjectPrincipal* sop =
-      static_cast<nsIScriptObjectPrincipal*>(xpc_GetJSPrivate(obj));
-  if (!sop) {
+  SandboxPrivate* priv = SandboxPrivate::GetPrivate(obj);
+  if (!priv) {
     return 0;
   }
 
-  return static_cast<SandboxPrivate*>(sop)->ObjectMoved(obj, old);
+  return priv->ObjectMoved(obj, old);
 }
 
 #define XPCONNECT_SANDBOX_CLASS_METADATA_SLOT \
@@ -546,7 +556,7 @@ class SandboxProxyHandler : public js::Wrapper {
 
   virtual bool getOwnPropertyDescriptor(
       JSContext* cx, JS::Handle<JSObject*> proxy, JS::Handle<jsid> id,
-      JS::MutableHandle<JS::PropertyDescriptor> desc) const override;
+      JS::MutableHandle<Maybe<JS::PropertyDescriptor>> desc) const override;
 
   // We just forward the high-level methods to the BaseProxyHandler versions
   // which implement them in terms of lower-level methods.
@@ -573,7 +583,7 @@ class SandboxProxyHandler : public js::Wrapper {
   // argument is true we only look for "own" properties.
   bool getPropertyDescriptorImpl(
       JSContext* cx, JS::Handle<JSObject*> proxy, JS::Handle<jsid> id,
-      bool getOwn, JS::MutableHandle<JS::PropertyDescriptor> desc) const;
+      bool getOwn, JS::MutableHandle<Maybe<JS::PropertyDescriptor>> desc) const;
 };
 
 static const SandboxProxyHandler sandboxProxyHandler;
@@ -582,6 +592,11 @@ namespace xpc {
 
 bool IsSandboxPrototypeProxy(JSObject* obj) {
   return js::IsProxy(obj) && js::GetProxyHandler(obj) == &sandboxProxyHandler;
+}
+
+bool IsWebExtensionContentScriptSandbox(JSObject* obj) {
+  return IsSandbox(obj) &&
+         CompartmentPrivate::Get(obj)->isWebExtensionContentScript;
 }
 
 }  // namespace xpc
@@ -695,25 +710,14 @@ static JSObject* WrapCallable(JSContext* cx, HandleObject callable,
   return obj;
 }
 
-template <typename Op>
-bool WrapAccessorFunction(JSContext* cx, Op& op, PropertyDescriptor* desc,
-                          unsigned attrFlag, HandleObject sandboxProtoProxy) {
-  if (!op) {
+bool WrapAccessorFunction(JSContext* cx, MutableHandleObject accessor,
+                          HandleObject sandboxProtoProxy) {
+  if (!accessor) {
     return true;
   }
 
-  if (!(desc->attrs & attrFlag)) {
-    XPCThrower::Throw(NS_ERROR_UNEXPECTED, cx);
-    return false;
-  }
-
-  RootedObject func(cx, JS_FUNC_TO_DATA_PTR(JSObject*, op));
-  func = WrapCallable(cx, func, sandboxProtoProxy);
-  if (!func) {
-    return false;
-  }
-  op = JS_DATA_TO_FUNC_PTR(Op, func.get());
-  return true;
+  accessor.set(WrapCallable(cx, accessor, sandboxProtoProxy));
+  return !!accessor;
 }
 
 static bool IsMaybeWrappedDOMConstructor(JSObject* obj) {
@@ -730,33 +734,36 @@ static bool IsMaybeWrappedDOMConstructor(JSObject* obj) {
 
 bool SandboxProxyHandler::getPropertyDescriptorImpl(
     JSContext* cx, JS::Handle<JSObject*> proxy, JS::Handle<jsid> id,
-    bool getOwn, JS::MutableHandle<PropertyDescriptor> desc) const {
+    bool getOwn, MutableHandle<Maybe<PropertyDescriptor>> desc_) const {
   JS::RootedObject obj(cx, wrappedObject(proxy));
 
   MOZ_ASSERT(JS::GetCompartment(obj) == JS::GetCompartment(proxy));
 
   if (getOwn) {
-    if (!JS_GetOwnPropertyDescriptorById(cx, obj, id, desc)) {
+    if (!JS_GetOwnPropertyDescriptorById(cx, obj, id, desc_)) {
       return false;
     }
   } else {
-    if (!JS_GetPropertyDescriptorById(cx, obj, id, desc)) {
+    Rooted<JSObject*> holder(cx);
+    if (!JS_GetPropertyDescriptorById(cx, obj, id, desc_, &holder)) {
       return false;
     }
   }
 
-  if (!desc.object()) {
-    return true;  // No property, nothing to do
+  if (desc_.isNothing()) {
+    return true;
   }
 
-  // Now fix up the getter/setter/value as needed to be bound to desc->obj.
-  if (!WrapAccessorFunction(cx, desc.getter(), desc.address(), JSPROP_GETTER,
-                            proxy))
+  Rooted<PropertyDescriptor> desc(cx, *desc_);
+
+  // Now fix up the getter/setter/value as needed.
+  if (desc.hasGetter() && !WrapAccessorFunction(cx, desc.getter(), proxy)) {
     return false;
-  if (!WrapAccessorFunction(cx, desc.setter(), desc.address(), JSPROP_SETTER,
-                            proxy))
+  }
+  if (desc.hasSetter() && !WrapAccessorFunction(cx, desc.setter(), proxy)) {
     return false;
-  if (desc.value().isObject()) {
+  }
+  if (desc.hasValue() && desc.value().isObject()) {
     RootedObject val(cx, &desc.value().toObject());
     if (JS::IsCallable(val) &&
         // Don't wrap DOM constructors: they don't care about the "this"
@@ -771,12 +778,13 @@ bool SandboxProxyHandler::getPropertyDescriptorImpl(
     }
   }
 
+  desc_.set(Some(desc.get()));
   return true;
 }
 
 bool SandboxProxyHandler::getOwnPropertyDescriptor(
     JSContext* cx, JS::Handle<JSObject*> proxy, JS::Handle<jsid> id,
-    JS::MutableHandle<PropertyDescriptor> desc) const {
+    MutableHandle<Maybe<PropertyDescriptor>> desc) const {
   return getPropertyDescriptorImpl(cx, proxy, id, /* getOwn = */ true, desc);
 }
 
@@ -788,12 +796,12 @@ bool SandboxProxyHandler::getOwnPropertyDescriptor(
 bool SandboxProxyHandler::has(JSContext* cx, JS::Handle<JSObject*> proxy,
                               JS::Handle<jsid> id, bool* bp) const {
   // This uses JS_GetPropertyDescriptorById for backward compatibility.
-  Rooted<PropertyDescriptor> desc(cx);
+  Rooted<Maybe<PropertyDescriptor>> desc(cx);
   if (!getPropertyDescriptorImpl(cx, proxy, id, /* getOwn = */ false, &desc)) {
     return false;
   }
 
-  *bp = !!desc.object();
+  *bp = desc.isSome();
   return true;
 }
 bool SandboxProxyHandler::hasOwn(JSContext* cx, JS::Handle<JSObject*> proxy,
@@ -806,25 +814,26 @@ bool SandboxProxyHandler::get(JSContext* cx, JS::Handle<JSObject*> proxy,
                               JS::Handle<jsid> id,
                               JS::MutableHandle<Value> vp) const {
   // This uses JS_GetPropertyDescriptorById for backward compatibility.
-  Rooted<PropertyDescriptor> desc(cx);
+  Rooted<Maybe<PropertyDescriptor>> desc(cx);
   if (!getPropertyDescriptorImpl(cx, proxy, id, /* getOwn = */ false, &desc)) {
     return false;
   }
-  desc.assertCompleteIfFound();
 
-  if (!desc.object()) {
+  if (desc.isNothing()) {
     vp.setUndefined();
     return true;
+  } else {
+    desc->assertComplete();
   }
 
   // Everything after here follows [[Get]] for ordinary objects.
-  if (desc.isDataDescriptor()) {
-    vp.set(desc.value());
+  if (desc->isDataDescriptor()) {
+    vp.set(desc->value());
     return true;
   }
 
-  MOZ_ASSERT(desc.isAccessorDescriptor());
-  RootedObject getter(cx, desc.getterObject());
+  MOZ_ASSERT(desc->isAccessorDescriptor());
+  RootedObject getter(cx, desc->getter());
 
   if (!getter) {
     vp.setUndefined();
@@ -876,12 +885,16 @@ bool xpc::GlobalProperties::Parse(JSContext* cx, JS::HandleObject obj) {
       CSS = true;
     } else if (JS_LinearStringEqualsLiteral(nameStr, "CSSRule")) {
       CSSRule = true;
+    } else if (JS_LinearStringEqualsLiteral(nameStr, "Document")) {
+      Document = true;
     } else if (JS_LinearStringEqualsLiteral(nameStr, "Directory")) {
       Directory = true;
     } else if (JS_LinearStringEqualsLiteral(nameStr, "DOMException")) {
       DOMException = true;
     } else if (JS_LinearStringEqualsLiteral(nameStr, "DOMParser")) {
       DOMParser = true;
+    } else if (JS_LinearStringEqualsLiteral(nameStr, "DOMTokenList")) {
+      DOMTokenList = true;
     } else if (JS_LinearStringEqualsLiteral(nameStr, "Element")) {
       Element = true;
     } else if (JS_LinearStringEqualsLiteral(nameStr, "Event")) {
@@ -892,6 +905,8 @@ bool xpc::GlobalProperties::Parse(JSContext* cx, JS::HandleObject obj) {
       FileReader = true;
     } else if (JS_LinearStringEqualsLiteral(nameStr, "FormData")) {
       FormData = true;
+    } else if (JS_LinearStringEqualsLiteral(nameStr, "Headers")) {
+      Headers = true;
     } else if (JS_LinearStringEqualsLiteral(nameStr, "InspectorUtils")) {
       InspectorUtils = true;
     } else if (JS_LinearStringEqualsLiteral(nameStr, "MessageChannel")) {
@@ -900,8 +915,14 @@ bool xpc::GlobalProperties::Parse(JSContext* cx, JS::HandleObject obj) {
       Node = true;
     } else if (JS_LinearStringEqualsLiteral(nameStr, "NodeFilter")) {
       NodeFilter = true;
+    } else if (JS_LinearStringEqualsLiteral(nameStr, "Performance")) {
+      Performance = true;
     } else if (JS_LinearStringEqualsLiteral(nameStr, "PromiseDebugging")) {
       PromiseDebugging = true;
+    } else if (JS_LinearStringEqualsLiteral(nameStr, "Range")) {
+      Range = true;
+    } else if (JS_LinearStringEqualsLiteral(nameStr, "Selection")) {
+      Selection = true;
     } else if (JS_LinearStringEqualsLiteral(nameStr, "TextDecoder")) {
       TextDecoder = true;
     } else if (JS_LinearStringEqualsLiteral(nameStr, "TextEncoder")) {
@@ -970,11 +991,19 @@ bool xpc::GlobalProperties::Define(JSContext* cx, JS::HandleObject obj) {
   if (Directory && !dom::Directory_Binding::GetConstructorObject(cx))
     return false;
 
+  if (Document && !dom::Document_Binding::GetConstructorObject(cx)) {
+    return false;
+  }
+
   if (DOMException && !dom::DOMException_Binding::GetConstructorObject(cx)) {
     return false;
   }
 
   if (DOMParser && !dom::DOMParser_Binding::GetConstructorObject(cx)) {
+    return false;
+  }
+
+  if (DOMTokenList && !dom::DOMTokenList_Binding::GetConstructorObject(cx)) {
     return false;
   }
 
@@ -990,6 +1019,10 @@ bool xpc::GlobalProperties::Define(JSContext* cx, JS::HandleObject obj) {
 
   if (FormData && !dom::FormData_Binding::GetConstructorObject(cx))
     return false;
+
+  if (Headers && !dom::Headers_Binding::GetConstructorObject(cx)) {
+    return false;
+  }
 
   if (InspectorUtils && !dom::InspectorUtils_Binding::GetConstructorObject(cx))
     return false;
@@ -1007,8 +1040,20 @@ bool xpc::GlobalProperties::Define(JSContext* cx, JS::HandleObject obj) {
     return false;
   }
 
+  if (Performance && !dom::Performance_Binding::GetConstructorObject(cx)) {
+    return false;
+  }
+
   if (PromiseDebugging &&
       !dom::PromiseDebugging_Binding::GetConstructorObject(cx)) {
+    return false;
+  }
+
+  if (Range && !dom::Range_Binding::GetConstructorObject(cx)) {
+    return false;
+  }
+
+  if (Selection && !dom::Selection_Binding::GetConstructorObject(cx)) {
     return false;
   }
 
@@ -1295,7 +1340,7 @@ nsresult xpc::CreateSandboxObject(JSContext* cx, MutableHandleValue vp,
         }
       }
 
-      ok = JS_SplicePrototype(cx, sandbox, options.proto);
+      ok = JS_SetPrototype(cx, sandbox, options.proto);
       if (!ok) {
         return NS_ERROR_XPC_UNEXPECTED;
       }
@@ -1439,7 +1484,7 @@ static bool GetExpandedPrincipal(JSContext* cx, HandleObject arrayObj,
     return false;
   }
 
-  nsTArray<nsCOMPtr<nsIPrincipal> > allowedDomains(length);
+  nsTArray<nsCOMPtr<nsIPrincipal>> allowedDomains(length);
   allowedDomains.SetLength(length);
 
   // If an originAttributes option has been specified, we will use that as the
@@ -1950,10 +1995,9 @@ nsresult xpc::EvalInSandbox(JSContext* cx, HandleObject sandboxArg,
     return NS_ERROR_INVALID_ARG;
   }
 
-  nsIScriptObjectPrincipal* sop =
-      static_cast<nsIScriptObjectPrincipal*>(xpc_GetJSPrivate(sandbox));
+  SandboxPrivate* priv = SandboxPrivate::GetPrivate(sandbox);
+  nsIScriptObjectPrincipal* sop = priv;
   MOZ_ASSERT(sop, "Invalid sandbox passed");
-  SandboxPrivate* priv = static_cast<SandboxPrivate*>(sop);
   nsCOMPtr<nsIPrincipal> prin = sop->GetPrincipal();
   NS_ENSURE_TRUE(prin, NS_ERROR_FAILURE);
 

@@ -408,6 +408,9 @@ static const uint32_t NurseryFreeThresholdForIdleCollection = ChunkSize / 4;
 /* JSGC_NURSERY_FREE_THRESHOLD_FOR_IDLE_COLLECTION_PERCENT */
 static const double NurseryFreeThresholdForIdleCollectionFraction = 0.25;
 
+/* JSGC_NURSERY_TIMEOUT_FOR_IDLE_COLLECTION_MS */
+static const uint32_t NurseryTimeoutForIdleCollectionMS = 5000;
+
 /* JSGC_PRETENURE_THRESHOLD */
 static const double PretenureThreshold = 0.6;
 
@@ -539,6 +542,9 @@ class GCSchedulingTunables {
   UnprotectedData<uint32_t> nurseryFreeThresholdForIdleCollection_;
   UnprotectedData<double> nurseryFreeThresholdForIdleCollectionFraction_;
 
+  /* See JSGC_NURSERY_TIMEOUT_FOR_IDLE_COLLECTION_MS. */
+  MainThreadData<mozilla::TimeDuration> nurseryTimeoutForIdleCollection_;
+
   /*
    * JSGC_PRETENURE_THRESHOLD
    *
@@ -631,6 +637,9 @@ class GCSchedulingTunables {
   }
   double nurseryFreeThresholdForIdleCollectionFraction() const {
     return nurseryFreeThresholdForIdleCollectionFraction_;
+  }
+  mozilla::TimeDuration nurseryTimeoutForIdleCollection() const {
+    return nurseryTimeoutForIdleCollection_;
   }
 
   bool attemptPretenuring() const { return pretenureThreshold_ < 1.0; }
@@ -818,7 +827,7 @@ class HeapThreshold {
 // size. This is used to determine when to do a zone GC based on GC heap size.
 class GCHeapThreshold : public HeapThreshold {
  public:
-  void updateStartThreshold(size_t lastBytes, JSGCInvocationKind gckind,
+  void updateStartThreshold(size_t lastBytes, JS::GCOptions options,
                             const GCSchedulingTunables& tunables,
                             const GCSchedulingState& state, bool isAtomsZone,
                             const AutoLockGC& lock);
@@ -828,7 +837,7 @@ class GCHeapThreshold : public HeapThreshold {
       size_t lastBytes, const GCSchedulingTunables& tunables,
       const GCSchedulingState& state);
   static size_t computeZoneTriggerBytes(double growthFactor, size_t lastBytes,
-                                        JSGCInvocationKind gckind,
+                                        JS::GCOptions options,
                                         const GCSchedulingTunables& tunables,
                                         const AutoLockGC& lock);
 };

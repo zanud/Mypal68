@@ -12,8 +12,6 @@
 #include "js/TypeDecls.h"
 #include "vm/Printer.h"
 
-struct DtoaState;
-
 namespace js {
 
 class JSONPrinter {
@@ -22,19 +20,12 @@ class JSONPrinter {
   bool indent_;
   bool first_;
   GenericPrinter& out_;
-  DtoaState* dtoaState_;
 
   void indent();
 
  public:
   explicit JSONPrinter(GenericPrinter& out, bool indent = true)
-      : indentLevel_(0),
-        indent_(indent),
-        first_(true),
-        out_(out),
-        dtoaState_(nullptr) {}
-
-  ~JSONPrinter();
+      : indentLevel_(0), indent_(indent), first_(true), out_(out) {}
 
   void setIndentLevel(int indentLevel) { indentLevel_ = indentLevel; }
 
@@ -53,7 +44,7 @@ class JSONPrinter {
   void property(const char* name, uint32_t value);
   void property(const char* name, int64_t value);
   void property(const char* name, uint64_t value);
-#if defined(XP_DARWIN) || defined(__OpenBSD__)
+#if defined(XP_DARWIN) || defined(__OpenBSD__) || defined(__wasi__)
   // On OSX and OpenBSD, size_t is long unsigned, uint32_t is unsigned, and
   // uint64_t is long long unsigned. Everywhere else, size_t matches either
   // uint32_t or uint64_t.

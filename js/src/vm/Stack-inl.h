@@ -37,7 +37,7 @@ inline GlobalObject& InterpreterFrame::global() const {
   return script()->global();
 }
 
-inline LexicalEnvironmentObject&
+inline ExtensibleLexicalEnvironmentObject&
 InterpreterFrame::extensibleLexicalEnvironment() const {
   return NearestEnclosingExtensibleLexicalEnvironment(environmentChain());
 }
@@ -144,6 +144,22 @@ inline EnvironmentObject& InterpreterFrame::aliasedEnvironment(
   return env->as<EnvironmentObject>();
 }
 
+inline EnvironmentObject& InterpreterFrame::aliasedEnvironmentMaybeDebug(
+    EnvironmentCoordinate ec) const {
+  JSObject* env = environmentChain();
+  for (unsigned i = ec.hops(); i; i--) {
+    if (env->is<EnvironmentObject>()) {
+      env = &env->as<EnvironmentObject>().enclosingEnvironment();
+    } else {
+      MOZ_ASSERT(env->is<DebugEnvironmentProxy>());
+      env = &env->as<DebugEnvironmentProxy>().enclosingEnvironment();
+    }
+  }
+  return env->is<EnvironmentObject>()
+             ? env->as<EnvironmentObject>()
+             : env->as<DebugEnvironmentProxy>().environment();
+}
+
 template <typename SpecificEnvironment>
 inline void InterpreterFrame::pushOnEnvironmentChain(SpecificEnvironment& env) {
   MOZ_ASSERT(*environmentChain() == env.enclosingEnvironment());
@@ -160,9 +176,10 @@ inline void InterpreterFrame::popOffEnvironmentChain() {
 }
 
 inline void InterpreterFrame::replaceInnermostEnvironment(
-    EnvironmentObject& env) {
-  MOZ_ASSERT(env.enclosingEnvironment() ==
-             envChain_->as<EnvironmentObject>().enclosingEnvironment());
+    BlockLexicalEnvironmentObject& env) {
+  MOZ_ASSERT(
+      env.enclosingEnvironment() ==
+      envChain_->as<BlockLexicalEnvironmentObject>().enclosingEnvironment());
   envChain_ = &env;
 }
 

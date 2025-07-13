@@ -101,11 +101,16 @@ static constexpr FloatRegister ReturnDoubleReg =
     FloatRegister(X86Encoding::xmm0, FloatRegisters::Double);
 static constexpr FloatRegister ReturnSimd128Reg =
     FloatRegister(X86Encoding::xmm0, FloatRegisters::Simd128);
-static constexpr FloatRegister ScratchFloat32Reg =
+static constexpr FloatRegister ScratchFloat32Reg_ =
     FloatRegister(X86Encoding::xmm15, FloatRegisters::Single);
-static constexpr FloatRegister ScratchDoubleReg =
+static constexpr FloatRegister ScratchDoubleReg_ =
     FloatRegister(X86Encoding::xmm15, FloatRegisters::Double);
+#ifdef ENABLE_WASM_SIMD
+static constexpr FloatRegister ScratchSimd128Reg =
+    FloatRegister(X86Encoding::xmm15, FloatRegisters::Simd128);
+#else
 static constexpr FloatRegister ScratchSimd128Reg = xmm15;
+#endif
 
 // Avoid rbp, which is the FramePointer, which is unavailable in some modes.
 static constexpr Register CallTempReg0 = rax;
@@ -270,10 +275,10 @@ static_assert(JitStackAlignment % SimdMemoryAlignment == 0,
 static constexpr uint32_t WasmStackAlignment = SimdMemoryAlignment;
 static constexpr uint32_t WasmTrapInstructionLength = 2;
 
-// The offsets are dynamically asserted during
-// code generation in the prologue/epilogue.
+// See comments in wasm::GenerateFunctionPrologue.  The difference between these
+// is the size of the largest callable prologue on the platform.
 static constexpr uint32_t WasmCheckedCallEntryOffset = 0u;
-static constexpr uint32_t WasmCheckedTailEntryOffset = 16u;
+static constexpr uint32_t WasmCheckedTailEntryOffset = 4u;
 
 static constexpr Scale ScalePointer = TimesEight;
 
@@ -960,6 +965,19 @@ class Assembler : public AssemblerX86Shared {
     masm.vcvtsi2sdq_rr(src.encoding(), dest.encoding());
   }
 
+#ifdef ENABLE_WASM_SIMD
+  void vpextrq(unsigned lane, FloatRegister src, Register dest) {
+    MOZ_ASSERT(HasSSE41());
+    masm.vpextrq_irr(lane, src.encoding(), dest.encoding());
+  }
+
+  void vpinsrq(unsigned lane, Register src1, FloatRegister src0,
+               FloatRegister dest) {
+    MOZ_ASSERT(HasSSE41());
+    masm.vpinsrq_irr(lane, src1.encoding(), src0.encoding(), dest.encoding());
+  }
+#endif
+
   void negq(Register reg) { masm.negq_r(reg.encoding()); }
 
   void notq(Register reg) { masm.notq_r(reg.encoding()); }
@@ -1058,6 +1076,10 @@ class Assembler : public AssemblerX86Shared {
         break;
       case Operand::MEM_REG_DISP:
         masm.cmpq_rm(rhs.encoding(), lhs.disp(), lhs.base());
+        break;
+      case Operand::MEM_SCALE:
+        masm.cmpq_rm(rhs.encoding(), lhs.disp(), lhs.base(), lhs.index(),
+                     lhs.scale());
         break;
       case Operand::MEM_ADDRESS32:
         masm.cmpq_rm(rhs.encoding(), lhs.address());

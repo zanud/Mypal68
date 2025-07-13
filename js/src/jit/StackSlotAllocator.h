@@ -5,8 +5,6 @@
 #ifndef jit_StackSlotAllocator_h
 #define jit_StackSlotAllocator_h
 
-#include "mozilla/Unused.h"
-
 #include "jit/Registers.h"
 
 namespace js {
@@ -20,10 +18,10 @@ class StackSlotAllocator {
   void addAvailableSlot(uint32_t index) {
     // Ignoring OOM here (and below) is fine; it just means the stack slot
     // will be unused.
-    mozilla::Unused << normalSlots.append(index);
+    (void)normalSlots.append(index);
   }
   void addAvailableDoubleSlot(uint32_t index) {
-    mozilla::Unused << doubleSlots.append(index);
+    (void)doubleSlots.append(index);
   }
 
   uint32_t allocateQuadSlot() {
@@ -105,8 +103,12 @@ class StackSlotAllocator {
 #endif
       case LDefinition::DOUBLE:
         return 8;
+#ifdef ENABLE_WASM_SIMD
+      case LDefinition::SIMD128:
+#else
       case LDefinition::SIMD128INT:
       case LDefinition::SIMD128FLOAT:
+#endif
         return 16;
       case LDefinition::STACKRESULTS:
         MOZ_CRASH("Stack results area must be allocated manually");

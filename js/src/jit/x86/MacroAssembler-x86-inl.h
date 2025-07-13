@@ -384,6 +384,10 @@ void MacroAssembler::lshiftPtr(Imm32 imm, Register dest) {
 }
 
 void MacroAssembler::lshiftPtr(Register shift, Register srcDest) {
+  if (HasBMI2()) {
+    shlxl(srcDest, shift, srcDest);
+    return;
+  }
   MOZ_ASSERT(shift == ecx);
   shll_cl(srcDest);
 }
@@ -426,6 +430,10 @@ void MacroAssembler::rshiftPtr(Imm32 imm, Register dest) {
 }
 
 void MacroAssembler::rshiftPtr(Register shift, Register srcDest) {
+  if (HasBMI2()) {
+    shrxl(srcDest, shift, srcDest);
+    return;
+  }
   MOZ_ASSERT(shift == ecx);
   shrl_cl(srcDest);
 }
@@ -922,6 +930,21 @@ void MacroAssembler::branchTestMagic(Condition cond, const Address& valaddr,
 
   branch32(cond, ToPayload(valaddr), Imm32(why), label);
   bind(&notMagic);
+}
+
+void MacroAssembler::branchTestValue(Condition cond, const BaseIndex& lhs,
+                                     const ValueOperand& rhs, Label* label) {
+  MOZ_ASSERT(cond == Assembler::Equal || cond == Assembler::NotEqual);
+
+  Label notSameValue;
+  if (cond == Assembler::Equal) {
+    branch32(Assembler::NotEqual, ToType(lhs), rhs.typeReg(), &notSameValue);
+  } else {
+    branch32(Assembler::NotEqual, ToType(lhs), rhs.typeReg(), label);
+  }
+
+  branch32(cond, ToPayload(lhs), rhs.payloadReg(), label);
+  bind(&notSameValue);
 }
 
 void MacroAssembler::branchToComputedAddress(const BaseIndex& addr) {

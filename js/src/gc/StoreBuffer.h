@@ -86,8 +86,8 @@ class StoreBuffer {
   static const size_t GenericBufferLowAvailableThreshold =
       LifoAllocBlockSize / 2;
 
-  /* The size at which the whole cell buffer is about to overflow. */
-  static const size_t WholeCellBufferOverflowThresholdBytes = 128 * 1024;
+  /* The size at which other store buffers are about to overflow. */
+  static const size_t BufferOverflowThresholdBytes = 128 * 1024;
 
   /*
    * This buffer holds only a single type of edge. Using this buffer is more
@@ -111,7 +111,7 @@ class StoreBuffer {
     JS::GCReason gcReason_;
 
     /* Maximum number of entries before we request a minor GC. */
-    const static size_t MaxEntries = 48 * 1024 / sizeof(T);
+    const static size_t MaxEntries = BufferOverflowThresholdBytes / sizeof(T);
 
     explicit MonoTypeBuffer(StoreBuffer* owner, JS::GCReason reason)
         : last_(T()), owner_(owner), gcReason_(reason) {}
@@ -184,7 +184,7 @@ class StoreBuffer {
 
     bool isAboutToOverflow() const {
       return !storage_->isEmpty() &&
-             storage_->used() > WholeCellBufferOverflowThresholdBytes;
+             storage_->used() > BufferOverflowThresholdBytes;
     }
 
     void trace(TenuringTracer& mover);

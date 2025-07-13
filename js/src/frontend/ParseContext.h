@@ -223,7 +223,7 @@ class ParseContext : public Nestable<ParseContext> {
 
     // An iterator for the set of names a scope binds: the set of all
     // declared names for 'var' scopes, and the set of lexically declared
-    // names for non-'var' scopes.
+    // names, plus synthetic names, for non-'var' scopes.
     class BindingIter {
       friend class Scope;
 
@@ -238,6 +238,12 @@ class ParseContext : public Nestable<ParseContext> {
         settle();
       }
 
+      bool isLexicallyDeclared() {
+        return BindingKindIsLexical(kind()) ||
+               kind() == BindingKind::Synthetic ||
+               kind() == BindingKind::PrivateMethod;
+      }
+
       void settle() {
         // Both var and lexically declared names are binding in a var
         // scope.
@@ -245,10 +251,10 @@ class ParseContext : public Nestable<ParseContext> {
           return;
         }
 
-        // Otherwise, pop only lexically declared names are
-        // binding. Pop the range until we find such a name.
+        // Otherwise, only lexically declared names are binding. Pop the range
+        // until we find such a name.
         while (!declaredRange_.empty()) {
-          if (BindingKindIsLexical(kind())) {
+          if (isLexicallyDeclared()) {
             break;
           }
           declaredRange_.popFront();
@@ -554,6 +560,10 @@ class ParseContext : public Nestable<ParseContext> {
   bool isGetterOrSetter() const {
     return sc_->isFunctionBox() && (sc_->asFunctionBox()->isGetter() ||
                                     sc_->asFunctionBox()->isSetter());
+  }
+
+  bool allowReturn() const {
+    return sc_->isFunctionBox() && sc_->asFunctionBox()->allowReturn();
   }
 
   uint32_t scriptId() const { return scriptId_; }

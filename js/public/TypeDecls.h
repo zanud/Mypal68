@@ -18,7 +18,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "js-config.h"
 #include "jstypes.h"
 
 typedef uint8_t jsbytecode;
@@ -32,6 +31,8 @@ class JS_PUBLIC_API JSObject;
 struct JS_PUBLIC_API JSRuntime;
 class JS_PUBLIC_API JSScript;
 class JS_PUBLIC_API JSString;
+
+struct JSPrincipals;
 
 namespace js {
 class JS_PUBLIC_API TempAllocPolicy;

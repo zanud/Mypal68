@@ -11,6 +11,7 @@
 #include <cstddef>  // std::nullptr_t
 #include <string.h>
 
+#include "frontend/CompilationStencil.h"  // CompilationState
 #include "frontend/FunctionSyntaxKind.h"  // FunctionSyntaxKind
 #include "frontend/NameAnalysisTypes.h"   // PrivateNameKind
 #include "frontend/ParseNode.h"
@@ -27,11 +28,6 @@ namespace frontend {
 
 class TokenStreamAnyChars;
 
-enum class SourceKind {
-  // We are parsing from a text source (Parser.h)
-  Text,
-};
-
 // Parse handler used when generating a full parse tree for all code which the
 // parser encounters.
 class FullParseHandler {
@@ -41,24 +37,26 @@ class FullParseHandler {
     return static_cast<ParseNode*>(allocator.allocNode(size));
   }
 
-  /*
-   * If this is a full parse to construct the bytecode for a function that
-   * was previously lazily parsed, we still don't want to full parse the
-   * inner functions. These members are used for this functionality:
-   *
-   * - lazyOuterFunction_ holds the lazyScript for this current parse
-   * - lazyInnerFunctionIndex is used as we skip over inner functions
-   *   (see skipLazyInnerFunction),
-   *
-   *  TODO-Stencil: We probably need to snapshot the atoms from the
-   *                lazyOuterFunction here.
-   */
-  const Rooted<BaseScript*> lazyOuterFunction_;
-  size_t lazyInnerFunctionIndex;
+  // If this is a full parse to construct the bytecode for a function that
+  // was previously lazily parsed, we still don't want to full parse the
+  // inner functions. These members are used for this functionality:
+  //
+  // - reuseGCThings if ture it means that the following fields are valid.
+  // - gcThingsData holds an incomplete stencil-like copy of inner functions as
+  //   well as atoms.
+  // - scriptData and scriptExtra_ hold information necessary to locate inner
+  //   functions to skip over each.
+  // - lazyInnerFunctionIndex is used as we skip over inner functions
+  //   (see skipLazyInnerFunction),
+  // - lazyClosedOverBindingIndex is used to synchronize binding computation
+  //   with the scope traversal.
+  //   (see propagateFreeNamesAndMarkClosedOverBindings),
+  const CompilationSyntaxParseCache& previousParseCache_;
 
+  size_t lazyInnerFunctionIndex;
   size_t lazyClosedOverBindingIndex;
 
-  const SourceKind sourceKind_;
+  bool reuseGCThings;
 
  public:
   /* new_ methods for creating parse nodes. These report OOM on context. */
@@ -74,14 +72,16 @@ class FullParseHandler {
 
   using NullNode = std::nullptr_t;
 
-  bool isPropertyAccess(Node node) {
+  bool isPropertyOrPrivateMemberAccess(Node node) {
     return node->isKind(ParseNodeKind::DotExpr) ||
-           node->isKind(ParseNodeKind::ElemExpr);
+           node->isKind(ParseNodeKind::ElemExpr) ||
+           node->isKind(ParseNodeKind::PrivateMemberExpr);
   }
 
-  bool isOptionalPropertyAccess(Node node) {
+  bool isOptionalPropertyOrPrivateMemberAccess(Node node) {
     return node->isKind(ParseNodeKind::OptionalDotExpr) ||
-           node->isKind(ParseNodeKind::OptionalElemExpr);
+           node->isKind(ParseNodeKind::OptionalElemExpr) ||
+           node->isKind(ParseNodeKind::PrivateMemberExpr);
   }
 
   bool isFunctionCall(Node node) {
@@ -103,29 +103,12 @@ class FullParseHandler {
                                   node->isKind(ParseNodeKind::ArrayExpr));
   }
 
-  FullParseHandler(JSContext* cx, LifoAlloc& alloc,
-                   BaseScript* lazyOuterFunction,
-                   SourceKind kind = SourceKind::Text)
-      : allocator(cx, alloc),
-        lazyOuterFunction_(cx, lazyOuterFunction),
+  FullParseHandler(JSContext* cx, CompilationState& compilationState)
+      : allocator(cx, compilationState.parserAllocScope.alloc()),
+        previousParseCache_(compilationState.previousParseCache),
         lazyInnerFunctionIndex(0),
         lazyClosedOverBindingIndex(0),
-        sourceKind_(kind) {
-    // The BaseScript::gcthings() array contains the inner function list
-    // followed by the closed-over bindings data. Advance the index for
-    // closed-over bindings to the end of the inner functions. The
-    // nextLazyInnerFunction / nextLazyClosedOverBinding accessors confirm we
-    // have the expected types. See also: BaseScript::CreateLazy.
-    if (lazyOuterFunction) {
-      for (JS::GCCellPtr gcThing : lazyOuterFunction->gcthings()) {
-        if (gcThing.is<JSObject>()) {
-          lazyClosedOverBindingIndex++;
-        } else {
-          break;
-        }
-      }
-    }
-  }
+        reuseGCThings(compilationState.input.isDelazifying()) {}
 
   static NullNode null() { return NullNode(); }
 
@@ -133,13 +116,6 @@ class FullParseHandler {
   static longTypeName asMethodName(Node node) { return &node->as<typeName>(); }
   FOR_EACH_PARSENODE_SUBCLASS(DECLARE_AS)
 #undef DECLARE_AS
-
-  // The FullParseHandler may be used to create nodes for text sources (from
-  // Parser.h). With previous binary source formats, some common assumptions on
-  // offsets are incorrect, e.g. in `a + b`, `a`, `b` and `+` may be stored in
-  // any order. We use `sourceKind()` to determine whether we need to check
-  // these assumptions.
-  SourceKind sourceKind() const { return sourceKind_; }
 
   NameNodeType newName(TaggedParserAtomIndex name, const TokenPos& pos) {
     return new_<NameNode>(ParseNodeKind::Name, name, pos);
@@ -521,6 +497,10 @@ class FullParseHandler {
     return new_<ClassField>(name, initializer, isStatic);
   }
 
+  [[nodiscard]] StaticClassBlock* newStaticClassBlock(FunctionNodeType block) {
+    return new_<StaticClassBlock>(block);
+  }
+
   [[nodiscard]] bool addClassMemberDefinition(ListNodeType memberList,
                                               Node member) {
     MOZ_ASSERT(memberList->isKind(ParseNodeKind::ClassMemberList));
@@ -528,6 +508,7 @@ class FullParseHandler {
     MOZ_ASSERT(member->isKind(ParseNodeKind::DefaultConstructor) ||
                member->isKind(ParseNodeKind::ClassMethod) ||
                member->isKind(ParseNodeKind::ClassField) ||
+               member->isKind(ParseNodeKind::StaticClassBlock) ||
                (member->isKind(ParseNodeKind::LexicalScope) &&
                 member->as<LexicalScopeNode>().scopeBody()->is<ClassMethod>()));
 
@@ -701,13 +682,9 @@ class FullParseHandler {
   }
 
   UnaryNodeType newExprStatement(Node expr, uint32_t end) {
-    MOZ_ASSERT_IF(sourceKind() == SourceKind::Text, expr->pn_pos.end <= end);
+    MOZ_ASSERT(expr->pn_pos.end <= end);
     return new_<UnaryNode>(ParseNodeKind::ExpressionStmt,
                            TokenPos(expr->pn_pos.begin, end), expr);
-  }
-
-  UnaryNodeType newExprStatement(Node expr) {
-    return newExprStatement(expr, expr->pn_pos.end);
   }
 
   TernaryNodeType newIfStatement(uint32_t begin, Node cond, Node thenBranch,
@@ -770,8 +747,7 @@ class FullParseHandler {
   }
 
   UnaryNodeType newReturnStatement(Node expr, const TokenPos& pos) {
-    MOZ_ASSERT_IF(expr && sourceKind() == SourceKind::Text,
-                  pos.encloses(expr->pn_pos));
+    MOZ_ASSERT_IF(expr, pos.encloses(expr->pn_pos));
     return new_<UnaryNode>(ParseNodeKind::ReturnStmt, pos, expr);
   }
 
@@ -790,7 +766,7 @@ class FullParseHandler {
   }
 
   UnaryNodeType newThrowStatement(Node expr, const TokenPos& pos) {
-    MOZ_ASSERT_IF(sourceKind() == SourceKind::Text, pos.encloses(expr->pn_pos));
+    MOZ_ASSERT(pos.encloses(expr->pn_pos));
     return new_<UnaryNode>(ParseNodeKind::ThrowStmt, pos, expr);
   }
 
@@ -826,6 +802,18 @@ class FullParseHandler {
   OptionalPropertyByValueType newOptionalPropertyByValue(Node lhs, Node index,
                                                          uint32_t end) {
     return new_<OptionalPropertyByValue>(lhs, index, lhs->pn_pos.begin, end);
+  }
+
+  PrivateMemberAccessType newPrivateMemberAccess(Node lhs,
+                                                 NameNodeType privateName,
+                                                 uint32_t end) {
+    return new_<PrivateMemberAccess>(lhs, privateName, lhs->pn_pos.begin, end);
+  }
+
+  OptionalPrivateMemberAccessType newOptionalPrivateMemberAccess(
+      Node lhs, NameNodeType privateName, uint32_t end) {
+    return new_<OptionalPrivateMemberAccess>(lhs, privateName,
+                                             lhs->pn_pos.begin, end);
   }
 
   bool setupCatchScope(LexicalScopeNodeType lexicalScope, Node catchName,
@@ -866,16 +854,6 @@ class FullParseHandler {
     return new_<PropertyDefinition>(key, value, atype);
   }
 
-  BinaryNodeType newShorthandPropertyDefinition(Node key, Node value) {
-    MOZ_ASSERT(isUsableAsObjectPropertyName(key));
-
-    return newBinary(ParseNodeKind::Shorthand, key, value);
-  }
-
-  ListNodeType newParamsBody(const TokenPos& pos) {
-    return new_<ListNode>(ParseNodeKind::ParamsBody, pos);
-  }
-
   void setFunctionFormalParametersAndBody(FunctionNodeType funNode,
                                           ListNodeType paramsBody) {
     MOZ_ASSERT_IF(paramsBody, paramsBody->isKind(ParseNodeKind::ParamsBody));
@@ -901,6 +879,11 @@ class FullParseHandler {
                                        Node body,
                                        ScopeKind kind = ScopeKind::Lexical) {
     return new_<LexicalScopeNode>(bindings, body, kind);
+  }
+
+  ClassBodyScopeNodeType newClassBodyScope(ClassBodyScope::ParserData* bindings,
+                                           ListNodeType body) {
+    return new_<ClassBodyScopeNode>(bindings, body);
   }
 
   CallNodeType newNewExpression(uint32_t begin, Node ctor, Node args,
@@ -981,8 +964,7 @@ class FullParseHandler {
   }
   void setBeginPosition(Node pn, uint32_t begin) {
     pn->pn_pos.begin = begin;
-    MOZ_ASSERT_IF(sourceKind() == SourceKind::Text,
-                  pn->pn_pos.begin <= pn->pn_pos.end);
+    MOZ_ASSERT(pn->pn_pos.begin <= pn->pn_pos.end);
   }
 
   void setEndPosition(Node pn, Node oth) {
@@ -990,8 +972,7 @@ class FullParseHandler {
   }
   void setEndPosition(Node pn, uint32_t end) {
     pn->pn_pos.end = end;
-    MOZ_ASSERT_IF(sourceKind() == SourceKind::Text,
-                  pn->pn_pos.begin <= pn->pn_pos.end);
+    MOZ_ASSERT(pn->pn_pos.begin <= pn->pn_pos.end);
   }
 
   uint32_t getFunctionNameOffset(Node func, TokenStreamAnyChars& ts) {
@@ -1033,13 +1014,7 @@ class FullParseHandler {
     return new_<ListNode>(ParseNodeKind::CommaExpr, kid);
   }
 
-  void addList(ListNodeType list, Node kid) {
-    if (sourceKind_ == SourceKind::Text) {
-      list->append(kid);
-    } else {
-      list->appendWithoutOrderAssumption(kid);
-    }
-  }
+  void addList(ListNodeType list, Node kid) { list->append(kid); }
 
   void setListHasNonConstInitializer(ListNodeType literal) {
     literal->setHasNonConstInitializer();
@@ -1056,19 +1031,19 @@ class FullParseHandler {
 
   bool isName(Node node) { return node->isKind(ParseNodeKind::Name); }
 
-  bool isArgumentsName(Node node, JSContext* cx) {
+  bool isArgumentsName(Node node) {
     return node->isKind(ParseNodeKind::Name) &&
            node->as<NameNode>().atom() ==
                TaggedParserAtomIndex::WellKnown::arguments();
   }
 
-  bool isEvalName(Node node, JSContext* cx) {
+  bool isEvalName(Node node) {
     return node->isKind(ParseNodeKind::Name) &&
            node->as<NameNode>().atom() ==
                TaggedParserAtomIndex::WellKnown::eval();
   }
 
-  bool isAsyncKeyword(Node node, JSContext* cx) {
+  bool isAsyncKeyword(Node node) {
     return node->isKind(ParseNodeKind::Name) &&
            node->pn_pos.begin + strlen("async") == node->pn_pos.end &&
            node->as<NameNode>().atom() ==
@@ -1079,18 +1054,11 @@ class FullParseHandler {
     return node->isKind(ParseNodeKind::PrivateName);
   }
 
-  bool isPrivateField(Node node) {
-    if (node->isKind(ParseNodeKind::ElemExpr) ||
-        node->isKind(ParseNodeKind::OptionalElemExpr)) {
-      PropertyByValueBase& pbv = node->as<PropertyByValueBase>();
-      if (isPrivateName(&pbv.key())) {
-        return true;
-      }
-    }
+  bool isPrivateMemberAccess(Node node) {
     if (node->isKind(ParseNodeKind::OptionalChain)) {
-      return isPrivateField(node->as<UnaryNode>().kid());
+      return isPrivateMemberAccess(node->as<UnaryNode>().kid());
     }
-    return false;
+    return node->is<PrivateMemberAccessBase>();
   }
 
   TaggedParserAtomIndex maybeDottedProperty(Node pn) {
@@ -1108,27 +1076,30 @@ class FullParseHandler {
     return TaggedParserAtomIndex::null();
   }
 
-  bool canSkipLazyInnerFunctions() { return !!lazyOuterFunction_; }
-  bool canSkipLazyClosedOverBindings() { return !!lazyOuterFunction_; }
-  bool canSkipRegexpSyntaxParse() { return !!lazyOuterFunction_; }
-  JSFunction* nextLazyInnerFunction() {
-    return &lazyOuterFunction_->gcthings()[lazyInnerFunctionIndex++]
-                .as<JSObject>()
-                .as<JSFunction>();
-  }
-  JSAtom* nextLazyClosedOverBinding() {
-    auto gcthings = lazyOuterFunction_->gcthings();
-
+  bool reuseLazyInnerFunctions() { return reuseGCThings; }
+  bool reuseClosedOverBindings() { return reuseGCThings; }
+  bool reuseRegexpSyntaxParse() { return reuseGCThings; }
+  void nextLazyInnerFunction() { lazyInnerFunctionIndex++; }
+  TaggedParserAtomIndex nextLazyClosedOverBinding() {
     // Trailing nullptrs were elided in PerHandlerParser::finishFunction().
-    if (lazyClosedOverBindingIndex >= gcthings.Length()) {
-      return nullptr;
+    auto closedOverBindings = previousParseCache_.closedOverBindings();
+    if (lazyClosedOverBindingIndex >= closedOverBindings.Length()) {
+      return TaggedParserAtomIndex::null();
     }
 
-    // These entries are either JSAtom* or nullptr, so use the 'asCell()'
-    // accessor which is faster.
-    gc::Cell* cell = gcthings[lazyClosedOverBindingIndex++].asCell();
-    MOZ_ASSERT_IF(cell, cell->as<JSString>()->isAtom());
-    return static_cast<JSAtom*>(cell);
+    return closedOverBindings[lazyClosedOverBindingIndex++];
+  }
+  const ScriptStencil& cachedScriptData() const {
+    // lazyInnerFunctionIndex is incremented with nextLazyInnferFunction before
+    // reading the content, thus we need -1 to access the element that we just
+    // skipped.
+    return previousParseCache_.scriptData(lazyInnerFunctionIndex - 1);
+  }
+  const ScriptStencilExtra& cachedScriptExtra() const {
+    // lazyInnerFunctionIndex is incremented with nextLazyInnferFunction before
+    // reading the content, thus we need -1 to access the element that we just
+    // skipped.
+    return previousParseCache_.scriptExtra(lazyInnerFunctionIndex - 1);
   }
 
   void setPrivateNameKind(Node node, PrivateNameKind kind) {

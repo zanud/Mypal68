@@ -78,11 +78,9 @@ typedef GCHashSet<EvalCacheEntry, EvalCacheHashPolicy, SystemAllocPolicy>
  * below, an entry is filled with the resulting object.
  */
 class NewObjectCache {
-  /* Statically asserted to be equal to sizeof(JSObject_Slots16) */
-  static const unsigned MAX_OBJ_SIZE = 4 * sizeof(void*) + 16 * sizeof(Value);
+  static constexpr unsigned MAX_OBJ_SIZE = sizeof(JSObject_Slots16);
 
   static void staticAsserts() {
-    static_assert(NewObjectCache::MAX_OBJ_SIZE == sizeof(JSObject_Slots16));
     static_assert(gc::AllocKind::OBJECT_LAST ==
                   gc::AllocKind::OBJECT16_BACKGROUND);
   }
@@ -147,7 +145,8 @@ class NewObjectCache {
    * indicate failure).
    */
   inline NativeObject* newObjectFromHit(JSContext* cx, EntryIndex entry,
-                                        js::gc::InitialHeap heap);
+                                        js::gc::InitialHeap heap,
+                                        gc::AllocSite* site = nullptr);
 
   /* Fill an entry after a cache miss. */
   void fillProto(EntryIndex entry, const JSClass* clasp, js::TaggedProto proto,
@@ -157,8 +156,8 @@ class NewObjectCache {
                          js::GlobalObject* global, gc::AllocKind kind,
                          NativeObject* obj);
 
-  /* Invalidate any entries which might produce an object with shape/proto. */
-  void invalidateEntriesForShape(Shape* shape, JSObject* proto);
+  /* Invalidate any entries which might produce an object with shape. */
+  void invalidateEntriesForShape(Shape* shape);
 
  private:
   EntryIndex makeIndex(const JSClass* clasp, gc::Cell* key,
@@ -199,7 +198,6 @@ class NewObjectCache {
     js_memcpy(dst, src, gc::Arena::thingSize(kind));
 
     // Initialize with barriers
-    dst->initGroup(src->group());
     dst->initShape(src->shape());
   }
 };

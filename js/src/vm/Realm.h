@@ -42,8 +42,10 @@ class JitRealm;
 
 class AutoRestoreRealmDebugMode;
 class GlobalObject;
-class LexicalEnvironmentObject;
+class GlobalObjectData;
+class GlobalLexicalEnvironmentObject;
 class MapObject;
+class NonSyntacticLexicalEnvironmentObject;
 class ScriptSourceObject;
 class SetObject;
 struct NativeIterator;
@@ -80,11 +82,10 @@ class DtoaCache {
 };
 
 // Cache to speed up the group/shape lookup in ProxyObject::create. A proxy's
-// group/shape is only determined by the Class + proto, so a small cache for
-// this is very effective in practice.
+// shape is only determined by the Class + proto, so a small cache for this is
+// very effective in practice.
 class NewProxyCache {
   struct Entry {
-    ObjectGroup* group;
     Shape* shape;
   };
   static const size_t NumEntries = 4;
@@ -92,23 +93,22 @@ class NewProxyCache {
 
  public:
   MOZ_ALWAYS_INLINE bool lookup(const JSClass* clasp, TaggedProto proto,
-                                ObjectGroup** group, Shape** shape) const {
+                                Shape** shape) const {
     if (!entries_) {
       return false;
     }
     for (size_t i = 0; i < NumEntries; i++) {
       const Entry& entry = entries_[i];
-      if (entry.group && entry.group->clasp() == clasp &&
-          entry.group->proto() == proto) {
-        *group = entry.group;
+      if (entry.shape && entry.shape->getObjectClass() == clasp &&
+          entry.shape->proto() == proto) {
         *shape = entry.shape;
         return true;
       }
     }
     return false;
   }
-  void add(ObjectGroup* group, Shape* shape) {
-    MOZ_ASSERT(group && shape);
+  void add(Shape* shape) {
+    MOZ_ASSERT(shape);
     if (!entries_) {
       entries_.reset(js_pod_calloc<Entry>(NumEntries));
       if (!entries_) {
@@ -119,7 +119,6 @@ class NewProxyCache {
         entries_[i] = entries_[i - 1];
       }
     }
-    entries_[0].group = group;
     entries_[0].shape = shape;
   }
   void purge() { entries_.reset(); }
@@ -273,12 +272,15 @@ class ObjectRealm {
 
   MOZ_ALWAYS_INLINE bool objectMaybeInIteration(JSObject* obj);
 
-  js::LexicalEnvironmentObject* getOrCreateNonSyntacticLexicalEnvironment(
-      JSContext* cx, js::HandleObject enclosing);
-  js::LexicalEnvironmentObject* getOrCreateNonSyntacticLexicalEnvironment(
-      JSContext* cx, js::HandleObject enclosing, js::HandleObject key,
-      js::HandleObject thisv);
-  js::LexicalEnvironmentObject* getNonSyntacticLexicalEnvironment(
+  js::NonSyntacticLexicalEnvironmentObject*
+  getOrCreateNonSyntacticLexicalEnvironment(JSContext* cx,
+                                            js::HandleObject enclosing);
+  js::NonSyntacticLexicalEnvironmentObject*
+  getOrCreateNonSyntacticLexicalEnvironment(JSContext* cx,
+                                            js::HandleObject enclosing,
+                                            js::HandleObject key,
+                                            js::HandleObject thisv);
+  js::NonSyntacticLexicalEnvironmentObject* getNonSyntacticLexicalEnvironment(
       JSObject* key) const;
 };
 
@@ -303,19 +305,9 @@ class JS::Realm : public JS::shadow::Realm {
   friend struct ::JSContext;
   js::WeakHeapPtrGlobalObject global_;
 
-  // The global lexical environment. This is stored here instead of in
-  // GlobalObject for easier/faster JIT access.
-  js::WeakHeapPtr<js::LexicalEnvironmentObject*> lexicalEnv_;
-
   // Note: this is private to enforce use of ObjectRealm::get(obj).
   js::ObjectRealm objects_;
   friend js::ObjectRealm& js::ObjectRealm::get(const JSObject*);
-
-  // Object group tables and other state in the realm. This is private to
-  // enforce use of ObjectGroupRealm::getForNewObject(cx).
-  js::ObjectGroupRealm objectGroups_;
-  friend js::ObjectGroupRealm& js::ObjectGroupRealm::getForNewObject(
-      JSContext* cx);
 
   // The global environment record's [[VarNames]] list that contains all
   // names declared using FunctionDeclaration, GeneratorDeclaration, and
@@ -323,7 +315,7 @@ class JS::Realm : public JS::shadow::Realm {
   // Names are only removed from this list by a |delete IdentifierReference|
   // that successfully removes that global property.
   using VarNamesSet =
-      GCHashSet<js::HeapPtr<JSAtom*>, js::DefaultHasher<JSAtom*>,
+      GCHashSet<js::WeakHeapPtr<JSAtom*>, js::DefaultHasher<JSAtom*>,
                 js::ZoneAllocPolicy>;
   VarNamesSet varNames_;
 
@@ -413,7 +405,6 @@ class JS::Realm : public JS::shadow::Realm {
   unsigned debugModeBits_ = 0;
   friend class js::AutoRestoreRealmDebugMode;
 
-  bool isSelfHostingRealm_ = false;
   bool isSystem_ = false;
 
   js::UniquePtr<js::coverage::LCovRealm> lcovRealm_ = nullptr;
@@ -504,9 +495,6 @@ class JS::Realm : public JS::shadow::Realm {
   /* Whether to preserve JIT code on non-shrinking GCs. */
   bool preserveJitCode() { return creationOptions_.preserveJitCode(); }
 
-  bool isSelfHostingRealm() const { return isSelfHostingRealm_; }
-  void setIsSelfHostingRealm();
-
   /* The global object for this realm.
    *
    * Note: the global_ field is null briefly during GC, after the global
@@ -523,16 +511,13 @@ class JS::Realm : public JS::shadow::Realm {
     return global_.unbarrieredGet();
   }
 
-  inline js::LexicalEnvironmentObject* unbarrieredLexicalEnvironment() const;
-
   /* True if a global object exists, but it's being collected. */
   inline bool globalIsAboutToBeFinalized();
 
   /* True if a global exists and it's not being collected. */
   inline bool hasLiveGlobal() const;
 
-  inline void initGlobal(js::GlobalObject& global,
-                         js::LexicalEnvironmentObject& lexicalEnv);
+  inline void initGlobal(js::GlobalObject& global);
 
   /*
    * This method traces data that is live iff we know that this realm's
@@ -567,12 +552,6 @@ class JS::Realm : public JS::shadow::Realm {
   void purge();
 
   void fixupAfterMovingGC(JSTracer* trc);
-
-#ifdef JSGC_HASH_TABLE_CHECKS
-  void checkObjectGroupTablesAfterMovingGC() {
-    objectGroups_.checkTablesAfterMovingGC();
-  }
-#endif
 
   // Add a name to [[VarNames]].  Reports OOM on failure.
   [[nodiscard]] bool addToVarNames(JSContext* cx, JS::Handle<JSAtom*> name);
@@ -804,10 +783,12 @@ class JS::Realm : public JS::shadow::Realm {
   }
   static constexpr uint32_t debugModeIsDebuggeeBit() { return IsDebuggee; }
 
-  static constexpr size_t offsetOfActiveLexicalEnvironment() {
-    static_assert(sizeof(lexicalEnv_) == sizeof(uintptr_t),
+  // Note: similar to cx->global(), JIT code can omit the read barrier for the
+  // context's active global.
+  static constexpr size_t offsetOfActiveGlobal() {
+    static_assert(sizeof(global_) == sizeof(uintptr_t),
                   "JIT code assumes field is pointer-sized");
-    return offsetof(JS::Realm, lexicalEnv_);
+    return offsetof(JS::Realm, global_);
   }
 };
 

@@ -163,7 +163,7 @@ bool WeakCollectionObject::nondeterministicGetKeys(
   return true;
 }
 
-JS_FRIEND_API bool JS_NondeterministicGetWeakMapKeys(JSContext* cx,
+JS_PUBLIC_API bool JS_NondeterministicGetWeakMapKeys(JSContext* cx,
                                                      HandleObject objArg,
                                                      MutableHandleObject ret) {
   RootedObject obj(cx, UncheckedUnwrap(objArg));
@@ -284,8 +284,8 @@ const ClassSpec WeakMapObject::classSpec_ = {
 
 const JSClass WeakMapObject::class_ = {
     "WeakMap",
-    JSCLASS_HAS_PRIVATE | JSCLASS_HAS_CACHED_PROTO(JSProto_WeakMap) |
-        JSCLASS_BACKGROUND_FINALIZE,
+    JSCLASS_HAS_RESERVED_SLOTS(SlotCount) |
+        JSCLASS_HAS_CACHED_PROTO(JSProto_WeakMap) | JSCLASS_BACKGROUND_FINALIZE,
     &WeakCollectionObject::classOps_, &WeakMapObject::classSpec_};
 
 const JSClass WeakMapObject::protoClass_ = {

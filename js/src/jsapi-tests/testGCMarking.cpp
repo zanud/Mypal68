@@ -4,6 +4,7 @@
 
 #include "jsapi.h"
 
+#include "js/PropertyAndElement.h"  // JS_DefineProperty, JS_GetProperty, JS_SetProperty
 #include "js/RootingAPI.h"
 #include "js/SliceBudget.h"
 #include "jsapi-tests/tests.h"
@@ -372,7 +373,7 @@ BEGIN_TEST(testIncrementalRoots) {
   // of 1000, and the graph is about 3000 objects deep).
   js::SliceBudget budget(js::WorkBudget(1000));
   JS_SetGCParameter(cx, JSGC_INCREMENTAL_GC_ENABLED, true);
-  rt->gc.startDebugGC(GC_NORMAL, budget);
+  rt->gc.startDebugGC(JS::GCOptions::Normal, budget);
   while (rt->gc.state() != gc::State::Mark) {
     rt->gc.debugGCSlice(budget);
   }

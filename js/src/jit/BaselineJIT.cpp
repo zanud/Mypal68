@@ -21,7 +21,7 @@
 #include "jit/JitCommon.h"
 #include "jit/JitRuntime.h"
 #include "jit/JitSpewer.h"
-#include "js/friend/StackLimits.h"  // js::CheckRecursionLimitWithStackPointer
+#include "js/friend/StackLimits.h"  // js::AutoCheckRecursionLimit
 #include "util/Memory.h"
 #include "util/StructuredSpewer.h"
 #include "vm/Interpreter.h"
@@ -104,11 +104,10 @@ static JitExecStatus EnterBaseline(JSContext* cx, EnterJitData& data) {
   MOZ_ASSERT(data.osrFrame);
 
   // Check for potential stack overflow before OSR-ing.
-  uint8_t spDummy;
   uint32_t extra =
       BaselineFrame::Size() + (data.osrNumStackValues * sizeof(Value));
-  uint8_t* checkSp = (&spDummy) - extra;
-  if (!CheckRecursionLimitWithStackPointer(cx, checkSp)) {
+  AutoCheckRecursionLimit recursion(cx);
+  if (!recursion.checkWithExtra(cx, extra)) {
     return JitExec_Aborted;
   }
 

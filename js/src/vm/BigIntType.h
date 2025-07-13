@@ -151,6 +151,16 @@ class BigInt final : public js::gc::CellWithLengthAndFlags {
   // leave the value of the output parameter unspecified.
   static bool isInt64(BigInt* x, int64_t* result);
 
+  // Return true if the BigInt is without loss of precision representable as an
+  // uint64 and store the uint64 value in the output. Otherwise return false and
+  // leave the value of the output parameter unspecified.
+  static bool isUint64(BigInt* x, uint64_t* result);
+
+  // Return true if the BigInt is without loss of precision representable as a
+  // JS Number (double) and store the double value in the output. Otherwise
+  // return false and leave the value of the output parameter unspecified.
+  static bool isNumber(BigInt* x, double* result);
+
   static BigInt* asIntN(JSContext* cx, Handle<BigInt*> x, uint64_t bits);
   static BigInt* asUintN(JSContext* cx, Handle<BigInt*> x, uint64_t bits);
 
@@ -197,7 +207,8 @@ class BigInt final : public js::gc::CellWithLengthAndFlags {
   template <typename CharT>
   static BigInt* parseLiteral(JSContext* cx,
                               const mozilla::Range<const CharT> chars,
-                              bool* haveParseError);
+                              bool* haveParseError,
+                              js::gc::InitialHeap heap = js::gc::DefaultHeap);
   template <typename CharT>
   static BigInt* parseLiteralDigits(
       JSContext* cx, const mozilla::Range<const CharT> chars, unsigned radix,

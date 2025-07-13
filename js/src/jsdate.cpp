@@ -31,6 +31,7 @@
 #include "jsnum.h"
 #include "jstypes.h"
 
+#include "js/CallAndConstruct.h"  // JS::IsCallable
 #include "js/Conversions.h"
 #include "js/Date.h"
 #include "js/friend/ErrorMessages.h"  // js::GetErrorMessage, JSMSG_*
@@ -1182,7 +1183,7 @@ static bool ParseDate(const CharT* s, size_t length, ClippedTime* result) {
         seenPlusMinus = true;
 
         /* offset */
-        if (n < 24) {
+        if (n < 24 && partLength <= 2) {
           n = n * 60; /* EG. "GMT-3" */
         } else {
           n = n % 100 + n / 100 * 60; /* eg "GMT-0430" */
@@ -3507,7 +3508,7 @@ JS_PUBLIC_API JSObject* JS::NewDateObject(JSContext* cx, ClippedTime time) {
   return NewDateObjectMsec(cx, time);
 }
 
-JS_FRIEND_API JSObject* js::NewDateObject(JSContext* cx, int year, int mon,
+JS_PUBLIC_API JSObject* js::NewDateObject(JSContext* cx, int year, int mon,
                                           int mday, int hour, int min,
                                           int sec) {
   MOZ_ASSERT(mon < 12);
@@ -3516,7 +3517,7 @@ JS_FRIEND_API JSObject* js::NewDateObject(JSContext* cx, int year, int mon,
   return NewDateObjectMsec(cx, TimeClip(UTC(msec_time)));
 }
 
-JS_FRIEND_API bool js::DateIsValid(JSContext* cx, HandleObject obj,
+JS_PUBLIC_API bool js::DateIsValid(JSContext* cx, HandleObject obj,
                                    bool* isValid) {
   ESClass cls;
   if (!GetBuiltinClass(cx, obj, &cls)) {
@@ -3558,7 +3559,7 @@ JS_PUBLIC_API bool JS::ObjectIsDate(JSContext* cx, Handle<JSObject*> obj,
   return true;
 }
 
-JS_FRIEND_API bool js::DateGetMsecSinceEpoch(JSContext* cx, HandleObject obj,
+JS_PUBLIC_API bool js::DateGetMsecSinceEpoch(JSContext* cx, HandleObject obj,
                                              double* msecsSinceEpoch) {
   ESClass cls;
   if (!GetBuiltinClass(cx, obj, &cls)) {

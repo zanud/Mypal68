@@ -161,11 +161,16 @@ void MoveEmitterX86::emit(const MoveResolver& moves) {
       case MoveOp::GENERAL:
         emitGeneralMove(from, to, moves, i);
         break;
+#ifdef ENABLE_WASM_SIMD
+      case MoveOp::SIMD128:
+        emitSimd128Move(from, to);
+#else
       case MoveOp::SIMD128INT:
         emitSimd128IntMove(from, to);
         break;
       case MoveOp::SIMD128FLOAT:
         emitSimd128FloatMove(from, to);
+#endif
         break;
       default:
         MOZ_CRASH("Unexpected move type");
@@ -245,15 +250,29 @@ void MoveEmitterX86::breakCycle(const MoveOperand& to, MoveOp::Type type) {
   // This case handles (A -> B), which we reach first. We save B, then allow
   // the original move to continue.
   switch (type) {
+#ifdef ENABLE_WASM_SIMD
+    case MoveOp::SIMD128:
+#else
     case MoveOp::SIMD128INT:
+#endif
       if (to.isMemory()) {
         ScratchSimd128Scope scratch(masm);
+#ifdef ENABLE_WASM_SIMD
+        masm.loadUnalignedSimd128(toAddress(to), scratch);
+        masm.storeUnalignedSimd128(scratch, cycleSlot());
+#else
         masm.loadAlignedSimd128Int(toAddress(to), scratch);
         masm.storeAlignedSimd128Int(scratch, cycleSlot());
+#endif
       } else {
+#ifdef ENABLE_WASM_SIMD
+        masm.storeUnalignedSimd128(to.floatReg(), cycleSlot());
+#else
         masm.storeAlignedSimd128Int(to.floatReg(), cycleSlot());
+#endif
       }
       break;
+#ifndef ENABLE_WASM_SIMD
     case MoveOp::SIMD128FLOAT:
       if (to.isMemory()) {
         ScratchSimd128Scope scratch(masm);
@@ -263,6 +282,7 @@ void MoveEmitterX86::breakCycle(const MoveOperand& to, MoveOp::Type type) {
         masm.storeAlignedSimd128Float(to.floatReg(), cycleSlot());
       }
       break;
+#endif
     case MoveOp::FLOAT32:
       if (to.isMemory()) {
         ScratchFloat32Scope scratch(masm);
@@ -308,17 +328,31 @@ void MoveEmitterX86::completeCycle(const MoveOperand& to, MoveOp::Type type) {
   // This case handles (B -> A), which we reach last. We emit a move from the
   // saved value of B, to A.
   switch (type) {
+#ifdef ENABLE_WASM_SIMD
+    case MoveOp::SIMD128:
+#else
     case MoveOp::SIMD128INT:
+#endif
       MOZ_ASSERT(pushedAtCycle_ != -1);
       MOZ_ASSERT(pushedAtCycle_ - pushedAtStart_ >= Simd128DataSize);
       if (to.isMemory()) {
         ScratchSimd128Scope scratch(masm);
+#ifdef ENABLE_WASM_SIMD
+        masm.loadUnalignedSimd128(cycleSlot(), scratch);
+        masm.storeUnalignedSimd128(scratch, toAddress(to));
+#else
         masm.loadAlignedSimd128Int(cycleSlot(), scratch);
         masm.storeAlignedSimd128Int(scratch, toAddress(to));
+#endif
       } else {
+#ifdef ENABLE_WASM_SIMD
+        masm.loadUnalignedSimd128(cycleSlot(), to.floatReg());
+#else
         masm.loadAlignedSimd128Int(cycleSlot(), to.floatReg());
+#endif
       }
       break;
+#ifndef ENABLE_WASM_SIMD
     case MoveOp::SIMD128FLOAT:
       MOZ_ASSERT(pushedAtCycle_ != -1);
       MOZ_ASSERT(pushedAtCycle_ - pushedAtStart_ >= Simd128DataSize);
@@ -330,6 +364,7 @@ void MoveEmitterX86::completeCycle(const MoveOperand& to, MoveOp::Type type) {
         masm.loadAlignedSimd128Float(cycleSlot(), to.floatReg());
       }
       break;
+#endif
     case MoveOp::FLOAT32:
       MOZ_ASSERT(pushedAtCycle_ != -1);
       MOZ_ASSERT(pushedAtCycle_ - pushedAtStart_ >= sizeof(float));
@@ -483,28 +518,51 @@ void MoveEmitterX86::emitDoubleMove(const MoveOperand& from,
   }
 }
 
+#ifdef ENABLE_WASM_SIMD
+void MoveEmitterX86::emitSimd128Move(const MoveOperand& from,
+                                     const MoveOperand& to) {
+#else
 void MoveEmitterX86::emitSimd128IntMove(const MoveOperand& from,
                                         const MoveOperand& to) {
+#endif
   MOZ_ASSERT_IF(from.isFloatReg(), from.floatReg().isSimd128());
   MOZ_ASSERT_IF(to.isFloatReg(), to.floatReg().isSimd128());
 
   if (from.isFloatReg()) {
     if (to.isFloatReg()) {
+#ifdef ENABLE_WASM_SIMD
+      masm.moveSimd128(from.floatReg(), to.floatReg());
+#else
       masm.moveSimd128Int(from.floatReg(), to.floatReg());
+#endif
     } else {
+#ifdef ENABLE_WASM_SIMD
+      masm.storeUnalignedSimd128(from.floatReg(), toAddress(to));
+#else
       masm.storeAlignedSimd128Int(from.floatReg(), toAddress(to));
+#endif
     }
   } else if (to.isFloatReg()) {
+#ifdef ENABLE_WASM_SIMD
+    masm.loadUnalignedSimd128(toAddress(from), to.floatReg());
+#else
     masm.loadAlignedSimd128Int(toAddress(from), to.floatReg());
+#endif
   } else {
     // Memory to memory move.
     MOZ_ASSERT(from.isMemory());
     ScratchSimd128Scope scratch(masm);
+#ifdef ENABLE_WASM_SIMD
+    masm.loadUnalignedSimd128(toAddress(from), scratch);
+    masm.storeUnalignedSimd128(scratch, toAddress(to));
+#else
     masm.loadAlignedSimd128Int(toAddress(from), scratch);
     masm.storeAlignedSimd128Int(scratch, toAddress(to));
+#endif
   }
 }
 
+#ifndef ENABLE_WASM_SIMD
 void MoveEmitterX86::emitSimd128FloatMove(const MoveOperand& from,
                                           const MoveOperand& to) {
   MOZ_ASSERT_IF(from.isFloatReg(), from.floatReg().isSimd128());
@@ -526,6 +584,7 @@ void MoveEmitterX86::emitSimd128FloatMove(const MoveOperand& from,
     masm.storeAlignedSimd128Float(scratch, toAddress(to));
   }
 }
+#endif
 
 void MoveEmitterX86::assertDone() { MOZ_ASSERT(!inCycle_); }
 

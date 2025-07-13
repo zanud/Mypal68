@@ -147,6 +147,8 @@ void CompilerFrameInfo::popRegsAndSync(uint32_t uses) {
     default:
       MOZ_CRASH("Invalid uses");
   }
+  // On arm64, SP may be < PSP now (that's OK).
+  // eg testcase: tests/bug1580246.js
 }
 
 void InterpreterFrameInfo::popRegsAndSync(uint32_t uses) {
@@ -162,6 +164,8 @@ void InterpreterFrameInfo::popRegsAndSync(uint32_t uses) {
     default:
       MOZ_CRASH("Invalid uses");
   }
+  // On arm64, SP may be < PSP now (that's OK).
+  // eg testcase: tests/backup-point-bug1315634.js
 }
 
 void InterpreterFrameInfo::bumpInterpreterICEntry() {

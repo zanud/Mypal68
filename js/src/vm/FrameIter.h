@@ -24,8 +24,8 @@
 #include "vm/Activation.h"       // js::InterpreterActivation
 #include "vm/Stack.h"            // js::{AbstractFramePtr,MaybeCheckAliasing}
 #include "wasm/WasmConstants.h"  // js::wasm::Trap
+#include "wasm/WasmFrame.h"      // js::wasm::{Frame,TrapData}
 #include "wasm/WasmFrameIter.h"  // js::wasm::{ExitReason,RegisterState,WasmFrameIter}
-#include "wasm/WasmTypes.h"  // js::wasm::{Frame,TrapData}
 
 struct JSPrincipals;
 
@@ -179,7 +179,6 @@ class OnlyJSJitFrameIter : public JitFrameIter {
 
  public:
   explicit OnlyJSJitFrameIter(jit::JitActivation* act);
-  explicit OnlyJSJitFrameIter(JSContext* cx);
   explicit OnlyJSJitFrameIter(const ActivationIterator& cx);
 
   void operator++() {
@@ -429,20 +428,6 @@ class ScriptFrameIter : public FrameIter {
     settle();
   }
 
-  ScriptFrameIter(JSContext* cx, DebuggerEvalOption debuggerEvalOption,
-                  JSPrincipals* prin)
-      : FrameIter(cx, debuggerEvalOption, prin) {
-    settle();
-  }
-
-  ScriptFrameIter(const ScriptFrameIter& iter) : FrameIter(iter) { settle(); }
-  explicit ScriptFrameIter(const FrameIter::Data& data) : FrameIter(data) {
-    settle();
-  }
-  explicit ScriptFrameIter(AbstractFramePtr frame) : FrameIter(frame) {
-    settle();
-  }
-
   ScriptFrameIter& operator++() {
     FrameIter::operator++();
     settle();
@@ -480,8 +465,6 @@ class NonBuiltinFrameIter : public FrameIter {
     settle();
   }
 
-  explicit NonBuiltinFrameIter(const FrameIter::Data& data) : FrameIter(data) {}
-
   NonBuiltinFrameIter& operator++() {
     FrameIter::operator++();
     settle();
@@ -500,16 +483,6 @@ class NonBuiltinScriptFrameIter : public ScriptFrameIter {
       : ScriptFrameIter(cx, debuggerEvalOption) {
     settle();
   }
-
-  NonBuiltinScriptFrameIter(
-      JSContext* cx, ScriptFrameIter::DebuggerEvalOption debuggerEvalOption,
-      JSPrincipals* principals)
-      : ScriptFrameIter(cx, debuggerEvalOption, principals) {
-    settle();
-  }
-
-  explicit NonBuiltinScriptFrameIter(const ScriptFrameIter::Data& data)
-      : ScriptFrameIter(data) {}
 
   NonBuiltinScriptFrameIter& operator++() {
     ScriptFrameIter::operator++();

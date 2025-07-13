@@ -23,6 +23,10 @@
 namespace js {
 namespace wasm {
 
+using jit::FloatRegister;
+using jit::Register;
+using jit::Register64;
+
 // ValType and location for a single result: either in a register or on the
 // stack.
 
@@ -53,9 +57,15 @@ class ABIResult {
       case ValType::F64:
         MOZ_ASSERT(loc_ == Location::Fpr);
         break;
+      case ValType::Rtt:
       case ValType::Ref:
         MOZ_ASSERT(loc_ == Location::Gpr);
         break;
+#  ifdef ENABLE_WASM_SIMD
+      case ValType::V128:
+        MOZ_ASSERT(loc_ == Location::Fpr);
+        break;
+#  endif
     }
 #endif
   }
@@ -81,6 +91,9 @@ class ABIResult {
   static constexpr size_t StackSizeOfFloat = sizeof(double);
 #endif
   static constexpr size_t StackSizeOfDouble = sizeof(double);
+#ifdef ENABLE_WASM_SIMD
+  static constexpr size_t StackSizeOfV128 = sizeof(V128);
+#endif
 
   ABIResult(ValType type, Register gpr)
       : type_(type), loc_(Location::Gpr), gpr_(gpr) {
@@ -247,16 +260,15 @@ extern bool GenerateStubs(const ModuleEnvironment& env,
                           const FuncExportVector& exports, CompiledCode* code);
 
 extern bool GenerateEntryStubs(jit::MacroAssembler& masm,
-                               size_t funcExportIndex,
-                               const FuncExport& funcExport,
+                               size_t funcExportIndex, const FuncExport& fe,
                                const Maybe<jit::ImmPtr>& callee, bool isAsmJS,
                                CodeRangeVector* codeRanges);
 
 extern void GenerateTrapExitMachineState(jit::MachineState* machine,
                                          size_t* numWords);
 
-extern bool GenerateProvisionalJitEntryStub(MacroAssembler& masm,
-                                            Offsets* offsets);
+extern bool GenerateProvisionalLazyJitEntryStub(jit::MacroAssembler& masm,
+                                                Offsets* offsets);
 
 // A value that is written into the trap exit frame, which is useful for
 // cross-checking during garbage collection.

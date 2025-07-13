@@ -110,20 +110,17 @@ extern bool enableWasm;
 extern bool enableSharedMemory;
 extern bool enableWasmBaseline;
 extern bool enableWasmOptimizing;
-#ifdef ENABLE_WASM_FUNCTION_REFERENCES
-extern bool enableWasmFunctionReferences;
-#endif
-#ifdef ENABLE_WASM_GC
-extern bool enableWasmGc;
-#endif
-#ifdef ENABLE_WASM_MULTI_VALUE
-extern bool enableWasmMultiValue;
-#endif
+
+#define WASM_FEATURE(NAME, ...) extern bool enableWasm##NAME;
 #ifdef ENABLE_WASM_SIMD
-extern bool enableWasmSimd;
+JS_FOR_WASM_FEATURES(WASM_FEATURE, WASM_FEATURE);
+#else
+JS_FOR_WASM_FEATURES(WASM_FEATURE);
 #endif
-#ifdef ENABLE_WASM_EXCEPTIONS
-extern bool enableWasmExceptions;
+#undef WASM_FEATURE
+
+#ifdef ENABLE_WASM_SIMD_WORMHOLE
+extern bool enableWasmSimdWormhole;
 #endif
 extern bool enableWasmVerbose;
 extern bool enableTestWasmAwaitTier2;
@@ -142,7 +139,9 @@ extern bool useOffThreadParseGlobal;
 extern bool enableIteratorHelpers;
 extern bool enablePrivateClassFields;
 extern bool enablePrivateClassMethods;
+extern bool enableErgonomicBrandChecks;
 extern bool enableTopLevelAwait;
+extern bool enableClassStaticBlocks;
 #ifdef JS_GC_ZEAL
 extern uint32_t gZealBits;
 extern uint32_t gZealFrequency;
@@ -152,7 +151,6 @@ extern RCFile* gErrFile;
 extern RCFile* gOutFile;
 extern bool reportWarnings;
 extern bool compileOnly;
-extern bool fuzzingSafe;
 extern bool disableOOMFunctions;
 extern bool defaultToSameCompartment;
 
@@ -160,6 +158,8 @@ extern bool defaultToSameCompartment;
 extern bool dumpEntrainedVariables;
 extern bool OOM_printAllocationCount;
 #endif
+
+extern bool useFdlibmForSinCosTan;
 
 extern UniqueChars processWideModuleLoadPath;
 
@@ -175,7 +175,7 @@ extern UniqueChars processWideModuleLoadPath;
 bool CreateAlias(JSContext* cx, const char* dstName,
                  JS::HandleObject namespaceObj, const char* srcName);
 
-enum class ScriptKind { Script, DecodeScript, Module };
+enum class ScriptKind { Script, ScriptStencil, DecodeScript, Module };
 
 class NonshrinkingGCObjectVector
     : public GCVector<JSObject*, 0, SystemAllocPolicy> {
@@ -183,7 +183,7 @@ class NonshrinkingGCObjectVector
   void sweep() {
     for (JSObject*& obj : *this) {
       if (JS::GCPolicy<JSObject*>::needsSweep(&obj)) {
-          obj = nullptr;
+        obj = nullptr;
       }
     }
   }

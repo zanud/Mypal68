@@ -121,6 +121,7 @@ FunctionBox::FunctionBox(JSContext* cx, SourceExtent extent,
       hasDestructuringArgs(false),
       hasDuplicateParameters(false),
       hasExprBody_(false),
+      allowReturn_(true),
       isFunctionFieldCopiedToStencil(false),
       isInitialCompilation(isInitialCompilation),
       isStandalone(false) {}
@@ -141,6 +142,11 @@ void FunctionBox::initFromLazyFunctionShared(JSFunction* fun) {
   BaseScript* lazy = fun->baseScript();
   immutableFlags_ = lazy->immutableFlags();
   extent_ = lazy->extent();
+}
+
+void FunctionBox::initFromScriptStencilExtra(const ScriptStencilExtra& extra) {
+  immutableFlags_ = extra.immutableFlags;
+  extent_ = extra.extent;
 }
 
 void FunctionBox::initWithEnclosingParseContext(ParseContext* enclosing,
@@ -184,9 +190,14 @@ void FunctionBox::initWithEnclosingParseContext(ParseContext* enclosing,
       thisBinding_ = ThisBinding::Function;
     }
 
-    if (kind == FunctionSyntaxKind::FieldInitializer) {
+    if (kind == FunctionSyntaxKind::FieldInitializer ||
+        kind == FunctionSyntaxKind::StaticClassBlock) {
       setSyntheticFunction();
       allowArguments_ = false;
+      if (kind == FunctionSyntaxKind::StaticClassBlock) {
+        allowSuperCall_ = false;
+        allowReturn_ = false;
+      }
     }
   }
 

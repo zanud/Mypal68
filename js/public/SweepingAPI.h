@@ -5,7 +5,14 @@
 #ifndef js_SweepingAPI_h
 #define js_SweepingAPI_h
 
-#include "js/HeapAPI.h"
+#include "mozilla/LinkedList.h"
+#include "mozilla/Maybe.h"
+
+#include "jstypes.h"
+
+#include "js/GCAnnotations.h"
+#include "js/GCPolicyAPI.h"
+#include "js/RootingAPI.h"
 
 namespace js {
 namespace gc {
@@ -22,9 +29,7 @@ class AutoLockStoreBuffer {
   explicit AutoLockStoreBuffer(StoreBuffer* sb) : sb(sb) {
     LockStoreBuffer(sb);
   }
-  ~AutoLockStoreBuffer() {
-    UnlockStoreBuffer(sb);
-  }
+  ~AutoLockStoreBuffer() { UnlockStoreBuffer(sb); }
 };
 
 }  // namespace gc

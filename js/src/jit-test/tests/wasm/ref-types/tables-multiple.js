@@ -1,5 +1,3 @@
-// |jit-test| skip-if: !wasmReftypesEnabled()
-
 // Note that negative tests not having to do with table indices have been taken
 // care of by tables-generalized.js.
 
@@ -416,7 +414,7 @@ assertErrorMessage(() => wasmEvalText(
       (func $f
        (table.copy 0 (i32.const 0) (i32.const 0) (i32.const 2))))`), // target without source
                    SyntaxError,
-                   /expected an identifier/);
+                   /expected keyword `table`/);
 
 assertErrorMessage(() => wasmEvalText(
     `(module

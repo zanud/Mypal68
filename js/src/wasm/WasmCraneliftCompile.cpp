@@ -115,7 +115,7 @@ static bool GenerateCraneliftCode(WasmMacroAssembler& masm,
       return false;
     }
 
-    // In debug builds, we'll always have a stack map, even if there are no
+    // In debug builds, we'll always have a stackmap, even if there are no
     // refs to track.
     MOZ_ASSERT(functionEntryStackMap);
 
@@ -486,13 +486,12 @@ bool wasm::CraneliftCompileFunctions(const ModuleEnvironment& env,
       const CodeRangeVector& codeRanges = code->codeRanges;
       MOZ_ASSERT(codeRanges.length() >= inputs.length());
 
-      // Within the current batch, functions' code ranges have been added in the
-      // same order as the inputs.
+      // Within the current batch, functions' code ranges have been added in
+      // the same order as the inputs.
       size_t firstCodeRangeIndex = codeRanges.length() - inputs.length();
 
       for (size_t i = 0; i < inputs.length(); i++) {
         int funcIndex = inputs[i].index;
-        mozilla::Unused << funcIndex;
 
         JitSpew(JitSpew_Codegen, "# ========================================");
         JitSpew(JitSpew_Codegen, "# Start of wasm cranelift code for index %d",

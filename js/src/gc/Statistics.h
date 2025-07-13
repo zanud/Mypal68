@@ -17,6 +17,7 @@
 
 #include "gc/GCEnum.h"
 #include "js/AllocPolicy.h"
+#include "js/GCAPI.h"
 #include "js/SliceBudget.h"
 #include "js/UniquePtr.h"
 #include "js/Vector.h"
@@ -117,7 +118,6 @@ struct Trigger {
   _(Barriers, "brrier", PhaseKind::BARRIER)
 
 const char* ExplainAbortReason(GCAbortReason reason);
-const char* ExplainInvocationKind(JSGCInvocationKind gckind);
 
 /*
  * Struct for collecting timing statistics on a "phase tree". The tree is
@@ -175,7 +175,7 @@ struct Statistics {
   // Resume a suspended stack of phases.
   void resumePhases();
 
-  void beginSlice(const ZoneGCStats& zoneStats, JSGCInvocationKind gckind,
+  void beginSlice(const ZoneGCStats& zoneStats, JS::GCOptions options,
                   const SliceBudget& budget, JS::GCReason reason);
   void endSlice();
 
@@ -327,7 +327,7 @@ struct Statistics {
 
   ZoneGCStats zoneStats;
 
-  JSGCInvocationKind gckind;
+  JS::GCOptions gcOptions;
 
   GCAbortReason nonincrementalReason_;
 
@@ -423,8 +423,9 @@ struct Statistics {
   using ProfileDurations =
       EnumeratedArray<ProfileKey, ProfileKey::KeyCount, TimeDuration>;
 
-  TimeDuration profileThreshold_;
   bool enableProfiling_;
+  bool profileWorkers_;
+  TimeDuration profileThreshold_;
   ProfileDurations totalTimes_;
   uint64_t sliceCount_;
 
@@ -433,7 +434,7 @@ struct Statistics {
   Phase currentPhase() const;
   Phase lookupChildPhase(PhaseKind phaseKind) const;
 
-  void beginGC(JSGCInvocationKind kind);
+  void beginGC(JS::GCOptions options);
   void endGC();
 
   void recordPhaseBegin(Phase phase);
@@ -465,10 +466,10 @@ struct Statistics {
 
 struct MOZ_RAII AutoGCSlice {
   AutoGCSlice(Statistics& stats, const ZoneGCStats& zoneStats,
-              JSGCInvocationKind gckind, const SliceBudget& budget,
+              JS::GCOptions options, const SliceBudget& budget,
               JS::GCReason reason)
       : stats(stats) {
-    stats.beginSlice(zoneStats, gckind, budget, reason);
+    stats.beginSlice(zoneStats, options, budget, reason);
   }
   ~AutoGCSlice() { stats.endSlice(); }
 
@@ -509,6 +510,9 @@ struct MOZ_RAII AutoSCC {
   unsigned scc;
   mozilla::TimeStamp start;
 };
+
+void ReadProfileEnv(const char* envName, const char* helpText, bool* enableOut,
+                    bool* workersOut, mozilla::TimeDuration* thresholdOut);
 
 } /* namespace gcstats */
 

@@ -44,7 +44,7 @@ static bool MarkAtoms(JSContext* cx, HandleIdVector ids) {
 
 bool CrossCompartmentWrapper::getOwnPropertyDescriptor(
     JSContext* cx, HandleObject wrapper, HandleId id,
-    MutableHandle<PropertyDescriptor> desc) const {
+    MutableHandle<mozilla::Maybe<PropertyDescriptor>> desc) const {
   PIERCE(cx, wrapper, MarkAtoms(cx, id),
          Wrapper::getOwnPropertyDescriptor(cx, wrapper, id, desc),
          cx->compartment()->wrap(cx, desc));
@@ -80,11 +80,6 @@ bool CrossCompartmentWrapper::getPrototype(JSContext* cx, HandleObject wrapper,
     if (!GetPrototype(cx, wrapped, protop)) {
       return false;
     }
-    if (protop) {
-      if (!JSObject::setDelegate(cx, protop)) {
-        return false;
-      }
-    }
   }
 
   return cx->compartment()->wrap(cx, protop);
@@ -110,12 +105,6 @@ bool CrossCompartmentWrapper::getPrototypeIfOrdinary(
 
     if (!*isOrdinary) {
       return true;
-    }
-
-    if (protop) {
-      if (!JSObject::setDelegate(cx, protop)) {
-        return false;
-      }
     }
   }
 
@@ -382,7 +371,7 @@ static void NukeRemovedCrossCompartmentWrapper(JSContext* cx,
   MOZ_ASSERT(IsDeadProxyObject(wrapper));
 }
 
-JS_FRIEND_API void js::NukeCrossCompartmentWrapper(JSContext* cx,
+JS_PUBLIC_API void js::NukeCrossCompartmentWrapper(JSContext* cx,
                                                    JSObject* wrapper) {
   JS::Compartment* comp = wrapper->compartment();
   auto ptr = comp->lookupWrapper(Wrapper::wrappedObject(wrapper));
@@ -392,7 +381,7 @@ JS_FRIEND_API void js::NukeCrossCompartmentWrapper(JSContext* cx,
   NukeRemovedCrossCompartmentWrapper(cx, wrapper);
 }
 
-JS_FRIEND_API void js::NukeCrossCompartmentWrapperIfExists(
+JS_PUBLIC_API void js::NukeCrossCompartmentWrapperIfExists(
     JSContext* cx, JS::Compartment* source, JSObject* target) {
   MOZ_ASSERT(source != target->compartment());
   MOZ_ASSERT(!target->is<CrossCompartmentWrapperObject>());
@@ -421,7 +410,7 @@ static bool NukedAllRealms(JS::Compartment* comp) {
  * that on tab close (outer window destruction).  Thus the option of how to
  * handle the global object.
  */
-JS_FRIEND_API bool js::NukeCrossCompartmentWrappers(
+JS_PUBLIC_API bool js::NukeCrossCompartmentWrappers(
     JSContext* cx, const CompartmentFilter& sourceFilter, JS::Realm* target,
     js::NukeReferencesToWindow nukeReferencesToWindow,
     js::NukeReferencesFromTarget nukeReferencesFromTarget) {
@@ -494,7 +483,7 @@ JS_FRIEND_API bool js::NukeCrossCompartmentWrappers(
   return true;
 }
 
-JS_FRIEND_API bool js::AllowNewWrapper(JS::Compartment* target, JSObject* obj) {
+JS_PUBLIC_API bool js::AllowNewWrapper(JS::Compartment* target, JSObject* obj) {
   // Disallow creating new wrappers if we nuked the object realm or target
   // compartment. However, we always need to provide live wrappers for
   // ScriptSourceObjects, since they're used for cross-compartment cloned
@@ -515,7 +504,7 @@ JS_FRIEND_API bool js::AllowNewWrapper(JS::Compartment* target, JSObject* obj) {
   return true;
 }
 
-JS_FRIEND_API bool js::NukedObjectRealm(JSObject* obj) {
+JS_PUBLIC_API bool js::NukedObjectRealm(JSObject* obj) {
   return obj->nonCCWRealm()->nukedIncomingWrappers;
 }
 
@@ -600,7 +589,7 @@ void js::RemapWrapper(JSContext* cx, JSObject* wobjArg,
 
 // Remap all cross-compartment wrappers pointing to |oldTarget| to point to
 // |newTarget|. All wrappers are recomputed.
-JS_FRIEND_API bool js::RemapAllWrappersForObject(JSContext* cx,
+JS_PUBLIC_API bool js::RemapAllWrappersForObject(JSContext* cx,
                                                  HandleObject oldTarget,
                                                  HandleObject newTarget) {
   MOZ_ASSERT(!IsInsideNursery(oldTarget));
@@ -624,7 +613,7 @@ JS_FRIEND_API bool js::RemapAllWrappersForObject(JSContext* cx,
   return true;
 }
 
-JS_FRIEND_API bool js::RecomputeWrappers(
+JS_PUBLIC_API bool js::RecomputeWrappers(
     JSContext* cx, const CompartmentFilter& sourceFilter,
     const CompartmentFilter& targetFilter) {
   bool evictedNursery = false;

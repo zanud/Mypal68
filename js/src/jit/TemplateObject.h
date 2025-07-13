@@ -35,9 +35,8 @@ class TemplateObject {
   inline bool isCallObject() const;
   inline bool isPlainObject() const;
 
-  // The group and shape should not change. This is true for template objects
-  // because they're never exposed to arbitrary script.
-  inline gc::Cell* group() const;
+  // The shape should not change. This is true for template objects because
+  // they're never exposed to arbitrary script.
   inline gc::Cell* shape() const;
 };
 
@@ -66,10 +65,7 @@ class TemplateNativeObject : public TemplateObject {
   inline bool hasDynamicElements() const;
   inline const Value* getDenseElements() const;
 
-  // Reading private slots is safe.
-  inline bool hasPrivate() const;
   inline gc::Cell* regExpShared() const;
-  inline void* getPrivate() const;
 };
 
 }  // namespace jit

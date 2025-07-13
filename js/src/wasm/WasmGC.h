@@ -31,11 +31,13 @@ class MacroAssembler;
 
 namespace wasm {
 
-using namespace js::jit;
+using jit::Label;
+using jit::MIRType;
+using jit::Register;
 
-// Definitions for stack maps.
+// Definitions for stackmaps.
 
-typedef Vector<bool, 32, SystemAllocPolicy> ExitStubMapVector;
+using ExitStubMapVector = Vector<bool, 32, SystemAllocPolicy>;
 
 struct StackMap final {
   // A StackMap is a bit-array containing numMappedWords bits, one bit per
@@ -186,9 +188,9 @@ class StackMaps {
  public:
   StackMaps() : sorted_(false) {}
   ~StackMaps() {
-    for (size_t i = 0; i < mapping_.length(); i++) {
-      mapping_[i].map->destroy();
-      mapping_[i].map = nullptr;
+    for (auto& maplet : mapping_) {
+      maplet.map->destroy();
+      maplet.map = nullptr;
     }
   }
   [[nodiscard]] bool add(uint8_t* nextInsnAddr, StackMap* map) {
@@ -199,9 +201,9 @@ class StackMaps {
     return add(maplet.nextInsnAddr, maplet.map);
   }
   void clear() {
-    for (size_t i = 0; i < mapping_.length(); i++) {
-      mapping_[i].nextInsnAddr = nullptr;
-      mapping_[i].map = nullptr;
+    for (auto& maplet : mapping_) {
+      maplet.nextInsnAddr = nullptr;
+      maplet.map = nullptr;
     }
     mapping_.clear();
   }
@@ -215,7 +217,7 @@ class StackMaps {
     return m;
   }
   void offsetBy(uintptr_t delta) {
-    for (size_t i = 0; i < mapping_.length(); i++) mapping_[i].offsetBy(delta);
+    for (auto& maplet : mapping_) maplet.offsetBy(delta);
   }
   void sort() {
     MOZ_ASSERT(!sorted_);
@@ -233,7 +235,7 @@ class StackMaps {
         }
         return 0;
       }
-      explicit Comparator(uint8_t* aTarget) : mTarget(aTarget) {}
+      explicit Comparator(const uint8_t* aTarget) : mTarget(aTarget) {}
       const uint8_t* mTarget;
     };
 
@@ -263,7 +265,7 @@ class StackMaps {
 // the complete native-ABI-level call signature.
 template <class T>
 static inline size_t StackArgAreaSizeUnaligned(const T& argTypes) {
-  WasmABIArgIter<const T> i(argTypes);
+  jit::WasmABIArgIter<const T> i(argTypes);
   while (!i.done()) {
     i++;
   }
@@ -309,7 +311,7 @@ static inline size_t StackArgAreaSizeAligned(const T& argTypes) {
 // A stackmap creation helper.  Create a stackmap from a vector of booleans.
 // The caller owns the resulting stackmap.
 
-typedef Vector<bool, 128, SystemAllocPolicy> StackMapBoolVector;
+using StackMapBoolVector = Vector<bool, 128, SystemAllocPolicy>;
 
 wasm::StackMap* ConvertStackMapBoolVectorToStackMap(
     const StackMapBoolVector& vec, bool hasRefs);
@@ -334,7 +336,7 @@ wasm::StackMap* ConvertStackMapBoolVectorToStackMap(
 // MacroAssembler::wasmReserveStackChecked, in the case where the frame is
 // "small", as determined by that function.
 [[nodiscard]] bool CreateStackMapForFunctionEntryTrap(
-    const ArgTypeVector& argTypes, const MachineState& trapExitLayout,
+    const ArgTypeVector& argTypes, const jit::MachineState& trapExitLayout,
     size_t trapExitLayoutWords, size_t nBytesReservedBeforeTrap,
     size_t nInboundStackArgBytes, wasm::StackMap** result);
 
@@ -344,7 +346,7 @@ wasm::StackMap* ConvertStackMapBoolVectorToStackMap(
 // |args[0]| corresponds to the low addressed end of the described section of
 // the save area.
 [[nodiscard]] bool GenerateStackmapEntriesForTrapExit(
-    const ArgTypeVector& args, const MachineState& trapExitLayout,
+    const ArgTypeVector& args, const jit::MachineState& trapExitLayout,
     const size_t trapExitLayoutNumWords, ExitStubMapVector* extras);
 
 // Shared write barrier code.
@@ -374,7 +376,7 @@ wasm::StackMap* ConvertStackMapBoolVectorToStackMap(
 //
 // It is OK for `tls` and `scratch` to be the same register.
 
-void EmitWasmPreBarrierGuard(MacroAssembler& masm, Register tls,
+void EmitWasmPreBarrierGuard(jit::MacroAssembler& masm, Register tls,
                              Register scratch, Register valueAddr,
                              Label* skipBarrier);
 
@@ -386,7 +388,7 @@ void EmitWasmPreBarrierGuard(MacroAssembler& masm, Register tls,
 //
 // It is OK for `tls` and `scratch` to be the same register.
 
-void EmitWasmPreBarrierCall(MacroAssembler& masm, Register tls,
+void EmitWasmPreBarrierCall(jit::MacroAssembler& masm, Register tls,
                             Register scratch, Register valueAddr);
 
 // After storing a GC pointer value in memory, skip to `skipBarrier` if a
@@ -397,10 +399,16 @@ void EmitWasmPreBarrierCall(MacroAssembler& masm, Register tls,
 //
 // `otherScratch` cannot be a designated scratch register.
 
-void EmitWasmPostBarrierGuard(MacroAssembler& masm,
+void EmitWasmPostBarrierGuard(jit::MacroAssembler& masm,
                               const Maybe<Register>& object,
                               Register otherScratch, Register setValue,
                               Label* skipBarrier);
+
+#ifdef DEBUG
+// Check whether |nextPC| is a valid code address for a stackmap created by
+// this compiler.
+bool IsValidStackMapKey(bool debugEnabled, const uint8_t* nextPC);
+#endif
 
 }  // namespace wasm
 }  // namespace js

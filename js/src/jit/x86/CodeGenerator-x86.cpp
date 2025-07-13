@@ -16,7 +16,9 @@
 #include "jit/MIRGraph.h"
 #include "js/Conversions.h"
 #include "vm/Shape.h"
-#include "wasm/WasmTypes.h"
+#include "wasm/WasmBuiltins.h"
+#include "wasm/WasmCodegenTypes.h"
+#include "wasm/WasmTlsData.h"
 
 #include "jit/MacroAssembler-inl.h"
 #include "jit/shared/CodeGenerator-shared-inl.h"
@@ -91,6 +93,13 @@ void CodeGenerator::visitBoxFloatingPoint(LBoxFloatingPoint* box) {
   const ValueOperand out = ToOutValue(box);
 
   masm.moveValue(TypedOrValueRegister(box->type(), in), out);
+
+  if (JitOptions.spectreValueMasking) {
+    Register scratch = ToRegister(box->spectreTemp());
+    masm.move32(Imm32(JSVAL_TAG_CLEAR), scratch);
+    masm.cmp32Move32(Assembler::Below, scratch, out.typeReg(), scratch,
+                     out.typeReg());
+  }
 }
 
 void CodeGenerator::visitUnbox(LUnbox* unbox) {
@@ -248,7 +257,7 @@ void CodeGenerator::visitCompareExchangeTypedArrayElement64(
   Register temp2 = edx;
 
   Label fail;
-  masm.newGCBigInt(bigInt, temp2, &fail, bigIntsCanBeInNursery());
+  masm.newGCBigInt(bigInt, temp2, initialBigIntHeap(), &fail);
   masm.initializeBigInt64(arrayType, bigInt, replacement);
   masm.mov(bigInt, out);
   restoreSavedRegisters();
@@ -312,7 +321,7 @@ void CodeGenerator::visitAtomicExchangeTypedArrayElement64(
   Register temp = edx;
 
   Label fail;
-  masm.newGCBigInt(out, temp, &fail, bigIntsCanBeInNursery());
+  masm.newGCBigInt(out, temp, initialBigIntHeap(), &fail);
   masm.initializeBigInt64(arrayType, out, temp1);
   restoreSavedRegisters();
   masm.jump(ool->rejoin());
@@ -386,7 +395,7 @@ void CodeGenerator::visitAtomicTypedArrayElementBinop64(
   Register temp = edx;
 
   Label fail;
-  masm.newGCBigInt(out, temp, &fail, bigIntsCanBeInNursery());
+  masm.newGCBigInt(out, temp, initialBigIntHeap(), &fail);
   masm.initializeBigInt64(arrayType, out, temp1);
   restoreSavedRegisters();
   masm.jump(ool->rejoin());
@@ -1232,7 +1241,7 @@ void CodeGeneratorX86::emitBigIntDiv(LBigIntDiv* ins, Register dividend,
   masm.idiv(divisor);
 
   // Create and return the result.
-  masm.newGCBigInt(output, divisor, fail, bigIntsCanBeInNursery());
+  masm.newGCBigInt(output, divisor, initialBigIntHeap(), fail);
   masm.initializeBigInt(output, dividend);
 }
 
@@ -1253,7 +1262,7 @@ void CodeGeneratorX86::emitBigIntMod(LBigIntMod* ins, Register dividend,
   masm.movl(output, dividend);
 
   // Create and return the result.
-  masm.newGCBigInt(output, divisor, fail, bigIntsCanBeInNursery());
+  masm.newGCBigInt(output, divisor, initialBigIntHeap(), fail);
   masm.initializeBigInt(output, dividend);
 }
 
@@ -1344,6 +1353,14 @@ void CodeGenerator::visitWrapInt64ToInt32(LWrapInt64ToInt32* lir) {
   } else {
     masm.movl(ToRegister(input.high()), output);
   }
+}
+
+void CodeGenerator::visitWasmExtendU32Index(LWasmExtendU32Index*) {
+  MOZ_CRASH("64-bit only");
+}
+
+void CodeGenerator::visitWasmWrapU32Index(LWasmWrapU32Index*) {
+  MOZ_CRASH("64-bit only");
 }
 
 void CodeGenerator::visitClzI64(LClzI64* lir) {

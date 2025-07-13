@@ -38,10 +38,15 @@ static inline AllocKind GetGCObjectKind(const JSClass* clasp) {
              "Proxies should use GetProxyGCObjectKind");
 
   uint32_t nslots = JSCLASS_RESERVED_SLOTS(clasp);
-  if (clasp->flags & JSCLASS_HAS_PRIVATE) {
-    nslots++;
-  }
   return GetGCObjectKind(nslots);
+}
+
+static bool CanUseFixedElementsForArray(size_t numElements) {
+  if (numElements > NativeObject::MAX_DENSE_ELEMENTS_COUNT) {
+    return false;
+  }
+  size_t numSlots = numElements + ObjectElements::VALUES_PER_HEADER;
+  return numSlots < SLOTS_TO_THING_KIND_LIMIT;
 }
 
 /* As for GetGCObjectKind, but for dense array allocation. */
@@ -53,9 +58,7 @@ static inline AllocKind GetGCArrayKind(size_t numElements) {
    * unused.
    */
   static_assert(ObjectElements::VALUES_PER_HEADER == 2);
-  if (numElements > NativeObject::MAX_DENSE_ELEMENTS_COUNT ||
-      numElements + ObjectElements::VALUES_PER_HEADER >=
-          SLOTS_TO_THING_KIND_LIMIT) {
+  if (!CanUseFixedElementsForArray(numElements)) {
     return AllocKind::OBJECT2;
   }
   return slotsToThingKind[numElements + ObjectElements::VALUES_PER_HEADER];
@@ -112,23 +115,15 @@ static inline size_t GetGCKindSlots(AllocKind thingKind) {
 }
 
 static inline size_t GetGCKindSlots(AllocKind thingKind, const JSClass* clasp) {
-  size_t nslots = GetGCKindSlots(thingKind);
-
-  /* An object's private data uses the space taken by its last fixed slot. */
-  if (clasp->flags & JSCLASS_HAS_PRIVATE) {
-    MOZ_ASSERT(nslots > 0);
-    nslots--;
-  }
-
   /*
    * Functions have a larger alloc kind than AllocKind::OBJECT to reserve
    * space for the extra fields in JSFunction, but have no fixed slots.
    */
   if (clasp == FunctionClassPtr) {
-    nslots = 0;
+    return 0;
   }
 
-  return nslots;
+  return GetGCKindSlots(thingKind);
 }
 
 static inline size_t GetGCKindBytes(AllocKind thingKind) {

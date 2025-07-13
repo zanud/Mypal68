@@ -12,6 +12,7 @@
 #include "jsexn.h"
 #include "jsfriendapi.h"
 
+#include "js/CallAndConstruct.h"  // JS::Construct, JS::IsCallable
 #include "js/Debug.h"
 #include "js/experimental/JitInfo.h"  // JSJitGetterOp, JSJitInfo
 #include "js/ForOfIterator.h"         // JS::ForOfIterator
@@ -4119,6 +4120,65 @@ PromiseObject* PromiseObject::unforgeableResolveWithNonPromise(
 }
 
 /**
+ * https://tc39.es/proposal-promise-with-resolvers/
+ *
+ * Promise.withResolvers ( )
+ */
+static bool Promise_static_withResolvers(JSContext* cx, unsigned argc,
+                                         Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+
+  // Step 1. Let C be the this value.
+  RootedValue cVal(cx, args.thisv());
+
+  // Step 2. Let promiseCapability be ? NewPromiseCapability(C).
+  if (!cVal.isObject()) {
+    ReportValueError(cx, JSMSG_NOT_CONSTRUCTOR, JSDVG_SEARCH_STACK, cVal,
+                     nullptr);
+    return false;
+  }
+  RootedObject c(cx, &cVal.toObject());
+  Rooted<PromiseCapability> promiseCapability(cx);
+  if (!NewPromiseCapability(cx, c, &promiseCapability, false)) {
+    return false;
+  }
+
+  // Step 3. Let obj be OrdinaryObjectCreate(%Object.prototype%).
+  Rooted<PlainObject*> obj(cx, NewBuiltinClassInstance<PlainObject>(cx));
+  if (!obj) {
+    return false;
+  }
+
+  // Step 4. Perform ! CreateDataPropertyOrThrow(obj, "promise",
+  // promiseCapability.[[Promise]]).
+  RootedValue v(cx, ObjectValue(*promiseCapability.promise()));
+  if (!NativeDefineDataProperty(cx, obj, cx->names().promise, v,
+                                JSPROP_ENUMERATE)) {
+    return false;
+  }
+
+  // Step 5. Perform ! CreateDataPropertyOrThrow(obj, "resolve",
+  // promiseCapability.[[Resolve]]).
+  v.setObject(*promiseCapability.resolve());
+  if (!NativeDefineDataProperty(cx, obj, cx->names().resolve, v,
+                                JSPROP_ENUMERATE)) {
+    return false;
+  }
+
+  // Step 6. Perform ! CreateDataPropertyOrThrow(obj, "reject",
+  // promiseCapability.[[Reject]]).
+  v.setObject(*promiseCapability.reject());
+  if (!NativeDefineDataProperty(cx, obj, cx->names().reject, v,
+                                JSPROP_ENUMERATE)) {
+    return false;
+  }
+
+  // Step 7. Return obj.
+  args.rval().setObject(*obj);
+  return true;
+}
+
+/**
  * ES2016, 25.4.4.6 get Promise [ @@species ]
  */
 bool js::Promise_static_species(JSContext* cx, unsigned argc, Value* vp) {
@@ -4437,7 +4497,7 @@ static bool OriginalPromiseThenBuiltin(JSContext* cx, HandleValue promiseVal,
 
   if (!cx->isExceptionPending()) {
     // Reject the promise, but also propagate this uncatchable error.
-    mozilla::Unused << PromiseObject::reject(cx, promise, UndefinedHandleValue);
+    (void)PromiseObject::reject(cx, promise, UndefinedHandleValue);
     return false;
   }
 
@@ -5886,6 +5946,7 @@ static const JSFunctionSpec promise_static_methods[] = {
     JS_FN("race", Promise_static_race, 1, 0),
     JS_FN("reject", Promise_reject, 1, 0),
     JS_FN("resolve", js::Promise_static_resolve, 1, 0),
+    JS_FN("withResolvers", Promise_static_withResolvers, 0, 0),
     JS_FS_END};
 
 static const JSPropertySpec promise_static_properties[] = {

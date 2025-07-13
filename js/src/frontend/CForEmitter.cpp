@@ -65,7 +65,7 @@ bool CForEmitter::emitCond(const Maybe<uint32_t>& condPos) {
   }
 
   if (!loopInfo_->emitLoopHead(bce_, condPos)) {
-    //            [stack]
+    //              [stack]
     return false;
   }
 

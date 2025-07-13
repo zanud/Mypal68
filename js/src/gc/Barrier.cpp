@@ -12,7 +12,9 @@
 #include "vm/BigIntType.h"  // JS::BigInt
 #include "vm/EnvironmentObject.h"
 #include "vm/GeneratorObject.h"
+#include "vm/GetterSetter.h"
 #include "vm/JSObject.h"
+#include "vm/PropMap.h"
 #include "vm/Realm.h"
 #include "vm/SharedArrayObject.h"
 #include "vm/SymbolType.h"
@@ -223,7 +225,6 @@ template <typename T>
   // into another runtime. The zone's uid lock will protect against multiple
   // workers doing this simultaneously.
   MOZ_ASSERT(CurrentThreadCanAccessZone(l->zoneFromAnyThread()) ||
-             l->zoneFromAnyThread()->isSelfHostingZone() ||
              CurrentThreadIsPerformingGC());
 
   return l->zoneFromAnyThread()->getHashCodeInfallible(l);
@@ -241,8 +242,7 @@ template <typename T>
 
   MOZ_ASSERT(k);
   MOZ_ASSERT(l);
-  MOZ_ASSERT(CurrentThreadCanAccessZone(l->zoneFromAnyThread()) ||
-             l->zoneFromAnyThread()->isSelfHostingZone());
+  MOZ_ASSERT(CurrentThreadCanAccessZone(l->zoneFromAnyThread()));
 
   Zone* zone = k->zoneFromAnyThread();
   if (zone != l->zoneFromAnyThread()) {
@@ -278,6 +278,7 @@ template struct JS_PUBLIC_API MovableCellHasher<EnvironmentObject*>;
 template struct JS_PUBLIC_API MovableCellHasher<GlobalObject*>;
 template struct JS_PUBLIC_API MovableCellHasher<JSScript*>;
 template struct JS_PUBLIC_API MovableCellHasher<BaseScript*>;
+template struct JS_PUBLIC_API MovableCellHasher<PropMap*>;
 template struct JS_PUBLIC_API MovableCellHasher<ScriptSourceObject*>;
 template struct JS_PUBLIC_API MovableCellHasher<SavedFrame*>;
 template struct JS_PUBLIC_API MovableCellHasher<WasmInstanceObject*>;

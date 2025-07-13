@@ -4060,7 +4060,13 @@ void MacroAssembler::comment(const char* msg) { Assembler::comment(msg); }
 // ===============================================================
 // Stack manipulation functions.
 
+size_t MacroAssembler::PushRegsInMaskSizeInBytes(LiveRegisterSet set) {
+  return set.gprs().size() * sizeof(intptr_t) + set.fpus().getPushSizeInBytes();
+}
+
 void MacroAssembler::PushRegsInMask(LiveRegisterSet set) {
+  mozilla::DebugOnly<size_t> framePushedInitial = framePushed();
+
   int32_t diffF = set.fpus().getPushSizeInBytes();
   int32_t diffG = set.gprs().size() * sizeof(intptr_t);
 
@@ -4083,13 +4089,25 @@ void MacroAssembler::PushRegsInMask(LiveRegisterSet set) {
   }
   MOZ_ASSERT(diffG == 0);
 
+  // It's possible that the logic is just fine as it is if the reduced set
+  // maps SIMD pairs to plain doubles and transferMultipleByRuns() stores
+  // and loads doubles.
+#ifdef ENABLE_WASM_SIMD
+#  error "Needs more careful logic if SIMD is enabled"
+#endif
+
   adjustFrame(diffF);
   diffF += transferMultipleByRuns(set.fpus(), IsStore, StackPointer, DB);
   MOZ_ASSERT(diffF == 0);
+
+  MOZ_ASSERT(framePushed() - framePushedInitial ==
+             PushRegsInMaskSizeInBytes(set));
 }
 
 void MacroAssembler::storeRegsInMask(LiveRegisterSet set, Address dest,
                                      Register scratch) {
+  mozilla::DebugOnly<size_t> offsetInitial = dest.offset;
+
   int32_t diffF = set.fpus().getPushSizeInBytes();
   int32_t diffG = set.gprs().size() * sizeof(intptr_t);
 
@@ -4116,20 +4134,37 @@ void MacroAssembler::storeRegsInMask(LiveRegisterSet set, Address dest,
   }
   MOZ_ASSERT(diffG == 0);
 
+  // See above.
+#ifdef ENABLE_WASM_SIMD
+#  error "Needs more careful logic if SIMD is enabled"
+#endif
+
+  MOZ_ASSERT(diffF >= 0);
   if (diffF > 0) {
     computeEffectiveAddress(dest, scratch);
     diffF += transferMultipleByRuns(set.fpus(), IsStore, scratch, DB);
   }
 
   MOZ_ASSERT(diffF == 0);
+
+  // "The amount of space actually used does not exceed what
+  // `PushRegsInMaskSizeInBytes` claims will be used."
+  MOZ_ASSERT(offsetInitial - dest.offset <= PushRegsInMaskSizeInBytes(set));
 }
 
 void MacroAssembler::PopRegsInMaskIgnore(LiveRegisterSet set,
                                          LiveRegisterSet ignore) {
+  mozilla::DebugOnly<size_t> framePushedInitial = framePushed();
+
   int32_t diffG = set.gprs().size() * sizeof(intptr_t);
   int32_t diffF = set.fpus().getPushSizeInBytes();
   const int32_t reservedG = diffG;
   const int32_t reservedF = diffF;
+
+  // See above.
+#ifdef ENABLE_WASM_SIMD
+#  error "Needs more careful logic if SIMD is enabled"
+#endif
 
   // ARM can load multiple registers at once, but only if we want back all
   // the registers we previously saved to the stack.
@@ -4169,6 +4204,9 @@ void MacroAssembler::PopRegsInMaskIgnore(LiveRegisterSet set,
     freeStack(reservedG);
   }
   MOZ_ASSERT(diffG == 0);
+
+  MOZ_ASSERT(framePushedInitial - framePushed() ==
+             PushRegsInMaskSizeInBytes(set));
 }
 
 void MacroAssembler::Push(Register reg) {
@@ -4505,10 +4543,10 @@ void MacroAssembler::moveValue(const TypedOrValueRegister& src,
   AnyRegister reg = src.typedReg();
 
   if (!IsFloatingPointType(type)) {
-    mov(ImmWord(MIRTypeToTag(type)), dest.typeReg());
     if (reg.gpr() != dest.payloadReg()) {
       mov(reg.gpr(), dest.payloadReg());
     }
+    mov(ImmWord(MIRTypeToTag(type)), dest.typeReg());
     return;
   }
 
@@ -4690,8 +4728,6 @@ void MacroAssembler::wasmBoundsCheck32(Condition cond, Register index,
 void MacroAssembler::wasmBoundsCheck32(Condition cond, Register index,
                                        Address boundsCheckLimit, Label* label) {
   ScratchRegisterScope scratch(*this);
-  MOZ_ASSERT(boundsCheckLimit.offset ==
-             offsetof(wasm::TlsData, boundsCheckLimit32));
   ma_ldr(DTRAddr(boundsCheckLimit.base, DtrOffImm(boundsCheckLimit.offset)),
          scratch);
   as_cmp(index, O2Reg(scratch));

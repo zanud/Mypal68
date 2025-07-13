@@ -8,7 +8,8 @@
 #include "jit/mips-shared/MacroAssembler-mips-shared.h"
 #include "jit/MoveResolver.h"
 #include "vm/BytecodeUtil.h"
-#include "wasm/WasmTypes.h"
+#include "wasm/WasmBuiltins.h"
+#include "wasm/WasmTlsData.h"
 
 namespace js {
 namespace jit {
@@ -558,6 +559,10 @@ class MacroAssemblerMIPS64Compat : public MacroAssemblerMIPS64 {
   void storeValue(const Address& src, const Address& dest, Register temp) {
     loadPtr(src, temp);
     storePtr(temp, dest);
+  }
+
+  void storePrivateValue(Register src, const Address& dest) {
+    storePtr(src, dest);
   }
 
   void loadValue(Address src, ValueOperand val);

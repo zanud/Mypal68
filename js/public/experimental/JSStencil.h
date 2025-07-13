@@ -12,16 +12,16 @@
  * building script loaders.
  */
 
-#include "mozilla/RefPtr.h"
-#include "mozilla/UniquePtr.h"  // mozilla::UniquePtr
-#include "mozilla/Utf8.h"       // mozilla::Utf8Unit
+#include "mozilla/RefPtr.h"  // RefPtr, already_AddRefed
+#include "mozilla/Utf8.h"    // mozilla::Utf8Unit
 
 #include <stddef.h>  // size_t
 
-#include "jstypes.h"  // JS_FRIEND_API
+#include "jstypes.h"  // JS_PUBLIC_API
 
-#include "js/CompileOptions.h"  // JS::ReadOnlyCompileOptions
-#include "js/SourceText.h"      // JS::SourceText
+#include "js/CompileOptions.h"              // JS::ReadOnlyCompileOptions
+#include "js/OffThreadScriptCompilation.h"  // JS::OffThreadCompileCallback
+#include "js/SourceText.h"                  // JS::SourceText
 #include "js/Transcoding.h"
 
 struct JS_PUBLIC_API JSContext;
@@ -32,6 +32,8 @@ struct CompilationStencil;
 };
 
 namespace JS {
+
+class OffThreadToken;
 
 using Stencil = js::frontend::CompilationStencil;
 
@@ -50,9 +52,37 @@ JS_PUBLIC_API void StencilRelease(Stencil* stencil);
 extern JS_PUBLIC_API already_AddRefed<Stencil> CompileGlobalScriptToStencil(
     JSContext* cx, const ReadOnlyCompileOptions& options,
     SourceText<mozilla::Utf8Unit>& srcBuf);
+extern JS_PUBLIC_API already_AddRefed<Stencil> CompileGlobalScriptToStencil(
+    JSContext* cx, const ReadOnlyCompileOptions& options,
+    SourceText<char16_t>& srcBuf);
+
+// Compile the source text into a JS::Stencil using "module" parse goal. The
+// ECMAScript spec defines special semantics so we use a seperate entry point
+// here for clarity. The result is still a JS::Stencil, but should use the
+// appropriate instantiate API below.
+extern JS_PUBLIC_API already_AddRefed<Stencil> CompileModuleScriptToStencil(
+    JSContext* cx, const ReadOnlyCompileOptions& options,
+    SourceText<mozilla::Utf8Unit>& srcBuf);
+extern JS_PUBLIC_API already_AddRefed<Stencil> CompileModuleScriptToStencil(
+    JSContext* cx, const ReadOnlyCompileOptions& options,
+    SourceText<char16_t>& srcBuf);
+
+// Off-thread compilation uses the normal off-thread APIs but uses a special
+// finish method to avoid automatic instantiation. This is used for both global
+// and modules compiles.
+//
+// NOTE: CompileOptions::useOffThreadParseGlobal must be false.
+extern JS_PUBLIC_API already_AddRefed<Stencil> FinishOffThreadStencil(
+    JSContext* cx, JS::OffThreadToken* token);
 
 // Instantiate the Stencil into current Realm and return the JSScript.
 extern JS_PUBLIC_API JSScript* InstantiateGlobalStencil(
+    JSContext* cx, const ReadOnlyCompileOptions& options,
+    RefPtr<Stencil> stencil);
+
+// Instantiate a module Stencil and return the associated object. Inside the
+// engine this is a js::ModuleObject.
+extern JS_PUBLIC_API JSObject* InstantiateModuleStencil(
     JSContext* cx, const ReadOnlyCompileOptions& options,
     RefPtr<Stencil> stencil);
 
@@ -65,6 +95,19 @@ EncodeStencil(JSContext* cx, const JS::ReadOnlyCompileOptions& options,
 extern JS_PUBLIC_API TranscodeResult
 DecodeStencil(JSContext* cx, const ReadOnlyCompileOptions& options,
               const TranscodeRange& range, RefPtr<Stencil>& stencilOut);
+
+extern JS_PUBLIC_API OffThreadToken* CompileToStencilOffThread(
+    JSContext* cx, const ReadOnlyCompileOptions& options,
+    SourceText<char16_t>& srcBuf, OffThreadCompileCallback callback,
+    void* callbackData);
+
+extern JS_PUBLIC_API OffThreadToken* CompileToStencilOffThread(
+    JSContext* cx, const ReadOnlyCompileOptions& options,
+    SourceText<mozilla::Utf8Unit>& srcBuf, OffThreadCompileCallback callback,
+    void* callbackData);
+
+extern JS_PUBLIC_API RefPtr<Stencil> FinishOffThreadCompileToStencil(
+    JSContext* cx, OffThreadToken* token);
 
 }  // namespace JS
 

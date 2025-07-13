@@ -494,8 +494,12 @@ class LDefinition {
     SLOTS,       // Slots/elements pointer that may be moved by minor GCs (GPR).
     FLOAT32,     // 32-bit floating-point value (FPU).
     DOUBLE,      // 64-bit floating-point value (FPU).
+#ifdef ENABLE_WASM_SIMD
+    SIMD128,  // 128-bit SIMD vector (FPU).
+#else
     SIMD128INT,  // 128-bit SIMD integer vector (FPU).
     SIMD128FLOAT,  // 128-bit SIMD floating point vector (FPU).
+#endif
     STACKRESULTS,  // A variable-size stack allocation that may contain objects.
 #ifdef JS_NUNBOX32
     // A type virtual register must be followed by a payload virtual
@@ -539,9 +543,11 @@ class LDefinition {
     return (Policy)((bits_ >> POLICY_SHIFT) & POLICY_MASK);
   }
   Type type() const { return (Type)((bits_ >> TYPE_SHIFT) & TYPE_MASK); }
+#ifndef ENABLE_WASM_SIMD
   bool isSimdType() const {
     return type() == SIMD128INT || type() == SIMD128FLOAT;
   }
+#endif
   bool isCompatibleReg(const AnyRegister& r) const {
     if (isFloatReg() && r.isFloat()) {
       if (type() == FLOAT32) {
@@ -550,7 +556,11 @@ class LDefinition {
       if (type() == DOUBLE) {
         return r.fpu().isDouble();
       }
+#ifdef ENABLE_WASM_SIMD
+      if (type() == SIMD128) {
+#else
       if (isSimdType()) {
+#endif
         return r.fpu().isSimd128();
       }
       MOZ_CRASH("Unexpected MDefinition type");
@@ -569,7 +579,11 @@ class LDefinition {
   }
 
   bool isFloatReg() const {
+#ifdef ENABLE_WASM_SIMD
+    return type() == FLOAT32 || type() == DOUBLE || type() == SIMD128;
+#else
     return type() == FLOAT32 || type() == DOUBLE || isSimdType();
+#endif
   }
   uint32_t virtualRegister() const {
     uint32_t index = (bits_ >> VREG_SHIFT) & VREG_MASK;
@@ -635,6 +649,10 @@ class LDefinition {
 #endif
       case MIRType::StackResults:
         return LDefinition::STACKRESULTS;
+#ifdef ENABLE_WASM_SIMD
+      case MIRType::Simd128:
+        return LDefinition::SIMD128;
+#else
       case MIRType::Int8x16:
       case MIRType::Int16x8:
       case MIRType::Int32x4:
@@ -644,6 +662,7 @@ class LDefinition {
         return LDefinition::SIMD128INT;
       case MIRType::Float32x4:
         return LDefinition::SIMD128FLOAT;
+#endif
       default:
         MOZ_CRASH("unexpected type");
     }

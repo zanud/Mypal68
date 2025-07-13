@@ -284,8 +284,6 @@ struct JSCodeSpec {
   int8_t nuses;    /* arity, -1 if variadic */
   int8_t ndefs;    /* number of stack results */
   uint32_t format; /* immediate operand format */
-
-  uint32_t type() const { return JOF_TYPE(format); }
 };
 
 namespace js {
@@ -429,39 +427,6 @@ static inline unsigned GetBytecodeLength(const jsbytecode* pc) {
 static inline bool BytecodeIsPopped(jsbytecode* pc) {
   jsbytecode* next = pc + GetBytecodeLength(pc);
   return JSOp(*next) == JSOp::Pop;
-}
-
-static inline bool BytecodeFlowsToBitop(jsbytecode* pc) {
-  // Look for simple bytecode for integer conversions like (x | 0) or (x & -1).
-  jsbytecode* next = pc + GetBytecodeLength(pc);
-  if (JSOp(*next) == JSOp::BitOr || JSOp(*next) == JSOp::BitAnd) {
-    return true;
-  }
-  if (JSOp(*next) == JSOp::Int8 && GET_INT8(next) == -1) {
-    next += GetBytecodeLength(next);
-    if (JSOp(*next) == JSOp::BitAnd) {
-      return true;
-    }
-    return false;
-  }
-  if (JSOp(*next) == JSOp::One) {
-    next += GetBytecodeLength(next);
-    if (JSOp(*next) == JSOp::Neg) {
-      next += GetBytecodeLength(next);
-      if (JSOp(*next) == JSOp::BitAnd) {
-        return true;
-      }
-    }
-    return false;
-  }
-  if (JSOp(*next) == JSOp::Zero) {
-    next += GetBytecodeLength(next);
-    if (JSOp(*next) == JSOp::BitOr) {
-      return true;
-    }
-    return false;
-  }
-  return false;
 }
 
 extern bool IsValidBytecodeOffset(JSContext* cx, JSScript* script,
@@ -608,7 +573,7 @@ inline void GetCheckPrivateFieldOperands(jsbytecode* pc,
 
   MOZ_ASSERT(*throwCondition == ThrowCondition::ThrowHas ||
              *throwCondition == ThrowCondition::ThrowHasNot ||
-             *throwCondition == ThrowCondition::NoThrow);
+             *throwCondition == ThrowCondition::OnlyCheckRhs);
 
   MOZ_ASSERT(*throwKind == ThrowMsgKind::PrivateDoubleInit ||
              *throwKind == ThrowMsgKind::MissingPrivateOnGet ||

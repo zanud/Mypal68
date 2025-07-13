@@ -5,8 +5,9 @@
 #ifndef js_AllocationRecording_h
 #define js_AllocationRecording_h
 
+#include <stdint.h>
+#include "jstypes.h"
 #include "js/TypeDecls.h"
-#include "js/Utility.h"
 
 namespace JS {
 
@@ -55,7 +56,7 @@ typedef void (*RecordAllocationsCallback)(RecordAllocationInfo&& info);
  * time, the Debugger's probability defers to the EnableRecordingAllocations's
  * probability setting.
  */
-JS_FRIEND_API void EnableRecordingAllocations(
+JS_PUBLIC_API void EnableRecordingAllocations(
     JSContext* cx, RecordAllocationsCallback callback, double probability);
 
 /**
@@ -63,7 +64,7 @@ JS_FRIEND_API void EnableRecordingAllocations(
  * allocations, then the probability will be reset to the Debugger's desired
  * setting.
  */
-JS_FRIEND_API void DisableRecordingAllocations(JSContext* cx);
+JS_PUBLIC_API void DisableRecordingAllocations(JSContext* cx);
 
 }  // namespace JS
 

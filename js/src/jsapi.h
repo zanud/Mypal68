@@ -11,7 +11,6 @@
 #include "mozilla/FloatingPoint.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/MemoryReporting.h"
-#include "mozilla/Range.h"
 #include "mozilla/RangedPtr.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/Utf8.h"
@@ -25,23 +24,31 @@
 #include "jspubtd.h"
 
 #include "js/AllocPolicy.h"
+#include "js/CallAndConstruct.h"  // JS::Call, JS_CallFunction, JS_CallFunctionName, JS_CallFunctionValue
 #include "js/CallArgs.h"
 #include "js/CharacterEncoding.h"
 #include "js/Class.h"
 #include "js/CompileOptions.h"
+#include "js/Context.h"
 #include "js/ErrorReport.h"
+#include "js/Exception.h"
+#include "js/GCAPI.h"
 #include "js/GCVector.h"
 #include "js/HashTable.h"
 #include "js/Id.h"
+#include "js/MapAndSet.h"
 #include "js/MemoryFunctions.h"
 #include "js/OffThreadScriptCompilation.h"
 #include "js/Principals.h"
+#include "js/PropertyAndElement.h"  // JS_Enumerate
 #include "js/PropertyDescriptor.h"
 #include "js/PropertySpec.h"
 #include "js/Realm.h"
+#include "js/RealmIterators.h"
 #include "js/RealmOptions.h"
 #include "js/RefCounted.h"
 #include "js/RootingAPI.h"
+#include "js/String.h"
 #include "js/TracingAPI.h"
 #include "js/Transcoding.h"
 #include "js/UniquePtr.h"
@@ -49,6 +56,18 @@
 #include "js/Value.h"
 #include "js/ValueArray.h"
 #include "js/Vector.h"
+#include "js/WeakMap.h"
+#include "js/Zone.h"
+
+/************************************************************************/
+
+namespace JS {
+/**
+ * Tell JS engine whether to use fdlibm for Math.sin, Math.cos, and Math.tan.
+ * Using fdlibm ensures that we don't expose a math fingerprint.
+ */
+extern JS_PUBLIC_API void SetUseFdlibmForSinCosTan(bool value);
+}  // namespace JS
 
 /************************************************************************/
 
@@ -67,33 +86,16 @@ using IdVector = JS::GCVector<jsid>;
 using ScriptVector = JS::GCVector<JSScript*>;
 using StringVector = JS::GCVector<JSString*>;
 
-/**
- * Custom rooting behavior for internal and external clients.
- */
-class MOZ_RAII JS_PUBLIC_API CustomAutoRooter : private AutoGCRooter {
- public:
-  template <typename CX>
-  explicit CustomAutoRooter(const CX& cx)
-      : AutoGCRooter(cx, AutoGCRooter::Kind::Custom) {}
-
-  friend void AutoGCRooter::trace(JSTracer* trc);
-
- protected:
-  virtual ~CustomAutoRooter() = default;
-
-  /** Supplied by derived class to trace roots. */
-  virtual void trace(JSTracer* trc) = 0;
-
- private:
-};
-
 } /* namespace JS */
 
 /* Callbacks and their arguments. */
 
 /************************************************************************/
-using JSGetElementCallback = JSObject* (*)(JSContext* aCx,
-                                           JS::HandleValue privateValue);
+
+// Callback for the embedding to map from a ScriptSourceObject private-value to
+// an object that is exposed as the source "element" in debugger API.  This hook
+// must be infallible, but can return nullptr if no such element exists.
+using JSSourceElementCallback = JSObject* (*)(JSContext*, JS::HandleValue);
 
 using JSInterruptCallback = bool (*)(JSContext*);
 
@@ -122,13 +124,6 @@ struct JSWrapObjectCallbacks {
   JSWrapObjectCallback wrap;
   JSPreWrapCallback preWrap;
 };
-
-using JSDestroyZoneCallback = void (*)(JSFreeOp*, JS::Zone*);
-
-using JSDestroyCompartmentCallback = void (*)(JSFreeOp*, JS::Compartment*);
-
-using JSSizeOfIncludingThisCompartmentCallback =
-    size_t (*)(mozilla::MallocSizeOf, JS::Compartment*);
 
 /**
  * Callback used to intercept JavaScript errors.
@@ -162,11 +157,6 @@ JS_PUBLIC_API bool JS_StringHasBeenPinned(JSContext* cx, JSString* str);
 /** Microseconds since the epoch, midnight, January 1, 1970 UTC. */
 extern JS_PUBLIC_API int64_t JS_Now(void);
 
-/** Don't want to export data, so provide accessors for non-inline Values. */
-extern JS_PUBLIC_API JS::Value JS_GetEmptyStringValue(JSContext* cx);
-
-extern JS_PUBLIC_API JSString* JS_GetEmptyString(JSContext* cx);
-
 extern JS_PUBLIC_API bool JS_ValueToObject(JSContext* cx, JS::HandleValue v,
                                            JS::MutableHandleObject objp);
 
@@ -196,116 +186,6 @@ extern JS_PUBLIC_API bool JS_IsBuiltinEvalFunction(JSFunction* fun);
 /** True iff fun is the Function constructor. */
 extern JS_PUBLIC_API bool JS_IsBuiltinFunctionConstructor(JSFunction* fun);
 
-/************************************************************************/
-
-// [SMDOC] Data Structures (JSContext, JSRuntime, Realm, Compartment, Zone)
-//
-// SpiderMonkey uses some data structures that behave a lot like Russian dolls:
-// runtimes contain zones, zones contain compartments, compartments contain
-// realms. Each layer has its own purpose.
-//
-// Realm
-// -----
-// Data associated with a global object. In the browser each frame has its
-// own global/realm.
-//
-// Compartment
-// -----------
-// Security membrane; when an object from compartment A is used in compartment
-// B, a cross-compartment wrapper (a kind of proxy) is used. In the browser,
-// same-origin realms can share a compartment.
-//
-// Zone
-// ----
-// A Zone is a group of compartments that share GC resources (arenas, strings,
-// etc) for memory usage and performance reasons. Zone is the GC unit: the GC
-// can operate on one or more zones at a time. The browser uses roughly one zone
-// per tab.
-//
-// Context
-// -------
-// JSContext represents a thread: there must be exactly one JSContext for each
-// thread running JS/Wasm.
-//
-// Internally, helper threads can also have a JSContext. They do not always have
-// an active context, but one may be requested by AutoSetHelperThreadContext,
-// which activates a pre-allocated JSContext for the duration of its lifetime.
-//
-// Runtime
-// -------
-// JSRuntime is very similar to JSContext: each runtime belongs to one context
-// (thread), but helper threads don't have their own runtimes (they're shared by
-// all runtimes in the process and use the runtime of the task they're
-// executing).
-
-/*
- * Locking, contexts, and memory allocation.
- *
- * It is important that SpiderMonkey be initialized, and the first context
- * be created, in a single-threaded fashion.  Otherwise the behavior of the
- * library is undefined.
- * See:
- * https://developer.mozilla.org/en-US/docs/Mozilla/Projects/SpiderMonkey/JSAPI_reference
- */
-
-// Create a new context (and runtime) for this thread.
-extern JS_PUBLIC_API JSContext* JS_NewContext(
-    uint32_t maxbytes, JSRuntime* parentRuntime = nullptr);
-
-// Destroy a context allocated with JS_NewContext. Must be called on the thread
-// that called JS_NewContext.
-extern JS_PUBLIC_API void JS_DestroyContext(JSContext* cx);
-
-JS_PUBLIC_API void* JS_GetContextPrivate(JSContext* cx);
-
-JS_PUBLIC_API void JS_SetContextPrivate(JSContext* cx, void* data);
-
-extern JS_PUBLIC_API JSRuntime* JS_GetParentRuntime(JSContext* cx);
-
-extern JS_PUBLIC_API JSRuntime* JS_GetRuntime(JSContext* cx);
-
-extern JS_PUBLIC_API void JS_SetFutexCanWait(JSContext* cx);
-
-namespace js {
-
-void AssertHeapIsIdle();
-
-} /* namespace js */
-
-namespace JS {
-
-/**
- * Initialize the runtime's self-hosted code. Embeddings should call this
- * exactly once per runtime/context, before the first JS_NewGlobalObject
- * call.
- *
- * NOTE: This may not set a pending exception in the case of OOM since this
- *       runs very early in startup.
- */
-JS_PUBLIC_API bool InitSelfHostedCode(JSContext* cx);
-
-/**
- * Asserts (in debug and release builds) that `obj` belongs to the current
- * thread's context.
- */
-JS_PUBLIC_API void AssertObjectBelongsToCurrentThread(JSObject* obj);
-
-/**
- * Install a process-wide callback to validate script filenames. The JS engine
- * will invoke this callback for each JS script it parses or XDR decodes.
- *
- * If the callback returns |false|, an exception is thrown and parsing/decoding
- * will be aborted.
- *
- * See also CompileOptions::setSkipFilenameValidation to opt-out of the callback
- * for specific parse jobs.
- */
-using FilenameValidationCallback = bool (*)(const char* filename,
-                                            bool isSystemRealm);
-JS_PUBLIC_API void SetFilenameValidationCallback(FilenameValidationCallback cb);
-
-} /* namespace JS */
-
 /**
  * Set callback to send tasks to XPCOM thread pools
  */
@@ -313,15 +193,6 @@ JS_PUBLIC_API void SetHelperThreadTaskCallback(
     bool (*callback)(js::UniquePtr<js::RunnableTask>));
 
 extern JS_PUBLIC_API const char* JS_GetImplementationVersion(void);
-
-extern JS_PUBLIC_API void JS_SetDestroyZoneCallback(
-    JSContext* cx, JSDestroyZoneCallback callback);
-
-extern JS_PUBLIC_API void JS_SetDestroyCompartmentCallback(
-    JSContext* cx, JSDestroyCompartmentCallback callback);
-
-extern JS_PUBLIC_API void JS_SetSizeOfIncludingThisCompartmentCallback(
-    JSContext* cx, JSSizeOfIncludingThisCompartmentCallback callback);
 
 extern JS_PUBLIC_API void JS_SetWrapObjectCallbacks(
     JSContext* cx, const JSWrapObjectCallbacks* callbacks);
@@ -351,16 +222,6 @@ extern JS_PUBLIC_API JSErrorInterceptor* JS_GetErrorInterceptorCallback(
 extern JS_PUBLIC_API mozilla::Maybe<JSExnType> JS_GetErrorType(
     const JS::Value& val);
 
-extern JS_PUBLIC_API void JS_SetCompartmentPrivate(JS::Compartment* compartment,
-                                                   void* data);
-
-extern JS_PUBLIC_API void* JS_GetCompartmentPrivate(
-    JS::Compartment* compartment);
-
-extern JS_PUBLIC_API void JS_SetZoneUserData(JS::Zone* zone, void* data);
-
-extern JS_PUBLIC_API void* JS_GetZoneUserData(JS::Zone* zone);
-
 extern JS_PUBLIC_API bool JS_WrapObject(JSContext* cx,
                                         JS::MutableHandleObject objp);
 
@@ -370,157 +231,6 @@ extern JS_PUBLIC_API bool JS_WrapValue(JSContext* cx,
 extern JS_PUBLIC_API JSObject* JS_TransplantObject(JSContext* cx,
                                                    JS::HandleObject origobj,
                                                    JS::HandleObject target);
-
-extern JS_PUBLIC_API bool JS_RefreshCrossCompartmentWrappers(
-    JSContext* cx, JS::Handle<JSObject*> obj);
-
-/*
- * At any time, a JSContext has a current (possibly-nullptr) realm.
- * Realms are described in:
- *
- *   developer.mozilla.org/en-US/docs/SpiderMonkey/SpiderMonkey_compartments
- *
- * The current realm of a context may be changed. The preferred way to do
- * this is with JSAutoRealm:
- *
- *   void foo(JSContext* cx, JSObject* obj) {
- *     // in some realm 'r'
- *     {
- *       JSAutoRealm ar(cx, obj);  // constructor enters
- *       // in the realm of 'obj'
- *     }                           // destructor leaves
- *     // back in realm 'r'
- *   }
- *
- * The object passed to JSAutoRealm must *not* be a cross-compartment wrapper,
- * because CCWs are not associated with a single realm.
- *
- * For more complicated uses that don't neatly fit in a C++ stack frame, the
- * realm can be entered and left using separate function calls:
- *
- *   void foo(JSContext* cx, JSObject* obj) {
- *     // in 'oldRealm'
- *     JS::Realm* oldRealm = JS::EnterRealm(cx, obj);
- *     // in the realm of 'obj'
- *     JS::LeaveRealm(cx, oldRealm);
- *     // back in 'oldRealm'
- *   }
- *
- * Note: these calls must still execute in a LIFO manner w.r.t all other
- * enter/leave calls on the context. Furthermore, only the return value of a
- * JS::EnterRealm call may be passed as the 'oldRealm' argument of
- * the corresponding JS::LeaveRealm call.
- *
- * Entering a realm roots the realm and its global object for the lifetime of
- * the JSAutoRealm.
- */
-
-class MOZ_RAII JS_PUBLIC_API JSAutoRealm {
-  JSContext* cx_;
-  JS::Realm* oldRealm_;
-
- public:
-  JSAutoRealm(JSContext* cx, JSObject* target);
-  JSAutoRealm(JSContext* cx, JSScript* target);
-  ~JSAutoRealm();
-};
-
-class MOZ_RAII JS_PUBLIC_API JSAutoNullableRealm {
-  JSContext* cx_;
-  JS::Realm* oldRealm_;
-
- public:
-  explicit JSAutoNullableRealm(JSContext* cx, JSObject* targetOrNull);
-  ~JSAutoNullableRealm();
-};
-
-namespace JS {
-
-/** NB: This API is infallible; a nullptr return value does not indicate error.
- *
- * |target| must not be a cross-compartment wrapper because CCWs are not
- * associated with a single realm.
- *
- * Entering a realm roots the realm and its global object until the matching
- * JS::LeaveRealm() call.
- */
-extern JS_PUBLIC_API JS::Realm* EnterRealm(JSContext* cx, JSObject* target);
-
-extern JS_PUBLIC_API void LeaveRealm(JSContext* cx, JS::Realm* oldRealm);
-
-using IterateRealmCallback = void (*)(JSContext* cx, void* data, Realm* realm,
-                                      const AutoRequireNoGC& nogc);
-
-/**
- * This function calls |realmCallback| on every realm. Beware that there is no
- * guarantee that the realm will survive after the callback returns. Also,
- * barriers are disabled via the TraceSession.
- */
-extern JS_PUBLIC_API void IterateRealms(JSContext* cx, void* data,
-                                        IterateRealmCallback realmCallback);
-
-/**
- * Like IterateRealms, but only call the callback for realms using |principals|.
- */
-extern JS_PUBLIC_API void IterateRealmsWithPrincipals(
-    JSContext* cx, JSPrincipals* principals, void* data,
-    IterateRealmCallback realmCallback);
-
-/**
- * Like IterateRealms, but only iterates realms in |compartment|.
- */
-extern JS_PUBLIC_API void IterateRealmsInCompartment(
-    JSContext* cx, JS::Compartment* compartment, void* data,
-    IterateRealmCallback realmCallback);
-
-}  // namespace JS
-
-/**
- * An enum that JSIterateCompartmentCallback can return to indicate
- * whether to keep iterating.
- */
-namespace JS {
-enum class CompartmentIterResult { KeepGoing, Stop };
-}  // namespace JS
-
-using JSIterateCompartmentCallback =
-    JS::CompartmentIterResult (*)(JSContext*, void*, JS::Compartment*);
-
-/**
- * This function calls |compartmentCallback| on every compartment until either
- * all compartments have been iterated or CompartmentIterResult::Stop is
- * returned. Beware that there is no guarantee that the compartment will survive
- * after the callback returns. Also, barriers are disabled via the TraceSession.
- */
-extern JS_PUBLIC_API void JS_IterateCompartments(
-    JSContext* cx, void* data,
-    JSIterateCompartmentCallback compartmentCallback);
-
-/**
- * This function calls |compartmentCallback| on every compartment in the given
- * zone until either all compartments have been iterated or
- * CompartmentIterResult::Stop is returned. Beware that there is no guarantee
- * that the compartment will survive after the callback returns. Also, barriers
- * are disabled via the TraceSession.
- */
-extern JS_PUBLIC_API void JS_IterateCompartmentsInZone(
-    JSContext* cx, JS::Zone* zone, void* data,
-    JSIterateCompartmentCallback compartmentCallback);
-
-/**
- * Mark a jsid after entering a new compartment. Different zones separately
- * mark the ids in a runtime, and this must be used any time an id is obtained
- * from one compartment and then used in another compartment, unless the two
- * compartments are guaranteed to be in the same zone.
- */
-extern JS_PUBLIC_API void JS_MarkCrossZoneId(JSContext* cx, jsid id);
-
-/**
- * If value stores a jsid (an atomized string or symbol), mark that id as for
- * JS_MarkCrossZoneId.
- */
-extern JS_PUBLIC_API void JS_MarkCrossZoneIdValue(JSContext* cx,
-                                                  const JS::Value& value);
 
 /**
  * Resolve id, which must contain either a string or an int, to a standard
@@ -756,8 +466,7 @@ extern JS_PUBLIC_API bool InstanceofOperator(JSContext* cx, HandleObject obj,
 
 }  // namespace JS
 
-extern JS_PUBLIC_API void JS_InitPrivate(JSObject* obj, void* data,
-                                         size_t nbytes, JS::MemoryUse use);
+extern JS_PUBLIC_API void SetPrivate(JSObject* obj, void* data);
 
 extern JS_PUBLIC_API void* JS_GetInstancePrivate(JSContext* cx,
                                                  JS::Handle<JSObject*> obj,
@@ -949,409 +658,6 @@ extern JS_PUBLIC_API bool JS_SetImmutablePrototype(JSContext* cx,
                                                    bool* succeeded);
 
 /**
- * Get a description of one of obj's own properties. If no such property exists
- * on obj, return true with desc.object() set to null.
- *
- * Implements: ES6 [[GetOwnProperty]] internal method.
- */
-extern JS_PUBLIC_API bool JS_GetOwnPropertyDescriptorById(
-    JSContext* cx, JS::HandleObject obj, JS::HandleId id,
-    JS::MutableHandle<JS::PropertyDescriptor> desc);
-
-extern JS_PUBLIC_API bool JS_GetOwnPropertyDescriptor(
-    JSContext* cx, JS::HandleObject obj, const char* name,
-    JS::MutableHandle<JS::PropertyDescriptor> desc);
-
-extern JS_PUBLIC_API bool JS_GetOwnUCPropertyDescriptor(
-    JSContext* cx, JS::HandleObject obj, const char16_t* name, size_t namelen,
-    JS::MutableHandle<JS::PropertyDescriptor> desc);
-
-/**
- * Like JS_GetOwnPropertyDescriptorById, but also searches the prototype chain
- * if no own property is found directly on obj. The object on which the
- * property is found is returned in desc.object(). If the property is not found
- * on the prototype chain, this returns true with desc.object() set to null.
- */
-extern JS_PUBLIC_API bool JS_GetPropertyDescriptorById(
-    JSContext* cx, JS::HandleObject obj, JS::HandleId id,
-    JS::MutableHandle<JS::PropertyDescriptor> desc);
-
-extern JS_PUBLIC_API bool JS_GetPropertyDescriptor(
-    JSContext* cx, JS::HandleObject obj, const char* name,
-    JS::MutableHandle<JS::PropertyDescriptor> desc);
-
-extern JS_PUBLIC_API bool JS_GetUCPropertyDescriptor(
-    JSContext* cx, JS::HandleObject obj, const char16_t* name, size_t namelen,
-    JS::MutableHandle<JS::PropertyDescriptor> desc);
-
-/**
- * Define a property on obj.
- *
- * This function uses JS::ObjectOpResult to indicate conditions that ES6
- * specifies as non-error failures. This is inconvenient at best, so use this
- * function only if you are implementing a proxy handler's defineProperty()
- * method. For all other purposes, use one of the many DefineProperty functions
- * below that throw an exception in all failure cases.
- *
- * Implements: ES6 [[DefineOwnProperty]] internal method.
- */
-extern JS_PUBLIC_API bool JS_DefinePropertyById(
-    JSContext* cx, JS::HandleObject obj, JS::HandleId id,
-    JS::Handle<JS::PropertyDescriptor> desc, JS::ObjectOpResult& result);
-
-/**
- * Define a property on obj, throwing a TypeError if the attempt fails.
- * This is the C++ equivalent of `Object.defineProperty(obj, id, desc)`.
- */
-extern JS_PUBLIC_API bool JS_DefinePropertyById(
-    JSContext* cx, JS::HandleObject obj, JS::HandleId id,
-    JS::Handle<JS::PropertyDescriptor> desc);
-
-extern JS_PUBLIC_API bool JS_DefinePropertyById(JSContext* cx,
-                                                JS::HandleObject obj,
-                                                JS::HandleId id,
-                                                JS::HandleValue value,
-                                                unsigned attrs);
-
-extern JS_PUBLIC_API bool JS_DefinePropertyById(
-    JSContext* cx, JS::HandleObject obj, JS::HandleId id, JSNative getter,
-    JSNative setter, unsigned attrs);
-
-extern JS_PUBLIC_API bool JS_DefinePropertyById(
-    JSContext* cx, JS::HandleObject obj, JS::HandleId id,
-    JS::HandleObject getter, JS::HandleObject setter, unsigned attrs);
-
-extern JS_PUBLIC_API bool JS_DefinePropertyById(JSContext* cx,
-                                                JS::HandleObject obj,
-                                                JS::HandleId id,
-                                                JS::HandleObject value,
-                                                unsigned attrs);
-
-extern JS_PUBLIC_API bool JS_DefinePropertyById(JSContext* cx,
-                                                JS::HandleObject obj,
-                                                JS::HandleId id,
-                                                JS::HandleString value,
-                                                unsigned attrs);
-
-extern JS_PUBLIC_API bool JS_DefinePropertyById(JSContext* cx,
-                                                JS::HandleObject obj,
-                                                JS::HandleId id, int32_t value,
-                                                unsigned attrs);
-
-extern JS_PUBLIC_API bool JS_DefinePropertyById(JSContext* cx,
-                                                JS::HandleObject obj,
-                                                JS::HandleId id, uint32_t value,
-                                                unsigned attrs);
-
-extern JS_PUBLIC_API bool JS_DefinePropertyById(JSContext* cx,
-                                                JS::HandleObject obj,
-                                                JS::HandleId id, double value,
-                                                unsigned attrs);
-
-extern JS_PUBLIC_API bool JS_DefineProperty(JSContext* cx, JS::HandleObject obj,
-                                            const char* name,
-                                            JS::HandleValue value,
-                                            unsigned attrs);
-
-extern JS_PUBLIC_API bool JS_DefineProperty(JSContext* cx, JS::HandleObject obj,
-                                            const char* name, JSNative getter,
-                                            JSNative setter, unsigned attrs);
-
-extern JS_PUBLIC_API bool JS_DefineProperty(JSContext* cx, JS::HandleObject obj,
-                                            const char* name,
-                                            JS::HandleObject getter,
-                                            JS::HandleObject setter,
-                                            unsigned attrs);
-
-extern JS_PUBLIC_API bool JS_DefineProperty(JSContext* cx, JS::HandleObject obj,
-                                            const char* name,
-                                            JS::HandleObject value,
-                                            unsigned attrs);
-
-extern JS_PUBLIC_API bool JS_DefineProperty(JSContext* cx, JS::HandleObject obj,
-                                            const char* name,
-                                            JS::HandleString value,
-                                            unsigned attrs);
-
-extern JS_PUBLIC_API bool JS_DefineProperty(JSContext* cx, JS::HandleObject obj,
-                                            const char* name, int32_t value,
-                                            unsigned attrs);
-
-extern JS_PUBLIC_API bool JS_DefineProperty(JSContext* cx, JS::HandleObject obj,
-                                            const char* name, uint32_t value,
-                                            unsigned attrs);
-
-extern JS_PUBLIC_API bool JS_DefineProperty(JSContext* cx, JS::HandleObject obj,
-                                            const char* name, double value,
-                                            unsigned attrs);
-
-extern JS_PUBLIC_API bool JS_DefineUCProperty(
-    JSContext* cx, JS::HandleObject obj, const char16_t* name, size_t namelen,
-    JS::Handle<JS::PropertyDescriptor> desc, JS::ObjectOpResult& result);
-
-extern JS_PUBLIC_API bool JS_DefineUCProperty(
-    JSContext* cx, JS::HandleObject obj, const char16_t* name, size_t namelen,
-    JS::Handle<JS::PropertyDescriptor> desc);
-
-extern JS_PUBLIC_API bool JS_DefineUCProperty(
-    JSContext* cx, JS::HandleObject obj, const char16_t* name, size_t namelen,
-    JS::HandleValue value, unsigned attrs);
-
-extern JS_PUBLIC_API bool JS_DefineUCProperty(
-    JSContext* cx, JS::HandleObject obj, const char16_t* name, size_t namelen,
-    JS::HandleObject getter, JS::HandleObject setter, unsigned attrs);
-
-extern JS_PUBLIC_API bool JS_DefineUCProperty(
-    JSContext* cx, JS::HandleObject obj, const char16_t* name, size_t namelen,
-    JS::HandleObject value, unsigned attrs);
-
-extern JS_PUBLIC_API bool JS_DefineUCProperty(
-    JSContext* cx, JS::HandleObject obj, const char16_t* name, size_t namelen,
-    JS::HandleString value, unsigned attrs);
-
-extern JS_PUBLIC_API bool JS_DefineUCProperty(JSContext* cx,
-                                              JS::HandleObject obj,
-                                              const char16_t* name,
-                                              size_t namelen, int32_t value,
-                                              unsigned attrs);
-
-extern JS_PUBLIC_API bool JS_DefineUCProperty(JSContext* cx,
-                                              JS::HandleObject obj,
-                                              const char16_t* name,
-                                              size_t namelen, uint32_t value,
-                                              unsigned attrs);
-
-extern JS_PUBLIC_API bool JS_DefineUCProperty(JSContext* cx,
-                                              JS::HandleObject obj,
-                                              const char16_t* name,
-                                              size_t namelen, double value,
-                                              unsigned attrs);
-
-extern JS_PUBLIC_API bool JS_DefineElement(JSContext* cx, JS::HandleObject obj,
-                                           uint32_t index,
-                                           JS::HandleValue value,
-                                           unsigned attrs);
-
-extern JS_PUBLIC_API bool JS_DefineElement(JSContext* cx, JS::HandleObject obj,
-                                           uint32_t index,
-                                           JS::HandleObject getter,
-                                           JS::HandleObject setter,
-                                           unsigned attrs);
-
-extern JS_PUBLIC_API bool JS_DefineElement(JSContext* cx, JS::HandleObject obj,
-                                           uint32_t index,
-                                           JS::HandleObject value,
-                                           unsigned attrs);
-
-extern JS_PUBLIC_API bool JS_DefineElement(JSContext* cx, JS::HandleObject obj,
-                                           uint32_t index,
-                                           JS::HandleString value,
-                                           unsigned attrs);
-
-extern JS_PUBLIC_API bool JS_DefineElement(JSContext* cx, JS::HandleObject obj,
-                                           uint32_t index, int32_t value,
-                                           unsigned attrs);
-
-extern JS_PUBLIC_API bool JS_DefineElement(JSContext* cx, JS::HandleObject obj,
-                                           uint32_t index, uint32_t value,
-                                           unsigned attrs);
-
-extern JS_PUBLIC_API bool JS_DefineElement(JSContext* cx, JS::HandleObject obj,
-                                           uint32_t index, double value,
-                                           unsigned attrs);
-
-/**
- * Compute the expression `id in obj`.
- *
- * If obj has an own or inherited property obj[id], set *foundp = true and
- * return true. If not, set *foundp = false and return true. On error, return
- * false with an exception pending.
- *
- * Implements: ES6 [[Has]] internal method.
- */
-extern JS_PUBLIC_API bool JS_HasPropertyById(JSContext* cx,
-                                             JS::HandleObject obj,
-                                             JS::HandleId id, bool* foundp);
-
-extern JS_PUBLIC_API bool JS_HasProperty(JSContext* cx, JS::HandleObject obj,
-                                         const char* name, bool* foundp);
-
-extern JS_PUBLIC_API bool JS_HasUCProperty(JSContext* cx, JS::HandleObject obj,
-                                           const char16_t* name, size_t namelen,
-                                           bool* vp);
-
-extern JS_PUBLIC_API bool JS_HasElement(JSContext* cx, JS::HandleObject obj,
-                                        uint32_t index, bool* foundp);
-
-/**
- * Determine whether obj has an own property with the key `id`.
- *
- * Implements: ES6 7.3.11 HasOwnProperty(O, P).
- */
-extern JS_PUBLIC_API bool JS_HasOwnPropertyById(JSContext* cx,
-                                                JS::HandleObject obj,
-                                                JS::HandleId id, bool* foundp);
-
-extern JS_PUBLIC_API bool JS_HasOwnProperty(JSContext* cx, JS::HandleObject obj,
-                                            const char* name, bool* foundp);
-
-/**
- * Get the value of the property `obj[id]`, or undefined if no such property
- * exists. This is the C++ equivalent of `vp = Reflect.get(obj, id, receiver)`.
- *
- * Most callers don't need the `receiver` argument. Consider using
- * JS_GetProperty instead. (But if you're implementing a proxy handler's set()
- * method, it's often correct to call this function and pass the receiver
- * through.)
- *
- * Implements: ES6 [[Get]] internal method.
- */
-extern JS_PUBLIC_API bool JS_ForwardGetPropertyTo(JSContext* cx,
-                                                  JS::HandleObject obj,
-                                                  JS::HandleId id,
-                                                  JS::HandleValue receiver,
-                                                  JS::MutableHandleValue vp);
-
-extern JS_PUBLIC_API bool JS_ForwardGetElementTo(JSContext* cx,
-                                                 JS::HandleObject obj,
-                                                 uint32_t index,
-                                                 JS::HandleObject receiver,
-                                                 JS::MutableHandleValue vp);
-
-/**
- * Get the value of the property `obj[id]`, or undefined if no such property
- * exists. The result is stored in vp.
- *
- * Implements: ES6 7.3.1 Get(O, P).
- */
-extern JS_PUBLIC_API bool JS_GetPropertyById(JSContext* cx,
-                                             JS::HandleObject obj,
-                                             JS::HandleId id,
-                                             JS::MutableHandleValue vp);
-
-extern JS_PUBLIC_API bool JS_GetProperty(JSContext* cx, JS::HandleObject obj,
-                                         const char* name,
-                                         JS::MutableHandleValue vp);
-
-extern JS_PUBLIC_API bool JS_GetUCProperty(JSContext* cx, JS::HandleObject obj,
-                                           const char16_t* name, size_t namelen,
-                                           JS::MutableHandleValue vp);
-
-extern JS_PUBLIC_API bool JS_GetElement(JSContext* cx, JS::HandleObject obj,
-                                        uint32_t index,
-                                        JS::MutableHandleValue vp);
-
-/**
- * Perform the same property assignment as `Reflect.set(obj, id, v, receiver)`.
- *
- * This function has a `receiver` argument that most callers don't need.
- * Consider using JS_SetProperty instead.
- *
- * Implements: ES6 [[Set]] internal method.
- */
-extern JS_PUBLIC_API bool JS_ForwardSetPropertyTo(
-    JSContext* cx, JS::HandleObject obj, JS::HandleId id, JS::HandleValue v,
-    JS::HandleValue receiver, JS::ObjectOpResult& result);
-
-/**
- * Perform the assignment `obj[id] = v`.
- *
- * This function performs non-strict assignment, so if the property is
- * read-only, nothing happens and no error is thrown.
- */
-extern JS_PUBLIC_API bool JS_SetPropertyById(JSContext* cx,
-                                             JS::HandleObject obj,
-                                             JS::HandleId id,
-                                             JS::HandleValue v);
-
-extern JS_PUBLIC_API bool JS_SetProperty(JSContext* cx, JS::HandleObject obj,
-                                         const char* name, JS::HandleValue v);
-
-extern JS_PUBLIC_API bool JS_SetUCProperty(JSContext* cx, JS::HandleObject obj,
-                                           const char16_t* name, size_t namelen,
-                                           JS::HandleValue v);
-
-extern JS_PUBLIC_API bool JS_SetElement(JSContext* cx, JS::HandleObject obj,
-                                        uint32_t index, JS::HandleValue v);
-
-extern JS_PUBLIC_API bool JS_SetElement(JSContext* cx, JS::HandleObject obj,
-                                        uint32_t index, JS::HandleObject v);
-
-extern JS_PUBLIC_API bool JS_SetElement(JSContext* cx, JS::HandleObject obj,
-                                        uint32_t index, JS::HandleString v);
-
-extern JS_PUBLIC_API bool JS_SetElement(JSContext* cx, JS::HandleObject obj,
-                                        uint32_t index, int32_t v);
-
-extern JS_PUBLIC_API bool JS_SetElement(JSContext* cx, JS::HandleObject obj,
-                                        uint32_t index, uint32_t v);
-
-extern JS_PUBLIC_API bool JS_SetElement(JSContext* cx, JS::HandleObject obj,
-                                        uint32_t index, double v);
-
-/**
- * Delete a property. This is the C++ equivalent of
- * `result = Reflect.deleteProperty(obj, id)`.
- *
- * This function has a `result` out parameter that most callers don't need.
- * Unless you can pass through an ObjectOpResult provided by your caller, it's
- * probably best to use the JS_DeletePropertyById signature with just 3
- * arguments.
- *
- * Implements: ES6 [[Delete]] internal method.
- */
-extern JS_PUBLIC_API bool JS_DeletePropertyById(JSContext* cx,
-                                                JS::HandleObject obj,
-                                                JS::HandleId id,
-                                                JS::ObjectOpResult& result);
-
-extern JS_PUBLIC_API bool JS_DeleteProperty(JSContext* cx, JS::HandleObject obj,
-                                            const char* name,
-                                            JS::ObjectOpResult& result);
-
-extern JS_PUBLIC_API bool JS_DeleteUCProperty(JSContext* cx,
-                                              JS::HandleObject obj,
-                                              const char16_t* name,
-                                              size_t namelen,
-                                              JS::ObjectOpResult& result);
-
-extern JS_PUBLIC_API bool JS_DeleteElement(JSContext* cx, JS::HandleObject obj,
-                                           uint32_t index,
-                                           JS::ObjectOpResult& result);
-
-/**
- * Delete a property, ignoring strict failures. This is the C++ equivalent of
- * the JS `delete obj[id]` in non-strict mode code.
- */
-extern JS_PUBLIC_API bool JS_DeletePropertyById(JSContext* cx,
-                                                JS::HandleObject obj, jsid id);
-
-extern JS_PUBLIC_API bool JS_DeleteProperty(JSContext* cx, JS::HandleObject obj,
-                                            const char* name);
-
-extern JS_PUBLIC_API bool JS_DeleteElement(JSContext* cx, JS::HandleObject obj,
-                                           uint32_t index);
-
-/**
- * Get an array of the non-symbol enumerable properties of obj.
- * This function is roughly equivalent to:
- *
- *     var result = [];
- *     for (key in obj) {
- *         result.push(key);
- *     }
- *     return result;
- *
- * This is the closest thing we currently have to the ES6 [[Enumerate]]
- * internal method.
- *
- * The array of ids returned by JS_Enumerate must be rooted to protect its
- * contents from garbage collection. Use JS::Rooted<JS::IdVector>.
- */
-extern JS_PUBLIC_API bool JS_Enumerate(JSContext* cx, JS::HandleObject obj,
-                                       JS::MutableHandle<JS::IdVector> props);
-
-/**
  * Equivalent to `Object.assign(target, src)`: Copies the properties from the
  * `src` object (which must not be null) to `target` (which also must not be
  * null).
@@ -1359,166 +665,6 @@ extern JS_PUBLIC_API bool JS_Enumerate(JSContext* cx, JS::HandleObject obj,
 extern JS_PUBLIC_API bool JS_AssignObject(JSContext* cx,
                                           JS::HandleObject target,
                                           JS::HandleObject src);
-
-/*
- * API for determining callability and constructability. [[Call]] and
- * [[Construct]] are internal methods that aren't present on all objects, so it
- * is useful to ask if they are there or not. The standard itself asks these
- * questions routinely.
- */
-namespace JS {
-
-/**
- * Return true if the given object is callable. In ES6 terms, an object is
- * callable if it has a [[Call]] internal method.
- *
- * Implements: ES6 7.2.3 IsCallable(argument).
- *
- * Functions are callable. A scripted proxy or wrapper is callable if its
- * target is callable. Most other objects aren't callable.
- */
-extern JS_PUBLIC_API bool IsCallable(JSObject* obj);
-
-/**
- * Return true if the given object is a constructor. In ES6 terms, an object is
- * a constructor if it has a [[Construct]] internal method. The expression
- * `new obj()` throws a TypeError if obj is not a constructor.
- *
- * Implements: ES6 7.2.4 IsConstructor(argument).
- *
- * JS functions and classes are constructors. Arrow functions and most builtin
- * functions are not. A scripted proxy or wrapper is a constructor if its
- * target is a constructor.
- */
-extern JS_PUBLIC_API bool IsConstructor(JSObject* obj);
-
-} /* namespace JS */
-
-/**
- * Call a function, passing a this-value and arguments. This is the C++
- * equivalent of `rval = Reflect.apply(fun, obj, args)`.
- *
- * Implements: ES6 7.3.12 Call(F, V, [argumentsList]).
- * Use this function to invoke the [[Call]] internal method.
- */
-extern JS_PUBLIC_API bool JS_CallFunctionValue(JSContext* cx,
-                                               JS::HandleObject obj,
-                                               JS::HandleValue fval,
-                                               const JS::HandleValueArray& args,
-                                               JS::MutableHandleValue rval);
-
-extern JS_PUBLIC_API bool JS_CallFunction(JSContext* cx, JS::HandleObject obj,
-                                          JS::HandleFunction fun,
-                                          const JS::HandleValueArray& args,
-                                          JS::MutableHandleValue rval);
-
-/**
- * Perform the method call `rval = obj[name](args)`.
- */
-extern JS_PUBLIC_API bool JS_CallFunctionName(JSContext* cx,
-                                              JS::HandleObject obj,
-                                              const char* name,
-                                              const JS::HandleValueArray& args,
-                                              JS::MutableHandleValue rval);
-
-namespace JS {
-
-static inline bool Call(JSContext* cx, JS::HandleObject thisObj,
-                        JS::HandleFunction fun,
-                        const JS::HandleValueArray& args,
-                        MutableHandleValue rval) {
-  return !!JS_CallFunction(cx, thisObj, fun, args, rval);
-}
-
-static inline bool Call(JSContext* cx, JS::HandleObject thisObj,
-                        JS::HandleValue fun, const JS::HandleValueArray& args,
-                        MutableHandleValue rval) {
-  return !!JS_CallFunctionValue(cx, thisObj, fun, args, rval);
-}
-
-static inline bool Call(JSContext* cx, JS::HandleObject thisObj,
-                        const char* name, const JS::HandleValueArray& args,
-                        MutableHandleValue rval) {
-  return !!JS_CallFunctionName(cx, thisObj, name, args, rval);
-}
-
-extern JS_PUBLIC_API bool Call(JSContext* cx, JS::HandleValue thisv,
-                               JS::HandleValue fun,
-                               const JS::HandleValueArray& args,
-                               MutableHandleValue rval);
-
-static inline bool Call(JSContext* cx, JS::HandleValue thisv,
-                        JS::HandleObject funObj,
-                        const JS::HandleValueArray& args,
-                        MutableHandleValue rval) {
-  MOZ_ASSERT(funObj);
-  JS::RootedValue fun(cx, JS::ObjectValue(*funObj));
-  return Call(cx, thisv, fun, args, rval);
-}
-
-/**
- * Invoke a constructor. This is the C++ equivalent of
- * `rval = Reflect.construct(fun, args, newTarget)`.
- *
- * JS::Construct() takes a `newTarget` argument that most callers don't need.
- * Consider using the four-argument Construct signature instead. (But if you're
- * implementing a subclass or a proxy handler's construct() method, this is the
- * right function to call.)
- *
- * Implements: ES6 7.3.13 Construct(F, [argumentsList], [newTarget]).
- * Use this function to invoke the [[Construct]] internal method.
- */
-extern JS_PUBLIC_API bool Construct(JSContext* cx, JS::HandleValue fun,
-                                    HandleObject newTarget,
-                                    const JS::HandleValueArray& args,
-                                    MutableHandleObject objp);
-
-/**
- * Invoke a constructor. This is the C++ equivalent of
- * `rval = new fun(...args)`.
- *
- * Implements: ES6 7.3.13 Construct(F, [argumentsList], [newTarget]), when
- * newTarget is omitted.
- */
-extern JS_PUBLIC_API bool Construct(JSContext* cx, JS::HandleValue fun,
-                                    const JS::HandleValueArray& args,
-                                    MutableHandleObject objp);
-
-} /* namespace JS */
-
-/*** Other property-defining functions **************************************/
-
-extern JS_PUBLIC_API JSObject* JS_DefineObject(JSContext* cx,
-                                               JS::HandleObject obj,
-                                               const char* name,
-                                               const JSClass* clasp = nullptr,
-                                               unsigned attrs = 0);
-
-extern JS_PUBLIC_API bool JS_DefineProperties(JSContext* cx,
-                                              JS::HandleObject obj,
-                                              const JSPropertySpec* ps);
-
-/* * */
-
-extern JS_PUBLIC_API bool JS_AlreadyHasOwnPropertyById(JSContext* cx,
-                                                       JS::HandleObject obj,
-                                                       JS::HandleId id,
-                                                       bool* foundp);
-
-extern JS_PUBLIC_API bool JS_AlreadyHasOwnProperty(JSContext* cx,
-                                                   JS::HandleObject obj,
-                                                   const char* name,
-                                                   bool* foundp);
-
-extern JS_PUBLIC_API bool JS_AlreadyHasOwnUCProperty(JSContext* cx,
-                                                     JS::HandleObject obj,
-                                                     const char16_t* name,
-                                                     size_t namelen,
-                                                     bool* foundp);
-
-extern JS_PUBLIC_API bool JS_AlreadyHasOwnElement(JSContext* cx,
-                                                  JS::HandleObject obj,
-                                                  uint32_t index, bool* foundp);
 
 namespace JS {
 
@@ -1562,9 +708,6 @@ void JS_InitReservedSlot(JSObject* obj, uint32_t index, T* ptr,
                          JS::MemoryUse use) {
   JS_InitReservedSlot(obj, index, ptr, sizeof(T), use);
 }
-
-extern JS_PUBLIC_API void JS_InitPrivate(JSObject* obj, void* data,
-                                         size_t nbytes, JS::MemoryUse use);
 
 /************************************************************************/
 
@@ -1655,22 +798,6 @@ extern JS_PUBLIC_API bool JS_IsNativeFunction(JSObject* funobj, JSNative call);
 
 /** Return whether the given function is a valid constructor. */
 extern JS_PUBLIC_API bool JS_IsConstructor(JSFunction* fun);
-
-extern JS_PUBLIC_API bool JS_DefineFunctions(JSContext* cx,
-                                             JS::Handle<JSObject*> obj,
-                                             const JSFunctionSpec* fs);
-
-extern JS_PUBLIC_API JSFunction* JS_DefineFunction(
-    JSContext* cx, JS::Handle<JSObject*> obj, const char* name, JSNative call,
-    unsigned nargs, unsigned attrs);
-
-extern JS_PUBLIC_API JSFunction* JS_DefineUCFunction(
-    JSContext* cx, JS::Handle<JSObject*> obj, const char16_t* name,
-    size_t namelen, JSNative call, unsigned nargs, unsigned attrs);
-
-extern JS_PUBLIC_API JSFunction* JS_DefineFunctionById(
-    JSContext* cx, JS::Handle<JSObject*> obj, JS::Handle<jsid> id,
-    JSNative call, unsigned nargs, unsigned attrs);
 
 extern JS_PUBLIC_API bool JS_IsFunctionBound(JSFunction* fun);
 
@@ -1949,288 +1076,6 @@ class MOZ_STACK_CLASS JS_PUBLIC_API AutoSetAsyncStackForNewCalls {
 
 /************************************************************************/
 
-/*
- * Strings.
- *
- * NB: JS_NewUCString takes ownership of bytes on success, avoiding a copy;
- * but on error (signified by null return), it leaves chars owned by the
- * caller. So the caller must free bytes in the error case, if it has no use
- * for them. In contrast, all the JS_New*StringCopy* functions do not take
- * ownership of the character memory passed to them -- they copy it.
- */
-extern JS_PUBLIC_API JSString* JS_NewStringCopyN(JSContext* cx, const char* s,
-                                                 size_t n);
-
-extern JS_PUBLIC_API JSString* JS_NewStringCopyZ(JSContext* cx, const char* s);
-
-extern JS_PUBLIC_API JSString* JS_NewStringCopyUTF8Z(
-    JSContext* cx, const JS::ConstUTF8CharsZ s);
-
-extern JS_PUBLIC_API JSString* JS_NewStringCopyUTF8N(JSContext* cx,
-                                                     const JS::UTF8Chars s);
-
-extern JS_PUBLIC_API JSString* JS_AtomizeAndPinJSString(JSContext* cx,
-                                                        JS::HandleString str);
-
-extern JS_PUBLIC_API JSString* JS_AtomizeStringN(JSContext* cx, const char* s,
-                                                 size_t length);
-
-extern JS_PUBLIC_API JSString* JS_AtomizeString(JSContext* cx, const char* s);
-
-extern JS_PUBLIC_API JSString* JS_AtomizeAndPinStringN(JSContext* cx,
-                                                       const char* s,
-                                                       size_t length);
-
-extern JS_PUBLIC_API JSString* JS_AtomizeAndPinString(JSContext* cx,
-                                                      const char* s);
-
-extern JS_PUBLIC_API JSString* JS_NewLatin1String(
-    JSContext* cx, js::UniquePtr<JS::Latin1Char[], JS::FreePolicy> chars,
-    size_t length);
-
-extern JS_PUBLIC_API JSString* JS_NewUCString(JSContext* cx,
-                                              JS::UniqueTwoByteChars chars,
-                                              size_t length);
-
-extern JS_PUBLIC_API JSString* JS_NewUCStringDontDeflate(
-    JSContext* cx, JS::UniqueTwoByteChars chars, size_t length);
-
-extern JS_PUBLIC_API JSString* JS_NewUCStringCopyN(JSContext* cx,
-                                                   const char16_t* s, size_t n);
-
-extern JS_PUBLIC_API JSString* JS_NewUCStringCopyZ(JSContext* cx,
-                                                   const char16_t* s);
-
-extern JS_PUBLIC_API JSString* JS_AtomizeUCStringN(JSContext* cx,
-                                                   const char16_t* s,
-                                                   size_t length);
-
-extern JS_PUBLIC_API JSString* JS_AtomizeUCString(JSContext* cx,
-                                                  const char16_t* s);
-
-extern JS_PUBLIC_API JSString* JS_AtomizeAndPinUCStringN(JSContext* cx,
-                                                         const char16_t* s,
-                                                         size_t length);
-
-extern JS_PUBLIC_API JSString* JS_AtomizeAndPinUCString(JSContext* cx,
-                                                        const char16_t* s);
-
-extern JS_PUBLIC_API bool JS_CompareStrings(JSContext* cx, JSString* str1,
-                                            JSString* str2, int32_t* result);
-
-[[nodiscard]] extern JS_PUBLIC_API bool JS_StringEqualsAscii(
-    JSContext* cx, JSString* str, const char* asciiBytes, bool* match);
-
-// Same as above, but when the length of asciiBytes (excluding the
-// trailing null, if any) is known.
-[[nodiscard]] extern JS_PUBLIC_API bool JS_StringEqualsAscii(
-    JSContext* cx, JSString* str, const char* asciiBytes, size_t length,
-    bool* match);
-
-template <size_t N>
-[[nodiscard]] bool JS_StringEqualsLiteral(JSContext* cx, JSString* str,
-                                          const char (&asciiBytes)[N],
-                                          bool* match) {
-  MOZ_ASSERT(asciiBytes[N - 1] == '\0');
-  return JS_StringEqualsAscii(cx, str, asciiBytes, N - 1, match);
-}
-
-extern JS_PUBLIC_API size_t JS_PutEscapedString(JSContext* cx, char* buffer,
-                                                size_t size, JSString* str,
-                                                char quote);
-
-/*
- * Extracting string characters and length.
- *
- * While getting the length of a string is infallible, getting the chars can
- * fail. As indicated by the lack of a JSContext parameter, there are two
- * special cases where getting the chars is infallible:
- *
- * The first case is for strings that have been atomized, e.g. directly by
- * JS_AtomizeAndPinString or implicitly because it is stored in a jsid.
- *
- * The second case is "linear" strings that have been explicitly prepared in a
- * fallible context by JS_EnsureLinearString. To catch errors, a separate opaque
- * JSLinearString type is returned by JS_EnsureLinearString and expected by
- * JS_Get{Latin1,TwoByte}StringCharsAndLength. Note, though, that this is purely
- * a syntactic distinction: the input and output of JS_EnsureLinearString are
- * the same actual GC-thing. If a JSString is known to be linear,
- * JS_ASSERT_STRING_IS_LINEAR can be used to make a debug-checked cast. Example:
- *
- *   // In a fallible context.
- *   JSLinearString* lstr = JS_EnsureLinearString(cx, str);
- *   if (!lstr) {
- *     return false;
- *   }
- *   MOZ_ASSERT(lstr == JS_ASSERT_STRING_IS_LINEAR(str));
- *
- *   // In an infallible context, for the same 'str'.
- *   AutoCheckCannotGC nogc;
- *   const char16_t* chars = JS::GetTwoByteLinearStringChars(nogc, lstr)
- *   MOZ_ASSERT(chars);
- *
- * Note: JS strings (including linear strings and atoms) are not
- * null-terminated!
- *
- * Additionally, string characters are stored as either Latin1Char (8-bit)
- * or char16_t (16-bit). Clients can use JS::StringHasLatin1Chars and can then
- * call either the Latin1* or TwoByte* functions. Some functions like
- * JS_CopyStringChars and JS_GetStringCharAt accept both Latin1 and TwoByte
- * strings.
- */
-
-extern JS_PUBLIC_API size_t JS_GetStringLength(JSString* str);
-
-extern JS_PUBLIC_API bool JS_StringIsLinear(JSString* str);
-
-extern JS_PUBLIC_API const JS::Latin1Char* JS_GetLatin1StringCharsAndLength(
-    JSContext* cx, const JS::AutoRequireNoGC& nogc, JSString* str,
-    size_t* length);
-
-extern JS_PUBLIC_API const char16_t* JS_GetTwoByteStringCharsAndLength(
-    JSContext* cx, const JS::AutoRequireNoGC& nogc, JSString* str,
-    size_t* length);
-
-extern JS_PUBLIC_API bool JS_GetStringCharAt(JSContext* cx, JSString* str,
-                                             size_t index, char16_t* res);
-
-extern JS_PUBLIC_API const char16_t* JS_GetTwoByteExternalStringChars(
-    JSString* str);
-
-extern JS_PUBLIC_API bool JS_CopyStringChars(JSContext* cx,
-                                             mozilla::Range<char16_t> dest,
-                                             JSString* str);
-
-/**
- * Copies the string's characters to a null-terminated char16_t buffer.
- *
- * Returns nullptr on OOM.
- */
-extern JS_PUBLIC_API JS::UniqueTwoByteChars JS_CopyStringCharsZ(JSContext* cx,
-                                                                JSString* str);
-
-extern JS_PUBLIC_API JSLinearString* JS_EnsureLinearString(JSContext* cx,
-                                                           JSString* str);
-
-static MOZ_ALWAYS_INLINE JSLinearString* JSID_TO_LINEAR_STRING(jsid id) {
-  MOZ_ASSERT(JSID_IS_STRING(id));
-  return reinterpret_cast<JSLinearString*>(JSID_TO_STRING(id));
-}
-
-static MOZ_ALWAYS_INLINE JSLinearString* JS_ASSERT_STRING_IS_LINEAR(
-    JSString* str) {
-  MOZ_ASSERT(JS_StringIsLinear(str));
-  return reinterpret_cast<JSLinearString*>(str);
-}
-
-static MOZ_ALWAYS_INLINE JSString* JS_FORGET_STRING_LINEARNESS(
-    JSLinearString* str) {
-  return reinterpret_cast<JSString*>(str);
-}
-
-/*
- * Additional APIs that avoid fallibility when given a linear string.
- */
-
-extern JS_PUBLIC_API bool JS_LinearStringEqualsAscii(JSLinearString* str,
-                                                     const char* asciiBytes);
-extern JS_PUBLIC_API bool JS_LinearStringEqualsAscii(JSLinearString* str,
-                                                     const char* asciiBytes,
-                                                     size_t length);
-
-template <size_t N>
-bool JS_LinearStringEqualsLiteral(JSLinearString* str,
-                                  const char (&asciiBytes)[N]) {
-  MOZ_ASSERT(asciiBytes[N - 1] == '\0');
-  return JS_LinearStringEqualsAscii(str, asciiBytes, N - 1);
-}
-
-extern JS_PUBLIC_API size_t JS_PutEscapedLinearString(char* buffer, size_t size,
-                                                      JSLinearString* str,
-                                                      char quote);
-
-/**
- * Create a dependent string, i.e., a string that owns no character storage,
- * but that refers to a slice of another string's chars.  Dependent strings
- * are mutable by definition, so the thread safety comments above apply.
- */
-extern JS_PUBLIC_API JSString* JS_NewDependentString(JSContext* cx,
-                                                     JS::HandleString str,
-                                                     size_t start,
-                                                     size_t length);
-
-/**
- * Concatenate two strings, possibly resulting in a rope.
- * See above for thread safety comments.
- */
-extern JS_PUBLIC_API JSString* JS_ConcatStrings(JSContext* cx,
-                                                JS::HandleString left,
-                                                JS::HandleString right);
-
-/**
- * For JS_DecodeBytes, set *dstlenp to the size of the destination buffer before
- * the call; on return, *dstlenp contains the number of characters actually
- * stored. To determine the necessary destination buffer size, make a sizing
- * call that passes nullptr for dst.
- *
- * On errors, the functions report the error. In that case, *dstlenp contains
- * the number of characters or bytes transferred so far.  If cx is nullptr, no
- * error is reported on failure, and the functions simply return false.
- *
- * NB: This function does not store an additional zero byte or char16_t after
- * the transcoded string.
- */
-JS_PUBLIC_API bool JS_DecodeBytes(JSContext* cx, const char* src, size_t srclen,
-                                  char16_t* dst, size_t* dstlenp);
-
-/**
- * Get number of bytes in the string encoding (without accounting for a
- * terminating zero bytes. The function returns (size_t) -1 if the string
- * can not be encoded into bytes and reports an error using cx accordingly.
- */
-JS_PUBLIC_API size_t JS_GetStringEncodingLength(JSContext* cx, JSString* str);
-
-/**
- * Encode string into a buffer. The function does not stores an additional
- * zero byte. The function returns (size_t) -1 if the string can not be
- * encoded into bytes with no error reported. Otherwise it returns the number
- * of bytes that are necessary to encode the string. If that exceeds the
- * length parameter, the string will be cut and only length bytes will be
- * written into the buffer.
- */
-[[nodiscard]] JS_PUBLIC_API bool JS_EncodeStringToBuffer(JSContext* cx,
-                                                         JSString* str,
-                                                         char* buffer,
-                                                         size_t length);
-
-/**
- * Encode as many scalar values of the string as UTF-8 as can fit
- * into the caller-provided buffer replacing unpaired surrogates
- * with the REPLACEMENT CHARACTER.
- *
- * If JS::StringHasLatin1Chars(str) returns true, the function
- * is guaranteed to convert the entire string if
- * buffer.Length() >= 2 * JS_GetStringLength(str). Otherwise,
- * the function is guaranteed to convert the entire string if
- * buffer.Length() >= 3 * JS_GetStringLength(str).
- *
- * This function does not alter the representation of |str| or
- * any |JSString*| substring that is a constituent part of it.
- * Returns mozilla::Nothing() on OOM, without reporting an error;
- * some data may have been written to |buffer| when this happens.
- *
- * If there's no OOM, returns the number of code units read and
- * the number of code units written.
- *
- * The semantics of this method match the semantics of
- * TextEncoder.encodeInto().
- *
- * The function does not store an additional zero byte.
- */
-JS_PUBLIC_API mozilla::Maybe<mozilla::Tuple<size_t, size_t> >
-JS_EncodeStringToUTF8BufferPartial(JSContext* cx, JSString* str,
-                                   mozilla::Span<char> buffer);
-
 namespace JS {
 
 JS_PUBLIC_API bool PropertySpecNameEqualsId(JSPropertySpec::Name name,
@@ -2248,316 +1093,10 @@ JS_PUBLIC_API bool PropertySpecNameToPermanentId(JSContext* cx,
                                                  JSPropertySpec::Name name,
                                                  jsid* idp);
 
-} /* namespace JS */
-
-/************************************************************************/
-
-/*
- * Error reporting.
- *
- * There are four encoding variants for the error reporting API:
- *   UTF-8
- *     JSAPI's default encoding for error handling.  Use this when the encoding
- *     of the error message, format string, and arguments is UTF-8.
- *   ASCII
- *     Equivalent to UTF-8, but also asserts that the error message, format
- *     string, and arguments are all ASCII.  Because ASCII is a subset of UTF-8,
- *     any use of this encoding variant *could* be replaced with use of the
- *     UTF-8 variant.  This variant exists solely to double-check the
- *     developer's assumption that all these strings truly are ASCII, given that
- *     UTF-8 and ASCII strings regrettably have the same C++ type.
- *   UC = UTF-16
- *     Use this when arguments are UTF-16.  The format string must be UTF-8.
- *   Latin1 (planned to be removed)
- *     In this variant, all strings are interpreted byte-for-byte as the
- *     corresponding Unicode codepoint.  This encoding may *safely* be used on
- *     any null-terminated string, regardless of its encoding.  (You shouldn't
- *     *actually* be uncertain, but in the real world, a string's encoding -- if
- *     promised at all -- may be more...aspirational...than reality.)  This
- *     encoding variant will eventually be removed -- work to convert your uses
- *     to UTF-8 as you're able.
- */
-
-namespace JS {
-const uint16_t MaxNumErrorArguments = 10;
-};
-
-/**
- * Report an exception represented by the sprintf-like conversion of format
- * and its arguments.
- */
-extern JS_PUBLIC_API void JS_ReportErrorASCII(JSContext* cx, const char* format,
-                                              ...) MOZ_FORMAT_PRINTF(2, 3);
-
-extern JS_PUBLIC_API void JS_ReportErrorLatin1(JSContext* cx,
-                                               const char* format, ...)
-    MOZ_FORMAT_PRINTF(2, 3);
-
-extern JS_PUBLIC_API void JS_ReportErrorUTF8(JSContext* cx, const char* format,
-                                             ...) MOZ_FORMAT_PRINTF(2, 3);
-
-/*
- * Use an errorNumber to retrieve the format string, args are char*
- */
-extern JS_PUBLIC_API void JS_ReportErrorNumberASCII(
-    JSContext* cx, JSErrorCallback errorCallback, void* userRef,
-    const unsigned errorNumber, ...);
-
-extern JS_PUBLIC_API void JS_ReportErrorNumberASCIIVA(
-    JSContext* cx, JSErrorCallback errorCallback, void* userRef,
-    const unsigned errorNumber, va_list ap);
-
-extern JS_PUBLIC_API void JS_ReportErrorNumberLatin1(
-    JSContext* cx, JSErrorCallback errorCallback, void* userRef,
-    const unsigned errorNumber, ...);
-
-#ifdef va_start
-extern JS_PUBLIC_API void JS_ReportErrorNumberLatin1VA(
-    JSContext* cx, JSErrorCallback errorCallback, void* userRef,
-    const unsigned errorNumber, va_list ap);
-#endif
-
-extern JS_PUBLIC_API void JS_ReportErrorNumberUTF8(
-    JSContext* cx, JSErrorCallback errorCallback, void* userRef,
-    const unsigned errorNumber, ...);
-
-#ifdef va_start
-extern JS_PUBLIC_API void JS_ReportErrorNumberUTF8VA(
-    JSContext* cx, JSErrorCallback errorCallback, void* userRef,
-    const unsigned errorNumber, va_list ap);
-#endif
-
-/*
- * args is null-terminated.  That is, a null char* means there are no
- * more args.  The number of args must match the number expected for
- * errorNumber for the given JSErrorCallback.
- */
-extern JS_PUBLIC_API void JS_ReportErrorNumberUTF8Array(
-    JSContext* cx, JSErrorCallback errorCallback, void* userRef,
-    const unsigned errorNumber, const char** args);
-
-/*
- * Use an errorNumber to retrieve the format string, args are char16_t*
- */
-extern JS_PUBLIC_API void JS_ReportErrorNumberUC(JSContext* cx,
-                                                 JSErrorCallback errorCallback,
-                                                 void* userRef,
-                                                 const unsigned errorNumber,
-                                                 ...);
-
-extern JS_PUBLIC_API void JS_ReportErrorNumberUCArray(
-    JSContext* cx, JSErrorCallback errorCallback, void* userRef,
-    const unsigned errorNumber, const char16_t** args);
-
-/**
- * Complain when out of memory.
- */
-extern MOZ_COLD JS_PUBLIC_API void JS_ReportOutOfMemory(JSContext* cx);
-
-extern JS_PUBLIC_API bool JS_ExpandErrorArgumentsASCII(
-    JSContext* cx, JSErrorCallback errorCallback, const unsigned errorNumber,
-    JSErrorReport* reportp, ...);
-
-/**
- * Complain when an allocation size overflows the maximum supported limit.
- */
-extern JS_PUBLIC_API void JS_ReportAllocationOverflow(JSContext* cx);
-
-namespace JS {
-
-extern JS_PUBLIC_API bool CreateError(
-    JSContext* cx, JSExnType type, HandleObject stack, HandleString fileName,
-    uint32_t lineNumber, uint32_t columnNumber, JSErrorReport* report,
-    HandleString message, MutableHandleValue rval);
-
-/************************************************************************/
-
-/*
- * Weak Maps.
- */
-
-extern JS_PUBLIC_API JSObject* NewWeakMapObject(JSContext* cx);
-
-extern JS_PUBLIC_API bool IsWeakMapObject(JSObject* obj);
-
-extern JS_PUBLIC_API bool GetWeakMapEntry(JSContext* cx,
-                                          JS::HandleObject mapObj,
-                                          JS::HandleObject key,
-                                          JS::MutableHandleValue val);
-
-extern JS_PUBLIC_API bool SetWeakMapEntry(JSContext* cx,
-                                          JS::HandleObject mapObj,
-                                          JS::HandleObject key,
-                                          JS::HandleValue val);
-
-/*
- * Map
- */
-extern JS_PUBLIC_API JSObject* NewMapObject(JSContext* cx);
-
-extern JS_PUBLIC_API uint32_t MapSize(JSContext* cx, HandleObject obj);
-
-extern JS_PUBLIC_API bool MapGet(JSContext* cx, HandleObject obj,
-                                 HandleValue key, MutableHandleValue rval);
-
-extern JS_PUBLIC_API bool MapHas(JSContext* cx, HandleObject obj,
-                                 HandleValue key, bool* rval);
-
-extern JS_PUBLIC_API bool MapSet(JSContext* cx, HandleObject obj,
-                                 HandleValue key, HandleValue val);
-
-extern JS_PUBLIC_API bool MapDelete(JSContext* cx, HandleObject obj,
-                                    HandleValue key, bool* rval);
-
-extern JS_PUBLIC_API bool MapClear(JSContext* cx, HandleObject obj);
-
-extern JS_PUBLIC_API bool MapKeys(JSContext* cx, HandleObject obj,
-                                  MutableHandleValue rval);
-
-extern JS_PUBLIC_API bool MapValues(JSContext* cx, HandleObject obj,
-                                    MutableHandleValue rval);
-
-extern JS_PUBLIC_API bool MapEntries(JSContext* cx, HandleObject obj,
-                                     MutableHandleValue rval);
-
-extern JS_PUBLIC_API bool MapForEach(JSContext* cx, HandleObject obj,
-                                     HandleValue callbackFn,
-                                     HandleValue thisVal);
-
-/*
- * Set
- */
-extern JS_PUBLIC_API JSObject* NewSetObject(JSContext* cx);
-
-extern JS_PUBLIC_API uint32_t SetSize(JSContext* cx, HandleObject obj);
-
-extern JS_PUBLIC_API bool SetHas(JSContext* cx, HandleObject obj,
-                                 HandleValue key, bool* rval);
-
-extern JS_PUBLIC_API bool SetDelete(JSContext* cx, HandleObject obj,
-                                    HandleValue key, bool* rval);
-
-extern JS_PUBLIC_API bool SetAdd(JSContext* cx, HandleObject obj,
-                                 HandleValue key);
-
-extern JS_PUBLIC_API bool SetClear(JSContext* cx, HandleObject obj);
-
-extern JS_PUBLIC_API bool SetKeys(JSContext* cx, HandleObject obj,
-                                  MutableHandleValue rval);
-
-extern JS_PUBLIC_API bool SetValues(JSContext* cx, HandleObject obj,
-                                    MutableHandleValue rval);
-
-extern JS_PUBLIC_API bool SetEntries(JSContext* cx, HandleObject obj,
-                                     MutableHandleValue rval);
-
-extern JS_PUBLIC_API bool SetForEach(JSContext* cx, HandleObject obj,
-                                     HandleValue callbackFn,
-                                     HandleValue thisVal);
 
 } /* namespace JS */
 
 /************************************************************************/
-
-extern JS_PUBLIC_API bool JS_IsExceptionPending(JSContext* cx);
-
-extern JS_PUBLIC_API bool JS_IsThrowingOutOfMemory(JSContext* cx);
-
-extern JS_PUBLIC_API bool JS_GetPendingException(JSContext* cx,
-                                                 JS::MutableHandleValue vp);
-
-namespace JS {
-
-enum class ExceptionStackBehavior : bool {
-  // Do not capture any stack.
-  DoNotCapture,
-
-  // Capture the current JS stack when setting the exception. It may be
-  // retrieved by JS::GetPendingExceptionStack.
-  Capture
-};
-
-}  // namespace JS
-
-extern JS_PUBLIC_API void JS_SetPendingException(
-    JSContext* cx, JS::HandleValue v,
-    JS::ExceptionStackBehavior behavior = JS::ExceptionStackBehavior::Capture);
-
-extern JS_PUBLIC_API void JS_ClearPendingException(JSContext* cx);
-
-namespace JS {
-
-/**
- * Save and later restore the current exception state of a given JSContext.
- * This is useful for implementing behavior in C++ that's like try/catch
- * or try/finally in JS.
- *
- * Typical usage:
- *
- *     bool ok = JS::Evaluate(cx, ...);
- *     AutoSaveExceptionState savedExc(cx);
- *     ... cleanup that might re-enter JS ...
- *     return ok;
- */
-class JS_PUBLIC_API AutoSaveExceptionState {
- private:
-  JSContext* context;
-  bool wasPropagatingForcedReturn;
-  bool wasOverRecursed;
-  bool wasThrowing;
-  RootedValue exceptionValue;
-  RootedObject exceptionStack;
-
- public:
-  /*
-   * Take a snapshot of cx's current exception state. Then clear any current
-   * pending exception in cx.
-   */
-  explicit AutoSaveExceptionState(JSContext* cx);
-
-  /*
-   * If neither drop() nor restore() was called, restore the exception
-   * state only if no exception is currently pending on cx.
-   */
-  ~AutoSaveExceptionState();
-
-  /*
-   * Discard any stored exception state.
-   * If this is called, the destructor is a no-op.
-   */
-  void drop();
-
-  /*
-   * Replace cx's exception state with the stored exception state. Then
-   * discard the stored exception state. If this is called, the
-   * destructor is a no-op.
-   */
-  void restore();
-};
-
-} /* namespace JS */
-
-/**
- * If the given object is an exception object, the exception will have (or be
- * able to lazily create) an error report struct, and this function will return
- * the address of that struct.  Otherwise, it returns nullptr. The lifetime
- * of the error report struct that might be returned is the same as the
- * lifetime of the exception object.
- */
-extern JS_PUBLIC_API JSErrorReport* JS_ErrorFromException(JSContext* cx,
-                                                          JS::HandleObject obj);
-
-namespace JS {
-/**
- * If the given object is an exception object (or an unwrappable
- * cross-compartment wrapper for one), return the stack for that exception, if
- * any.  Will return null if the given object is not an exception object
- * (including if it's null or a security wrapper that can't be unwrapped) or if
- * the exception has no stack.
- */
-extern JS_PUBLIC_API JSObject* ExceptionStackOrNull(JS::HandleObject obj);
-
-} /* namespace JS */
 
 /**
  * A JS context always has an "owner thread". The owner thread is set when the
@@ -2583,21 +1122,6 @@ extern JS_PUBLIC_API JSObject* JS_NewObjectForConstructor(
 
 /************************************************************************/
 
-#ifdef JS_GC_ZEAL
-#  define JS_DEFAULT_ZEAL_FREQ 100
-
-extern JS_PUBLIC_API void JS_GetGCZealBits(JSContext* cx, uint32_t* zealBits,
-                                           uint32_t* frequency,
-                                           uint32_t* nextScheduled);
-
-extern JS_PUBLIC_API void JS_SetGCZeal(JSContext* cx, uint8_t zeal,
-                                       uint32_t frequency);
-
-extern JS_PUBLIC_API void JS_UnsetGCZeal(JSContext* cx, uint8_t zeal);
-
-extern JS_PUBLIC_API void JS_ScheduleGC(JSContext* cx, uint32_t count);
-#endif
-
 extern JS_PUBLIC_API void JS_SetParallelParsingEnabled(JSContext* cx,
                                                        bool enabled);
 
@@ -2616,6 +1140,7 @@ extern JS_PUBLIC_API void JS_SetOffthreadIonCompilationEnabled(JSContext* cx,
   Register(JIT_TRUSTEDPRINCIPALS_ENABLE, "jit_trustedprincipals.enable") \
   Register(ION_CHECK_RANGE_ANALYSIS, "ion.check-range-analysis") \
   Register(ION_FREQUENT_BAILOUT_THRESHOLD, "ion.frequent-bailout-threshold") \
+  Register(INLINING_BYTECODE_MAX_LENGTH, "inlining.bytecode-max-length") \
   Register(BASELINE_INTERPRETER_ENABLE, "blinterp.enable") \
   Register(BASELINE_ENABLE, "baseline.enable") \
   Register(OFFTHREAD_COMPILATION_ENABLE, "offthread-compilation.enable")  \
@@ -2624,11 +1149,10 @@ extern JS_PUBLIC_API void JS_SetOffthreadIonCompilationEnabled(JSContext* cx,
   Register(NATIVE_REGEXP_ENABLE, "native_regexp.enable") \
   Register(SIMULATOR_ALWAYS_INTERRUPT, "simulator.always-interrupt")      \
   Register(SPECTRE_INDEX_MASKING, "spectre.index-masking") \
-  Register(SPECTRE_OBJECT_MITIGATIONS_BARRIERS, "spectre.object-mitigations.barriers") \
-  Register(SPECTRE_OBJECT_MITIGATIONS_MISC, "spectre.object-mitigations.misc") \
+  Register(SPECTRE_OBJECT_MITIGATIONS, "spectre.object-mitigations") \
   Register(SPECTRE_STRING_MITIGATIONS, "spectre.string-mitigations") \
   Register(SPECTRE_VALUE_MASKING, "spectre.value-masking") \
-  Register(SPECTRE_JIT_TO_CXX_CALLS, "spectre.jit-to-C++-calls") \
+  Register(SPECTRE_JIT_TO_CXX_CALLS, "spectre.jit-to-cxx-calls") \
   Register(WASM_FOLD_OFFSETS, "wasm.fold-offsets") \
   Register(WASM_DELAY_TIER2, "wasm.delay-tier2") \
   Register(WASM_JIT_BASELINE, "wasm.baseline") \

@@ -250,9 +250,6 @@ already_AddRefed<XPCNativeInterface> XPCNativeInterface::NewInstance(
 
   if (totalCount > MAX_LOCAL_MEMBER_COUNT) {
     members = new XPCNativeMember[totalCount];
-    if (!members) {
-      return nullptr;
-    }
   } else {
     members = local_members;
   }
@@ -394,7 +391,6 @@ void XPCNativeInterface::DebugDump(int16_t depth) {
   XPC_LOG_ALWAYS(("XPCNativeInterface @ %p", this));
   XPC_LOG_INDENT();
   XPC_LOG_ALWAYS(("name is %s", GetNameString()));
-  XPC_LOG_ALWAYS(("mMemberCount is %d", mMemberCount));
   XPC_LOG_ALWAYS(("mInfo @ %p", mInfo));
   XPC_LOG_OUTDENT();
 #endif
@@ -471,7 +467,7 @@ already_AddRefed<XPCNativeSet> XPCNativeSet::GetNewOrUsed(JSContext* cx,
     return set.forget();
   }
 
-  set = NewInstance(cx, {iface.forget()});
+  set = NewInstance(cx, {std::move(iface)});
   if (!set) {
     return nullptr;
   }
@@ -679,19 +675,16 @@ already_AddRefed<XPCNativeSet> XPCNativeSet::NewInstance(
 
   // Stick the nsISupports in front and skip additional nsISupport(s)
   XPCNativeInterface** outp = (XPCNativeInterface**)&obj->mInterfaces;
-  uint16_t memberCount = 1;  // for the one member in nsISupports
 
   NS_ADDREF(*(outp++) = isup);
 
   for (auto key = array.begin(); key != array.end(); key++) {
-    RefPtr<XPCNativeInterface> cur = key->forget();
+    RefPtr<XPCNativeInterface> cur = std::move(*key);
     if (isup == cur) {
       continue;
     }
-    memberCount += cur->GetMemberCount();
     *(outp++) = cur.forget().take();
   }
-  obj->mMemberCount = memberCount;
   obj->mInterfaceCount = slots;
 
   return obj.forget();
@@ -716,8 +709,6 @@ already_AddRefed<XPCNativeSet> XPCNativeSet::NewInstanceMutate(
   void* place = new char[size];
   RefPtr<XPCNativeSet> obj = new (place) XPCNativeSet();
 
-  obj->mMemberCount =
-      otherSet->GetMemberCount() + newInterface->GetMemberCount();
   obj->mInterfaceCount = otherSet->mInterfaceCount + 1;
 
   XPCNativeInterface** src = otherSet->mInterfaces;
@@ -752,7 +743,6 @@ void XPCNativeSet::DebugDump(int16_t depth) {
       mInterfaces[i]->DebugDump(depth);
     }
   }
-  XPC_LOG_ALWAYS(("mMemberCount of %d", mMemberCount));
   XPC_LOG_OUTDENT();
 #endif
 }

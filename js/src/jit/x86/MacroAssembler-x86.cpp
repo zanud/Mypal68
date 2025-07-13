@@ -412,10 +412,10 @@ void MacroAssembler::moveValue(const TypedOrValueRegister& src,
   AnyRegister reg = src.typedReg();
 
   if (!IsFloatingPointType(type)) {
-    mov(ImmWord(MIRTypeToTag(type)), dest.typeReg());
     if (reg.gpr() != dest.payloadReg()) {
       movl(reg.gpr(), dest.payloadReg());
     }
+    mov(ImmWord(MIRTypeToTag(type)), dest.typeReg());
     return;
   }
 
@@ -621,6 +621,9 @@ void MacroAssembler::wasmLoad(const wasm::MemoryAccessDesc& access,
       vmovsd(srcAddr, out.fpu());
       break;
     case Scalar::Int64:
+#ifdef ENABLE_WASM_SIMD
+    case Scalar::Simd128:
+#endif
     case Scalar::Uint8Clamped:
     case Scalar::BigInt64:
     case Scalar::BigUint64:
@@ -694,6 +697,9 @@ void MacroAssembler::wasmLoadI64(const wasm::MemoryAccessDesc& access,
     case Scalar::Float32:
     case Scalar::Float64:
       MOZ_CRASH("non-int64 loads should use load()");
+#ifdef ENABLE_WASM_SIMD
+    case Scalar::Simd128:
+#endif
     case Scalar::Uint8Clamped:
     case Scalar::BigInt64:
     case Scalar::BigUint64:
@@ -737,6 +743,9 @@ void MacroAssembler::wasmStore(const wasm::MemoryAccessDesc& access,
     case Scalar::MaxTypedArrayViewType:
     case Scalar::BigInt64:
     case Scalar::BigUint64:
+#ifdef ENABLE_WASM_SIMD
+    case Scalar::Simd128:
+#endif
       MOZ_CRASH("unexpected type");
   }
 

@@ -76,8 +76,12 @@ bool NameOpEmitter::emitGet() {
       }
       break;
     case NameLocation::Kind::EnvironmentCoordinate:
-      if (!bce_->emitEnvCoordOp(JSOp::GetAliasedVar,
-                                loc_.environmentCoordinate())) {
+    case NameLocation::Kind::DebugEnvironmentCoordinate:
+      if (!bce_->emitEnvCoordOp(
+              loc_.kind() == NameLocation::Kind::EnvironmentCoordinate
+                  ? JSOp::GetAliasedVar
+                  : JSOp::GetAliasedDebugVar,
+              loc_.environmentCoordinate())) {
         //          [stack] VAL
         return false;
       }
@@ -121,6 +125,11 @@ bool NameOpEmitter::emitGet() {
           //        [stack] CALLEE UNDEF
           return false;
         }
+        break;
+      case NameLocation::Kind::DebugEnvironmentCoordinate:
+        MOZ_CRASH(
+            "DebugEnvironmentCoordinate should only be used to get the private "
+            "brand, and so should never call.");
         break;
       case NameLocation::Kind::DynamicAnnexBVar:
         MOZ_CRASH(
@@ -185,6 +194,8 @@ bool NameOpEmitter::prepareForRhs() {
       break;
     case NameLocation::Kind::FrameSlot:
       break;
+    case NameLocation::Kind::DebugEnvironmentCoordinate:
+      break;
     case NameLocation::Kind::EnvironmentCoordinate:
       break;
   }
@@ -222,6 +233,11 @@ bool NameOpEmitter::prepareForRhs() {
   return true;
 }
 
+#if defined(__clang__) && defined(XP_WIN) && \
+    (defined(_M_X64) || defined(__x86_64__))
+// Work around a CPU bug. See bug 1524257.
+__attribute__((__aligned__(32)))
+#endif
 bool NameOpEmitter::emitAssignment() {
   MOZ_ASSERT(state_ == State::Rhs);
 
@@ -267,7 +283,9 @@ bool NameOpEmitter::emitAssignment() {
       break;
     case NameLocation::Kind::FrameSlot: {
       JSOp op = JSOp::SetLocal;
-      if (loc_.isLexical()) {
+      // Lexicals, Synthetics and Private Methods have very similar handling
+      // around a variety of areas, including initialization.
+      if (loc_.isLexical() || loc_.isPrivateMethod() || loc_.isSynthetic()) {
         if (isInitialize()) {
           op = JSOp::InitLexical;
         } else {
@@ -298,7 +316,9 @@ bool NameOpEmitter::emitAssignment() {
     }
     case NameLocation::Kind::EnvironmentCoordinate: {
       JSOp op = JSOp::SetAliasedVar;
-      if (loc_.isLexical()) {
+      // Lexicals, Synthetics and Private Methods have very similar handling
+      // around a variety of areas, including initialization.
+      if (loc_.isLexical() || loc_.isPrivateMethod() || loc_.isSynthetic()) {
         if (isInitialize()) {
           op = JSOp::InitAliasedLexical;
         } else {
@@ -338,6 +358,9 @@ bool NameOpEmitter::emitAssignment() {
       }
       break;
     }
+    case NameLocation::Kind::DebugEnvironmentCoordinate:
+      MOZ_CRASH("Shouldn't be assigning to a private brand");
+      break;
   }
 
 #ifdef DEBUG

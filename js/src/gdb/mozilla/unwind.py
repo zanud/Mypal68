@@ -3,9 +3,7 @@
 import gdb
 import gdb.types
 from gdb.FrameDecorator import FrameDecorator
-import re
 import platform
-from mozilla.ExecutableAllocator import jsjitExecutableAllocatorCache, jsjitExecutableAllocator
 
 # For ease of use in Python 2, we use "long" instead of "int"
 # everywhere.
@@ -38,19 +36,29 @@ def debug(something):
 
 # Maps frametype enum base names to corresponding class.
 SizeOfFramePrefix = {
-    'FrameType::IonJS': 'ExitFrameLayout',
-    'FrameType::BaselineJS': 'JitFrameLayout',
-    'FrameType::BaselineStub': 'BaselineStubFrameLayout',
-    'FrameType::IonStub': 'JitStubFrameLayout',
-    'FrameType::CppToJSJit': 'JitFrameLayout',
-    'FrameType::WasmToJSJit': 'JitFrameLayout',
-    'FrameType::JSJitToWasm': 'JitFrameLayout',
-    'FrameType::Rectifier': 'RectifierFrameLayout',
-    'FrameType::IonAccessorIC': 'IonAccessorICFrameLayout',
-    'FrameType::IonICCall': 'IonICCallFrameLayout',
-    'FrameType::Exit': 'ExitFrameLayout',
-    'FrameType::Bailout': 'JitFrameLayout',
+    "FrameType::IonJS": "ExitFrameLayout",
+    "FrameType::BaselineJS": "JitFrameLayout",
+    "FrameType::BaselineStub": "BaselineStubFrameLayout",
+    "FrameType::IonStub": "JitStubFrameLayout",
+    "FrameType::CppToJSJit": "JitFrameLayout",
+    "FrameType::WasmToJSJit": "JitFrameLayout",
+    "FrameType::JSJitToWasm": "JitFrameLayout",
+    "FrameType::Rectifier": "RectifierFrameLayout",
+    "FrameType::IonAccessorIC": "IonAccessorICFrameLayout",
+    "FrameType::IonICCall": "IonICCallFrameLayout",
+    "FrameType::Exit": "ExitFrameLayout",
+    "FrameType::Bailout": "JitFrameLayout",
 }
+
+
+# We cannot have semi-colon as identifier names, so use a colon instead,
+# and forward the name resolution to the type cache class.
+class UnwinderTypeCacheFrameType(object):
+    def __init__(self, tc):
+        self.tc = tc
+
+    def __getattr__(self, name):
+        return self.tc.__getattr__("FrameType::" + name)
 
 
 class UnwinderTypeCache(object):
@@ -68,84 +76,64 @@ class UnwinderTypeCache(object):
     def __getattr__(self, name):
         if self.d is None:
             self.initialize()
+        if name == "frame_type":
+            return UnwinderTypeCacheFrameType(self)
         return self.d[name]
 
     def value(self, name):
         return long(gdb.lookup_symbol(name)[0].value())
 
     def jit_value(self, name):
-        return self.value('js::jit::' + name)
+        return self.value("js::jit::" + name)
 
     def initialize(self):
         self.d = {}
-        self.d['FRAMETYPE_MASK'] = (1 << self.jit_value('FRAMETYPE_BITS')) - 1
-        self.d['FRAMESIZE_SHIFT'] = self.jit_value('FRAMESIZE_SHIFT')
-        self.d['FRAME_HEADER_SIZE_SHIFT'] = self.jit_value('FRAME_HEADER_SIZE_SHIFT')
-        self.d['FRAME_HEADER_SIZE_MASK'] = self.jit_value('FRAME_HEADER_SIZE_MASK')
+        self.d["FRAMETYPE_MASK"] = (1 << self.jit_value("FRAMETYPE_BITS")) - 1
+        self.d["FRAMESIZE_SHIFT"] = self.jit_value("FRAMESIZE_SHIFT")
+        self.d["FRAME_HEADER_SIZE_SHIFT"] = self.jit_value("FRAME_HEADER_SIZE_SHIFT")
+        self.d["FRAME_HEADER_SIZE_MASK"] = self.jit_value("FRAME_HEADER_SIZE_MASK")
 
         self.compute_frame_info()
-        commonFrameLayout = gdb.lookup_type('js::jit::CommonFrameLayout')
-        self.d['typeCommonFrameLayout'] = commonFrameLayout
-        self.d['typeCommonFrameLayoutPointer'] = commonFrameLayout.pointer()
-        self.d['per_tls_context'] = gdb.lookup_global_symbol('js::TlsContext')
+        commonFrameLayout = gdb.lookup_type("js::jit::CommonFrameLayout")
+        self.d["typeCommonFrameLayout"] = commonFrameLayout
+        self.d["typeCommonFrameLayoutPointer"] = commonFrameLayout.pointer()
+        self.d["per_tls_context"] = gdb.lookup_global_symbol("js::TlsContext")
 
-        self.d['void_starstar'] = gdb.lookup_type('void').pointer().pointer()
-        self.d['mod_ExecutableAllocator'] = jsjitExecutableAllocatorCache()
+        self.d["void_starstar"] = gdb.lookup_type("void").pointer().pointer()
 
         jitframe = gdb.lookup_type("js::jit::JitFrameLayout")
-        self.d['jitFrameLayoutPointer'] = jitframe.pointer()
+        self.d["jitFrameLayoutPointer"] = jitframe.pointer()
 
-        self.d['CalleeToken_Function'] = self.jit_value("CalleeToken_Function")
-        self.d['CalleeToken_FunctionConstructing'] = self.jit_value(
-            "CalleeToken_FunctionConstructing")
-        self.d['CalleeToken_Script'] = self.jit_value("CalleeToken_Script")
-        self.d['JSFunction'] = gdb.lookup_type("JSFunction").pointer()
-        self.d['JSScript'] = gdb.lookup_type("JSScript").pointer()
-        self.d['Value'] = gdb.lookup_type("JS::Value")
+        self.d["CalleeToken_Function"] = self.jit_value("CalleeToken_Function")
+        self.d["CalleeToken_FunctionConstructing"] = self.jit_value(
+            "CalleeToken_FunctionConstructing"
+        )
+        self.d["CalleeToken_Script"] = self.jit_value("CalleeToken_Script")
+        self.d["JSFunction"] = gdb.lookup_type("JSFunction").pointer()
+        self.d["JSScript"] = gdb.lookup_type("JSScript").pointer()
+        self.d["Value"] = gdb.lookup_type("JS::Value")
 
-        self.d['SOURCE_SLOT'] = self.value('js::ScriptSourceObject::SOURCE_SLOT')
-        self.d['NativeObject'] = gdb.lookup_type("js::NativeObject").pointer()
-        self.d['HeapSlot'] = gdb.lookup_type("js::HeapSlot").pointer()
-        self.d['ScriptSource'] = gdb.lookup_type("js::ScriptSource").pointer()
+        self.d["SOURCE_SLOT"] = self.value("js::ScriptSourceObject::SOURCE_SLOT")
+        self.d["NativeObject"] = gdb.lookup_type("js::NativeObject").pointer()
+        self.d["HeapSlot"] = gdb.lookup_type("js::HeapSlot").pointer()
+        self.d["ScriptSource"] = gdb.lookup_type("js::ScriptSource").pointer()
+
+        # ProcessExecutableMemory, used to identify if a pc is in the section
+        # pre-allocated by the JIT.
+        self.d["MaxCodeBytesPerProcess"] = self.jit_value("MaxCodeBytesPerProcess")
+        self.d["execMemory"] = gdb.lookup_symbol("::execMemory")[0].value()
 
     # Compute maps related to jit frames.
     def compute_frame_info(self):
-        t = gdb.lookup_type('enum js::jit::FrameType')
+        t = gdb.lookup_type("enum js::jit::FrameType")
         for field in t.fields():
-            # Strip off "js::jit::".
+            # Strip off "js::jit::", remains: "FrameType::*".
             name = field.name[9:]
             enumval = long(field.enumval)
             self.d[name] = enumval
             self.frame_enum_names[enumval] = name
-            class_type = gdb.lookup_type('js::jit::' + SizeOfFramePrefix[name])
+            class_type = gdb.lookup_type("js::jit::" + SizeOfFramePrefix[name])
             self.frame_class_types[enumval] = class_type.pointer()
-
-
-def parse_proc_maps():
-    # gdb doesn't have a direct way to tell us if a given address is
-    # claimed by some shared library or the executable.  See
-    # https://sourceware.org/bugzilla/show_bug.cgi?id=19288
-    # In the interest of not requiring a patched gdb, instead we read
-    # /proc/.../maps.  This only works locally, but maybe could work
-    # remotely using "remote get".  FIXME.
-    mapfile = '/proc/' + str(gdb.selected_inferior().pid) + '/maps'
-    # Note we only examine executable mappings here.
-    matcher = re.compile("^([a-fA-F0-9]+)-([a-fA-F0-9]+)\s+..x.\s+\S+\s+\S+\s+\S*(.*)$")
-    mappings = []
-    with open(mapfile, "r") as inp:
-        for line in inp:
-            match = matcher.match(line)
-            if not match:
-                # Header lines and such.
-                continue
-            start = match.group(1)
-            end = match.group(2)
-            name = match.group(3).strip()
-            if name is '' or (name.startswith('[') and name is not '[vdso]'):
-                # Skip entries not corresponding to a file.
-                continue
-            mappings.append((long(start, 16), long(end, 16)))
-    return mappings
 
 
 class FrameSymbol(object):
@@ -173,21 +161,23 @@ class JitFrameDecorator(FrameDecorator):
         self.cache = cache
 
     def _decode_jitframe(self, this_frame):
-        calleetoken = long(this_frame['calleeToken_'])
+        calleetoken = long(this_frame["calleeToken_"])
         tag = calleetoken & 3
         calleetoken = calleetoken ^ tag
         function = None
         script = None
-        if (tag == self.cache.CalleeToken_Function or
-            tag == self.cache.CalleeToken_FunctionConstructing):
+        if (
+            tag == self.cache.CalleeToken_Function
+            or tag == self.cache.CalleeToken_FunctionConstructing
+        ):
             fptr = gdb.Value(calleetoken).cast(self.cache.JSFunction)
             try:
-                atom = fptr['atom_']
+                atom = fptr["atom_"]
                 if atom:
                     function = str(atom)
             except gdb.MemoryError:
                 function = "(could not read function name)"
-            script = fptr['u']['scripted']['s']['script_']
+            script = fptr["u"]["scripted"]["s"]["script_"]
         elif tag == self.cache.CalleeToken_Script:
             script = gdb.Value(calleetoken).cast(self.cache.JSScript)
         return {"function": function, "script": script}
@@ -213,21 +203,23 @@ class JitFrameDecorator(FrameDecorator):
             if gdb.types.has_field(this_frame.type.target(), "calleeToken_"):
                 script = self._decode_jitframe(this_frame)["script"]
                 if script is not None:
-                    obj = script['sourceObject_']['value']
+                    obj = script["sourceObject_"]["value"]
                     # Verify that this is a ScriptSource object.
                     # FIXME should also deal with wrappers here.
                     nativeobj = obj.cast(self.cache.NativeObject)
                     # See bug 987069 and despair.  At least this
                     # approach won't give exceptions.
-                    class_name = nativeobj['group_']['value']['clasp_']['name'].string(
-                        "ISO-8859-1")
+                    class_name = nativeobj["group_"]["value"]["clasp_"]["name"].string(
+                        "ISO-8859-1"
+                    )
                     if class_name != "ScriptSource":
                         return FrameDecorator.filename(self)
-                    scriptsourceobj = (
-                        nativeobj + 1).cast(self.cache.HeapSlot)[self.cache.SOURCE_SLOT]
-                    scriptsource = scriptsourceobj['value']['asBits_'] << 1
+                    scriptsourceobj = (nativeobj + 1).cast(self.cache.HeapSlot)[
+                        self.cache.SOURCE_SLOT
+                    ]
+                    scriptsource = scriptsourceobj["value"]["asBits_"] << 1
                     scriptsource = scriptsource.cast(self.cache.ScriptSource)
-                    return scriptsource['filename_']['mTuple']['mFirstA'].string()
+                    return scriptsource["filename_"]["mTuple"]["mFirstA"].string()
         return FrameDecorator.filename(self)
 
     def frame_args(self):
@@ -251,9 +243,9 @@ class JitFrameDecorator(FrameDecorator):
             # Synthesize names, since there doesn't seem to be
             # anything better to do.
             if i == 0:
-                name = 'this'
+                name = "this"
             else:
-                name = 'arg%d' % i
+                name = "arg%d" % i
             result.append(FrameSymbol(name, args_ptr[i]))
         return result
 
@@ -317,11 +309,6 @@ class UnwinderState(object):
         # selected thread for later verification.
         self.thread = gdb.selected_thread()
         self.frame_map = {}
-        self.proc_mappings = None
-        try:
-            self.proc_mappings = parse_proc_maps()
-        except IOError:
-            pass
         self.typecache = typecache
 
     # If the given gdb.Frame was created by this unwinder, return the
@@ -340,36 +327,18 @@ class UnwinderState(object):
     def add_frame(self, sp, name=None, this_frame=None):
         self.frame_map[long(sp)] = {"name": name, "this_frame": this_frame}
 
-    # See whether |pc| is claimed by some text mapping.  See
-    # |parse_proc_maps| for details on how the decision is made.
-    def text_address_claimed(self, pc):
-        for (start, end) in self.proc_mappings:
-            if (pc >= start and pc <= end):
-                return True
-        return False
-
     # See whether |pc| is claimed by the Jit.
     def is_jit_address(self, pc):
-        if self.proc_mappings is not None:
-            return not self.text_address_claimed(pc)
+        execMem = self.typecache.execMemory
+        base = long(execMem["base_"])
+        length = self.typecache.MaxCodeBytesPerProcess
 
-        cx = self.get_tls_context()
-        runtime = cx['runtime_']['value']
-        if long(runtime.address) == 0:
+        # If the base pointer is null, then no memory got allocated yet.
+        if long(base) == 0:
             return False
 
-        jitRuntime = runtime['jitRuntime_']
-        if long(jitRuntime.address) == 0:
-            return False
-
-        execAllocators = [jitRuntime['execAlloc_'], jitRuntime['backedgeExecAlloc_']]
-        for execAlloc in execAllocators:
-            for pool in jsjitExecutableAllocator(execAlloc, self.typecache):
-                pages = pool['m_allocation']['pages']
-                size = pool['m_allocation']['size']
-                if pages <= pc and pc < pages + size:
-                    return True
-        return False
+        # If allocated, then we allocated MaxCodeBytesPerProcess.
+        return base <= pc and pc < base + length
 
     # Check whether |self| is valid for the selected thread.
     def check(self):
@@ -377,7 +346,7 @@ class UnwinderState(object):
 
     # Essentially js::TlsContext.get().
     def get_tls_context(self):
-        return self.typecache.per_tls_context.value()['mValue']
+        return self.typecache.per_tls_context.value()["mValue"]
 
     # |common| is a pointer to a CommonFrameLayout object.  Return a
     # tuple (local_size, header_size, frame_type), where |size| is the
@@ -385,13 +354,14 @@ class UnwinderState(object):
     # the size of this frame's header; and |frame_type| is an integer
     # representing the previous frame's type.
     def unpack_descriptor(self, common):
-        value = long(common['descriptor_'])
+        value = long(common["descriptor_"])
         local_size = value >> self.typecache.FRAMESIZE_SHIFT
-        header_size = ((value >> self.typecache.FRAME_HEADER_SIZE_SHIFT) &
-                       self.typecache.FRAME_HEADER_SIZE_MASK)
+        header_size = (
+            value >> self.typecache.FRAME_HEADER_SIZE_SHIFT
+        ) & self.typecache.FRAME_HEADER_SIZE_MASK
         header_size = header_size * self.typecache.void_starstar.sizeof
         frame_type = long(value & self.typecache.FRAMETYPE_MASK)
-        if frame_type == self.typecache.CppToJSJit:
+        if frame_type == self.typecache.frame_type.CppToJSJit:
             # Trampoline-x64.cpp pushes a JitFrameLayout object, but
             # the stack pointer is actually adjusted as if a
             # CommonFrameLayout object was pushed.
@@ -418,7 +388,7 @@ class UnwinderState(object):
         # This lets us unwind the necessary registers for the next
         # frame, and also update our internal state to match.
         common = frame.cast(self.typecache.typeCommonFrameLayoutPointer)
-        next_pc = common['returnAddress_']
+        next_pc = common["returnAddress_"]
         (local_size, header_size, next_type) = self.unpack_descriptor(common)
         next_sp = frame + header_size + local_size
 
@@ -447,8 +417,9 @@ class UnwinderState(object):
     # other than enter and exit frames.  Returns the newly-created
     # unwind info for gdb.
     def unwind_ordinary(self, pc, pending_frame):
-        return self.create_frame(pc, self.next_sp, self.next_sp,
-                                 self.next_type, pending_frame)
+        return self.create_frame(
+            pc, self.next_sp, self.next_sp, self.next_type, pending_frame
+        )
 
     # Unwind an exit frame.  Returns None if this cannot be done;
     # otherwise returns the newly-created unwind info for gdb.
@@ -458,16 +429,16 @@ class UnwinderState(object):
             return None
         elif self.activation is None:
             cx = self.get_tls_context()
-            self.activation = cx['jitActivation']['value']
+            self.activation = cx["jitActivation"]["value"]
         else:
-            self.activation = self.activation['prevJitActivation_']
+            self.activation = self.activation["prevJitActivation_"]
 
-        packedExitFP = self.activation['packedExitFP_']
+        packedExitFP = self.activation["packedExitFP_"]
         if packedExitFP == 0:
             return None
 
         exit_sp = pending_frame.read_register(self.SP_REGISTER)
-        frame_type = self.typecache.Exit
+        frame_type = self.typecache.frame_type.Exit
         return self.create_frame(pc, exit_sp, packedExitFP, frame_type, pending_frame)
 
     # A wrapper for unwind_entry_frame_registers that handles
@@ -475,7 +446,7 @@ class UnwinderState(object):
     def unwind_entry_frame(self, pc, pending_frame):
         sp = self.next_sp
         # Notify the frame filter.
-        self.add_frame(sp, name='FrameType::CppToJSJit')
+        self.add_frame(sp, name="FrameType::CppToJSJit")
         # Make an unwind_info for the per-architecture code to fill in.
         frame_id = SpiderMonkeyFrameId(sp, pc)
         unwind_info = pending_frame.create_unwind_info(frame_id)
@@ -496,7 +467,7 @@ class UnwinderState(object):
             return None
 
         if self.next_sp is not None:
-            if self.next_type == self.typecache.CppToJSJit:
+            if self.next_type == self.typecache.frame_type.CppToJSJit:
                 return self.unwind_entry_frame(pc, pending_frame)
             return self.unwind_ordinary(pc, pending_frame)
         # Maybe we've found an exit frame.  FIXME I currently don't
@@ -508,13 +479,13 @@ class UnwinderState(object):
 class x64UnwinderState(UnwinderState):
     "The UnwinderState subclass for x86-64."
 
-    SP_REGISTER = 'rsp'
-    PC_REGISTER = 'rip'
+    SP_REGISTER = "rsp"
+    PC_REGISTER = "rip"
 
     # A register unique to this architecture, that is also likely to
     # have been saved in any frame.  The best thing to use here is
     # some arch-specific name for PC or SP.
-    SENTINEL_REGISTER = 'rip'
+    SENTINEL_REGISTER = "rip"
 
     # Must be in sync with Trampoline-x64.cpp:generateEnterJIT.  Note
     # that rip isn't pushed there explicitly, but rather by the
@@ -549,8 +520,10 @@ class SpiderMonkeyUnwinder(Unwinder):
 
         # Disabled by default until we figure out issues in gdb.
         self.enabled = False
-        gdb.write("SpiderMonkey unwinder is disabled by default, to enable it type:\n" +
-                  "\tenable unwinder .* SpiderMonkey\n")
+        gdb.write(
+            "SpiderMonkey unwinder is disabled by default, to enable it type:\n"
+            + "\tenable unwinder .* SpiderMonkey\n"
+        )
         # Some versions of gdb did not flush the internal frame cache
         # when enabling or disabling an unwinder.  This was fixed in
         # the same release of gdb that added the breakpoint_created

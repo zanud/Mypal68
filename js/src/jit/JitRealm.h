@@ -46,7 +46,7 @@ class JitRealm {
   // The JitRealm stores stubs to concatenate strings inline and perform RegExp
   // calls inline. These bake in zone and realm specific pointers and can't be
   // stored in JitRuntime. They also are dependent on the value of
-  // 'stringsCanBeInNursery' and must be flushed when its value changes.
+  // 'initialStringHeap' and must be flushed when its value changes.
   //
   // These are weak pointers, but they can by accessed during off-thread Ion
   // compilation and therefore can't use the usual read barrier. Instead, we
@@ -64,7 +64,7 @@ class JitRealm {
   mozilla::EnumeratedArray<StubIndex, StubIndex::Count, WeakHeapPtrJitCode>
       stubs_;
 
-  bool stringsCanBeInNursery;
+  gc::InitialHeap initialStringHeap;
 
   JitCode* generateStringConcatStub(JSContext* cx);
   JitCode* generateRegExpMatcherStub(JSContext* cx);
@@ -129,7 +129,7 @@ class JitRealm {
 
   void setStringsCanBeInNursery(bool allow) {
     MOZ_ASSERT(!hasStubs());
-    stringsCanBeInNursery = allow;
+    initialStringHeap = allow ? gc::DefaultHeap : gc::TenuredHeap;
   }
 
   JitCode* stringConcatStubNoBarrier(uint32_t* requiredBarriersOut) const {

@@ -91,7 +91,13 @@ void InitLargeAllocLimit() {
 }  // namespace js
 #endif
 
-bool js::gDisablePoisoning = false;
+#if defined(JS_GC_ALLOW_EXTRA_POISONING)
+#  if defined(DEBUG)
+bool js::gExtraPoisoningEnabled = true;
+#  else
+bool js::gExtraPoisoningEnabled = false;
+#  endif
+#endif
 
 JS_PUBLIC_DATA arena_id_t js::MallocArena;
 JS_PUBLIC_DATA arena_id_t js::ArrayBufferContentsArena;
@@ -99,8 +105,11 @@ JS_PUBLIC_DATA arena_id_t js::StringBufferArena;
 
 void js::InitMallocAllocator() {
   MallocArena = moz_create_arena();
-  ArrayBufferContentsArena = moz_create_arena();
-  StringBufferArena = moz_create_arena();
+
+  arena_params_t params;
+  params.mFlags |= ARENA_FLAG_RANDOMIZE_SMALL;
+  ArrayBufferContentsArena = moz_create_arena_with_params(&params);
+  StringBufferArena = moz_create_arena_with_params(&params);
 }
 
 void js::ShutDownMallocAllocator() {

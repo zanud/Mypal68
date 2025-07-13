@@ -232,7 +232,7 @@ class SavedStacks {
   struct PCKey {
     PCKey(JSScript* script, jsbytecode* pc) : script(script), pc(pc) {}
 
-    HeapPtr<JSScript*> script;
+    WeakHeapPtr<JSScript*> script;
     jsbytecode* pc;
 
     void trace(JSTracer* trc) { /* PCKey is weak. */
@@ -260,7 +260,7 @@ class SavedStacks {
       return TraceWeakEdge(trc, &source, "traceWeak");
     }
 
-    HeapPtr<JSAtom*> source;
+    WeakHeapPtr<JSAtom*> source;
     uint32_t sourceId;
     size_t line;
     uint32_t column;

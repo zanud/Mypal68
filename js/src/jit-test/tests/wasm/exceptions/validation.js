@@ -25,7 +25,7 @@ function testValidateDecode() {
     moduleWithSections([
       sigSection([emptyType]),
       declSection([0]),
-      eventSection([{ type: 0 }]),
+      tagSection([{ type: 0 }]),
       bodySection([
         funcBody({
           locals: [],
@@ -46,12 +46,12 @@ function testValidateDecode() {
     /bad type/
   );
 
-  // Catch must have an event index.
+  // Catch must have a tag index.
   wasmInvalid(
     moduleWithSections([
       sigSection([emptyType]),
       declSection([0]),
-      eventSection([{ type: 0 }]),
+      tagSection([{ type: 0 }]),
       bodySection([
         funcBody(
           {
@@ -69,32 +69,55 @@ function testValidateDecode() {
         ),
       ]),
     ]),
-    /expected event index/
+    /expected tag index/
   );
 
-  // Try blocks must have a second branch after the main body.
+  // Rethrow must have a depth argument.
   wasmInvalid(
     moduleWithSections([
       sigSection([emptyType]),
       declSection([0]),
-      eventSection([{ type: 0 }]),
+      tagSection([{ type: 0 }]),
       bodySection([
-        funcBody({
-          locals: [],
-          body: [
-            TryCode,
-            I32Code,
-            I32ConstCode,
-            0x01,
-            // Missing instruction here.
-            EndCode,
-            DropCode,
-            ReturnCode,
-          ],
-        }),
+        funcBody(
+          {
+            locals: [],
+            body: [
+              RethrowCode,
+              // Index missing.
+            ],
+          },
+          (withEndCode = false)
+        ),
       ]),
     ]),
-    /try without catch or unwind not allowed/
+    /unable to read rethrow depth/
+  );
+
+  // Delegate must have a depth argument.
+  wasmInvalid(
+    moduleWithSections([
+      sigSection([emptyType]),
+      declSection([0]),
+      tagSection([{ type: 0 }]),
+      bodySection([
+        funcBody(
+          {
+            locals: [],
+            body: [
+              TryCode,
+              I32Code,
+              I32ConstCode,
+              0x01,
+              DelegateCode,
+              // Index missing.
+            ],
+          },
+          (withEndCode = false)
+        ),
+      ]),
+    ]),
+    /unable to read delegate depth/
   );
 }
 
@@ -127,7 +150,7 @@ function testValidateThrow() {
                   i32.const 0
                   throw 1)
                 (event $exn1 (type 0)))`;
-  error2 = /event index out of range/;
+  error2 = /tag index out of range/;
 
   wasmValidateText(valid);
   wasmFailValidateText(invalid0, error0);
@@ -140,7 +163,7 @@ function testValidateTryCatch() {
     return moduleWithSections([
       sigSection([emptyType, i32Type, i32i32Toi32Type]),
       declSection([0]),
-      eventSection([{ type: 0 }, { type: 1 }]),
+      tagSection([{ type: 0 }, { type: 1 }]),
       bodySection([
         funcBody({
           locals: [],
@@ -193,6 +216,27 @@ function testValidateTryCatch() {
   wasmValid(valid1);
   wasmInvalid(invalid1, /unused values not explicitly dropped/);
   wasmValid(valid2);
+
+  // Test handler-less try blocks.
+  wasmValidateText(
+    `(module (func try end))`
+  );
+
+  wasmValidateText(
+    `(module (func (result i32) try (result i32) (i32.const 1) end))`
+  );
+
+  wasmValidateText(
+    `(module
+       (func (result i32)
+         try (result i32) (i32.const 1) (br 0) end))`
+  );
+
+  wasmFailValidateText(
+    `(module
+       (func try (result i32) end))`,
+    /popping value from empty stack/
+  );
 }
 
 function testValidateCatch() {
@@ -207,7 +251,62 @@ function testValidateCatch() {
         }),
       ]),
     ]),
-    /event index out of range/
+    /tag index out of range/
+  );
+}
+
+function testValidateCatchAll() {
+  wasmValidateText(
+    `(module
+       (event $exn)
+       (func try catch $exn catch_all end))`
+  );
+
+  wasmValidateText(
+    `(module
+       (func (result i32)
+         try (result i32)
+           (i32.const 0)
+         catch_all
+           (i32.const 1)
+         end))`
+  );
+
+  wasmFailValidateText(
+    `(module
+       (event $exn)
+       (func try catch_all catch 0 end))`,
+    /catch cannot follow a catch_all/
+  );
+
+  wasmFailValidateText(
+    `(module
+       (event $exn)
+       (func try (result i32) (i32.const 1) catch_all end drop))`,
+    /popping value from empty stack/
+  );
+
+  wasmFailValidateText(
+    `(module
+       (event $exn (param i32))
+       (func try catch $exn drop catch_all drop end))`,
+    /popping value from empty stack/
+  );
+
+  // We can't distinguish `else` and `catch_all` in error messages since they
+  // share the binary opcode.
+  wasmFailValidateText(
+    `(module
+       (event $exn)
+       (func try catch_all catch_all end))`,
+    /catch_all can only be used within a try/
+  );
+
+  wasmFailValidateText(
+    `(module
+       (event $exn)
+       (func catch_all))`,
+    /catch_all can only be used within a try/
   );
 }
 
@@ -216,7 +315,7 @@ function testValidateExnPayload() {
     sigSection([i32Type, i32Toi32Type]),
     declSection([1]),
     // (event $exn (param i32))
-    eventSection([{ type: 0 }]),
+    tagSection([{ type: 0 }]),
     bodySection([
       // (func (param i32) (result i32) ...
       funcBody({
@@ -250,7 +349,7 @@ function testValidateExnPayload() {
     sigSection([i32Type, toi32Type]),
     declSection([1]),
     // (event $exn (param i32))
-    eventSection([{ type: 0 }]),
+    tagSection([{ type: 0 }]),
     bodySection([
       // (func (result i32) ...
       funcBody({
@@ -282,7 +381,7 @@ function testValidateExnPayload() {
     sigSection([i32Type, i32Toi64Type]),
     declSection([1]),
     // (event $exn (param i32))
-    eventSection([{ type: 0 }]),
+    tagSection([{ type: 0 }]),
     bodySection([
       // (func (param i32) (result i64) ...
       funcBody({
@@ -311,7 +410,7 @@ function testValidateExnPayload() {
     sigSection([emptyType]),
     declSection([0]),
     // (event $exn (type 0))
-    eventSection([{ type: 0 }]),
+    tagSection([{ type: 0 }]),
     bodySection([
       // (func ...
       funcBody({
@@ -331,40 +430,220 @@ function testValidateExnPayload() {
   wasmValid(valid0);
   wasmValid(valid1);
   wasmInvalid(invalid0, /has type i32 but expected i64/);
-  wasmInvalid(invalid1, /event index out of range/);
+  wasmInvalid(invalid1, /tag index out of range/);
 }
 
-// Exception types with reference types are not supported yet.
-function testValidateExnWithRef() {
-  invalid0 = `(module
-                (event $exn (param externref))
-                (func try nop catch $exn drop end))`;
-  error0 = /exception with reference types not supported/;
+function testValidateRethrow() {
+  wasmValidateText(
+    `(module
+       (event $exn (param))
+       (func
+         try
+           nop
+         catch $exn
+           rethrow 0
+         end))`
+  );
 
-  invalid1 = `(module
-                (event $exn (param externref))
-                (func (param externref) (local.get 0) (throw $exn)))`;
-  error1 = /exception with reference types not supported/;
+  wasmValidateText(
+    `(module
+       (event $exn (param))
+       (func
+         try
+           nop
+         catch_all
+           rethrow 0
+         end))`
+  );
 
-  invalid2 = `(module
-                (event $exn (param funcref))
-                (func try nop catch $exn drop end))`;
-  error2 = /exception with reference types not supported/;
+  wasmValidateText(
+    `(module
+       (func (result i32)
+         try (result i32)
+           (i32.const 1)
+         catch_all
+           rethrow 0
+         end))`
+  );
 
-  invalid3 = `(module
-                (event $exn (param funcref))
-                (func (param funcref) (local.get 0) (throw $exn)))`;
-  error3 = /exception with reference types not supported/;
+  wasmValidateText(
+    `(module
+       (event $exn (param))
+       (func
+         try
+           nop
+         catch $exn
+           block
+             try
+             catch $exn
+               rethrow 0
+             end
+           end
+         end))`
+  );
 
-  wasmFailValidateText(invalid0, error0);
-  wasmFailValidateText(invalid1, error1);
-  wasmFailValidateText(invalid2, error2);
-  wasmFailValidateText(invalid3, error3);
+  wasmValidateText(
+    `(module
+       (event $exn (param))
+       (func
+         try
+           nop
+         catch $exn
+           block
+             try
+             catch $exn
+               rethrow 2
+             end
+           end
+         end))`
+  );
+
+  wasmFailValidateText(
+    `(module
+       (event $exn (param))
+       (func
+         try
+           nop
+         catch $exn
+           block
+             try
+             catch $exn
+               rethrow 1
+             end
+           end
+         end))`,
+    /rethrow target was not a catch block/
+  );
+
+  wasmFailValidateText(
+    `(module (func rethrow 0))`,
+    /rethrow target was not a catch block/
+  );
+
+  wasmFailValidateText(
+    `(module (func try rethrow 0 end))`,
+    /rethrow target was not a catch block/
+  );
+
+  wasmFailValidateText(
+    `(module (func try rethrow 0 catch_all end))`,
+    /rethrow target was not a catch block/
+  );
+
+  wasmFailValidateText(
+    `(module
+       (event $exn (param))
+       (func
+         try
+           nop
+         catch $exn
+           block
+             try
+             catch $exn
+               rethrow 4
+             end
+           end
+         end))`,
+    /rethrow depth exceeds current nesting level/
+  );
+}
+
+function testValidateDelegate() {
+  wasmValidateText(
+    `(module
+       (event $exn (param))
+       (func
+         try
+           try
+             throw $exn
+           delegate 0
+         catch $exn
+         end))`
+  );
+
+  wasmValidateText(
+    `(module
+       (event $exn (param))
+       (func
+         try
+           try
+             throw $exn
+           delegate 1
+         catch $exn
+         end))`
+  );
+
+  wasmFailValidateText(
+    `(module
+       (event $exn (param))
+       (func (result i32)
+         try
+           throw $exn
+         delegate 0
+         (i64.const 0)
+         end))`,
+    /type mismatch: expression has type i64 but expected i32/
+  );
+
+  wasmFailValidateText(
+    `(module
+       (event $exn (param))
+       (func
+         try (result i32)
+           (i64.const 0)
+         delegate 0))`,
+    /type mismatch: expression has type i64 but expected i32/
+  );
+
+  wasmFailValidateText(
+    `(module
+       (event $exn (param))
+       (func
+         try
+           try
+             throw $exn
+           delegate 2
+         catch $exn
+         end))`,
+    /delegate depth exceeds current nesting level/
+  );
+
+  wasmFailValidateText(
+    `(module
+       (event $exn (param))
+       (func
+         block
+           try
+             throw $exn
+           delegate 0
+         end))`,
+    /delegate target was not a try or function body/
+  );
+
+  wasmFailValidateText(
+    `(module
+       (event $exn (param))
+       (func
+         try
+         catch $exn
+           try
+             throw $exn
+           delegate 0
+         end))`,
+    /delegate target was not a try or function body/
+  );
+
+  wasmFailValidateText(
+    `(module (func delegate 0))`,
+    /delegate can only be used within a try/
+  );
 }
 
 testValidateDecode();
 testValidateThrow();
 testValidateTryCatch();
 testValidateCatch();
+testValidateCatchAll();
 testValidateExnPayload();
-testValidateExnWithRef();
+testValidateRethrow();
+testValidateDelegate();

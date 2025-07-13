@@ -14,7 +14,8 @@
 #include "mozilla/Preferences.h"
 #include "mozilla/Unused.h"
 #include "mozJSComponentLoader.h"
-#include "js/Object.h"  // JS::GetCompartment
+#include "js/Object.h"              // JS::GetCompartment
+#include "js/PropertyAndElement.h"  // JS_DefineProperty, JS_DefinePropertyById
 
 #include "mozilla/dom/BindingUtils.h"
 
@@ -82,8 +83,11 @@ XPCWrappedNativeScope::XPCWrappedNativeScope(JS::Compartment* aCompartment,
   // remote XUL domains, _except_ if we have an additional pref override set.
   //
   // Note that we can't quite remove this yet, even though we never actually
-  // use XBL scopes, because some code (including the security manager) uses
-  // this boolean to make decisions that we rely on in our test infrastructure.
+  // use XBL scopes, because the security manager uses this boolean to make
+  // decisions that we rely on in our test infrastructure.
+  //
+  // FIXME(emilio): Now that the security manager is the only caller probably
+  // should be renamed, but what's a good name for this?
   mAllowContentXBLScope = !RemoteXULForbidsXBLScope(aFirstGlobal);
 }
 
@@ -91,8 +95,8 @@ bool XPCWrappedNativeScope::GetComponentsJSObject(JSContext* cx,
                                                   JS::MutableHandleObject obj) {
   if (!mComponents) {
     bool system = AccessCheck::isChrome(mCompartment);
-    mComponents =
-        system ? new nsXPCComponents(this) : new nsXPCComponentsBase(this);
+    MOZ_RELEASE_ASSERT(system, "How did we get a non-system Components?");
+    mComponents = new nsXPCComponents(this);
   }
 
   RootedValue val(cx);
@@ -107,12 +111,7 @@ bool XPCWrappedNativeScope::GetComponentsJSObject(JSContext* cx,
     return false;
   }
 
-  // The call to wrap() here is necessary even though the object is same-
-  // compartment, because it applies our security wrapper.
   obj.set(&val.toObject());
-  if (NS_WARN_IF(!JS_WrapObject(cx, obj))) {
-    return false;
-  }
   return true;
 }
 
@@ -141,7 +140,6 @@ bool XPCWrappedNativeScope::AttachComponentsObject(JSContext* aCx) {
   RootedObject global(aCx, CurrentGlobalOrNull(aCx));
 
   const unsigned attrs = JSPROP_READONLY | JSPROP_RESOLVING | JSPROP_PERMANENT;
-  nsCOMPtr<nsIXPCComponents> c = do_QueryInterface(mComponents);
 
   RootedId id(aCx,
               XPCJSContext::Get()->GetStringID(XPCJSContext::IDX_COMPONENTS));
@@ -160,13 +158,9 @@ bool XPCWrappedNativeScope::AttachComponentsObject(JSContext* aCx) {
   DEFINE_SUBCOMPONENT_PROPERTY(mComponents, Interfaces, nullptr, CI)
   DEFINE_SUBCOMPONENT_PROPERTY(mComponents, Results, nullptr, CR)
 
-  if (!c) {
-    return true;
-  }
-
-  DEFINE_SUBCOMPONENT_PROPERTY(c, Classes, nullptr, CC)
-  DEFINE_SUBCOMPONENT_PROPERTY(c, Utils, &NS_GET_IID(nsIXPCComponents_Utils),
-                               CU)
+  DEFINE_SUBCOMPONENT_PROPERTY(mComponents, Classes, nullptr, CC)
+  DEFINE_SUBCOMPONENT_PROPERTY(mComponents, Utils,
+                               &NS_GET_IID(nsIXPCComponents_Utils), CU)
 
 #undef DEFINE_SUBCOMPONENT_PROPERTY
 

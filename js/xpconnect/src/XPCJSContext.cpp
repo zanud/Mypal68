@@ -11,6 +11,7 @@
 #include "xpcpublic.h"
 #include "XPCWrapper.h"
 #include "XPCJSMemoryReporter.h"
+#include "XPCSelfHostedShmem.h"
 #include "WrapperFactory.h"
 #include "mozJSComponentLoader.h"
 #include "nsNetUtil.h"
@@ -36,8 +37,10 @@
 #include "jsapi.h"
 #include "js/ArrayBuffer.h"
 #include "js/ContextOptions.h"
+#include "js/Initialization.h"
 #include "js/MemoryMetrics.h"
 #include "js/OffThreadScriptCompilation.h"
+#include "js/WasmFeatures.h"
 #include "mozilla/dom/BindingUtils.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/ScriptLoader.h"
@@ -75,7 +78,6 @@
 using namespace mozilla;
 using namespace xpc;
 using namespace JS;
-using mozilla::dom::AutoEntryScript;
 
 // The watchdog thread loop is pretty trivial, and should not require much stack
 // space to do its job. So only give it 32KiB or the platform minimum.
@@ -639,19 +641,11 @@ bool XPCJSContext::InterruptCallback(JSContext* cx) {
   // running in a non-DOM scope, we have to just let it keep running.
   RootedObject global(cx, JS::CurrentGlobalOrNull(cx));
   RefPtr<nsGlobalWindowInner> win = WindowOrNull(global);
-  if (!win && IsSandbox(global)) {
+  if (!win) {
     // If this is a sandbox associated with a DOMWindow via a
-    // sandboxPrototype, use that DOMWindow. This supports GreaseMonkey
-    // and JetPack content scripts.
-    JS::Rooted<JSObject*> proto(cx);
-    if (!JS_GetPrototype(cx, global, &proto)) {
-      return false;
-    }
-    if (proto && xpc::IsSandboxPrototypeProxy(proto) &&
-        (proto = js::CheckedUnwrapDynamic(proto, cx,
-                                          /* stopAtWindowProxy = */ false))) {
-      win = WindowGlobalOrNull(proto);
-    }
+    // sandboxPrototype, use that DOMWindow. This supports WebExtension
+    // content scripts.
+    win = SandboxWindowOrNull(global, cx);
   }
 
   if (!win) {
@@ -760,6 +754,9 @@ void xpc::SetPrefableRealmOptions(JS::RealmOptions& options) {
       .setIteratorHelpersEnabled(sIteratorHelpersEnabled);
 }
 
+// Mirrored value of javascript.options.self_hosted.use_shared_memory.
+static bool sSelfHostedUseSharedMemory = false;
+
 static void LoadStartupJSPrefs(XPCJSContext* xpccx) {
   // Prefs that require a restart are handled here. This includes the
   // process-wide JIT options because toggling these at runtime can easily cause
@@ -769,116 +766,112 @@ static void LoadStartupJSPrefs(XPCJSContext* xpccx) {
 
   JSContext* cx = xpccx->Context();
 
-  bool useBaselineInterp = Preferences::GetBool(JS_OPTIONS_DOT_STR "blinterp");
-  bool useBaselineJit = Preferences::GetBool(JS_OPTIONS_DOT_STR "baselinejit");
-  bool useIon = Preferences::GetBool(JS_OPTIONS_DOT_STR "ion");
+  // Some prefs are unlisted in all.js / StaticPrefs (and thus are invisible in
+  // about:config). Make sure we use explicit defaults here.
   bool useJitForTrustedPrincipals =
-      Preferences::GetBool(JS_OPTIONS_DOT_STR "jit_trustedprincipals");
-  bool useNativeRegExp =
-      Preferences::GetBool(JS_OPTIONS_DOT_STR "native_regexp");
+      Preferences::GetBool(JS_OPTIONS_DOT_STR "jit_trustedprincipals", false);
+  bool disableWasmHugeMemory = Preferences::GetBool(
+      JS_OPTIONS_DOT_STR "wasm_disable_huge_memory", false);
 
-  bool offthreadIonCompilation =
-      Preferences::GetBool(JS_OPTIONS_DOT_STR "ion.offthread_compilation");
-  bool useBaselineEager = Preferences::GetBool(
-      JS_OPTIONS_DOT_STR "baselinejit.unsafe_eager_compilation");
-  bool useIonEager =
-      Preferences::GetBool(JS_OPTIONS_DOT_STR "ion.unsafe_eager_compilation");
-#ifdef DEBUG
-  bool fullJitDebugChecks =
-      Preferences::GetBool(JS_OPTIONS_DOT_STR "jit.full_debug_checks");
-#endif
-
-  int32_t baselineInterpThreshold =
-      Preferences::GetInt(JS_OPTIONS_DOT_STR "blinterp.threshold", -1);
-  int32_t baselineThreshold =
-      Preferences::GetInt(JS_OPTIONS_DOT_STR "baselinejit.threshold", -1);
-  int32_t normalIonThreshold =
-      Preferences::GetInt(JS_OPTIONS_DOT_STR "ion.threshold", -1);
-  int32_t ionFrequentBailoutThreshold = Preferences::GetInt(
-      JS_OPTIONS_DOT_STR "ion.frequent_bailout_threshold", -1);
-
-  bool spectreIndexMasking =
-      Preferences::GetBool(JS_OPTIONS_DOT_STR "spectre.index_masking");
-  bool spectreObjectMitigationsBarriers = Preferences::GetBool(
-      JS_OPTIONS_DOT_STR "spectre.object_mitigations.barriers");
-  bool spectreObjectMitigationsMisc = Preferences::GetBool(
-      JS_OPTIONS_DOT_STR "spectre.object_mitigations.misc");
-  bool spectreStringMitigations =
-      Preferences::GetBool(JS_OPTIONS_DOT_STR "spectre.string_mitigations");
-  bool spectreValueMasking =
-      Preferences::GetBool(JS_OPTIONS_DOT_STR "spectre.value_masking");
-  bool spectreJitToCxxCalls =
-      Preferences::GetBool(JS_OPTIONS_DOT_STR "spectre.jit_to_C++_calls");
-
-  bool disableWasmHugeMemory =
-      Preferences::GetBool(JS_OPTIONS_DOT_STR "wasm_disable_huge_memory");
-
-  bool useOffThreadParseGlobal =
-      Preferences::GetBool(JS_OPTIONS_DOT_STR "off_thread_parse_global");
-
+  bool safeMode = false;
   nsCOMPtr<nsIXULRuntime> xr = do_GetService("@mozilla.org/xre/runtime;1");
   if (xr) {
-    bool safeMode = false;
     xr->GetInSafeMode(&safeMode);
-    if (safeMode) {
-      useBaselineJit = false;
-      useIon = false;
-      useJitForTrustedPrincipals = false;
-      useNativeRegExp = false;
-    }
   }
 
-  JS_SetGlobalJitCompilerOption(cx, JSJITCOMPILER_BASELINE_INTERPRETER_ENABLE,
-                                useBaselineInterp);
-  JS_SetGlobalJitCompilerOption(cx, JSJITCOMPILER_BASELINE_ENABLE,
-                                useBaselineJit);
-  JS_SetGlobalJitCompilerOption(cx, JSJITCOMPILER_ION_ENABLE, useIon);
-  JS_SetGlobalJitCompilerOption(cx, JSJITCOMPILER_JIT_TRUSTEDPRINCIPALS_ENABLE,
-                                useJitForTrustedPrincipals);
-  JS_SetGlobalJitCompilerOption(cx, JSJITCOMPILER_NATIVE_REGEXP_ENABLE,
-                                useNativeRegExp);
+  // NOTE: Baseline Interpreter is still used in safe-mode. This gives a big
+  //       perf gain and is our simplest JIT so we make a tradeoff.
+  JS_SetGlobalJitCompilerOption(
+      cx, JSJITCOMPILER_BASELINE_INTERPRETER_ENABLE,
+      StaticPrefs::javascript_options_blinterp_DoNotUseDirectly());
 
-  JS_SetOffthreadIonCompilationEnabled(cx, offthreadIonCompilation);
+  // Disable most JITs in Safe-Mode.
+  if (safeMode) {
+    JS_SetGlobalJitCompilerOption(cx, JSJITCOMPILER_BASELINE_ENABLE, false);
+    JS_SetGlobalJitCompilerOption(cx, JSJITCOMPILER_ION_ENABLE, false);
+    JS_SetGlobalJitCompilerOption(
+        cx, JSJITCOMPILER_JIT_TRUSTEDPRINCIPALS_ENABLE, false);
+    JS_SetGlobalJitCompilerOption(cx, JSJITCOMPILER_NATIVE_REGEXP_ENABLE,
+                                  false);
+    sSelfHostedUseSharedMemory = false;
+  } else {
+    JS_SetGlobalJitCompilerOption(
+        cx, JSJITCOMPILER_BASELINE_ENABLE,
+        StaticPrefs::javascript_options_baselinejit_DoNotUseDirectly());
+    JS_SetGlobalJitCompilerOption(
+        cx, JSJITCOMPILER_ION_ENABLE,
+        StaticPrefs::javascript_options_ion_DoNotUseDirectly());
+    JS_SetGlobalJitCompilerOption(cx,
+                                  JSJITCOMPILER_JIT_TRUSTEDPRINCIPALS_ENABLE,
+                                  useJitForTrustedPrincipals);
+    JS_SetGlobalJitCompilerOption(
+        cx, JSJITCOMPILER_NATIVE_REGEXP_ENABLE,
+        StaticPrefs::javascript_options_native_regexp_DoNotUseDirectly());
+    sSelfHostedUseSharedMemory =
+        StaticPrefs::
+            javascript_options_self_hosted_use_shared_memory_DoNotUseDirectly();
+  }
+
+  JS_SetOffthreadIonCompilationEnabled(
+      cx, StaticPrefs::
+              javascript_options_ion_offthread_compilation_DoNotUseDirectly());
 
   JS_SetGlobalJitCompilerOption(
       cx, JSJITCOMPILER_BASELINE_INTERPRETER_WARMUP_TRIGGER,
-      baselineInterpThreshold);
-  JS_SetGlobalJitCompilerOption(cx, JSJITCOMPILER_BASELINE_WARMUP_TRIGGER,
-                                useBaselineEager ? 0 : baselineThreshold);
-  JS_SetGlobalJitCompilerOption(cx, JSJITCOMPILER_ION_NORMAL_WARMUP_TRIGGER,
-                                useIonEager ? 0 : normalIonThreshold);
-  JS_SetGlobalJitCompilerOption(cx,
-                                JSJITCOMPILER_ION_FREQUENT_BAILOUT_THRESHOLD,
-                                ionFrequentBailoutThreshold);
+      StaticPrefs::javascript_options_blinterp_threshold_DoNotUseDirectly());
+  JS_SetGlobalJitCompilerOption(
+      cx, JSJITCOMPILER_BASELINE_WARMUP_TRIGGER,
+      StaticPrefs::javascript_options_baselinejit_threshold_DoNotUseDirectly());
+  JS_SetGlobalJitCompilerOption(
+      cx, JSJITCOMPILER_ION_NORMAL_WARMUP_TRIGGER,
+      StaticPrefs::javascript_options_ion_threshold_DoNotUseDirectly());
+  JS_SetGlobalJitCompilerOption(
+      cx, JSJITCOMPILER_ION_FREQUENT_BAILOUT_THRESHOLD,
+      StaticPrefs::
+          javascript_options_ion_frequent_bailout_threshold_DoNotUseDirectly());
+  JS_SetGlobalJitCompilerOption(
+      cx, JSJITCOMPILER_INLINING_BYTECODE_MAX_LENGTH,
+      StaticPrefs::
+          javascript_options_inlining_bytecode_max_length_DoNotUseDirectly());
 
 #ifdef DEBUG
-  JS_SetGlobalJitCompilerOption(cx, JSJITCOMPILER_FULL_DEBUG_CHECKS,
-                                fullJitDebugChecks);
+  JS_SetGlobalJitCompilerOption(
+      cx, JSJITCOMPILER_FULL_DEBUG_CHECKS,
+      StaticPrefs::javascript_options_jit_full_debug_checks_DoNotUseDirectly());
 #endif
 
-  JS_SetGlobalJitCompilerOption(cx, JSJITCOMPILER_SPECTRE_INDEX_MASKING,
-                                spectreIndexMasking);
+#if !defined(JS_CODEGEN_MIPS32) && !defined(JS_CODEGEN_MIPS64)
   JS_SetGlobalJitCompilerOption(
-      cx, JSJITCOMPILER_SPECTRE_OBJECT_MITIGATIONS_BARRIERS,
-      spectreObjectMitigationsBarriers);
-  JS_SetGlobalJitCompilerOption(cx,
-                                JSJITCOMPILER_SPECTRE_OBJECT_MITIGATIONS_MISC,
-                                spectreObjectMitigationsMisc);
-  JS_SetGlobalJitCompilerOption(cx, JSJITCOMPILER_SPECTRE_STRING_MITIGATIONS,
-                                spectreStringMitigations);
-  JS_SetGlobalJitCompilerOption(cx, JSJITCOMPILER_SPECTRE_VALUE_MASKING,
-                                spectreValueMasking);
-  JS_SetGlobalJitCompilerOption(cx, JSJITCOMPILER_SPECTRE_JIT_TO_CXX_CALLS,
-                                spectreJitToCxxCalls);
+      cx, JSJITCOMPILER_SPECTRE_INDEX_MASKING,
+      StaticPrefs::javascript_options_spectre_index_masking_DoNotUseDirectly());
+  JS_SetGlobalJitCompilerOption(
+      cx, JSJITCOMPILER_SPECTRE_OBJECT_MITIGATIONS,
+      StaticPrefs::
+          javascript_options_spectre_object_mitigations_DoNotUseDirectly());
+  JS_SetGlobalJitCompilerOption(
+      cx, JSJITCOMPILER_SPECTRE_STRING_MITIGATIONS,
+      StaticPrefs::
+          javascript_options_spectre_string_mitigations_DoNotUseDirectly());
+  JS_SetGlobalJitCompilerOption(
+      cx, JSJITCOMPILER_SPECTRE_VALUE_MASKING,
+      StaticPrefs::javascript_options_spectre_value_masking_DoNotUseDirectly());
+  JS_SetGlobalJitCompilerOption(
+      cx, JSJITCOMPILER_SPECTRE_JIT_TO_CXX_CALLS,
+      StaticPrefs::
+          javascript_options_spectre_jit_to_cxx_calls_DoNotUseDirectly());
+#endif
+
   if (disableWasmHugeMemory) {
     bool disabledHugeMemory = JS::DisableWasmHugeMemory();
     MOZ_RELEASE_ASSERT(disabledHugeMemory);
   }
 
-  JS::SetUseOffThreadParseGlobal(useOffThreadParseGlobal);
-
   JS::SetLargeArrayBuffersEnabled(
-      StaticPrefs::javascript_options_large_arraybuffers());
+      StaticPrefs::javascript_options_large_arraybuffers_DoNotUseDirectly());
+
+  JS::SetSiteBasedPretenuringEnabled(
+      StaticPrefs::
+          javascript_options_site_based_pretenuring_DoNotUseDirectly());
 }
 
 static void ReloadPrefsCallback(const char* pref, void* aXpccx) {
@@ -895,23 +888,25 @@ static void ReloadPrefsCallback(const char* pref, void* aXpccx) {
       Preferences::GetBool(JS_OPTIONS_DOT_STR "wasm_optimizingjit");
   bool useWasmBaseline =
       Preferences::GetBool(JS_OPTIONS_DOT_STR "wasm_baselinejit");
-#ifdef ENABLE_WASM_FUNCTION_REFERENCES
-  bool useWasmFunctionReferences =
-      Preferences::GetBool(JS_OPTIONS_DOT_STR "wasm_function_references");
-#endif
-#ifdef ENABLE_WASM_GC
-  bool useWasmGc = Preferences::GetBool(JS_OPTIONS_DOT_STR "wasm_gc");
-#endif
-#ifdef ENABLE_WASM_MULTI_VALUE
-  bool useWasmMultiValue =
-      Preferences::GetBool(JS_OPTIONS_DOT_STR "wasm_multi_value");
-#endif
+
+#define WASM_FEATURE(NAME, LOWER_NAME, COMPILE_PRED, COMPILER_PRED, FLAG_PRED, \
+                     SHELL, PREF)                                              \
+  bool useWasm##NAME = Preferences::GetBool(JS_OPTIONS_DOT_STR "wasm_" PREF);
 #ifdef ENABLE_WASM_SIMD
-  bool useWasmSimd = Preferences::GetBool(JS_OPTIONS_DOT_STR "wasm_simd");
+  JS_FOR_WASM_FEATURES(WASM_FEATURE, WASM_FEATURE)
+#else
+  JS_FOR_WASM_FEATURES(WASM_FEATURE)
 #endif
+#undef WASM_FEATURE
+
 #ifdef ENABLE_WASM_SIMD_WORMHOLE
-  bool useWasmSimdWormhole =
+  bool useWasmSimdWormhole = false;
+#  ifdef EARLY_BETA_OR_EARLIER
+  // In late beta and release, the functionality is available but only to
+  // privileged content.
+  useWasmSimdWormhole =
       Preferences::GetBool(JS_OPTIONS_DOT_STR "wasm_simd_wormhole");
+#  endif
 #endif
   bool useWasmVerbose = Preferences::GetBool(JS_OPTIONS_DOT_STR "wasm_verbose");
   bool throwOnAsmJSValidationFailure = Preferences::GetBool(
@@ -944,22 +939,23 @@ static void ReloadPrefsCallback(const char* pref, void* aXpccx) {
   sWeakRefsExposeCleanupSome = Preferences::GetBool(
       JS_OPTIONS_DOT_STR "experimental.weakrefs.expose_cleanupSome");
 
+  bool topLevelAwaitEnabled =
+      Preferences::GetBool(JS_OPTIONS_DOT_STR "experimental.top_level_await");
+
   bool privateFieldsEnabled =
       Preferences::GetBool(JS_OPTIONS_DOT_STR "experimental.private_fields");
   bool privateMethodsEnabled =
       Preferences::GetBool(JS_OPTIONS_DOT_STR "experimental.private_methods");
 
-  // Require Ergonomic brand checks disabled outside of nightly.
+  bool ergnomicBrandChecksEnabled = Preferences::GetBool(
+      JS_OPTIONS_DOT_STR "experimental.ergonomic_brand_checks");
+
+  bool classStaticBlocksEnabled = Preferences::GetBool(
+      JS_OPTIONS_DOT_STR "experimental.class_static_blocks");
+
 #ifdef NIGHTLY_BUILD
   sIteratorHelpersEnabled =
       Preferences::GetBool(JS_OPTIONS_DOT_STR "experimental.iterator_helpers");
-#endif
-
-  // Require top level await disabled outside of nightly.
-  bool topLevelAwaitEnabled = false;
-#ifdef NIGHTLY_BUILD
-  topLevelAwaitEnabled =
-      Preferences::GetBool(JS_OPTIONS_DOT_STR "experimental.top_level_await");
 #endif
 
 #ifdef JS_GC_ZEAL
@@ -984,25 +980,22 @@ static void ReloadPrefsCallback(const char* pref, void* aXpccx) {
       .setWasmForTrustedPrinciples(useWasmTrustedPrincipals)
 #ifdef ENABLE_WASM_CRANELIFT
       .setWasmCranelift(useWasmOptimizing)
+      .setWasmIon(false)
 #else
+      .setWasmCranelift(false)
       .setWasmIon(useWasmOptimizing)
 #endif
       .setWasmBaseline(useWasmBaseline)
-#ifdef ENABLE_WASM_FUNCTION_REFERENCES
-      .setWasmFunctionReferences(useWasmFunctionReferences)
-#endif
-#ifdef ENABLE_WASM_GC
-      .setWasmGc(useWasmGc)
-#endif
-#ifdef ENABLE_WASM_MULTI_VALUE
-      .setWasmMultiValue(useWasmMultiValue)
-#endif
+#define WASM_FEATURE(NAME, ...) .setWasm##NAME(useWasm##NAME)
 #ifdef ENABLE_WASM_SIMD
-      .setWasmSimd(useWasmSimd)
-#endif
-#ifdef ENABLE_WASM_SIMD_WORMHOLE
+          JS_FOR_WASM_FEATURES(WASM_FEATURE, WASM_FEATURE)
+#  ifdef ENABLE_WASM_SIMD_WORMHOLE
       .setWasmSimdWormhole(useWasmSimdWormhole)
+#  endif
+#else
+          JS_FOR_WASM_FEATURES(WASM_FEATURE)
 #endif
+#undef WASM_FEATURE
       .setWasmVerbose(useWasmVerbose)
       .setThrowOnAsmJSValidationFailure(throwOnAsmJSValidationFailure)
       .setSourcePragmas(useSourcePragmas)
@@ -1012,7 +1005,13 @@ static void ReloadPrefsCallback(const char* pref, void* aXpccx) {
       .setDumpStackOnDebuggeeWouldRun(dumpStackOnDebuggeeWouldRun)
       .setPrivateClassFields(privateFieldsEnabled)
       .setPrivateClassMethods(privateMethodsEnabled)
+      .setClassStaticBlocks(classStaticBlocksEnabled)
+      .setErgnomicBrandChecks(ergnomicBrandChecksEnabled)
       .setTopLevelAwait(topLevelAwaitEnabled);
+
+  JS::SetUseFdlibmForSinCosTan(
+      Preferences::GetBool(JS_OPTIONS_DOT_STR "use_fdlibm_for_sin_cos_tan") ||
+      Preferences::GetBool("privacy.resistFingerprinting"));
 
   nsCOMPtr<nsIXULRuntime> xr = do_GetService("@mozilla.org/xre/runtime;1");
   if (xr) {
@@ -1131,6 +1130,16 @@ XPCJSRuntime* XPCJSContext::Runtime() const {
 
 CycleCollectedJSRuntime* XPCJSContext::CreateRuntime(JSContext* aCx) {
   return new XPCJSRuntime(aCx);
+}
+
+static bool CreateSelfHostedSharedMemory(JSContext* aCx,
+                                         JS::SelfHostedCache aBuf) {
+  auto& shm = xpc::SelfHostedShmem::GetSingleton();
+  MOZ_RELEASE_ASSERT(shm.Content().IsEmpty());
+  // Failures within InitFromParent output warnings but do not cause
+  // unrecoverable failures.
+  shm.InitFromParent(aBuf);
+  return true;
 }
 
 nsresult XPCJSContext::Initialize() {
@@ -1301,7 +1310,18 @@ nsresult XPCJSContext::Initialize() {
     NS_ABORT_OOM(0);  // Size is unknown.
   }
 
-  if (!JS::InitSelfHostedCode(cx)) {
+  // When available, set the self-hosted shared memory to be read, so that we
+  // can decode the self-hosted content instead of parsing it.
+  auto& shm = xpc::SelfHostedShmem::GetSingleton();
+  JS::SelfHostedCache selfHostedContent = shm.Content();
+  JS::SelfHostedWriter writer = nullptr;
+  if (XRE_IsParentProcess() && sSelfHostedUseSharedMemory) {
+    // Only the Parent process has permissions to write to the self-hosted
+    // shared memory.
+    writer = CreateSelfHostedSharedMemory;
+  }
+
+  if (!JS::InitSelfHostedCode(cx, selfHostedContent, writer)) {
     // Note: If no exception is pending, failure is due to OOM.
     if (!JS_IsExceptionPending(cx) || JS_IsThrowingOutOfMemory(cx)) {
       NS_ABORT_OOM(0);  // Size is unknown.

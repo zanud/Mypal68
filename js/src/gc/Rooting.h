@@ -23,7 +23,6 @@ class PlainObject;
 class ScriptSourceObject;
 class SavedFrame;
 class Shape;
-class ObjectGroup;
 class DebuggerArguments;
 class DebuggerEnvironment;
 class DebuggerFrame;
@@ -37,7 +36,6 @@ class ModuleObject;
 
 using HandleNativeObject = JS::Handle<NativeObject*>;
 using HandleShape = JS::Handle<Shape*>;
-using HandleObjectGroup = JS::Handle<ObjectGroup*>;
 using HandleAtom = JS::Handle<JSAtom*>;
 using HandleLinearString = JS::Handle<JSLinearString*>;
 using HandlePropertyName = JS::Handle<PropertyName*>;
@@ -72,7 +70,6 @@ using MutableHandleArrayObject = JS::MutableHandle<ArrayObject*>;
 
 using RootedNativeObject = JS::Rooted<NativeObject*>;
 using RootedShape = JS::Rooted<Shape*>;
-using RootedObjectGroup = JS::Rooted<ObjectGroup*>;
 using RootedAtom = JS::Rooted<JSAtom*>;
 using RootedLinearString = JS::Rooted<JSLinearString*>;
 using RootedPropertyName = JS::Rooted<PropertyName*>;

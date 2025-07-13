@@ -88,13 +88,6 @@
   args:
     input: ValId
 
-- name: GuardIsObjectOrNull
-  shared: true
-  transpile: false
-  cost_estimate: 1
-  args:
-    input: ValId
-
 - name: GuardIsNullOrUndefined
   shared: true
   transpile: true
@@ -231,22 +224,6 @@
   args:
     obj: ObjId
     shape: ShapeField
-
-- name: GuardGroup
-  shared: false
-  transpile: true
-  cost_estimate: 1
-  args:
-    obj: ObjId
-    group: GroupField
-
-- name: GuardTypeDescr
-  shared: false
-  transpile: false
-  cost_estimate: 1
-  args:
-    obj: ObjId
-    descr: ObjectField
 
 - name: GuardProto
   shared: false
@@ -483,20 +460,6 @@
     sym: SymbolId
     expected: SymbolField
 
-- name: GuardMagicValue
-  shared: true
-  transpile: true
-  cost_estimate: 1
-  args:
-    val: ValId
-    magic: JSWhyMagicImm
-
-- name: GuardFrameHasNoArgumentsObject
-  shared: false
-  transpile: true
-  cost_estimate: 1
-  args:
-
 - name: GuardNoDenseElements
   shared: true
   transpile: true
@@ -552,21 +515,14 @@
   cost_estimate: 4
   args:
     obj: ObjId
-    shape: ShapeField
+    id: IdField
+    getterSetter: GetterSetterField
 
 - name: GuardInt32IsNonNegative
   shared: true
   transpile: true
   cost_estimate: 1
   args:
-    index: Int32Id
-
-- name: GuardIndexGreaterThanArrayLength
-  shared: true
-  transpile: false
-  cost_estimate: 1
-  args:
-    obj: ObjId
     index: Int32Id
 
 - name: GuardIndexIsValidUpdateOrAdd
@@ -618,11 +574,30 @@
     expected: ObjId
     slot: RawInt32Field
 
-- name: GuardNoAllocationMetadataBuilder
+- name: GuardFixedSlotValue
   shared: true
-  transpile: false
+  transpile: true
   cost_estimate: 1
   args:
+    obj: ObjId
+    offset: RawInt32Field
+    val: ValueField
+
+- name: GuardDynamicSlotValue
+  shared: true
+  transpile: true
+  cost_estimate: 1
+  args:
+    obj: ObjId
+    offset: RawInt32Field
+    val: ValueField
+
+- name: GuardNoAllocationMetadataBuilder
+  shared: true
+  transpile: true
+  cost_estimate: 1
+  args:
+    builderAddr: RawPointerField
 
 - name: GuardFunctionHasJitEntry
   shared: true
@@ -1731,7 +1706,7 @@
     index: IntPtrId
     elementType: ScalarTypeImm
     handleOOB: BoolImm
-    allowDoubleForUint32: BoolImm
+    forceDoubleForUint32: BoolImm
 
 - name: LoadDataViewValueResult
   shared: true
@@ -1742,7 +1717,7 @@
     offset: IntPtrId
     littleEndian: BooleanId
     elementType: ScalarTypeImm
-    allowDoubleForUint32: BoolImm
+    forceDoubleForUint32: BoolImm
 
 - name: StoreDataViewValueResult
   shared: true
@@ -1849,25 +1824,6 @@
   cost_estimate: 1
   args:
     str: StringId
-
-- name: LoadFrameCalleeResult
-  shared: false
-  transpile: true
-  cost_estimate: 1
-  args:
-
-- name: LoadFrameNumActualArgsResult
-  shared: false
-  transpile: true
-  cost_estimate: 1
-  args:
-
-- name: LoadFrameArgumentResult
-  shared: false
-  transpile: true
-  cost_estimate: 1
-  args:
-    index: Int32Id
 
 - name: FrameIsConstructingResult
   shared: false
@@ -2282,7 +2238,7 @@
   args:
     lhs: Int32Id
     rhs: Int32Id
-    allowDouble: BoolImm
+    forceDouble: BoolImm
 
 - name: Int32NotResult
   shared: true
@@ -2403,35 +2359,35 @@
 
 - name: LoadInt32TruthyResult
   shared: true
-  transpile: false
+  transpile: true
   cost_estimate: 2
   args:
     input: ValId
 
 - name: LoadDoubleTruthyResult
   shared: true
-  transpile: false
+  transpile: true
   cost_estimate: 2
   args:
     input: NumberId
 
 - name: LoadStringTruthyResult
   shared: true
-  transpile: false
+  transpile: true
   cost_estimate: 2
   args:
     str: StringId
 
 - name: LoadObjectTruthyResult
   shared: true
-  transpile: false
+  transpile: true
   cost_estimate: 4
   args:
     obj: ObjId
 
 - name: LoadBigIntTruthyResult
   shared: true
-  transpile: false
+  transpile: true
   cost_estimate: 2
   args:
     bigInt: BigIntId
@@ -2450,14 +2406,32 @@
   args:
     val: ValueField
 
-- name: LoadNewObjectFromTemplateResult
+- name: LoadOperandResult
   shared: true
-  transpile: false
+  transpile: true
+  cost_estimate: 1
+  args:
+    input: ValId
+
+- name: NewPlainObjectResult
+  shared: false
+  transpile: true
   cost_estimate: 4
   args:
-    templateObject: ObjectField
-    disambiguationIdHi: UInt32Imm
-    disambiguationIdLo: UInt32Imm
+    numFixedSlots: UInt32Imm
+    numDynamicSlots: UInt32Imm
+    allocKind: AllocKindImm
+    shape: ShapeField
+    site: AllocSiteField
+
+- name: NewArrayObjectResult
+  shared: false
+  transpile: true
+  cost_estimate: 4
+  args:
+    arrayLength: UInt32Imm
+    shape: ShapeField
+    site: AllocSiteField
 
 - name: CallStringConcatResult
   shared: true
@@ -2579,6 +2553,14 @@
   args:
     lhs: NumberId
     rhs: NumberId
+
+- name: SameValueResult
+  shared: false
+  transpile: true
+  cost_estimate: 4
+  args:
+    lhs: ValId
+    rhs: ValId
 
 - name: IndirectTruncateInt32Result
   shared: true

@@ -24,6 +24,7 @@
 #include "jit/JitCode.h"
 #include "jit/shared/Assembler-shared.h"
 #include "js/AllocPolicy.h"
+#include "js/ProfilingFrameIterator.h"
 #include "js/TypeDecls.h"
 #include "js/UniquePtr.h"
 #include "js/Vector.h"
@@ -50,7 +51,7 @@ struct VMFunctionData;
 enum class TailCallVMFunctionId;
 enum class VMFunctionId;
 
-enum class BaselineICFallbackKind {
+enum class BaselineICFallbackKind : uint8_t {
 #define DEF_ENUM_KIND(kind) kind,
   IC_BASELINE_FALLBACK_CODE_KIND_LIST(DEF_ENUM_KIND)
 #undef DEF_ENUM_KIND
@@ -164,7 +165,6 @@ class JitRuntime {
   WriteOnceData<uint32_t> stringPreBarrierOffset_{0};
   WriteOnceData<uint32_t> objectPreBarrierOffset_{0};
   WriteOnceData<uint32_t> shapePreBarrierOffset_{0};
-  WriteOnceData<uint32_t> objectGroupPreBarrierOffset_{0};
 
   // Thunk to call malloc/free.
   WriteOnceData<uint32_t> freeStubOffset_{0};
@@ -226,9 +226,6 @@ class JitRuntime {
   using IonCompileTaskList = mozilla::LinkedList<js::jit::IonCompileTask>;
   MainThreadData<IonCompileTaskList> ionLazyLinkList_;
   MainThreadData<size_t> ionLazyLinkListSize_{0};
-
-  // Counter used to help dismbiguate stubs in CacheIR
-  MainThreadData<uint64_t> disambiguationId_{0};
 
 #ifdef DEBUG
   // Flag that can be set from JIT code to indicate it's invalid to call
@@ -367,6 +364,13 @@ class JitRuntime {
                                trampolineCode(enterJITOffset_).value);
   }
 
+  // Return the registers from the native caller frame of the given JIT frame.
+  // Nothing{} if frameStackAddress is NOT pointing at a native-to-JIT entry
+  // frame, or if the information is not accessible/implemented on this
+  // platform.
+  static mozilla::Maybe<::JS::ProfilingFrameIterator::RegisterState>
+  getCppEntryRegisters(JitFrameLayout* frameStackAddress);
+
   TrampolinePtr preBarrier(MIRType type) const {
     switch (type) {
       case MIRType::Value:
@@ -377,8 +381,6 @@ class JitRuntime {
         return trampolineCode(objectPreBarrierOffset_);
       case MIRType::Shape:
         return trampolineCode(shapePreBarrierOffset_);
-      case MIRType::ObjectGroup:
-        return trampolineCode(objectGroupPreBarrierOffset_);
       default:
         MOZ_CRASH();
     }
@@ -436,8 +438,6 @@ class JitRuntime {
 
   void ionLazyLinkListRemove(JSRuntime* rt, js::jit::IonCompileTask* task);
   void ionLazyLinkListAdd(JSRuntime* rt, js::jit::IonCompileTask* task);
-
-  uint64_t nextDisambiguationId() { return disambiguationId_++; }
 };
 
 }  // namespace jit

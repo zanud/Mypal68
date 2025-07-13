@@ -16,6 +16,8 @@
 #include "js/TypeDecls.h"
 #include "vm/Printer.h"
 
+enum JSValueType : uint8_t;
+
 namespace js {
 namespace jit {
 
@@ -191,6 +193,8 @@ void EnableChannel(JitSpewChannel channel);
 void DisableChannel(JitSpewChannel channel);
 void EnableIonDebugSyncLogging();
 void EnableIonDebugAsyncLogging();
+
+const char* ValTypeToString(JSValueType type);
 
 #  define JitSpewIfEnabled(channel, fmt, ...) \
     do {                                      \

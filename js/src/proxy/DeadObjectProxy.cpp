@@ -21,7 +21,7 @@ static void ReportDead(JSContext* cx) {
 
 bool DeadObjectProxy::getOwnPropertyDescriptor(
     JSContext* cx, HandleObject wrapper, HandleId id,
-    MutableHandle<PropertyDescriptor> desc) const {
+    MutableHandle<mozilla::Maybe<PropertyDescriptor>> desc) const {
   ReportDead(cx);
   return false;
 }
@@ -126,7 +126,7 @@ RegExpShared* DeadObjectProxy::regexp_toShared(JSContext* cx,
   return nullptr;
 }
 
-bool js::IsDeadProxyObject(JSObject* obj) {
+bool js::IsDeadProxyObject(const JSObject* obj) {
   return IsDerivedProxyObject(obj, &DeadObjectProxy::singleton);
 }
 

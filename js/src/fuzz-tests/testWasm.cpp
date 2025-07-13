@@ -8,6 +8,7 @@
 #include "jspubtd.h"
 
 #include "fuzz-tests/tests.h"
+#include "js/PropertyAndElement.h"  // JS_Enumerate, JS_GetProperty, JS_GetPropertyById, JS_HasProperty, JS_SetProperty
 #include "vm/GlobalObject.h"
 #include "vm/Interpreter.h"
 #include "vm/TypedArrayObject.h"
@@ -100,7 +101,7 @@ static bool assignImportKind(const Import& import, HandleObject obj,
 static int testWasmFuzz(const uint8_t* buf, size_t size) {
   auto gcGuard = mozilla::MakeScopeExit([&] {
     JS::PrepareForFullGC(gCx);
-    JS::NonIncrementalGC(gCx, GC_NORMAL, JS::GCReason::API);
+    JS::NonIncrementalGC(gCx, JS::GCOptions::Normal, JS::GCReason::API);
   });
 
   const size_t MINIMUM_MODULE_SIZE = 8;
@@ -145,6 +146,7 @@ static int testWasmFuzz(const uint8_t* buf, size_t size) {
       bool enableWasmBaseline = ((optByte & 0xF0) == (1 << 7));
       bool enableWasmOptimizing = false;
 #ifdef ENABLE_WASM_CRANELIFT
+      // Cranelift->Ion transition
       enableWasmOptimizing =
           CraneliftPlatformSupport() && ((optByte & 0xF0) == (1 << 5));
 #else
@@ -183,7 +185,9 @@ static int testWasmFuzz(const uint8_t* buf, size_t size) {
           .setWasmBaseline(enableWasmBaseline)
 #ifdef ENABLE_WASM_CRANELIFT
           .setWasmCranelift(enableWasmOptimizing)
+          .setWasmIon(false)
 #else
+          .setWasmCranelift(false)
           .setWasmIon(enableWasmOptimizing)
 #endif
           .setTestWasmAwaitTier2(enableWasmAwaitTier2);
@@ -210,8 +214,9 @@ static int testWasmFuzz(const uint8_t* buf, size_t size) {
     currentIndex += moduleLen;
 
     ScriptedCaller scriptedCaller;
+    FeatureOptions options;
     SharedCompileArgs compileArgs =
-        CompileArgs::build(gCx, std::move(scriptedCaller));
+        CompileArgs::build(gCx, std::move(scriptedCaller), options);
     if (!compileArgs) {
       return 0;
     }
@@ -253,7 +258,7 @@ static int testWasmFuzz(const uint8_t* buf, size_t size) {
     size_t currentMemoryExportId = 0;
     size_t currentGlobalExportId = 0;
 #ifdef ENABLE_WASM_EXCEPTIONS
-    size_t currentEventExportId = 0;
+    size_t currentTagExportId = 0;
 #endif
 
     for (const Import& import : importVec) {
@@ -326,11 +331,11 @@ static int testWasmFuzz(const uint8_t* buf, size_t size) {
             break;
 
 #ifdef ENABLE_WASM_EXCEPTIONS
-          case DefinitionKind::Event:
+          case DefinitionKind::Tag:
             // TODO: Pass a dummy defaultValue
-            if (!assignImportKind<WasmExceptionObject>(
+            if (!assignImportKind<WasmTagObject>(
                     import, obj, lastExportsObj, lastExportIds,
-                    &currentEventExportId, exportsLength, nullValue)) {
+                    &currentTagExportId, exportsLength, nullValue)) {
               return 0;
             }
             break;
@@ -420,7 +425,7 @@ static int testWasmFuzz(const uint8_t* buf, size_t size) {
         if (propObj->is<WasmMemoryObject>()) {
           Rooted<WasmMemoryObject*> memory(gCx,
                                            &propObj->as<WasmMemoryObject>());
-          size_t byteLen = memory->volatileMemoryLength32();
+          size_t byteLen = memory->volatileMemoryLength();
           if (byteLen) {
             // Read the bounds of the buffer to ensure it is valid.
             // AddressSanitizer would detect any out-of-bounds here.

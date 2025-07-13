@@ -1768,6 +1768,9 @@ static Range* GetArrayBufferViewRange(TempAllocator& alloc, Scalar::Type type) {
     case Scalar::BigInt64:
     case Scalar::BigUint64:
     case Scalar::Int64:
+#ifdef ENABLE_WASM_SIMD
+    case Scalar::Simd128:
+#endif
     case Scalar::Float32:
     case Scalar::Float64:
     case Scalar::MaxTypedArrayViewType:
@@ -2924,9 +2927,9 @@ static bool CloneForDeadBranches(TempAllocator& alloc,
   }
   clone->setRange(nullptr);
 
-  // Set UseRemoved flag on the cloned instruction in order to chain recover
+  // Set ImplicitlyUsed flag on the cloned instruction in order to chain recover
   // instruction for the bailout path.
-  clone->setUseRemovedUnchecked();
+  clone->setImplicitlyUsedUnchecked();
 
   candidate->block()->insertBefore(candidate, clone);
 
@@ -2959,7 +2962,7 @@ static TruncateKind ComputeRequestedTruncateKind(MDefinition* candidate,
   bool isObservableResult =
       false;  // Check if it can be read from another frame.
   bool isRecoverableResult = true;  // Check if it can safely be reconstructed.
-  bool hasUseRemoved = candidate->isUseRemoved();
+  bool isImplicitlyUsed = candidate->isImplicitlyUsed();
 
   TruncateKind kind = TruncateKind::Truncate;
   for (MUseIterator use(candidate->usesBegin()); use != candidate->usesEnd();
@@ -2968,7 +2971,7 @@ static TruncateKind ComputeRequestedTruncateKind(MDefinition* candidate,
       // Truncation is a destructive optimization, as such, we need to pay
       // attention to removed branches and prevent optimization
       // destructive optimizations if we have no alternative. (see
-      // UseRemoved flag)
+      // ImplicitlyUsed flag)
       isCapturedResult = true;
       isObservableResult =
           isObservableResult ||
@@ -2982,7 +2985,7 @@ static TruncateKind ComputeRequestedTruncateKind(MDefinition* candidate,
     MDefinition* consumer = use->consumer()->toDefinition();
     if (consumer->isRecoveredOnBailout()) {
       isCapturedResult = true;
-      hasUseRemoved = hasUseRemoved || consumer->isUseRemoved();
+      isImplicitlyUsed = isImplicitlyUsed || consumer->isImplicitlyUsed();
       continue;
     }
 
@@ -3005,15 +3008,15 @@ static TruncateKind ComputeRequestedTruncateKind(MDefinition* candidate,
   bool needsConversion = !candidate->range() || !candidate->range()->isInt32();
 
   // If the instruction is explicitly truncated (not indirectly) by all its
-  // uses and if it has no removed uses, then we can safely encode its
+  // uses and if it is not implicitly used, then we can safely encode its
   // truncated result as part of the resume point operands.  This is safe,
   // because even if we resume with a truncated double, the next baseline
   // instruction operating on this instruction is going to be a no-op.
   //
   // Note, that if the result can be observed from another frame, then this
   // optimization is not safe.
-  bool safeToConvert =
-      kind == TruncateKind::Truncate && !hasUseRemoved && !isObservableResult;
+  bool safeToConvert = kind == TruncateKind::Truncate && !isImplicitlyUsed &&
+                       !isObservableResult;
 
   // If the candidate instruction appears as operand of a resume point or a
   // recover instruction, and we have to truncate its result, then we might
@@ -3086,8 +3089,7 @@ static void RemoveTruncatesOnOutput(MDefinition* truncated) {
   }
 }
 
-static void AdjustTruncatedInputs(TempAllocator& alloc,
-                                  MDefinition* truncated) {
+void RangeAnalysis::adjustTruncatedInputs(MDefinition* truncated) {
   MBasicBlock* block = truncated->block();
   for (size_t i = 0, e = truncated->numOperands(); i < e; i++) {
     TruncateKind kind = truncated->operandTruncateKind(i);
@@ -3105,10 +3107,11 @@ static void AdjustTruncatedInputs(TempAllocator& alloc,
     } else {
       MInstruction* op;
       if (kind == TruncateKind::TruncateAfterBailouts) {
-        op = MToNumberInt32::New(alloc, truncated->getOperand(i));
+        MOZ_ASSERT(!mir->outerInfo().hadEagerTruncationBailout());
+        op = MToNumberInt32::New(alloc(), truncated->getOperand(i));
         op->setBailoutKind(BailoutKind::EagerTruncation);
       } else {
-        op = MTruncateToInt32::New(alloc, truncated->getOperand(i));
+        op = MTruncateToInt32::New(alloc(), truncated->getOperand(i));
       }
 
       if (truncated->isPhi()) {
@@ -3145,10 +3148,10 @@ bool RangeAnalysis::canTruncate(MDefinition* def, TruncateKind kind) const {
     if (kind == TruncateKind::TruncateAfterBailouts) {
       return false;
     }
-    for (uint32_t i = 0; i < def->numOperands(); i++) {
-      if (def->operandTruncateKind(i) <= TruncateKind::TruncateAfterBailouts) {
-        return false;
-      }
+    // MDiv and MMod always require TruncateAfterBailout for their operands.
+    // See MDiv::operandTruncateKind and MMod::operandTruncateKind.
+    if (def->isDiv() || def->isMod()) {
+      return false;
     }
   }
 
@@ -3277,7 +3280,7 @@ bool RangeAnalysis::truncate() {
     MDefinition* def = worklist.popCopy();
     def->setNotInWorklist();
     RemoveTruncatesOnOutput(def);
-    AdjustTruncatedInputs(alloc(), def);
+    adjustTruncatedInputs(def);
   }
 
   return true;

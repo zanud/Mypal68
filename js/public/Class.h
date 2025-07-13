@@ -8,6 +8,7 @@
 #define js_Class_h
 
 #include "mozilla/Attributes.h"
+#include "mozilla/Maybe.h"
 
 #include "jstypes.h"
 
@@ -28,11 +29,11 @@ struct JSFunctionSpec;
 
 namespace js {
 
-class Shape;
+class PropertyResult;
 
 // This is equal to JSFunction::class_.  Use it in places where you don't want
 // to #include jsfun.h.
-extern JS_FRIEND_DATA const JSClass* const FunctionClassPtr;
+extern JS_PUBLIC_DATA const JSClass* const FunctionClassPtr;
 
 }  // namespace js
 
@@ -131,6 +132,7 @@ class ObjectOpResult {
   JS_PUBLIC_API bool failCantSetInterposed();
   JS_PUBLIC_API bool failCantDefineWindowElement();
   JS_PUBLIC_API bool failCantDeleteWindowElement();
+  JS_PUBLIC_API bool failCantDefineWindowNamedProperty();
   JS_PUBLIC_API bool failCantDeleteWindowNamedProperty();
   JS_PUBLIC_API bool failCantPreventExtensions();
   JS_PUBLIC_API bool failCantSetProto();
@@ -199,134 +201,13 @@ class ObjectOpResult {
   }
 };
 
-class PropertyResult {
-  enum class Kind : uint8_t {
-    NotFound,
-    NativeProperty,
-    NonNativeProperty,
-    DenseElement,
-    TypedArrayElement,
-  };
-  union {
-    // Set if kind is NativeProperty.
-    js::Shape* shape_;
-    // Set if kind is DenseElement.
-    uint32_t denseIndex_;
-    // Set if kind is TypedArrayElement.
-    size_t typedArrayIndex_;
-  };
-  Kind kind_ = Kind::NotFound;
-
- public:
-  PropertyResult() = default;
-
-  explicit operator bool() const { return isFound(); }
-
-  bool isFound() const { return kind_ != Kind::NotFound; }
-  bool isNonNativeProperty() const { return kind_ == Kind::NonNativeProperty; }
-  bool isDenseElement() const { return kind_ == Kind::DenseElement; }
-  bool isTypedArrayElement() const { return kind_ == Kind::TypedArrayElement; }
-  bool isNativeProperty() const { return kind_ == Kind::NativeProperty; }
-
-  js::Shape* shape() const {
-    MOZ_ASSERT(isNativeProperty());
-    return shape_;
-  }
-
-  uint32_t denseElementIndex() const {
-    MOZ_ASSERT(isDenseElement());
-    return denseIndex_;
-  }
-
-  size_t typedArrayElementIndex() const {
-    MOZ_ASSERT(isTypedArrayElement());
-    return typedArrayIndex_;
-  }
-
-  void setNotFound() { kind_ = Kind::NotFound; }
-
-  void setNativeProperty(js::Shape* propertyShape) {
-    kind_ = Kind::NativeProperty;
-    shape_ = propertyShape;
-  }
-
-  void setNonNativeProperty() { kind_ = Kind::NonNativeProperty; }
-
-  void setDenseElement(uint32_t index) {
-    kind_ = Kind::DenseElement;
-    denseIndex_ = index;
-  }
-
-  void setTypedArrayElement(size_t index) {
-    kind_ = Kind::TypedArrayElement;
-    typedArrayIndex_ = index;
-  }
-
-  void trace(JSTracer* trc);
-};
-
 }  // namespace JS
 
-namespace js {
-
-template <class Wrapper>
-class WrappedPtrOperations<JS::PropertyResult, Wrapper> {
-  const JS::PropertyResult& value() const {
-    return static_cast<const Wrapper*>(this)->get();
-  }
-
- public:
-  bool isFound() const { return value().isFound(); }
-  explicit operator bool() const { return bool(value()); }
-  js::Shape* shape() const { return value().shape(); }
-  uint32_t denseElementIndex() const { return value().denseElementIndex(); }
-  size_t typedArrayElementIndex() const {
-    return value().typedArrayElementIndex();
-  }
-  bool isNativeProperty() const { return value().isNativeProperty(); }
-  bool isNonNativeProperty() const { return value().isNonNativeProperty(); }
-  bool isDenseElement() const { return value().isDenseElement(); }
-  bool isTypedArrayElement() const { return value().isTypedArrayElement(); }
-};
-
-template <class Wrapper>
-class MutableWrappedPtrOperations<JS::PropertyResult, Wrapper>
-    : public WrappedPtrOperations<JS::PropertyResult, Wrapper> {
-  JS::PropertyResult& value() { return static_cast<Wrapper*>(this)->get(); }
-
- public:
-  void setNotFound() { value().setNotFound(); }
-  void setNativeProperty(js::Shape* shape) { value().setNativeProperty(shape); }
-  void setNonNativeProperty() { value().setNonNativeProperty(); }
-  void setDenseElement(uint32_t index) { value().setDenseElement(index); }
-  void setTypedArrayElement(size_t index) {
-    value().setTypedArrayElement(index);
-  }
-};
-
-}  // namespace js
-
 // JSClass operation signatures.
-
-/**
- * Get a property named by id in obj.  Note the jsid id type -- id may
- * be a string (Unicode property identifier) or an int (element index).  The
- * *vp out parameter, on success, is the new property value after the action.
- */
-typedef bool (*JSGetterOp)(JSContext* cx, JS::HandleObject obj, JS::HandleId id,
-                           JS::MutableHandleValue vp);
 
 /** Add a property named by id to obj. */
 typedef bool (*JSAddPropertyOp)(JSContext* cx, JS::HandleObject obj,
                                 JS::HandleId id, JS::HandleValue v);
-
-/**
- * Set a property named by id in obj, treating the assignment as strict
- * mode code if strict is true. Note the jsid id type -- id may be a string
- * (Unicode property identifier) or an int (element index).
- */
-typedef bool (*JSSetterOp)(JSContext* cx, JS::HandleObject obj, JS::HandleId id,
-                           JS::HandleValue v, JS::ObjectOpResult& result);
 
 /**
  * Delete a property named by id in obj.
@@ -442,7 +323,7 @@ namespace js {
 
 typedef bool (*LookupPropertyOp)(JSContext* cx, JS::HandleObject obj,
                                  JS::HandleId id, JS::MutableHandleObject objp,
-                                 JS::MutableHandle<JS::PropertyResult> propp);
+                                 PropertyResult* propp);
 typedef bool (*DefinePropertyOp)(JSContext* cx, JS::HandleObject obj,
                                  JS::HandleId id,
                                  JS::Handle<JS::PropertyDescriptor> desc,
@@ -458,11 +339,11 @@ typedef bool (*SetPropertyOp)(JSContext* cx, JS::HandleObject obj,
                               JS::ObjectOpResult& result);
 typedef bool (*GetOwnPropertyOp)(
     JSContext* cx, JS::HandleObject obj, JS::HandleId id,
-    JS::MutableHandle<JS::PropertyDescriptor> desc);
+    JS::MutableHandle<mozilla::Maybe<JS::PropertyDescriptor>> desc);
 typedef bool (*DeletePropertyOp)(JSContext* cx, JS::HandleObject obj,
                                  JS::HandleId id, JS::ObjectOpResult& result);
 
-class JS_FRIEND_API ElementAdder {
+class JS_PUBLIC_API ElementAdder {
  public:
   enum GetBehavior {
     // Check if the element exists before performing the Get and preserve
@@ -607,8 +488,7 @@ static constexpr const js::ObjectOps* JS_NULL_OBJECT_OPS = nullptr;
 
 // Classes, objects, and properties.
 
-// Objects have private slot.
-static const uint32_t JSCLASS_HAS_PRIVATE = 1 << 0;
+// (1 << 0 is unused)
 
 // Class's initialization code will call `SetNewObjectMetadata` itself.
 static const uint32_t JSCLASS_DELAY_METADATA_BUILDER = 1 << 1;
@@ -617,8 +497,8 @@ static const uint32_t JSCLASS_DELAY_METADATA_BUILDER = 1 << 1;
 // disposal mechanism.
 static const uint32_t JSCLASS_IS_WRAPPED_NATIVE = 1 << 2;
 
-// Private is `nsISupports*`.
-static const uint32_t JSCLASS_PRIVATE_IS_NSISUPPORTS = 1 << 3;
+// First reserved slot is `PrivateValue(nsISupports*)` or `UndefinedValue`.
+static constexpr uint32_t JSCLASS_SLOT0_IS_NSISUPPORTS = 1 << 3;
 
 // Objects are DOM.
 static const uint32_t JSCLASS_IS_DOMJSCLASS = 1 << 4;
@@ -690,7 +570,7 @@ static const uint32_t JSCLASS_FOREGROUND_FINALIZE =
 // application.
 static const uint32_t JSCLASS_GLOBAL_APPLICATION_SLOTS = 5;
 static const uint32_t JSCLASS_GLOBAL_SLOT_COUNT =
-    JSCLASS_GLOBAL_APPLICATION_SLOTS + JSProto_LIMIT * 2 + 28;
+    JSCLASS_GLOBAL_APPLICATION_SLOTS + 1;
 
 static constexpr uint32_t JSCLASS_GLOBAL_FLAGS_WITH_SLOTS(uint32_t n) {
   return JSCLASS_IS_GLOBAL |
@@ -802,8 +682,6 @@ struct alignas(js::gc::JSClassAlignBytes) JSClass {
   bool isNativeObject() const { return !(flags & NON_NATIVE); }
   bool isProxyObject() const { return flags & JSCLASS_IS_PROXY; }
 
-  bool hasPrivate() const { return !!(flags & JSCLASS_HAS_PRIVATE); }
-
   bool emulatesUndefined() const { return flags & JSCLASS_EMULATES_UNDEFINED; }
 
   bool isJSFunction() const { return this == js::FunctionClassPtr; }
@@ -822,6 +700,8 @@ struct alignas(js::gc::JSClassAlignBytes) JSClass {
   }
 
   bool isWrappedNative() const { return flags & JSCLASS_IS_WRAPPED_NATIVE; }
+
+  bool slot0IsISupports() const { return flags & JSCLASS_SLOT0_IS_NSISUPPORTS; }
 
   static size_t offsetOfFlags() { return offsetof(JSClass, flags); }
 
@@ -938,7 +818,7 @@ enum class ESClass {
 bool Unbox(JSContext* cx, JS::HandleObject obj, JS::MutableHandleValue vp);
 
 #ifdef DEBUG
-JS_FRIEND_API bool HasObjectMovedOp(JSObject* obj);
+JS_PUBLIC_API bool HasObjectMovedOp(JSObject* obj);
 #endif
 
 } /* namespace js */

@@ -232,7 +232,7 @@ bool GCUntilCacheSweep(JSContext* cx, const Cache& cache) {
   JS::Zone* zone = JS::GetObjectZone(global);
   JS::PrepareZoneForGC(cx, zone);
   SliceBudget budget(WorkBudget(1));
-  cx->runtime()->gc.startDebugGC(GC_NORMAL, budget);
+  cx->runtime()->gc.startDebugGC(JS::GCOptions::Normal, budget);
 
   CHECK(IsIncrementalGCInProgress(cx));
   CHECK(zone->isGCSweeping());

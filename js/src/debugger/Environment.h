@@ -29,9 +29,7 @@ enum class DebuggerEnvironmentType { Declarative, With, Object };
 
 class DebuggerEnvironment : public NativeObject {
  public:
-  enum { OWNER_SLOT };
-
-  static const unsigned RESERVED_SLOTS = 1;
+  enum { ENV_SLOT, OWNER_SLOT, RESERVED_SLOTS };
 
   static const JSClass class_;
 
@@ -49,8 +47,8 @@ class DebuggerEnvironment : public NativeObject {
                                MutableHandleDebuggerEnvironment result) const;
   [[nodiscard]] bool getObject(JSContext* cx,
                                MutableHandleDebuggerObject result) const;
-  [[nodiscard]] bool getCallee(JSContext* cx,
-                               MutableHandleDebuggerObject result) const;
+  [[nodiscard]] bool getCalleeScript(JSContext* cx,
+                                     MutableHandleDebuggerScript result) const;
   bool isDebuggee() const;
   bool isOptimized() const;
 
@@ -71,11 +69,15 @@ class DebuggerEnvironment : public NativeObject {
   bool isInstance() const;
   Debugger* owner() const;
 
+  Env* maybeReferent() const { return maybePtrFromReservedSlot<Env>(ENV_SLOT); }
+
   Env* referent() const {
-    Env* env = static_cast<Env*>(getPrivate());
+    Env* env = maybeReferent();
     MOZ_ASSERT(env);
     return env;
   }
+
+  void clearReferent() { clearReservedSlotGCThingAsPrivate(ENV_SLOT); }
 
  private:
   static const JSClassOps classOps_;

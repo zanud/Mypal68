@@ -344,30 +344,12 @@ class JSAPITest {
 
   bool definePrint();
 
-  static void setNativeStackQuota(JSContext* cx) {
-    const size_t MAX_STACK_SIZE =
-/* Assume we can't use more than 5e5 bytes of C stack by default. */
-#if (defined(DEBUG) && defined(__SUNPRO_CC)) || defined(__sparc__)
-        /*
-         * Sun compiler uses a larger stack space for js::Interpret() with
-         * debug.  Use a bigger gMaxStackSize to make "make check" happy.
-         */
-        5000000
-#else
-        500000
-#endif
-        ;
-
-    JS_SetNativeStackQuota(cx, MAX_STACK_SIZE);
-  }
-
   virtual JSContext* createContext() {
     JSContext* cx = JS_NewContext(8L * 1024 * 1024);
     if (!cx) {
       return nullptr;
     }
     JS::SetWarningReporter(cx, &reportWarning);
-    setNativeStackQuota(cx);
     return cx;
   }
 
@@ -541,7 +523,7 @@ class AutoLeaveZeal {
     JS_GetGCZealBits(cx_, &zealBits_, &frequency_, &dummy);
     JS_SetGCZeal(cx_, 0, 0);
     JS::PrepareForFullGC(cx_);
-    JS::NonIncrementalGC(cx_, GC_SHRINK, JS::GCReason::DEBUG_GC);
+    JS::NonIncrementalGC(cx_, JS::GCOptions::Shrink, JS::GCReason::DEBUG_GC);
   }
   ~AutoLeaveZeal() {
     JS_SetGCZeal(cx_, 0, 0);

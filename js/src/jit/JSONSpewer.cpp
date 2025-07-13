@@ -144,9 +144,6 @@ void JSONSpewer::spewMIR(MIRGraph* mir) {
     beginObject();
 
     property("number", block->id());
-    if (block->getHitState() == MBasicBlock::HitState::Count) {
-      property("count", block->getHitCount());
-    }
 
     beginListProperty("attributes");
     if (block->hasLastIns()) {

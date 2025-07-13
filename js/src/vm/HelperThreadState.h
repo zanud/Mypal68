@@ -46,7 +46,22 @@ namespace wasm {
 struct Tier2GeneratorTask;
 }  // namespace wasm
 
-enum class ParseTaskKind { Script, Module, ScriptDecode, MultiScriptsDecode };
+enum class ParseTaskKind {
+  // The output is JSScript.
+  Script,
+
+  // The output is CompilationStencil for script.
+  ScriptStencil,
+
+  // The output is module JSObject.
+  Module,
+
+  // The output is JSScript.
+  ScriptDecode,
+
+  // The output is an array of JSScript.
+  MultiScriptsDecode,
+};
 enum class StartEncoding { No, Yes };
 
 namespace wasm {
@@ -344,6 +359,8 @@ class GlobalHelperThreadState {
   JSScript* finishSingleParseTask(
       JSContext* cx, ParseTaskKind kind, JS::OffThreadToken* token,
       StartEncoding startEncoding = StartEncoding::No);
+  UniquePtr<frontend::CompilationStencil> finishCompileToStencilTask(
+      JSContext* cx, ParseTaskKind kind, JS::OffThreadToken* token);
   bool generateLCovSources(JSContext* cx, ParseTask* parseTask);
   bool finishMultiParseTask(JSContext* cx, ParseTaskKind kind,
                             JS::OffThreadToken* token,
@@ -362,10 +379,15 @@ class GlobalHelperThreadState {
   JSScript* finishScriptParseTask(
       JSContext* cx, JS::OffThreadToken* token,
       StartEncoding startEncoding = StartEncoding::No);
+  UniquePtr<frontend::CompilationStencil> finishCompileToStencilTask(
+      JSContext* cx, JS::OffThreadToken* token);
   JSScript* finishScriptDecodeTask(JSContext* cx, JS::OffThreadToken* token);
   bool finishMultiScriptsDecodeTask(JSContext* cx, JS::OffThreadToken* token,
                                     MutableHandle<ScriptVector> scripts);
   JSObject* finishModuleParseTask(JSContext* cx, JS::OffThreadToken* token);
+
+  frontend::CompilationStencil* finishStencilParseTask(
+      JSContext* cx, JS::OffThreadToken* token);
 
   bool hasActiveThreads(const AutoLockHelperThreadState&);
   bool hasQueuedTasks(const AutoLockHelperThreadState& locked);
@@ -527,7 +549,6 @@ struct ParseTask : public mozilla::LinkedListElement<ParseTask>,
   UniquePtr<frontend::ExtensibleCompilationStencil> extensibleStencil_;
 
   frontend::CompilationGCOutput gcOutput_;
-  frontend::CompilationGCOutput gcOutputForDelazification_;
 
   // Any errors or warnings produced during compilation. These are reported
   // when finishing the script.
@@ -606,12 +627,14 @@ class SourceCompressionTask : public HelperThreadTask {
   // than the original, or we OOM'd during compression, or nothing else
   // except the task is holding the ScriptSource alive when scheduled to
   // compress, this will remain None upon completion.
-  mozilla::Maybe<SharedImmutableString> resultString_;
+  SharedImmutableString resultString_;
 
  public:
   // The majorGCNumber is used for scheduling tasks.
   SourceCompressionTask(JSRuntime* rt, ScriptSource* source)
-      : runtime_(rt), majorGCNumber_(rt->gc.majorGCCount()), source_(source) {}
+      : runtime_(rt), majorGCNumber_(rt->gc.majorGCCount()), source_(source) {
+    source->noteSourceCompressionTask();
+  }
   virtual ~SourceCompressionTask() = default;
 
   bool runtimeMatches(JSRuntime* runtime) const { return runtime == runtime_; }

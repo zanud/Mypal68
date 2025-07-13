@@ -18,6 +18,7 @@
 #include "jit/JitOptions.h"
 #include "jit/JitRealm.h"
 #include "jit/JitRuntime.h"
+#include "js/CallAndConstruct.h"  // JS::IsCallable
 #include "js/Date.h"
 #include "js/friend/ErrorMessages.h"  // js::GetErrorMessage, JSMSG_*
 #include "js/Proxy.h"
@@ -115,13 +116,6 @@ bool Realm::init(JSContext* cx, JSPrincipals* principals) {
   return true;
 }
 
-void Realm::setIsSelfHostingRealm() {
-  MOZ_ASSERT(!isSelfHostingRealm_);
-  MOZ_ASSERT(zone()->isSelfHostingZone());
-  isSelfHostingRealm_ = true;
-  isSystem_ = true;
-}
-
 bool JSRuntime::createJitRuntime(JSContext* cx) {
   using namespace js::jit;
 
@@ -184,7 +178,7 @@ void js::DtoaCache::checkCacheAfterMovingGC() {
 
 #endif  // JSGC_HASH_TABLE_CHECKS
 
-LexicalEnvironmentObject*
+NonSyntacticLexicalEnvironmentObject*
 ObjectRealm::getOrCreateNonSyntacticLexicalEnvironment(JSContext* cx,
                                                        HandleObject enclosing,
                                                        HandleObject key,
@@ -206,7 +200,7 @@ ObjectRealm::getOrCreateNonSyntacticLexicalEnvironment(JSContext* cx,
     MOZ_ASSERT(key->is<NonSyntacticVariablesObject>() ||
                !key->is<EnvironmentObject>());
     lexicalEnv =
-        LexicalEnvironmentObject::createNonSyntactic(cx, enclosing, thisv);
+        NonSyntacticLexicalEnvironmentObject::create(cx, enclosing, thisv);
     if (!lexicalEnv) {
       return nullptr;
     }
@@ -215,10 +209,10 @@ ObjectRealm::getOrCreateNonSyntacticLexicalEnvironment(JSContext* cx,
     }
   }
 
-  return &lexicalEnv->as<LexicalEnvironmentObject>();
+  return &lexicalEnv->as<NonSyntacticLexicalEnvironmentObject>();
 }
 
-LexicalEnvironmentObject*
+NonSyntacticLexicalEnvironmentObject*
 ObjectRealm::getOrCreateNonSyntacticLexicalEnvironment(JSContext* cx,
                                                        HandleObject enclosing) {
   // If a wrapped WithEnvironmentObject was passed in, unwrap it, as we may
@@ -242,8 +236,8 @@ ObjectRealm::getOrCreateNonSyntacticLexicalEnvironment(JSContext* cx,
                                                    /*thisv = */ key);
 }
 
-LexicalEnvironmentObject* ObjectRealm::getNonSyntacticLexicalEnvironment(
-    JSObject* key) const {
+NonSyntacticLexicalEnvironmentObject*
+ObjectRealm::getNonSyntacticLexicalEnvironment(JSObject* key) const {
   MOZ_ASSERT(&ObjectRealm::get(key) == this);
 
   if (!nonSyntacticLexicalEnvironments_) {
@@ -259,7 +253,7 @@ LexicalEnvironmentObject* ObjectRealm::getNonSyntacticLexicalEnvironment(
   if (!lexicalEnv) {
     return nullptr;
   }
-  return &lexicalEnv->as<LexicalEnvironmentObject>();
+  return &lexicalEnv->as<NonSyntacticLexicalEnvironmentObject>();
 }
 
 bool Realm::addToVarNames(JSContext* cx, JS::Handle<JSAtom*> name) {
@@ -276,8 +270,6 @@ bool Realm::addToVarNames(JSContext* cx, JS::Handle<JSAtom*> name) {
 void Realm::traceGlobal(JSTracer* trc) {
   // Trace things reachable from the realm's global. Note that these edges
   // must be swept too in case the realm is live but the global is not.
-
-  TraceEdge(trc, &lexicalEnv_, "realm-global-lexical");
 
   savedStacks_.trace(trc);
 
@@ -366,19 +358,16 @@ void Realm::sweepAfterMinorGC() {
 void Realm::traceWeakSavedStacks(JSTracer* trc) { savedStacks_.traceWeak(trc); }
 
 void Realm::traceWeakObjects(JSTracer* trc) {
-  if (global_) {
-    TraceWeakEdge(trc, &global_, "Realm::global_");
+  // If the global is dead, free its GlobalObjectData.
+  if (zone_->isGCSweeping() && globalIsAboutToBeFinalized()) {
+    global_.unbarrieredGet()->releaseData(runtime_->defaultFreeOp());
   }
-  if (lexicalEnv_) {
-    TraceWeakEdge(trc, &lexicalEnv_, "Realm::lexicalEnv_");
-  }
+  TraceWeakEdge(trc, &global_, "Realm::global_");
 }
 
 void Realm::traceWeakSelfHostingScriptSource(JSTracer* trc) {
-  if (selfHostingScriptSource.unbarrieredGet()) {
-    TraceWeakEdge(trc, &selfHostingScriptSource,
-                  "Realm::selfHostingScriptSource");
-  }
+  TraceWeakEdge(trc, &selfHostingScriptSource,
+                "Realm::selfHostingScriptSource");
 }
 
 void Realm::traceWeakEdgesInJitRealm(JSTracer* trc) {
@@ -425,30 +414,18 @@ void Realm::traceWeakObjectRealm(JSTracer* trc) {
 void Realm::tracekWeakVarNames(JSTracer* trc) { varNames_.traceWeak(trc); }
 
 void Realm::traceWeakTemplateObjects(JSTracer* trc) {
-  if (mappedArgumentsTemplate_) {
-    TraceWeakEdge(trc, &mappedArgumentsTemplate_,
-                  "Realm::mappedArgumentsTemplate_");
-  }
-
-  if (unmappedArgumentsTemplate_) {
-    TraceWeakEdge(trc, &unmappedArgumentsTemplate_,
-                  "Realm::unmappedArgumentsTemplate_");
-  }
-
-  if (iterResultTemplate_) {
-    TraceWeakEdge(trc, &iterResultTemplate_, "Realm::iterResultTemplate_");
-  }
-
-  if (iterResultWithoutPrototypeTemplate_) {
-    TraceWeakEdge(trc, &iterResultWithoutPrototypeTemplate_,
-                  "Realm::iterResultWithoutPrototypeTemplate_");
-  }
+  TraceWeakEdge(trc, &mappedArgumentsTemplate_,
+                "Realm::mappedArgumentsTemplate_");
+  TraceWeakEdge(trc, &unmappedArgumentsTemplate_,
+                "Realm::unmappedArgumentsTemplate_");
+  TraceWeakEdge(trc, &iterResultTemplate_, "Realm::iterResultTemplate_");
+  TraceWeakEdge(trc, &iterResultWithoutPrototypeTemplate_,
+                "Realm::iterResultWithoutPrototypeTemplate_");
 }
 
 void Realm::fixupAfterMovingGC(JSTracer* trc) {
   purge();
   fixupGlobal();
-  objectGroups_.fixupTablesAfterMovingGC();
 }
 
 void Realm::fixupGlobal() {
@@ -461,15 +438,14 @@ void Realm::fixupGlobal() {
 void Realm::purge() {
   dtoaCache.purge();
   newProxyCache.purge();
-  objectGroups_.purge();
   objects_.iteratorCache.clearAndCompact();
   arraySpeciesLookup.purge();
   promiseLookup.purge();
 }
 
 void Realm::clearTables() {
+  global_.unbarrieredGet()->releaseData(runtime_->defaultFreeOp());
   global_.set(nullptr);
-  lexicalEnv_.set(nullptr);
 
   // No scripts should have run in this realm. This is used when merging
   // a realm that has been used off thread into another realm and zone.
@@ -478,7 +454,6 @@ void Realm::clearTables() {
   MOZ_ASSERT(!debugEnvs_);
   MOZ_ASSERT(objects_.enumerators->next() == objects_.enumerators);
 
-  objectGroups_.clearTables();
   savedStacks_.clear();
   varNames_.clear();
 }
@@ -647,7 +622,6 @@ void Realm::addSizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf,
                                    size_t* nonSyntacticLexicalEnvironmentsArg,
                                    size_t* jitRealm) {
   *realmObject += mallocSizeOf(this);
-  objectGroups_.addSizeOfExcludingThis(mallocSizeOf, realmTables);
   wasm.addSizeOfExcludingThis(mallocSizeOf, realmTables);
 
   objects_.addSizeOfExcludingThis(mallocSizeOf, innerViewsArg,
@@ -786,6 +760,10 @@ JS_PUBLIC_API JSObject* JS::GetRealmErrorPrototype(JSContext* cx) {
 JS_PUBLIC_API JSObject* JS::GetRealmIteratorPrototype(JSContext* cx) {
   CHECK_THREAD(cx);
   return GlobalObject::getOrCreateIteratorPrototype(cx, cx->global());
+}
+
+JS_PUBLIC_API JSObject* JS::GetRealmKeyObject(JSContext* cx) {
+  return GlobalObject::getOrCreateRealmKeyObject(cx, cx->global());
 }
 
 JS_PUBLIC_API Realm* JS::GetFunctionRealm(JSContext* cx, HandleObject objArg) {

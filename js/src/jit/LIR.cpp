@@ -360,10 +360,15 @@ static const char* DefTypeName(LDefinition::Type type) {
       return "f";
     case LDefinition::DOUBLE:
       return "d";
+#ifdef ENABLE_WASM_SIMD
+    case LDefinition::SIMD128:
+      return "simd128";
+#else
     case LDefinition::SIMD128INT:
       return "simd128int";
     case LDefinition::SIMD128FLOAT:
       return "simd128float";
+#endif
     case LDefinition::STACKRESULTS:
       return "stackresults";
 #  ifdef JS_NUNBOX32
@@ -640,7 +645,11 @@ bool LMoveGroup::add(LAllocation from, LAllocation to, LDefinition::Type type) {
   }
 
   // Check that SIMD moves are aligned according to ABI requirements.
+#ifdef ENABLE_WASM_SIMD
+  if (LDefinition(type).type() == LDefinition::SIMD128) {
+#else
   if (LDefinition(type).isSimdType()) {
+#endif
     MOZ_ASSERT(from.isMemory() || from.isFloatReg());
     if (from.isMemory()) {
       if (from.isArgument()) {

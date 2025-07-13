@@ -23,6 +23,7 @@
 #include "jit/ExecutableAllocator.h"
 #include "jit/MacroAssembler.h"
 #include "wasm/WasmInstance.h"
+#include "wasm/WasmJS.h"
 #include "wasm/WasmStubs.h"
 #include "wasm/WasmValidate.h"
 
@@ -72,10 +73,7 @@ static const CallSite* SlowCallSiteSearchByOffset(const MetadataTier& metadata,
 bool DebugState::getLineOffsets(size_t lineno, Vector<uint32_t>* offsets) {
   const CallSite* callsite =
       SlowCallSiteSearchByOffset(metadata(Tier::Debug), lineno);
-  if (callsite && !offsets->append(lineno)) {
-    return false;
-  }
-  return true;
+  return !(callsite && !offsets->append(lineno));
 }
 
 bool DebugState::getAllColumnOffsets(Vector<ExprLoc>* offsets) {
@@ -289,8 +287,10 @@ void DebugState::toggleDebugTrap(uint32_t offset, bool enabled) {
       i++;
     }
     if (i >= farJumpOffsets.length() ||
-        (i > 0 && offset - farJumpOffsets[i - 1] < farJumpOffsets[i] - offset))
+        (i > 0 &&
+         offset - farJumpOffsets[i - 1] < farJumpOffsets[i] - offset)) {
       i--;
+    }
     uint8_t* farJump = code_->segment(Tier::Debug).base() + farJumpOffsets[i];
     MacroAssembler::patchNopToCall(trap, farJump);
   } else {
@@ -385,6 +385,15 @@ bool DebugState::getGlobal(Instance& instance, uint32_t globalIndex,
         // scheme, to make the pointer recognizable without revealing it.
         vp.set(MagicValue(JS_OPTIMIZED_OUT));
         break;
+#ifdef ENABLE_WASM_SIMD
+      case ValType::V128:
+        // Debugger must be updated to handle this, and should be updated to
+        // handle i64 in any case.
+        vp.set(MagicValue(JS_OPTIMIZED_OUT));
+        break;
+#endif
+      default:
+        MOZ_CRASH("Global constant type");
     }
     return true;
   }
@@ -415,6 +424,17 @@ bool DebugState::getGlobal(Instance& instance, uint32_t globalIndex,
     case ValType::Ref: {
       // Just hide it.  See above.
       vp.set(MagicValue(JS_OPTIMIZED_OUT));
+      break;
+    }
+#ifdef ENABLE_WASM_SIMD
+    case ValType::V128: {
+      // Just hide it.  See above.
+      vp.set(MagicValue(JS_OPTIMIZED_OUT));
+      break;
+    }
+#endif
+    default: {
+      MOZ_CRASH("Global variable type");
       break;
     }
   }

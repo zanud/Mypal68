@@ -15,7 +15,16 @@
 /* static */ inline js::Debugger* js::Debugger::fromJSObject(
     const JSObject* obj) {
   MOZ_ASSERT(obj->is<DebuggerInstanceObject>());
-  return (Debugger*)obj->as<NativeObject>().getPrivate();
+  auto* dbg = &obj->as<DebuggerInstanceObject>();
+  return dbg->maybePtrFromReservedSlot<Debugger>(JSSLOT_DEBUG_DEBUGGER);
+}
+
+inline bool js::Debugger::isHookCallAllowed(JSContext* cx) const {
+  // If we are evaluating inside of an eval on a debugger that has an
+  // onNativeCall hook, we want to _only_ call the hooks attached to that
+  // specific debugger.
+  return !cx->insideDebuggerEvaluationWithOnNativeCallHook ||
+         this == cx->insideDebuggerEvaluationWithOnNativeCallHook;
 }
 
 #endif /* debugger_Debugger_inl_h */

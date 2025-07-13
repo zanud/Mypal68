@@ -32,9 +32,7 @@
 #include "jit/x86-shared/AssemblerBuffer-x86-shared.h"
 #include "jit/x86-shared/Encoding-x86-shared.h"
 #include "jit/x86-shared/Patching-x86-shared.h"
-#include "wasm/WasmTypes.h"
-
-extern volatile uintptr_t* blackbox;
+#include "wasm/WasmTypeDecls.h"
 
 namespace js {
 namespace jit {
@@ -1656,6 +1654,13 @@ class BaseAssembler : public GenericAssembler {
   void cmpl_rm(RegisterID rhs, int32_t offset, RegisterID base) {
     spew("cmpl       %s, " MEM_ob, GPReg32Name(rhs), ADDR_ob(offset, base));
     m_formatter.oneByteOp(OP_CMP_EvGv, offset, base, rhs);
+  }
+
+  void cmpl_rm(RegisterID rhs, int32_t offset, RegisterID base,
+               RegisterID index, int scale) {
+    spew("cmpl       %s, " MEM_obs, GPReg32Name(rhs),
+         ADDR_obs(offset, base, index, scale));
+    m_formatter.oneByteOp(OP_CMP_EvGv, offset, base, index, scale, rhs);
   }
 
   void cmpl_mr(int32_t offset, RegisterID base, RegisterID lhs) {
@@ -3526,6 +3531,41 @@ class BaseAssembler : public GenericAssembler {
     twoByteOpSimd("vmaxss", VEX_SS, OP2_MAXSS_VssWss, src1, src0, dst);
   }
 
+  // BMI instructions:
+
+  void sarxl_rrr(RegisterID src, RegisterID shift, RegisterID dst) {
+    spew("sarxl      %s, %s, %s", GPReg32Name(src), GPReg32Name(shift),
+         GPReg32Name(dst));
+
+    RegisterID rm = src;
+    XMMRegisterID src0 = static_cast<XMMRegisterID>(shift);
+    int reg = dst;
+    m_formatter.threeByteOpVex(VEX_SS /* = F3 */, OP3_SARX_GyEyBy, ESCAPE_38,
+                               rm, src0, reg);
+  }
+
+  void shlxl_rrr(RegisterID src, RegisterID shift, RegisterID dst) {
+    spew("shlxl      %s, %s, %s", GPReg32Name(src), GPReg32Name(shift),
+         GPReg32Name(dst));
+
+    RegisterID rm = src;
+    XMMRegisterID src0 = static_cast<XMMRegisterID>(shift);
+    int reg = dst;
+    m_formatter.threeByteOpVex(VEX_PD /* = 66 */, OP3_SHLX_GyEyBy, ESCAPE_38,
+                               rm, src0, reg);
+  }
+
+  void shrxl_rrr(RegisterID src, RegisterID shift, RegisterID dst) {
+    spew("shrxl      %s, %s, %s", GPReg32Name(src), GPReg32Name(shift),
+         GPReg32Name(dst));
+
+    RegisterID rm = src;
+    XMMRegisterID src0 = static_cast<XMMRegisterID>(shift);
+    int reg = dst;
+    m_formatter.threeByteOpVex(VEX_SD /* = F2 */, OP3_SHRX_GyEyBy, ESCAPE_38,
+                               rm, src0, reg);
+  }
+
   // Misc instructions:
 
   void int3() {
@@ -3645,33 +3685,7 @@ class BaseAssembler : public GenericAssembler {
       return false;
     }
 
-    if (MOZ_UNLIKELY(size_t(offset) >= size())) {
-#ifdef NIGHTLY_BUILD
-      // Stash some data on the stack so we can retrieve it from minidumps,
-      // see bug 1124397.
-      int32_t startOffset = from.offset() - 1;
-      while (startOffset >= 0 && code[startOffset] == 0xe5) {
-        startOffset--;
-      }
-      int32_t endOffset = from.offset() - 1;
-      while (endOffset < int32_t(size()) && code[endOffset] == 0xe5) {
-        endOffset++;
-      }
-      volatile uintptr_t dump[10];
-      blackbox = dump;
-      blackbox[0] = uintptr_t(0xABCD1234);
-      blackbox[1] = uintptr_t(offset);
-      blackbox[2] = uintptr_t(size());
-      blackbox[3] = uintptr_t(from.offset());
-      blackbox[4] = uintptr_t(code[from.offset() - 5]);
-      blackbox[5] = uintptr_t(code[from.offset() - 4]);
-      blackbox[6] = uintptr_t(code[from.offset() - 3]);
-      blackbox[7] = uintptr_t(startOffset);
-      blackbox[8] = uintptr_t(endOffset);
-      blackbox[9] = uintptr_t(0xFFFF7777);
-#endif
-      MOZ_CRASH("nextJump bogus offset");
-    }
+    MOZ_RELEASE_ASSERT(size_t(offset) < size(), "nextJump bogus offset");
 
     *next = JmpSrc(offset);
     return true;

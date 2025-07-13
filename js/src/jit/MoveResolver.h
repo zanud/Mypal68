@@ -174,7 +174,11 @@ class MoveOp {
   int cycleEndSlot_;
 
  public:
+#ifdef ENABLE_WASM_SIMD
+  enum Type { GENERAL, INT32, FLOAT32, DOUBLE, SIMD128 };
+#else
   enum Type { GENERAL, INT32, FLOAT32, DOUBLE, SIMD128INT, SIMD128FLOAT };
+#endif
 
  protected:
   Type type_;

@@ -83,9 +83,15 @@ CodeGeneratorShared::CodeGeneratorShared(MIRGenerator* gen, LIRGraph* graph,
     MOZ_ASSERT(graph->argumentSlotCount() == 0);
     frameDepth_ += gen->wasmMaxStackArgBytes();
 
-    static_assert(!SupportsSimd,
-                  "we need padding so that local slots are SIMD-aligned and "
-                  "the stack must be kept SIMD-aligned too.");
+#ifdef ENABLE_WASM_SIMD
+#  if defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_X86) || \
+      defined(JS_CODEGEN_ARM64)
+    // On X64/x86 and ARM64, we don't need alignment for Wasm SIMD at this time.
+#  else
+#    error \
+        "we may need padding so that local slots are SIMD-aligned and the stack must be kept SIMD-aligned too."
+#  endif
+#endif
 
     if (gen->needsStaticStackAlignment()) {
       // An MWasmCall does not align the stack pointer at calls sites but
@@ -385,6 +391,7 @@ void CodeGeneratorShared::encodeAllocation(LSnapshot* snapshot,
     case MIRType::Symbol:
     case MIRType::BigInt:
     case MIRType::Object:
+    case MIRType::Shape:
     case MIRType::Boolean:
     case MIRType::Double: {
       LAllocation* payload = snapshot->payloadOfSlot(*allocIndex);
@@ -412,6 +419,9 @@ void CodeGeneratorShared::encodeAllocation(LSnapshot* snapshot,
       break;
     }
     case MIRType::Float32:
+#ifdef ENABLE_WASM_SIMD
+    case MIRType::Simd128: {
+#else
     case MIRType::Int8x16:
     case MIRType::Int16x8:
     case MIRType::Int32x4:
@@ -419,6 +429,7 @@ void CodeGeneratorShared::encodeAllocation(LSnapshot* snapshot,
     case MIRType::Bool8x16:
     case MIRType::Bool16x8:
     case MIRType::Bool32x4: {
+#endif
       LAllocation* payload = snapshot->payloadOfSlot(*allocIndex);
       if (payload->isConstant()) {
         MConstant* constant = mir->toConstant();
@@ -437,16 +448,12 @@ void CodeGeneratorShared::encodeAllocation(LSnapshot* snapshot,
       }
       break;
     }
-    case MIRType::MagicOptimizedArguments:
     case MIRType::MagicOptimizedOut:
     case MIRType::MagicUninitializedLexical:
     case MIRType::MagicIsConstructing: {
       uint32_t index;
       JSWhyMagic why = JS_GENERIC_MAGIC;
       switch (type) {
-        case MIRType::MagicOptimizedArguments:
-          why = JS_OPTIMIZED_ARGUMENTS;
-          break;
         case MIRType::MagicOptimizedOut:
           why = JS_OPTIMIZED_OUT;
           break;

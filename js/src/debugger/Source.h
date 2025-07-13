@@ -23,6 +23,7 @@ class DebuggerSource : public NativeObject {
   static const JSClass class_;
 
   enum {
+    SOURCE_SLOT,
     OWNER_SLOT,
     TEXT_SLOT,
     RESERVED_SLOTS,
@@ -40,6 +41,8 @@ class DebuggerSource : public NativeObject {
 
   NativeObject* getReferentRawObject() const;
   DebuggerSourceReferent getReferent() const;
+
+  void clearReferent() { clearReservedSlotGCThingAsPrivate(SOURCE_SLOT); }
 
   static DebuggerSource* check(JSContext* cx, HandleValue v);
   static bool construct(JSContext* cx, unsigned argc, Value* vp);

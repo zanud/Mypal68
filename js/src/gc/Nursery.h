@@ -14,6 +14,7 @@
 #include "gc/Heap.h"
 #include "js/AllocPolicy.h"
 #include "js/Class.h"
+#include "js/GCAPI.h"
 #include "js/HeapAPI.h"
 #include "js/TracingAPI.h"
 #include "js/TypeDecls.h"
@@ -130,16 +131,15 @@ class TenuringTracer final : public GenericTracer {
   js::BaseScript* onScriptEdge(BaseScript* script) override;
   js::Shape* onShapeEdge(Shape* shape) override;
   js::RegExpShared* onRegExpSharedEdge(RegExpShared* shared) override;
-  js::ObjectGroup* onObjectGroupEdge(ObjectGroup* group) override;
   js::BaseShape* onBaseShapeEdge(BaseShape* base) override;
+  js::GetterSetter* onGetterSetterEdge(GetterSetter* gs) override;
+  js::PropMap* onPropMapEdge(PropMap* map) override;
   js::jit::JitCode* onJitCodeEdge(jit::JitCode* code) override;
   js::Scope* onScopeEdge(Scope* scope) override;
 
  public:
   Nursery& nursery() { return nursery_; }
 
-  template <typename T>
-  void traverse(T** thingp);
   void traverse(JS::Value* thingp);
 
   // The store buffers need to be able to call these directly.
@@ -241,17 +241,17 @@ class Nursery {
 
   // Allocate and return a pointer to a new GC object with its |slots|
   // pointer pre-filled. Returns nullptr if the Nursery is full.
-  JSObject* allocateObject(JSContext* cx, size_t size, size_t numDynamic,
-                           const JSClass* clasp);
+  JSObject* allocateObject(gc::AllocSite* site, size_t size,
+                           size_t numDynamicSlots, const JSClass* clasp);
 
   // Allocate and return a pointer to a new GC thing. Returns nullptr if the
   // Nursery is full.
-  gc::Cell* allocateCell(JS::Zone* zone, size_t size, JS::TraceKind kind);
+  gc::Cell* allocateCell(gc::AllocSite* site, size_t size, JS::TraceKind kind);
 
-  gc::Cell* allocateBigInt(JS::Zone* zone, size_t size) {
-    return allocateCell(zone, size, JS::TraceKind::BigInt);
+  gc::Cell* allocateBigInt(gc::AllocSite* site, size_t size) {
+    return allocateCell(site, size, JS::TraceKind::BigInt);
   }
-  gc::Cell* allocateString(JS::Zone* zone, size_t size);
+  gc::Cell* allocateString(gc::AllocSite* site, size_t size);
 
   static size_t nurseryCellHeaderSize() {
     return sizeof(gc::NurseryCellHeader);
@@ -296,7 +296,7 @@ class Nursery {
   static const size_t MaxNurseryBufferSize = 1024;
 
   // Do a minor collection.
-  void collect(JSGCInvocationKind kind, JS::GCReason reason);
+  void collect(JS::GCOptions options, JS::GCReason reason);
 
   // If the thing at |*ref| in the Nursery has been forwarded, set |*ref| to
   // the new location and return true. Otherwise return false and leave
@@ -340,8 +340,6 @@ class Nursery {
     MOZ_ASSERT(isEnabled());
     return cellsWithUid_.append(cell);
   }
-
-  [[nodiscard]] bool queueDictionaryModeObjectToSweep(NativeObject* obj);
 
   size_t sizeOfMallocedBuffers(mozilla::MallocSizeOf mallocSizeOf) const {
     size_t total = 0;
@@ -399,6 +397,9 @@ class Nursery {
   const void* addressOfCurrentBigIntEnd() const {
     return (void*)&currentBigIntEnd_;
   }
+  void* addressOfNurseryAllocatedSites() {
+    return pretenuringNursery.addressOfAllocatedSites();
+  }
 
   void requestMinorGC(JS::GCReason reason) const;
 
@@ -435,6 +436,13 @@ class Nursery {
 
   mozilla::TimeStamp collectionStartTime() {
     return startTimes_[ProfileKey::Total];
+  }
+
+  bool canCreateAllocSite() { return pretenuringNursery.canCreateAllocSite(); }
+  void noteAllocSiteCreated() { pretenuringNursery.noteAllocSiteCreated(); }
+  bool reportPretenuring() const { return reportPretenuring_; }
+  void maybeStopPretenuring(gc::GCRuntime* gc) {
+    pretenuringNursery.maybeStopPretenuring(gc);
   }
 
   // Round a size in bytes to the nearest valid nursery size.
@@ -474,11 +482,14 @@ class Nursery {
   // changed by maybeResizeNursery() each collection. It includes chunk headers.
   size_t capacity_;
 
+  gc::PretenuringNursery pretenuringNursery;
+
   mozilla::TimeDuration timeInChunkAlloc_;
 
   // Report minor collections taking at least this long, if enabled.
-  mozilla::TimeDuration profileThreshold_;
   bool enableProfiling_;
+  bool profileWorkers_;
+  mozilla::TimeDuration profileThreshold_;
 
   // Whether we will nursery-allocate strings.
   bool canAllocateStrings_;
@@ -488,6 +499,9 @@ class Nursery {
 
   // Report how many strings were deduplicated.
   bool reportDeduplications_;
+
+  // Report information on allocation sites and pretenuring.
+  bool reportPretenuring_;
 
   // Whether and why a collection of this nursery has been requested. This is
   // mutable as it is set by the store buffer, which otherwise cannot modify
@@ -564,9 +578,6 @@ class Nursery {
   //       stable object hashing and we have to break the cycle somehow.
   using CellsWithUniqueIdVector = Vector<gc::Cell*, 8, SystemAllocPolicy>;
   CellsWithUniqueIdVector cellsWithUid_;
-
-  using NativeObjectVector = Vector<NativeObject*, 0, SystemAllocPolicy>;
-  NativeObjectVector dictionaryModeObjects_;
 
   template <typename Key>
   struct DeduplicationStringHasher {
@@ -690,7 +701,7 @@ class Nursery {
   CollectionResult doCollection(JS::GCReason reason);
 
   void doPretenuring(JSRuntime* rt, JS::GCReason reason,
-                     bool highPromotionRate);
+                     bool validPromotionRate, double promotionRate);
 
   // Move all objects and everything they can reach to the tenured heap.
   void collectToObjectFixedPoint(TenuringTracer& mover);
@@ -733,12 +744,11 @@ class Nursery {
   // the nursery on debug & nightly builds.
   void clear();
 
-  void sweepDictionaryModeObjects();
   void sweepMapAndSetObjects();
 
   // Change the allocable space provided by the nursery.
-  void maybeResizeNursery(JSGCInvocationKind kind, JS::GCReason reason);
-  size_t targetSize(JSGCInvocationKind kind, JS::GCReason reason);
+  void maybeResizeNursery(JS::GCOptions options, JS::GCReason reason);
+  size_t targetSize(JS::GCOptions options, JS::GCReason reason);
   void clearRecentGrowthData();
   void growAllocableSpace(size_t newCapacity);
   void shrinkAllocableSpace(size_t newCapacity);
@@ -747,9 +757,6 @@ class Nursery {
   // Free the chunks starting at firstFreeChunk until the end of the chunks
   // vector. Shrinks the vector but does not update maxChunkCount().
   void freeChunksFrom(unsigned firstFreeChunk);
-
-  void sendTelemetry(JS::GCReason reason, mozilla::TimeDuration totalTime,
-                     bool wasEmpty, double promotionRate);
 
   void printCollectionProfile(JS::GCReason reason, double promotionRate);
   void printDeduplicationData(js::StringStats& prev, js::StringStats& curr);

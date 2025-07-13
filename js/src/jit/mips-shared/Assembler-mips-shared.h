@@ -15,7 +15,7 @@
 #include "jit/mips-shared/Architecture-mips-shared.h"
 #include "jit/shared/Assembler-shared.h"
 #include "jit/shared/IonAssemblerBuffer.h"
-#include "wasm/WasmTypes.h"
+#include "wasm/WasmTypeDecls.h"
 
 namespace js {
 namespace jit {
@@ -116,12 +116,6 @@ static constexpr Register RegExpTesterStringReg = CallTempReg1;
 static constexpr Register RegExpTesterLastIndexReg = CallTempReg2;
 
 static constexpr uint32_t CodeAlignment = 8;
-
-// This boolean indicates whether we support SIMD instructions flavoured for
-// this architecture or not. Rather than a method in the LIRGenerator, it is
-// here such that it is accessible from the entire codebase. Once full support
-// for SIMD is reached on all tier-1 platforms, this constant can be deleted.
-static constexpr bool SupportsSimd = false;
 
 /* clang-format off */
 // MIPS instruction types

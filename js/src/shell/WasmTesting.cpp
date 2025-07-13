@@ -19,7 +19,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#include "wasm/WasmTypes.h"
+#include "wasm/WasmTypeDecls.h"
 
 using namespace js;
 using namespace js::wasm;

@@ -10,7 +10,7 @@
 #include "jsfriendapi.h"
 
 #include "frontend/ParseNode.h"
-#include "js/friend/StackLimits.h"  // js::CheckRecursionLimit
+#include "js/friend/StackLimits.h"  // js::AutoCheckRecursionLimit
 
 namespace js {
 namespace frontend {
@@ -55,7 +55,8 @@ class ParseNodeVisitor {
   explicit ParseNodeVisitor(JSContext* cx) : cx_(cx) {}
 
   [[nodiscard]] bool visit(ParseNode* pn) {
-    if (!CheckRecursionLimit(cx_)) {
+    AutoCheckRecursionLimit recursion(cx_);
+    if (!recursion.check(cx_)) {
       return false;
     }
 
@@ -99,7 +100,8 @@ class RewritingParseNodeVisitor {
   explicit RewritingParseNodeVisitor(JSContext* cx) : cx_(cx) {}
 
   [[nodiscard]] bool visit(ParseNode*& pn) {
-    if (!CheckRecursionLimit(cx_)) {
+    AutoCheckRecursionLimit recursion(cx_);
+    if (!recursion.check(cx_)) {
       return false;
     }
 

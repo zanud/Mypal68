@@ -66,6 +66,7 @@ Register IonIC::scratchRegisterForEntryJump() {
     case CacheKind::TypeOf:
     case CacheKind::ToBool:
     case CacheKind::GetIntrinsic:
+    case CacheKind::NewArray:
     case CacheKind::NewObject:
       MOZ_CRASH("Unsupported IC");
   }
@@ -129,7 +130,7 @@ static void TryAttachIonStub(JSContext* cx, IonIC* ic, IonScript* ionScript,
   if (ic->state().canAttachStub()) {
     RootedScript script(cx, ic->script());
     bool attached = false;
-    IRGenerator gen(cx, script, ic->pc(), ic->state().mode(),
+    IRGenerator gen(cx, script, ic->pc(), ic->state(),
                     std::forward<Args>(args)...);
     switch (gen.tryAttachStub()) {
       case AttachDecision::Attach:
@@ -190,6 +191,7 @@ bool IonGetPropSuperIC::update(JSContext* cx, HandleScript outerScript,
   }
 
   RootedValue val(cx, ObjectValue(*obj));
+
   TryAttachIonStub<GetPropIRGenerator>(cx, ic, ionScript, ic->kind(), val,
                                        idVal);
 
@@ -234,8 +236,9 @@ bool IonSetPropertyIC::update(JSContext* cx, HandleScript outerScript,
     RootedValue objv(cx, ObjectValue(*obj));
     RootedScript script(cx, ic->script());
     jsbytecode* pc = ic->pc();
-    SetPropIRGenerator gen(cx, script, pc, ic->kind(), ic->state().mode(), objv,
-                           idVal, rhs);
+
+    SetPropIRGenerator gen(cx, script, pc, ic->kind(), ic->state(), objv, idVal,
+                           rhs);
     switch (gen.tryAttachStub()) {
       case AttachDecision::Attach:
         ic->attachCacheIRStub(cx, gen.writerRef(), gen.cacheKind(), ionScript,
@@ -310,8 +313,8 @@ bool IonSetPropertyIC::update(JSContext* cx, HandleScript outerScript,
     RootedValue objv(cx, ObjectValue(*obj));
     RootedScript script(cx, ic->script());
     jsbytecode* pc = ic->pc();
-    SetPropIRGenerator gen(cx, script, pc, ic->kind(), ic->state().mode(), objv,
-                           idVal, rhs);
+    SetPropIRGenerator gen(cx, script, pc, ic->kind(), ic->state(), objv, idVal,
+                           rhs);
     MOZ_ASSERT(deferType == DeferType::AddSlot);
     AttachDecision decision = gen.tryAttachAddSlotStub(oldShape);
 
@@ -348,7 +351,7 @@ bool IonGetNameIC::update(JSContext* cx, HandleScript outerScript,
 
   RootedObject obj(cx);
   RootedObject holder(cx);
-  Rooted<PropertyResult> prop(cx);
+  PropertyResult prop;
   if (!LookupName(cx, name, envChain, &obj, &holder, &prop)) {
     return false;
   }

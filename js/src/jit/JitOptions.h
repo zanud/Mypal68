@@ -43,7 +43,7 @@ struct DefaultJitOptions {
   bool disableGvn;
   bool disableInlining;
   bool disableLicm;
-  bool disablePgo;
+  bool disablePruning;
   bool disableInstructionReordering;
   bool disableRangeAnalysis;
   bool disableRecoverIns;
@@ -51,7 +51,6 @@ struct DefaultJitOptions {
   bool disableCacheIR;
   bool disableSink;
   bool disableBailoutLoopCheck;
-  bool scalarReplaceArguments;
   bool baselineInterpreter;
   bool baselineJit;
   bool ion;
@@ -111,8 +110,7 @@ struct DefaultJitOptions {
   // measure the effectiveness of each mitigation with various proof of
   // concept.
   bool spectreIndexMasking;
-  bool spectreObjectMitigationsBarriers;
-  bool spectreObjectMitigationsMisc;
+  bool spectreObjectMitigations;
   bool spectreStringMitigations;
   bool spectreValueMasking;
   bool spectreJitToCxxCalls;
@@ -143,6 +141,17 @@ inline bool IsBaselineInterpreterEnabled() {
 }
 
 }  // namespace jit
+
+extern mozilla::Atomic<bool> fuzzingSafe;
+
+static inline bool IsFuzzing() {
+#ifdef FUZZING
+  return true;
+#else
+  return fuzzingSafe;
+#endif
+}
+
 }  // namespace js
 
 #endif /* jit_JitOptions_h */

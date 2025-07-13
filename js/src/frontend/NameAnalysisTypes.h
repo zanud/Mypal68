@@ -39,7 +39,8 @@ class EnvironmentCoordinate {
   explicit inline EnvironmentCoordinate(jsbytecode* pc)
       : hops_(GET_ENVCOORD_HOPS(pc)),
         slot_(GET_ENVCOORD_SLOT(pc + ENVCOORD_HOPS_LEN)) {
-    MOZ_ASSERT(JOF_OPTYPE(JSOp(*pc)) == JOF_ENVCOORD);
+    MOZ_ASSERT(JOF_OPTYPE(JSOp(*pc)) == JOF_ENVCOORD ||
+               JOF_OPTYPE(JSOp(*pc)) == JOF_DEBUGCOORD);
   }
 
   EnvironmentCoordinate() = default;
@@ -92,7 +93,12 @@ enum class DeclarationKind : uint8_t {
   SimpleCatchParameter,
   CatchParameter,
   PrivateName,
+  Synthetic,
+  PrivateMethod,  // slot to store nonstatic private method
 };
+
+// Class field kind.
+enum class FieldPlacement : uint8_t { Unspecified, Instance, Static };
 
 static inline BindingKind DeclarationKindToBindingKind(DeclarationKind kind) {
   switch (kind) {
@@ -116,11 +122,17 @@ static inline BindingKind DeclarationKindToBindingKind(DeclarationKind kind) {
       return BindingKind::Let;
 
     case DeclarationKind::Const:
-    case DeclarationKind::PrivateName:
       return BindingKind::Const;
 
     case DeclarationKind::Import:
       return BindingKind::Import;
+
+    case DeclarationKind::Synthetic:
+    case DeclarationKind::PrivateName:
+      return BindingKind::Synthetic;
+
+    case DeclarationKind::PrivateMethod:
+      return BindingKind::PrivateMethod;
   }
 
   MOZ_CRASH("Bad DeclarationKind");
@@ -154,13 +166,20 @@ class DeclaredNameInfo {
 
   PrivateNameKind privateNameKind_;
 
+  // Only updated for private names (see noteDeclaredPrivateName),
+  // tracks if declaration was instance or static to allow issuing
+  // early errors in the case where we mismatch instance and static
+  // private getter/setters.
+  FieldPlacement placement_;
+
  public:
   explicit DeclaredNameInfo(DeclarationKind kind, uint32_t pos,
                             ClosedOver closedOver = ClosedOver::No)
       : pos_(pos),
         kind_(kind),
         closedOver_(bool(closedOver)),
-        privateNameKind_(PrivateNameKind::None) {}
+        privateNameKind_(PrivateNameKind::None),
+        placement_(FieldPlacement::Unspecified) {}
 
   // Needed for InlineMap.
   DeclaredNameInfo() = default;
@@ -181,7 +200,14 @@ class DeclaredNameInfo {
     privateNameKind_ = privateNameKind;
   }
 
+  void setFieldPlacement(FieldPlacement placement) {
+    MOZ_ASSERT(placement != FieldPlacement::Unspecified);
+    placement_ = placement;
+  }
+
   PrivateNameKind privateNameKind() const { return privateNameKind_; }
+
+  FieldPlacement placement() const { return placement_; }
 };
 
 // Used in BytecodeEmitter to map names to locations.
@@ -213,6 +239,10 @@ class NameLocation {
     // The name is closed over and lives on an environment hops_ away in slot_.
     EnvironmentCoordinate,
 
+    // The name is closed over and lives on an environment hops_ away in slot_,
+    // where one or more of the environments may be a DebugEnvironmentProxy
+    DebugEnvironmentCoordinate,
+
     // An imported name in a module.
     Import,
 
@@ -240,21 +270,23 @@ class NameLocation {
   // If the name is closed over and accessed via EnvironmentCoordinate, the
   // slot on the environment.
   //
-  // Otherwise LOCALNO_LIMIT/ENVCOORD_SLOT_LIMIT.
+  // Otherwise 0.
   uint32_t slot_ : ENVCOORD_SLOT_BITS;
 
   static_assert(LOCALNO_BITS == ENVCOORD_SLOT_BITS,
                 "Frame and environment slots must be same sized.");
 
   NameLocation(Kind kind, BindingKind bindingKind, uint8_t hops = UINT8_MAX,
-               uint32_t slot = ENVCOORD_SLOT_LIMIT)
+               uint32_t slot = 0)
       : kind_(kind), bindingKind_(bindingKind), hops_(hops), slot_(slot) {}
 
  public:
   // Default constructor for InlineMap.
   NameLocation() = default;
 
-  static NameLocation Dynamic() { return NameLocation(); }
+  static NameLocation Dynamic() {
+    return NameLocation(Kind::Dynamic, BindingKind::Import);
+  }
 
   static NameLocation Global(BindingKind bindKind) {
     MOZ_ASSERT(bindKind != BindingKind::FormalParameter);
@@ -285,6 +317,11 @@ class NameLocation {
     MOZ_ASSERT(slot < ENVCOORD_SLOT_LIMIT);
     return NameLocation(Kind::EnvironmentCoordinate, bindKind, hops, slot);
   }
+  static NameLocation DebugEnvironmentCoordinate(BindingKind bindKind,
+                                                 uint8_t hops, uint32_t slot) {
+    MOZ_ASSERT(slot < ENVCOORD_SLOT_LIMIT);
+    return NameLocation(Kind::DebugEnvironmentCoordinate, bindKind, hops, slot);
+  }
 
   static NameLocation Import() {
     return NameLocation(Kind::Import, BindingKind::Import);
@@ -292,25 +329,6 @@ class NameLocation {
 
   static NameLocation DynamicAnnexBVar() {
     return NameLocation(Kind::DynamicAnnexBVar, BindingKind::Var);
-  }
-
-  static NameLocation fromBinding(BindingKind bindKind,
-                                  const BindingLocation& bl) {
-    switch (bl.kind()) {
-      case BindingLocation::Kind::Global:
-        return Global(bindKind);
-      case BindingLocation::Kind::Argument:
-        return ArgumentSlot(bl.argumentSlot());
-      case BindingLocation::Kind::Frame:
-        return FrameSlot(bindKind, bl.slot());
-      case BindingLocation::Kind::Environment:
-        return EnvironmentCoordinate(bindKind, 0, bl.slot());
-      case BindingLocation::Kind::Import:
-        return Import();
-      case BindingLocation::Kind::NamedLambdaCallee:
-        return NamedLambdaCallee();
-    }
-    MOZ_CRASH("Bad BindingKind");
   }
 
   bool operator==(const NameLocation& other) const {
@@ -339,7 +357,8 @@ class NameLocation {
   }
 
   class EnvironmentCoordinate environmentCoordinate() const {
-    MOZ_ASSERT(kind_ == Kind::EnvironmentCoordinate);
+    MOZ_ASSERT(kind_ == Kind::EnvironmentCoordinate ||
+               kind_ == Kind::DebugEnvironmentCoordinate);
     class EnvironmentCoordinate coord;
     coord.setHops(hops_);
     coord.setSlot(slot_);
@@ -354,6 +373,12 @@ class NameLocation {
   bool isLexical() const { return BindingKindIsLexical(bindingKind()); }
 
   bool isConst() const { return bindingKind() == BindingKind::Const; }
+
+  bool isSynthetic() const { return bindingKind() == BindingKind::Synthetic; }
+
+  bool isPrivateMethod() const {
+    return bindingKind() == BindingKind::PrivateMethod;
+  }
 
   bool hasKnownSlot() const {
     return kind_ == Kind::ArgumentSlot || kind_ == Kind::FrameSlot ||

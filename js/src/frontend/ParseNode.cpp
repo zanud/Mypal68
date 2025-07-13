@@ -8,6 +8,7 @@
 
 #include "jsnum.h"
 
+#include "frontend/CompilationStencil.h"  // ExtensibleCompilationStencil
 #include "frontend/FullParseHandler.h"
 #include "frontend/ParseContext.h"
 #include "frontend/Parser.h"      // ParserBase
@@ -16,6 +17,7 @@
 #include "vm/BigIntType.h"
 #include "vm/Printer.h"
 #include "vm/RegExpObject.h"
+#include "vm/Scope.h"  // GetScopeDataTrailingNames
 
 using namespace js;
 using namespace js::frontend;
@@ -354,15 +356,17 @@ void LabeledStatement::dumpImpl(ParserBase* parser, GenericPrinter& out,
   out.printf(")");
 }
 
-void LexicalScopeNode::dumpImpl(ParserBase* parser, GenericPrinter& out,
-                                int indent) {
+template <ParseNodeKind Kind, typename ScopeType>
+void BaseScopeNode<Kind, ScopeType>::dumpImpl(ParserBase* parser,
+                                              GenericPrinter& out, int indent) {
   const char* name = parseNodeNames[getKindAsIndex()];
   out.printf("(%s [", name);
   int nameIndent = indent + strlen(name) + 3;
   if (!isEmptyScope()) {
-    LexicalScope::ParserData* bindings = scopeBindings();
-    for (uint32_t i = 0; i < bindings->slotInfo.length; i++) {
-      auto index = bindings->trailingNames[i].name();
+    typename ScopeType::ParserData* bindings = scopeBindings();
+    auto names = GetScopeDataTrailingNames(bindings);
+    for (uint32_t i = 0; i < names.size(); i++) {
+      auto index = names[i].name();
       if (parser) {
         if (index == TaggedParserAtomIndex::WellKnown::empty()) {
           out.put("#<zero-length name>");
@@ -372,7 +376,7 @@ void LexicalScopeNode::dumpImpl(ParserBase* parser, GenericPrinter& out,
       } else {
         DumpTaggedParserAtomIndexNoQuote(out, index, nullptr);
       }
-      if (i < bindings->slotInfo.length - 1) {
+      if (i < names.size() - 1) {
         IndentNewLine(out, nameIndent);
       }
     }

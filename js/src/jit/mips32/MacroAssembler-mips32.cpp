@@ -1931,6 +1931,10 @@ void MacroAssembler::subFromStackPtr(Imm32 imm32) {
 // ===============================================================
 // Stack manipulation functions.
 
+size_t MacroAssembler::PushRegsInMaskSizeInBytes(LiveRegisterSet set) {
+  return set.gprs().size() * sizeof(intptr_t) + set.fpus().getPushSizeInBytes();
+}
+
 void MacroAssembler::PushRegsInMask(LiveRegisterSet set) {
   int32_t diffF = set.fpus().getPushSizeInBytes();
   int32_t diffG = set.gprs().size() * sizeof(intptr_t);
@@ -1941,6 +1945,10 @@ void MacroAssembler::PushRegsInMask(LiveRegisterSet set) {
     storePtr(*iter, Address(StackPointer, diffG));
   }
   MOZ_ASSERT(diffG == 0);
+
+#ifdef ENABLE_WASM_SIMD
+#  error "Needs more careful logic if SIMD is enabled"
+#endif
 
   if (diffF > 0) {
     // Double values have to be aligned. We reserve extra space so that we can
@@ -1967,6 +1975,10 @@ void MacroAssembler::PopRegsInMaskIgnore(LiveRegisterSet set,
   int32_t diffF = set.fpus().getPushSizeInBytes();
   const int32_t reservedG = diffG;
   const int32_t reservedF = diffF;
+
+#ifdef ENABLE_WASM_SIMD
+#  error "Needs more careful logic if SIMD is enabled"
+#endif
 
   if (reservedF > 0) {
     // Read the buffer form the first aligned location.
@@ -2011,6 +2023,10 @@ void MacroAssembler::storeRegsInMask(LiveRegisterSet set, Address dest,
     storePtr(*iter, dest);
   }
   MOZ_ASSERT(diffG == 0);
+
+#ifdef ENABLE_WASM_SIMD
+#  error "Needs more careful logic if SIMD is enabled"
+#endif
 
   if (diffF > 0) {
     computeEffectiveAddress(dest, scratch);
@@ -2134,10 +2150,10 @@ void MacroAssembler::moveValue(const TypedOrValueRegister& src,
   AnyRegister reg = src.typedReg();
 
   if (!IsFloatingPointType(type)) {
-    mov(ImmWord(MIRTypeToTag(type)), dest.typeReg());
     if (reg.gpr() != dest.payloadReg()) {
       move32(reg.gpr(), dest.payloadReg());
     }
+    mov(ImmWord(MIRTypeToTag(type)), dest.typeReg());
     return;
   }
 

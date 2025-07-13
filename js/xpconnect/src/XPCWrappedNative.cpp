@@ -12,6 +12,7 @@
 #include "js/MemoryFunctions.h"
 #include "js/Object.h"  // JS::GetPrivate, JS::SetPrivate, JS::SetReservedSlot
 #include "js/Printf.h"
+#include "js/PropertyAndElement.h"  // JS_GetProperty, JS_GetPropertyById, JS_SetProperty, JS_SetPropertyById
 #include "jsfriendapi.h"
 #include "AccessCheck.h"
 #include "WrapperFactory.h"
@@ -204,7 +205,7 @@ nsresult XPCWrappedNative::WrapNewGlobal(JSContext* cx,
   // Set up the prototype on the global.
   MOZ_ASSERT(proto->GetJSProtoObject());
   RootedObject protoObj(cx, proto->GetJSProtoObject());
-  bool success = JS_SplicePrototype(cx, global, protoObj);
+  bool success = JS_SetPrototype(cx, global, protoObj);
   if (!success) {
     return NS_ERROR_FAILURE;
   }
@@ -212,7 +213,7 @@ nsresult XPCWrappedNative::WrapNewGlobal(JSContext* cx,
   // Construct the wrapper, which takes over the strong reference to the
   // native object.
   RefPtr<XPCWrappedNative> wrapper =
-      new XPCWrappedNative(identity.forget(), proto);
+      new XPCWrappedNative(std::move(identity), proto);
 
   //
   // We don't call ::Init() on this wrapper, because our setup requirements
@@ -224,8 +225,10 @@ nsresult XPCWrappedNative::WrapNewGlobal(JSContext* cx,
   // Set the JS object to the global we already created.
   wrapper->SetFlatJSObject(global);
 
-  // Set the private to the XPCWrappedNative.
-  JS::SetPrivate(global, wrapper);
+  // Set the reserved slot to the XPCWrappedNative.
+  static_assert(JSCLASS_GLOBAL_APPLICATION_SLOTS > 0,
+                "Need at least one slot for JSCLASS_SLOT0_IS_NSISUPPORTS");
+  JS::SetObjectISupports(global, wrapper);
 
   // There are dire comments elsewhere in the code about how a GC can
   // happen somewhere after wrapper initialization but before the wrapper is
@@ -406,7 +409,7 @@ nsresult XPCWrappedNative::GetNewOrUsed(JSContext* cx, xpcObjectHelper& helper,
       return NS_ERROR_FAILURE;
     }
 
-    wrapper = new XPCWrappedNative(identity.forget(), proto);
+    wrapper = new XPCWrappedNative(std::move(identity), proto);
   } else {
     RefPtr<XPCNativeInterface> iface = Interface;
     if (!iface) {
@@ -420,7 +423,7 @@ nsresult XPCWrappedNative::GetNewOrUsed(JSContext* cx, xpcObjectHelper& helper,
       return NS_ERROR_FAILURE;
     }
 
-    wrapper = new XPCWrappedNative(identity.forget(), Scope, set.forget());
+    wrapper = new XPCWrappedNative(std::move(identity), Scope, set.forget());
   }
 
   MOZ_ASSERT(!xpc::WrapperFactory::IsXrayWrapper(parent),
@@ -480,7 +483,7 @@ static nsresult FinishCreate(JSContext* cx, XPCWrappedNativeScope* Scope,
 }
 
 // This ctor is used if this object will have a proto.
-XPCWrappedNative::XPCWrappedNative(already_AddRefed<nsISupports>&& aIdentity,
+XPCWrappedNative::XPCWrappedNative(nsCOMPtr<nsISupports>&& aIdentity,
                                    XPCWrappedNativeProto* aProto)
     : mMaybeProto(aProto), mSet(aProto->GetSet()) {
   MOZ_ASSERT(NS_IsMainThread());
@@ -493,11 +496,10 @@ XPCWrappedNative::XPCWrappedNative(already_AddRefed<nsISupports>&& aIdentity,
 }
 
 // This ctor is used if this object will NOT have a proto.
-XPCWrappedNative::XPCWrappedNative(already_AddRefed<nsISupports>&& aIdentity,
+XPCWrappedNative::XPCWrappedNative(nsCOMPtr<nsISupports>&& aIdentity,
                                    XPCWrappedNativeScope* aScope,
-                                   already_AddRefed<XPCNativeSet>&& aSet)
-
-    : mMaybeScope(TagScope(aScope)), mSet(aSet) {
+                                   RefPtr<XPCNativeSet>&& aSet)
+    : mMaybeScope(TagScope(aScope)), mSet(std::move(aSet)) {
   MOZ_ASSERT(NS_IsMainThread());
 
   mIdentity = aIdentity;
@@ -649,7 +651,7 @@ bool XPCWrappedNative::Init(JSContext* cx, nsIXPCScriptable* aScriptable) {
 
   SetFlatJSObject(object);
 
-  JS::SetPrivate(mFlatJSObject, this);
+  JS::SetObjectISupports(mFlatJSObject, this);
 
   return FinishInit(cx);
 }
@@ -744,7 +746,8 @@ void XPCWrappedNative::FlatJSObjectFinalized() {
        to = to->GetNextTearOff()) {
     JSObject* jso = to->GetJSObjectPreserveColor();
     if (jso) {
-      JS::SetPrivate(jso, nullptr);
+      JS::SetReservedSlot(jso, XPCWrappedNativeTearOff::TearOffSlot,
+                          JS::UndefinedValue());
       to->JSObjectFinalized();
     }
 
@@ -807,7 +810,7 @@ void XPCWrappedNative::SystemIsBeingShutDown() {
   // We leak mIdentity (see above).
 
   // Short circuit future finalization.
-  JS::SetPrivate(mFlatJSObject, nullptr);
+  JS::SetObjectISupports(mFlatJSObject, nullptr);
   UnsetFlatJSObject();
 
   XPCWrappedNativeProto* proto = GetProto();
@@ -822,7 +825,8 @@ void XPCWrappedNative::SystemIsBeingShutDown() {
   for (XPCWrappedNativeTearOff* to = &mFirstTearOff; to;
        to = to->GetNextTearOff()) {
     if (JSObject* jso = to->GetJSObjectPreserveColor()) {
-      JS::SetPrivate(jso, nullptr);
+      JS::SetReservedSlot(jso, XPCWrappedNativeTearOff::TearOffSlot,
+                          JS::UndefinedValue());
       to->SetJSObject(nullptr);
     }
     // We leak the tearoff mNative
@@ -834,25 +838,6 @@ void XPCWrappedNative::SystemIsBeingShutDown() {
 
 /***************************************************************************/
 
-// Dynamically ensure that two objects don't end up with the same private.
-class MOZ_STACK_CLASS AutoClonePrivateGuard {
- public:
-  AutoClonePrivateGuard(JSContext* cx, JSObject* aOld, JSObject* aNew)
-      : mOldReflector(cx, aOld), mNewReflector(cx, aNew) {
-    MOZ_ASSERT(JS::GetPrivate(aOld) == JS::GetPrivate(aNew));
-  }
-
-  ~AutoClonePrivateGuard() {
-    if (JS::GetPrivate(mOldReflector)) {
-      JS::SetPrivate(mNewReflector, nullptr);
-    }
-  }
-
- private:
-  RootedObject mOldReflector;
-  RootedObject mNewReflector;
-};
-
 bool XPCWrappedNative::ExtendSet(JSContext* aCx,
                                  XPCNativeInterface* aInterface) {
   if (!mSet->HasInterface(aInterface)) {
@@ -862,7 +847,7 @@ bool XPCWrappedNative::ExtendSet(JSContext* aCx,
       return false;
     }
 
-    mSet = newSet.forget();
+    mSet = std::move(newSet);
   }
   return true;
 }
@@ -1033,10 +1018,11 @@ bool XPCWrappedNative::InitTearOffJSObject(JSContext* cx,
     return false;
   }
 
-  JS::SetPrivate(obj, to);
+  JS::SetReservedSlot(obj, XPCWrappedNativeTearOff::TearOffSlot,
+                      JS::PrivateValue(to));
   to->SetJSObject(obj);
 
-  JS::SetReservedSlot(obj, XPC_WN_TEAROFF_FLAT_OBJECT_SLOT,
+  JS::SetReservedSlot(obj, XPCWrappedNativeTearOff::FlatObjectSlot,
                       JS::ObjectValue(*mFlatJSObject));
   return true;
 }

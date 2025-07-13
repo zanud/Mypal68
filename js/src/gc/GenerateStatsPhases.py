@@ -114,7 +114,7 @@ PhaseKindGraphRoots = [
             addPhaseKind("MARK_DISCARD_CODE", "Mark Discard Code", 3),
             addPhaseKind("RELAZIFY_FUNCTIONS", "Relazify Functions", 4),
             addPhaseKind("PURGE", "Purge", 5),
-            addPhaseKind("PURGE_SHAPE_CACHES", "Purge ShapeCaches", 60),
+            addPhaseKind("PURGE_PROP_MAP_TABLES", "Purge PropMapTables", 60),
             addPhaseKind("PURGE_SOURCE_URLS", "Purge Source URLs", 73),
             addPhaseKind("JOIN_PARALLEL_TASKS", "Join Parallel Tasks", 67),
         ],
@@ -203,6 +203,7 @@ PhaseKindGraphRoots = [
             addPhaseKind("SWEEP_SCOPE", "Sweep Scope", 59),
             addPhaseKind("SWEEP_REGEXP_SHARED", "Sweep RegExpShared", 61),
             addPhaseKind("SWEEP_SHAPE", "Sweep Shape", 36),
+            addPhaseKind("SWEEP_PROP_MAP", "Sweep PropMap", 77),
             addPhaseKind("FINALIZE_END", "Finalize End Callback", 38),
             addPhaseKind("DESTROY", "Deallocate", 39),
             getPhaseKind("JOIN_PARALLEL_TASKS"),
@@ -371,8 +372,8 @@ def generateCpp(out):
     for phaseKind in AllPhaseKinds:
         phase = PhasesForPhaseKind[phaseKind][0]
         out.write(
-            '    /* PhaseKind::%s */ PhaseKindInfo { Phase::%s, %d, "%s" },\n'
-            % (phaseKind.name, phase.name, phaseKind.bucket, phaseKind.name)
+            '    /* PhaseKind::%s */ PhaseKindInfo { Phase::%s, "%s" },\n'
+            % (phaseKind.name, phase.name, phaseKind.name)
         )
     out.write("};\n")
     out.write("\n")

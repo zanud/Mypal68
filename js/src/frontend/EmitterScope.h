@@ -88,13 +88,10 @@ class EmitterScope : public Nestable<EmitterScope> {
 
   [[nodiscard]] bool internEmptyGlobalScopeAsBody(BytecodeEmitter* bce);
 
-  template <typename ScopeCreator>
-  [[nodiscard]] bool internScopeCreationData(BytecodeEmitter* bce,
-                                             ScopeCreator createScope);
+  [[nodiscard]] bool internScopeStencil(BytecodeEmitter* bce, ScopeIndex index);
 
-  template <typename ScopeCreator>
-  [[nodiscard]] bool internBodyScopeCreationData(BytecodeEmitter* bce,
-                                                 ScopeCreator createScope);
+  [[nodiscard]] bool internBodyScopeStencil(BytecodeEmitter* bce,
+                                            ScopeIndex index);
   [[nodiscard]] bool appendScopeNote(BytecodeEmitter* bce);
 
   [[nodiscard]] bool clearFrameSlotRange(BytecodeEmitter* bce, JSOp opcode,
@@ -114,6 +111,8 @@ class EmitterScope : public Nestable<EmitterScope> {
 
   [[nodiscard]] bool enterLexical(BytecodeEmitter* bce, ScopeKind kind,
                                   LexicalScope::ParserData* bindings);
+  [[nodiscard]] bool enterClassBody(BytecodeEmitter* bce, ScopeKind kind,
+                                    ClassBodyScope::ParserData* bindings);
   [[nodiscard]] bool enterNamedLambda(BytecodeEmitter* bce,
                                       FunctionBox* funbox);
   [[nodiscard]] bool enterFunction(BytecodeEmitter* bce, FunctionBox* funbox);
@@ -159,8 +158,52 @@ class EmitterScope : public Nestable<EmitterScope> {
 
   NameLocation lookup(BytecodeEmitter* bce, TaggedParserAtomIndex name);
 
+  // Find both the slot associated with a private name and the location of the
+  // corresponding `.privateBrand` binding.
+  //
+  // Simply doing two separate lookups, one for `name` and another for
+  // `.privateBrand`, would give the wrong answer in this case:
+  //
+  //     class Outer {
+  //       #outerMethod() { reutrn "ok"; }
+  //
+  //       test() {
+  //         class Inner {
+  //           #innerMethod() {}
+  //           test(outer) {
+  //             return outer.#outerMethod();
+  //           }
+  //         }
+  //         return new Inner().test(this);
+  //       }
+  //     }
+  //
+  //    new Outer().test();  // should return "ok"
+  //
+  // At the point in Inner.test where `#outerMethod` is called, we need to
+  // check for the private brand of `Outer`, not `Inner`; but both class bodies
+  // have `.privateBrand` bindings. In a normal `lookup`, the inner binding
+  // would shadow the outer one.
+  //
+  // This method instead sets `brandLoc` to the location of the `.privateBrand`
+  // binding in the same class body as the private name `name`, ignoring
+  // shadowing. If `name` refers to a name that is actually stamped onto the
+  // target object (anything other than a non-static private method), then
+  // `brandLoc` is set to Nothing.
+  //
+  // To handle cases where it's not possible to find the private brand, this
+  // method has to be fallible.
+  bool lookupPrivate(BytecodeEmitter* bce, TaggedParserAtomIndex name,
+                     NameLocation& loc, mozilla::Maybe<NameLocation>& brandLoc);
+
   mozilla::Maybe<NameLocation> locationBoundInScope(TaggedParserAtomIndex name,
                                                     EmitterScope* target);
+
+  // For a given emitter scope, return the number of enclosing environments in
+  // the current compilation (this excludes environments that could enclose the
+  // compilation, like would happen for an eval copmilation).
+  static uint32_t CountEnclosingCompilationEnvironments(
+      BytecodeEmitter* bce, EmitterScope* emitterScope);
 };
 
 } /* namespace frontend */

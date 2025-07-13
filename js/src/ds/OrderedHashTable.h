@@ -36,6 +36,7 @@
  */
 
 #include "mozilla/HashFunctions.h"
+#include "mozilla/MemoryReporting.h"
 
 #include <utility>
 
@@ -148,6 +149,17 @@ class OrderedHashTable {
       alloc.free_(hashTable, hashBuckets());
     }
     freeData(data, dataLength, dataCapacity);
+  }
+
+  size_t sizeOfExcludingThis(mozilla::MallocSizeOf mallocSizeOf) const {
+    size_t size = 0;
+    if (hashTable) {
+      size += mallocSizeOf(hashTable);
+    }
+    if (data) {
+      size += mallocSizeOf(data);
+    }
+    return size;
   }
 
   /* Return the number of elements in the table. */
@@ -836,6 +848,13 @@ class OrderedHashMap {
     return Impl::offsetOfDataElement();
   }
   static constexpr size_t sizeofImplData() { return Impl::sizeofData(); }
+
+  size_t sizeOfExcludingThis(mozilla::MallocSizeOf mallocSizeOf) const {
+    return impl.sizeOfExcludingThis(mallocSizeOf);
+  }
+  size_t sizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf) const {
+    return mallocSizeOf(this) + sizeOfExcludingThis(mallocSizeOf);
+  }
 };
 
 template <class T, class OrderedHashPolicy, class AllocPolicy>
@@ -884,6 +903,13 @@ class OrderedHashSet {
     return Impl::offsetOfDataElement();
   }
   static constexpr size_t sizeofImplData() { return Impl::sizeofData(); }
+
+  size_t sizeOfExcludingThis(mozilla::MallocSizeOf mallocSizeOf) const {
+    return impl.sizeOfExcludingThis(mallocSizeOf);
+  }
+  size_t sizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf) const {
+    return mallocSizeOf(this) + sizeOfExcludingThis(mallocSizeOf);
+  }
 };
 
 }  // namespace js

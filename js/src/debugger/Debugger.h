@@ -52,7 +52,7 @@
 class JS_PUBLIC_API JSFunction;
 
 namespace JS {
-class JS_FRIEND_API AutoStableStringChars;
+class JS_PUBLIC_API AutoStableStringChars;
 class JS_PUBLIC_API Compartment;
 class JS_PUBLIC_API Realm;
 class JS_PUBLIC_API Zone;
@@ -422,10 +422,12 @@ class MOZ_RAII EvalOptions {
 };
 
 /*
- * Env is the type of what ES5 calls "lexical environments" (runtime activations
- * of lexical scopes). This is currently just JSObject, and is implemented by
- * CallObject, LexicalEnvironmentObject, and WithEnvironmentObject, among
- * others--but environments and objects are really two different concepts.
+ * Env is the type of what ECMA-262 calls "lexical environments" (the records
+ * that represent scopes and bindings). See vm/EnvironmentObject.h.
+ *
+ * This is JSObject rather than js::EnvironmentObject because GlobalObject and
+ * some proxies, despite not being in the EnvironmentObject class hierarchy,
+ * can be in environment chains.
  */
 using Env = JSObject;
 
@@ -537,6 +539,7 @@ class Debugger : private mozilla::LinkedListElement<Debugger> {
     HookCount
   };
   enum {
+    JSSLOT_DEBUG_DEBUGGER,
     JSSLOT_DEBUG_PROTO_START,
     JSSLOT_DEBUG_FRAME_PROTO = JSSLOT_DEBUG_PROTO_START,
     JSSLOT_DEBUG_ENV_PROTO,
@@ -976,6 +979,7 @@ class Debugger : private mozilla::LinkedListElement<Debugger> {
 
   JSObject* getHook(Hook hook) const;
   bool hasAnyLiveHooks() const;
+  inline bool isHookCallAllowed(JSContext* cx) const;
 
   static void slowPathPromiseHook(JSContext* cx, Hook hook,
                                   Handle<PromiseObject*> promise);
@@ -992,6 +996,10 @@ class Debugger : private mozilla::LinkedListElement<Debugger> {
 
   template <typename RunImpl /* bool () */>
   [[nodiscard]] bool enterDebuggerHook(JSContext* cx, RunImpl runImpl) {
+    if (!isHookCallAllowed(cx)) {
+      return true;
+    }
+
     AutoRealm ar(cx, object);
 
     if (!runImpl()) {
@@ -1144,7 +1152,7 @@ class Debugger : private mozilla::LinkedListElement<Debugger> {
    * If *vp is a magic JS_OPTIMIZED_OUT value, this produces a plain object
    * of the form { optimizedOut: true }.
    *
-   * If *vp is a magic JS_OPTIMIZED_ARGUMENTS value signifying missing
+   * If *vp is a magic JS_MISSING_ARGUMENTS value signifying missing
    * arguments, this produces a plain object of the form { missingArguments:
    * true }.
    *
@@ -1200,6 +1208,7 @@ class Debugger : private mozilla::LinkedListElement<Debugger> {
    */
   [[nodiscard]] bool getFrame(JSContext* cx, const FrameIter& iter,
                               MutableHandleValue vp);
+  [[nodiscard]] bool getFrame(JSContext* cx, MutableHandleDebuggerFrame result);
   [[nodiscard]] bool getFrame(JSContext* cx, const FrameIter& iter,
                               MutableHandleDebuggerFrame result);
   [[nodiscard]] bool getFrame(JSContext* cx,
@@ -1580,6 +1589,7 @@ bool Debugger::observesGlobal(GlobalObject* global) const {
 JSObject* IdVectorToArray(JSContext* cx, Handle<IdVector> ids);
 bool IsInterpretedNonSelfHostedFunction(JSFunction* fun);
 JSScript* GetOrCreateFunctionScript(JSContext* cx, HandleFunction fun);
+ArrayObject* GetFunctionParameterNamesArray(JSContext* cx, HandleFunction fun);
 bool ValueToIdentifier(JSContext* cx, HandleValue v, MutableHandleId id);
 bool ValueToStableChars(JSContext* cx, const char* fnname, HandleValue value,
                         JS::AutoStableStringChars& stableChars);

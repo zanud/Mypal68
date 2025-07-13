@@ -11,6 +11,7 @@
 #include "jsapi.h"
 #include "jsfriendapi.h"
 
+#include "js/PropertyAndElement.h"  // JS_DefineProperty, JS_GetProperty, JS_GetPropertyById
 #include "util/StringBuffer.h"
 
 using namespace JS;

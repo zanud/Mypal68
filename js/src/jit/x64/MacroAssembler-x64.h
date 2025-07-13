@@ -9,7 +9,8 @@
 #include "jit/x86-shared/MacroAssembler-x86-shared.h"
 #include "js/HeapAPI.h"
 #include "vm/BigIntType.h"  // JS::BigInt
-#include "wasm/WasmTypes.h"
+#include "wasm/WasmBuiltins.h"
+#include "wasm/WasmTlsData.h"
 
 namespace js {
 namespace jit {
@@ -142,20 +143,6 @@ class MacroAssemblerX64 : public MacroAssemblerX86Shared {
       movl(Imm32(Upper32Of(GetShiftedTag(type))), ToUpper32(Operand(dest)));
     } else {
       ScratchRegisterScope scratch(asMasm());
-#ifdef NIGHTLY_BUILD
-      // Bug 1485209 - Diagnostic assert for constructing Values with
-      // nullptr or misaligned (eg poisoned) JSObject/JSString pointers.
-      if (type == JSVAL_TYPE_OBJECT || type == JSVAL_TYPE_STRING) {
-        Label crash, ok;
-        testPtr(reg, Imm32(js::gc::CellAlignMask));
-        j(Assembler::NonZero, &crash);
-        testPtr(reg, reg);
-        j(Assembler::NonZero, &ok);
-        bind(&crash);
-        breakpoint();
-        bind(&ok);
-      }
-#endif
       boxValue(type, reg, scratch);
       movq(scratch, Operand(dest));
     }
@@ -177,6 +164,9 @@ class MacroAssemblerX64 : public MacroAssemblerX86Shared {
   void storeValue(const Address& src, const Address& dest, Register temp) {
     loadPtr(src, temp);
     storePtr(temp, dest);
+  }
+  void storePrivateValue(Register src, const Address& dest) {
+    storePtr(src, dest);
   }
   void loadValue(Operand src, ValueOperand val) { movq(src, val.valueReg()); }
   void loadValue(Address src, ValueOperand val) {

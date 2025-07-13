@@ -294,6 +294,10 @@ void LIRGeneratorShared::defineReturn(LInstruction* lir, MDefinition* mir) {
       lir->setDef(0, LDefinition(vreg, LDefinition::DOUBLE,
                                  LFloatReg(ReturnDoubleReg)));
       break;
+#ifdef ENABLE_WASM_SIMD
+    case MIRType::Simd128:
+      lir->setDef(0, LDefinition(vreg, LDefinition::SIMD128,
+#else
     case MIRType::Int8x16:
     case MIRType::Int16x8:
     case MIRType::Int32x4:
@@ -305,12 +309,28 @@ void LIRGeneratorShared::defineReturn(LInstruction* lir, MDefinition* mir) {
       break;
     case MIRType::Float32x4:
       lir->setDef(0, LDefinition(vreg, LDefinition::SIMD128FLOAT,
+#endif
                                  LFloatReg(ReturnSimd128Reg)));
       break;
     default:
       LDefinition::Type type = LDefinition::TypeFrom(mir->type());
-      MOZ_ASSERT(type != LDefinition::DOUBLE && type != LDefinition::FLOAT32);
-      lir->setDef(0, LDefinition(vreg, type, LGeneralReg(ReturnReg)));
+      switch (type) {
+        case LDefinition::GENERAL:
+        case LDefinition::INT32:
+        case LDefinition::OBJECT:
+        case LDefinition::SLOTS:
+        case LDefinition::STACKRESULTS:
+          lir->setDef(0, LDefinition(vreg, type, LGeneralReg(ReturnReg)));
+          break;
+        case LDefinition::DOUBLE:
+        case LDefinition::FLOAT32:
+#ifdef ENABLE_WASM_SIMD
+        case LDefinition::SIMD128:
+#endif
+          MOZ_CRASH("Float cases must have been handled earlier");
+        default:
+          MOZ_CRASH("Unexpected type");
+      }
       break;
   }
 
@@ -730,20 +750,24 @@ LBoxAllocation LIRGeneratorShared::useBox(MDefinition* mir, LUse::Policy policy,
 #endif
 }
 
-LBoxAllocation LIRGeneratorShared::useBoxOrTyped(MDefinition* mir) {
+LBoxAllocation LIRGeneratorShared::useBoxOrTyped(MDefinition* mir,
+                                                 bool useAtStart) {
   if (mir->type() == MIRType::Value) {
-    return useBox(mir);
+    return useBox(mir, LUse::REGISTER, useAtStart);
   }
 
 #if defined(JS_NUNBOX32)
-  return LBoxAllocation(useRegister(mir), LAllocation());
+  return LBoxAllocation(useAtStart ? useRegisterAtStart(mir) : useRegister(mir),
+                        LAllocation());
 #else
-  return LBoxAllocation(useRegister(mir));
+  return LBoxAllocation(useAtStart ? useRegisterAtStart(mir)
+                                   : useRegister(mir));
 #endif
 }
 
 LBoxAllocation LIRGeneratorShared::useBoxOrTypedOrConstant(MDefinition* mir,
-                                                           bool useConstant) {
+                                                           bool useConstant,
+                                                           bool useAtStart) {
   if (useConstant && mir->isConstant()) {
 #if defined(JS_NUNBOX32)
     return LBoxAllocation(LAllocation(mir->toConstant()), LAllocation());
@@ -752,7 +776,7 @@ LBoxAllocation LIRGeneratorShared::useBoxOrTypedOrConstant(MDefinition* mir,
 #endif
   }
 
-  return useBoxOrTyped(mir);
+  return useBoxOrTyped(mir, useAtStart);
 }
 
 LInt64Allocation LIRGeneratorShared::useInt64(MDefinition* mir,

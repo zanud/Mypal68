@@ -8,7 +8,6 @@
 
 #include "mozilla/Assertions.h"
 #include "mozilla/TextUtils.h"
-#include "mozilla/Unused.h"
 
 #include "jstypes.h"
 
@@ -21,11 +20,14 @@
 #include "jit/Ion.h"
 #include "jit/JitCommon.h"
 #include "js/Utility.h"
+
 #if JS_HAS_INTL_API
 #  include "unicode/putil.h"
 #  include "unicode/uclean.h"
 #  include "unicode/utypes.h"
 #endif  // JS_HAS_INTL_API
+
+#include "threading/ProtectedData.h"  // js::AutoNoteSingleThreadedRegion
 #include "util/Poison.h"
 #include "vm/ArrayBufferObject.h"
 #include "vm/BigIntType.h"
@@ -88,7 +90,7 @@ static void SetupCanonicalNaN() {
 #    error "No JIT support for non-canonical hardware NaN"
 #  endif
 
-  mozilla::Unused << hardwareNaNBits;
+  (void)hardwareNaNBits;
 #elif defined(JS_RUNTIME_CANONICAL_NAN)
   // Determine canonical NaN at startup. It must still match the ValueIsDouble
   // requirements.
@@ -155,7 +157,11 @@ JS_PUBLIC_API const char* JS::detail::InitWithFailureDiagnostic(
   js::oom::InitLargeAllocLimit();
 #endif
 
-  js::gDisablePoisoning = bool(getenv("JSGC_DISABLE_POISONING"));
+#if defined(JS_GC_ALLOW_EXTRA_POISONING)
+  if (getenv("JSGC_EXTRA_POISONING")) {
+    js::gExtraPoisoningEnabled = true;
+  }
+#endif
 
   js::InitMallocAllocator();
 
@@ -214,6 +220,40 @@ JS_PUBLIC_API const char* JS::detail::InitWithFailureDiagnostic(
 }
 
 #undef RETURN_IF_FAIL
+
+JS_PUBLIC_API bool JS::InitSelfHostedCode(JSContext* cx, SelfHostedCache cache,
+                                          SelfHostedWriter writer) {
+  MOZ_RELEASE_ASSERT(!cx->runtime()->hasInitializedSelfHosting(),
+                     "JS::InitSelfHostedCode() called more than once");
+
+  js::AutoNoteSingleThreadedRegion anstr;
+
+  JSRuntime* rt = cx->runtime();
+
+  if (!rt->initializeAtoms(cx)) {
+    return false;
+  }
+
+  if (!rt->initializeParserAtoms(cx)) {
+    return false;
+  }
+
+#ifndef JS_CODEGEN_NONE
+  if (!rt->createJitRuntime(cx)) {
+    return false;
+  }
+#endif
+
+  if (!rt->initSelfHosting(cx, cache, writer)) {
+    return false;
+  }
+
+  if (!rt->parentRuntime && !rt->initMainAtomsTables(cx)) {
+    return false;
+  }
+
+  return true;
+}
 
 JS_PUBLIC_API void JS_ShutDown(void) {
   MOZ_ASSERT(

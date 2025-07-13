@@ -23,6 +23,7 @@
 #include "gc/Rooting.h"
 #include "js/CharacterEncoding.h"
 #include "js/friend/ErrorMessages.h"  // js::GetErrorMessage, JSMSG_*
+#include "js/PropertyAndElement.h"    // JS_DefineProperty, JS_GetProperty
 #include "js/PropertySpec.h"
 #include "js/SavedFrameAPI.h"
 #include "js/Vector.h"
@@ -369,7 +370,7 @@ const ClassSpec SavedFrame::classSpec_ = {
 
 /* static */ const JSClass SavedFrame::class_ = {
     "SavedFrame",
-    JSCLASS_HAS_PRIVATE | JSCLASS_HAS_RESERVED_SLOTS(SavedFrame::JSSLOT_COUNT) |
+    JSCLASS_HAS_RESERVED_SLOTS(SavedFrame::JSSLOT_COUNT) |
         JSCLASS_HAS_CACHED_PROTO(JSProto_SavedFrame) |
         JSCLASS_FOREGROUND_FINALIZE,
     &SavedFrameClassOps, &SavedFrame::classSpec_};
@@ -659,7 +660,7 @@ static SavedFrame* GetFirstSubsumedFrame(JSContext* cx,
                               frame, selfHosted, skippedAsync);
 }
 
-JS_FRIEND_API JSObject* GetFirstSubsumedSavedFrame(
+JS_PUBLIC_API JSObject* GetFirstSubsumedSavedFrame(
     JSContext* cx, JSPrincipals* principals, HandleObject savedFrame,
     JS::SavedFrameSelfHosted selfHosted) {
   if (!savedFrame) {
@@ -1068,7 +1069,7 @@ JS_PUBLIC_API bool BuildStackString(JSContext* cx, JSPrincipals* principals,
           }
           break;
         case js::StackFormat::Default:
-          MOZ_MAKE_COMPILER_ASSUME_IS_UNREACHABLE("Unexpected value");
+          MOZ_CRASH("Unexpected value");
           break;
       }
 

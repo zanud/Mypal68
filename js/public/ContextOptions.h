@@ -9,12 +9,15 @@
 
 #include "jstypes.h"  // JS_PUBLIC_API
 
+#include "js/WasmFeatures.h"
+
 struct JS_PUBLIC_API JSContext;
 
 namespace JS {
 
 class JS_PUBLIC_API ContextOptions {
  public:
+  // clang-format off
   ContextOptions()
       : asmJS_(true),
         wasm_(true),
@@ -23,13 +26,18 @@ class JS_PUBLIC_API ContextOptions {
         wasmBaseline_(true),
         wasmIon_(true),
         wasmCranelift_(false),
-        wasmFunctionReferences_(false),
-        wasmGc_(false),
-        wasmMultiValue_(false),
+#define WASM_DEFAULT_FEATURE(NAME, ...) wasm##NAME##_(true),
+#define WASM_EXPERIMENTAL_FEATURE(NAME, ...) wasm##NAME##_(false),
 #ifdef ENABLE_WASM_SIMD
-        wasmSimd_(false),
+        JS_FOR_WASM_FEATURES(WASM_DEFAULT_FEATURE, WASM_EXPERIMENTAL_FEATURE)
+#else
+        JS_FOR_WASM_FEATURES(WASM_EXPERIMENTAL_FEATURE)
 #endif
-        wasmExceptions_(false),
+#undef WASM_DEFAULT_FEATURE
+#undef WASM_EXPERIMENTAL_FEATURE
+#ifdef ENABLE_WASM_SIMD_WORMHOLE
+        wasmSimdWormhole_(false),
+#endif
         testWasmAwaitTier2_(false),
         throwOnAsmJSValidationFailure_(false),
         disableIon_(false),
@@ -47,8 +55,9 @@ class JS_PUBLIC_API ContextOptions {
         fuzzing_(false),
         privateClassFields_(false),
         privateClassMethods_(false),
-        topLevelAwait_(false) {
+        topLevelAwait_(true) {
   }
+  // clang-format on
 
   bool asmJS() const { return asmJS_; }
   ContextOptions& setAsmJS(bool flag) {
@@ -104,27 +113,24 @@ class JS_PUBLIC_API ContextOptions {
     return *this;
   }
 
-  bool wasmFunctionReferences() const { return wasmFunctionReferences_; }
-  // Defined out-of-line because it depends on a compile-time option
-  ContextOptions& setWasmFunctionReferences(bool flag);
-
-  bool wasmGc() const { return wasmGc_; }
-  // Defined out-of-line because it depends on a compile-time option
-  ContextOptions& setWasmGc(bool flag);
-
-  bool wasmMultiValue() const { return wasmMultiValue_; }
-  // Defined out-of-line because it depends on a compile-time option
-  ContextOptions& setWasmMultiValue(bool flag);
-
+#define WASM_FEATURE(NAME, ...)                     \
+  bool wasm##NAME() const { return wasm##NAME##_; } \
+  ContextOptions& setWasm##NAME(bool flag) {        \
+    wasm##NAME##_ = flag;                           \
+    return *this;                                   \
+  }
 #ifdef ENABLE_WASM_SIMD
-  bool wasmSimd() const { return wasmSimd_; }
-  // Defined out-of-line because it depends on a compile-time option
-  ContextOptions& setWasmSimd(bool flag);
+  JS_FOR_WASM_FEATURES(WASM_FEATURE, WASM_FEATURE)
+#else
+  JS_FOR_WASM_FEATURES(WASM_FEATURE)
 #endif
+#undef WASM_FEATURE
 
-  bool wasmExceptions() const { return wasmExceptions_; }
+#ifdef ENABLE_WASM_SIMD_WORMHOLE
+  bool wasmSimdWormhole() const { return wasmSimdWormhole_; }
   // Defined out-of-line because it depends on a compile-time option
-  ContextOptions& setWasmExceptions(bool flag);
+  ContextOptions& setWasmSimdWormhole(bool flag);
+#endif
 
   bool throwOnAsmJSValidationFailure() const {
     return throwOnAsmJSValidationFailure_;
@@ -156,6 +162,18 @@ class JS_PUBLIC_API ContextOptions {
   bool privateClassMethods() const { return privateClassMethods_; }
   ContextOptions& setPrivateClassMethods(bool enabled) {
     privateClassMethods_ = enabled;
+    return *this;
+  }
+
+  bool ergonomicBrandChecks() const { return ergonomicBrandChecks_; }
+  ContextOptions& setErgnomicBrandChecks(bool enabled) {
+    ergonomicBrandChecks_ = enabled;
+    return *this;
+  }
+
+  bool classStaticBlocks() const { return classStaticBlocks_; }
+  ContextOptions& setClassStaticBlocks(bool enabled) {
+    classStaticBlocks_ = enabled;
     return *this;
   }
 
@@ -256,13 +274,16 @@ class JS_PUBLIC_API ContextOptions {
   bool wasmBaseline_ : 1;
   bool wasmIon_ : 1;
   bool wasmCranelift_ : 1;
-  bool wasmFunctionReferences_ : 1;
-  bool wasmGc_ : 1;
-  bool wasmMultiValue_ : 1;
+#define WASM_FEATURE(NAME, ...) bool wasm##NAME##_ : 1;
 #ifdef ENABLE_WASM_SIMD
-  bool wasmSimd_ : 1;
+  JS_FOR_WASM_FEATURES(WASM_FEATURE, WASM_FEATURE)
+#else
+  JS_FOR_WASM_FEATURES(WASM_FEATURE)
 #endif
-  bool wasmExceptions_ : 1;
+#undef WASM_FEATURE
+#ifdef ENABLE_WASM_SIMD_WORMHOLE
+  bool wasmSimdWormhole_ : 1;
+#endif
   bool testWasmAwaitTier2_ : 1;
   bool throwOnAsmJSValidationFailure_ : 1;
   bool disableIon_ : 1;
@@ -280,7 +301,9 @@ class JS_PUBLIC_API ContextOptions {
   bool fuzzing_ : 1;
   bool privateClassFields_ : 1;
   bool privateClassMethods_ : 1;
+  bool ergonomicBrandChecks_ : 1;
   bool topLevelAwait_ : 1;
+  bool classStaticBlocks_ : 1;
 };
 
 JS_PUBLIC_API ContextOptions& ContextOptionsRef(JSContext* cx);

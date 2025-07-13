@@ -131,6 +131,7 @@ bool AllowContentXBLScope(JS::Realm* realm);
 JSObject* NACScope(JSObject* global);
 
 bool IsSandboxPrototypeProxy(JSObject* obj);
+bool IsWebExtensionContentScriptSandbox(JSObject* obj);
 
 // The JSContext argument represents the Realm that's asking the question.  This
 // is needed to properly answer without exposing information unnecessarily
@@ -185,10 +186,11 @@ struct RuntimeStats;
 
 }  // namespace JS
 
-#define XPC_WRAPPER_FLAGS (JSCLASS_HAS_PRIVATE | JSCLASS_FOREGROUND_FINALIZE)
+static_assert(JSCLASS_GLOBAL_APPLICATION_SLOTS > 0,
+              "Need at least one slot for JSCLASS_SLOT0_IS_NSISUPPORTS");
 
-#define XPCONNECT_GLOBAL_FLAGS_WITH_EXTRA_SLOTS(n)                            \
-  JSCLASS_DOM_GLOBAL | JSCLASS_HAS_PRIVATE | JSCLASS_PRIVATE_IS_NSISUPPORTS | \
+#define XPCONNECT_GLOBAL_FLAGS_WITH_EXTRA_SLOTS(n)    \
+  JSCLASS_DOM_GLOBAL | JSCLASS_SLOT0_IS_NSISUPPORTS | \
       JSCLASS_GLOBAL_FLAGS_WITH_SLOTS(DOM_GLOBAL_SLOTS + n)
 
 #define XPCONNECT_GLOBAL_EXTRA_SLOT_OFFSET \
@@ -546,6 +548,13 @@ nsGlobalWindowInner* WindowOrNull(JSObject* aObj);
 nsGlobalWindowInner* WindowGlobalOrNull(JSObject* aObj);
 
 /**
+ * If |aObj| is a Sandbox object associated with a DOMWindow via a
+ * sandboxPrototype, then return that DOMWindow.
+ * |aCx| is used for checked unwrapping of the Window.
+ */
+nsGlobalWindowInner* SandboxWindowOrNull(JSObject* aObj, JSContext* aCx);
+
+/**
  * If |cx| is in a realm whose global is a window, returns the associated
  * nsGlobalWindow. Otherwise, returns null.
  */
@@ -772,12 +781,6 @@ namespace mozilla {
 namespace dom {
 
 /**
- * A test for whether WebIDL methods that should only be visible to
- * chrome or XBL scopes should be exposed.
- */
-bool IsChromeOrXBL(JSContext* cx, JSObject* /* unused */);
-
-/**
  * This is used to prevent UA widget code from directly creating and adopting
  * nodes via the content document, since they should use the special
  * create-and-insert apis instead.
@@ -788,12 +791,12 @@ bool IsNotUAWidget(JSContext* cx, JSObject* /* unused */);
  * A test for whether WebIDL methods that should only be visible to
  * chrome, XBL scopes, or UA Widget scopes.
  */
-bool IsChromeOrXBLOrUAWidget(JSContext* cx, JSObject* /* unused */);
+bool IsChromeOrUAWidget(JSContext* cx, JSObject* /* unused */);
 
 /**
- * Same as IsChromeOrXBLOrUAWidget but can be used in worker threads as well.
+ * Same as IsChromeOrUAWidget but can be used in worker threads as well.
  */
-bool ThreadSafeIsChromeOrXBLOrUAWidget(JSContext* cx, JSObject* obj);
+bool ThreadSafeIsChromeOrUAWidget(JSContext* cx, JSObject* obj);
 
 }  // namespace dom
 

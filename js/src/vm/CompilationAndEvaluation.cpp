@@ -97,29 +97,27 @@ static JSScript* CompileSourceBufferAndStartIncrementalEncoding(
     return nullptr;
   }
 
-  frontend::BorrowingCompilationStencil borrowingStencil(*stencil);
+  RootedScript script(cx);
+  {
+    frontend::BorrowingCompilationStencil borrowingStencil(*stencil);
 
-  Rooted<frontend::CompilationGCOutput> gcOutput(cx);
-  if (!frontend::InstantiateStencils(cx, input.get(), borrowingStencil,
-                                     gcOutput.get())) {
-    return nullptr;
-  }
+    Rooted<frontend::CompilationGCOutput> gcOutput(cx);
+    if (!frontend::InstantiateStencils(cx, input.get(), borrowingStencil,
+                                       gcOutput.get())) {
+      return nullptr;
+    }
 
-  RootedScript script(cx, gcOutput.get().script);
-  if (!script) {
-    return nullptr;
+    script = gcOutput.get().script;
+    if (!script) {
+      return nullptr;
+    }
   }
 
   MOZ_DIAGNOSTIC_ASSERT(options.useStencilXDR);
-
-  UniquePtr<XDRIncrementalStencilEncoder> xdrEncoder;
-
-  if (!borrowingStencil.source->xdrEncodeInitialStencil(
-          cx, input.get(), borrowingStencil, xdrEncoder)) {
+  if (!script->scriptSource()->startIncrementalEncoding(cx, options,
+                                                        std::move(stencil))) {
     return nullptr;
   }
-
-  script->scriptSource()->setIncrementalEncoder(xdrEncoder.release());
 
   return script;
 }
@@ -421,10 +419,59 @@ JS_PUBLIC_API void JS::ExposeScriptToDebugger(JSContext* cx,
   DebugAPI::onNewScript(cx, script);
 }
 
-JS_PUBLIC_API void JS::SetGetElementCallback(JSContext* cx,
-                                             JSGetElementCallback callback) {
+JS_PUBLIC_API bool JS::UpdateDebugMetadata(
+    JSContext* cx, Handle<JSScript*> script,
+    const ReadOnlyCompileOptions& options, HandleValue privateValue,
+    HandleString elementAttributeName, HandleScript introScript,
+    HandleScript scriptOrModule) {
+  RootedScriptSourceObject sso(cx, script->sourceObject());
+
+  if (!ScriptSourceObject::initElementProperties(cx, sso,
+                                                 elementAttributeName)) {
+    return false;
+  }
+
+  // There is no equivalent of cross-compartment wrappers for scripts. If the
+  // introduction script and ScriptSourceObject are in different compartments,
+  // we would be creating a cross-compartment script reference, which is
+  // forbidden. We can still store a CCW to the script source object though.
+  RootedValue introductionScript(cx);
+  if (introScript) {
+    if (introScript->compartment() == cx->compartment()) {
+      introductionScript.setPrivateGCThing(introScript);
+    }
+  }
+  sso->setIntroductionScript(introductionScript);
+
+  RootedValue privateValueStore(cx, UndefinedValue());
+  if (privateValue.isUndefined()) {
+    // Set the private value to that of the script or module that this source is
+    // part of, if any.
+    if (scriptOrModule) {
+      privateValueStore = scriptOrModule->sourceObject()->canonicalPrivate();
+    }
+  } else {
+    privateValueStore = privateValue;
+  }
+
+  if (!privateValueStore.isUndefined()) {
+    if (!JS_WrapValue(cx, &privateValueStore)) {
+      return false;
+    }
+  }
+  sso->setPrivate(cx->runtime(), privateValueStore);
+
+  if (!options.hideScriptFromDebugger) {
+    JS::ExposeScriptToDebugger(cx, script);
+  }
+
+  return true;
+}
+
+JS_PUBLIC_API void JS::SetSourceElementCallback(
+    JSContext* cx, JSSourceElementCallback callback) {
   MOZ_ASSERT(cx->runtime());
-  cx->runtime()->setElementCallback(cx->runtime(), callback);
+  cx->runtime()->setSourceElementCallback(cx->runtime(), callback);
 }
 
 MOZ_NEVER_INLINE static bool ExecuteScript(JSContext* cx, HandleObject envChain,

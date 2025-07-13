@@ -158,13 +158,6 @@ inline js::Shape* JSScript::initialEnvironmentShape() const {
   return nullptr;
 }
 
-inline bool JSScript::ensureHasAnalyzedArgsUsage(JSContext* cx) {
-  if (needsArgsAnalysis()) {
-    return js::jit::AnalyzeArgumentsUsage(cx, this);
-  }
-  return true;
-}
-
 inline bool JSScript::isDebuggee() const {
   return realm()->debuggerObservesAllExecution() || hasDebugScript();
 }
@@ -189,7 +182,7 @@ inline bool JSScript::isIonCompilingOffThread() const {
 }
 
 inline bool JSScript::canBaselineCompile() const {
-  bool disabled = hasFlag(MutableFlags::BaselineDisabled);
+  bool disabled = baselineDisabled();
 #ifdef DEBUG
   if (hasJitScript()) {
     bool jitScriptDisabled =
@@ -201,7 +194,7 @@ inline bool JSScript::canBaselineCompile() const {
 }
 
 inline bool JSScript::canIonCompile() const {
-  bool disabled = hasFlag(MutableFlags::IonDisabled);
+  bool disabled = ionDisabled();
 #ifdef DEBUG
   if (hasJitScript()) {
     bool jitScriptDisabled =

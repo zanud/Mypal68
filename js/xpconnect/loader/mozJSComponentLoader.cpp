@@ -23,6 +23,7 @@
 #include "js/friend/JSMEnvironment.h"  // JS::ExecuteInJSMEnvironment, JS::GetJSMEnvironmentOfScriptedCaller, JS::NewJSMEnvironment
 #include "js/Object.h"                 // JS::GetCompartment
 #include "js/Printf.h"
+#include "js/PropertyAndElement.h"  // JS_DefineFunctions, JS_DefineProperty, JS_Enumerate, JS_GetElement, JS_GetProperty, JS_GetPropertyById, JS_HasOwnProperty, JS_HasOwnPropertyById, JS_SetProperty, JS_SetPropertyById
 #include "js/PropertySpec.h"
 #include "js/SourceText.h"  // JS::SourceText
 #include "nsCOMPtr.h"
@@ -59,6 +60,7 @@
 #include "mozilla/ResultExtensions.h"
 #include "mozilla/ScriptPreloader.h"
 #include "mozilla/ScopeExit.h"
+#include "mozilla/dom/AutoEntryScript.h"
 #include "mozilla/dom/ScriptSettings.h"
 #include "mozilla/ResultExtensions.h"
 #include "mozilla/UniquePtrExtensions.h"
@@ -900,6 +902,7 @@ nsresult mozJSComponentLoader::ObjectForLocation(
   aTableScript.set(script);
 
   {  // Scope for AutoEntryScript
+    AutoAllowLegacyScriptExecution exemption;
 
     // We're going to run script via JS_ExecuteScript, so we need an
     // AutoEntryScript. This is Gecko-specific and not in any spec.

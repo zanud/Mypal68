@@ -131,7 +131,7 @@ class JSFunction : public js::NativeObject {
  public:
   static inline JS::Result<JSFunction*, JS::OOM> create(
       JSContext* cx, js::gc::AllocKind kind, js::gc::InitialHeap heap,
-      js::HandleShape shape, js::HandleObjectGroup group);
+      js::HandleShape shape);
 
   /* Call objects must be created for each invocation of this function. */
   bool needsCallObject() const;
@@ -202,6 +202,8 @@ class JSFunction : public js::NativeObject {
     return hasBaseScript() && baseScript()->hasBytecode();
   }
 
+  bool isGhost() const { return flags_.isGhost(); }
+
   // Arrow functions store their lexical new.target in the first extended slot.
   bool isArrow() const { return flags_.isArrow(); }
   // Every class-constructor is also a method.
@@ -265,7 +267,6 @@ class JSFunction : public js::NativeObject {
 
   // Make the function constructible.
   void setIsConstructor() { flags_.setIsConstructor(); }
-  void setIsClassConstructor() { flags_.setIsClassConstructor(); }
 
   // Can be called multiple times by the parser.
   void setArgCount(uint16_t nargs) { this->nargs_ = nargs; }
@@ -723,15 +724,6 @@ inline JSFunction* NewNativeConstructor(
                               allocKind, newKind);
 }
 
-// Allocate a new scripted function.  If enclosingEnv is null, the
-// global lexical environment will be used.  In all cases the terminating
-// environment of the resulting object will be the global.
-extern JSFunction* NewScriptedFunction(
-    JSContext* cx, unsigned nargs, FunctionFlags flags, HandleAtom atom,
-    HandleObject proto = nullptr,
-    gc::AllocKind allocKind = gc::AllocKind::FUNCTION,
-    NewObjectKind newKind = GenericObject, HandleObject enclosingEnv = nullptr);
-
 // Determine which [[Prototype]] to use when creating a new function using the
 // requested generator and async kind.
 //
@@ -823,14 +815,7 @@ extern JSFunction* CloneFunctionReuseScript(JSContext* cx, HandleFunction fun,
                                             gc::AllocKind kind,
                                             HandleObject proto);
 
-extern JSFunction* CloneFunctionAndScript(
-    JSContext* cx, HandleFunction fun, HandleObject enclosingEnv,
-    HandleScope newScope, Handle<ScriptSourceObject*> sourceObject,
-    gc::AllocKind kind, HandleObject proto = nullptr);
-
 extern JSFunction* CloneAsmJSModuleFunction(JSContext* cx, HandleFunction fun);
-
-extern JSFunction* CloneSelfHostingIntrinsic(JSContext* cx, HandleFunction fun);
 
 }  // namespace js
 

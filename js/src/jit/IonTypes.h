@@ -79,8 +79,7 @@ static const SnapshotOffset INVALID_SNAPSHOT_OFFSET = uint32_t(-1);
  *
  * 2. If the bailout occurs because an assumption we made in WarpBuilder was
  *    invalidated, then FinishBailoutToBaseline will set a flag on the script
- *    to avoid that assumption in the future. Examples include
- *    NotOptimizedArgumentsGuard and UninitializedLexical.
+ *    to avoid that assumption in the future: for example, UninitializedLexical.
  *
  * 3. Similarly, if the bailing instruction is generated or modified by a MIR
  *    optimization, then FinishBailoutToBaseline will set a flag on the script
@@ -120,6 +119,12 @@ enum class BailoutKind : uint8_t {
   // mark the hadLICMInvalidation flag on the script.
   LICM,
 
+  // An instruction moved up by InstructionReordering.  If this
+  // instruction bails out, we will mark the ReorderingBailout flag on
+  // the script. If this happens too frequently, we will invalidate
+  // the script.
+  InstructionReordering,
+
   // An instruction created or hoisted by tryHoistBoundsCheck.
   // If this instruction bails out, we will invalidate the current Warp script
   // and mark the HoistBoundsCheckBailout flag on the script.
@@ -154,10 +159,6 @@ enum class BailoutKind : uint8_t {
   // We hit this code for the first time.
   FirstExecution,
 
-  // A bailout triggered by MGuardNotOptimizedArguments. We will call
-  // argumentsOptimizationFailed to invalidate the script.
-  NotOptimizedArgumentsGuard,
-
   // A lexical check failed. We will set lexical checks as unmovable.
   UninitializedLexical,
 
@@ -166,6 +167,9 @@ enum class BailoutKind : uint8_t {
 
   // We returned to a stack frame after invalidating its IonScript.
   OnStackInvalidation,
+
+  // We have executed code that should be unreachable, and need to assert.
+  Unreachable,
 
   Limit
 };
@@ -182,6 +186,8 @@ inline const char* BailoutKindString(BailoutKind kind) {
       return "BailoutKind::TypePolicy";
     case BailoutKind::LICM:
       return "BailoutKind::LICM";
+    case BailoutKind::InstructionReordering:
+      return "BailoutKind::InstructionReordering";
     case BailoutKind::HoistBoundsCheck:
       return "BailoutKind::HoistBoundsCheck";
     case BailoutKind::EagerTruncation:
@@ -198,14 +204,14 @@ inline const char* BailoutKindString(BailoutKind kind) {
       return "BailoutKind::Debugger";
     case BailoutKind::FirstExecution:
       return "BailoutKind::FirstExecution";
-    case BailoutKind::NotOptimizedArgumentsGuard:
-      return "BailoutKind::NotOptimizedArgumentsGuard";
     case BailoutKind::UninitializedLexical:
       return "BailoutKind::UninitializedLexical";
     case BailoutKind::IonExceptionDebugMode:
       return "BailoutKind::IonExceptionDebugMode";
     case BailoutKind::OnStackInvalidation:
       return "BailoutKind::OnStackInvalidation";
+    case BailoutKind::Unreachable:
+      return "BailoutKind::Unreachable";
 
     case BailoutKind::Limit:
       break;
@@ -217,10 +223,19 @@ inline const char* BailoutKindString(BailoutKind kind) {
 static const uint32_t ELEMENT_TYPE_BITS = 5;
 static const uint32_t ELEMENT_TYPE_SHIFT = 0;
 static const uint32_t ELEMENT_TYPE_MASK = (1 << ELEMENT_TYPE_BITS) - 1;
+#ifdef ENABLE_WASM_SIMD
+static const uint32_t VECTOR_TYPE_BITS = 1;
+static const uint32_t VECTOR_TYPE_SHIFT =
+#else
 static const uint32_t VECTOR_SCALE_BITS = 3;
 static const uint32_t VECTOR_SCALE_SHIFT =
+#endif
     ELEMENT_TYPE_BITS + ELEMENT_TYPE_SHIFT;
+#ifdef ENABLE_WASM_SIMD
+static const uint32_t VECTOR_TYPE_MASK = (1 << VECTOR_TYPE_BITS) - 1;
+#else
 static const uint32_t VECTOR_SCALE_MASK = (1 << VECTOR_SCALE_BITS) - 1;
+#endif
 
 // The integer SIMD types have a lot of operations that do the exact same thing
 // for signed and unsigned integer types. Sometimes it is simpler to treat
@@ -400,9 +415,11 @@ enum class MIRType : uint8_t {
   String,
   Symbol,
   BigInt,
+#ifdef ENABLE_WASM_SIMD
+  Simd128,
+#endif
   // Types above are primitive (including undefined and null).
   Object,
-  MagicOptimizedArguments,    // JS_OPTIMIZED_ARGUMENTS magic value.
   MagicOptimizedOut,          // JS_OPTIMIZED_OUT magic value.
   MagicHole,                  // JS_ELEMENTS_HOLE magic value.
   MagicIsConstructing,        // JS_IS_CONSTRUCTING magic value.
@@ -416,8 +433,7 @@ enum class MIRType : uint8_t {
   RefOrNull,     // Wasm Ref/AnyRef/NullRef: a raw JSObject* or a raw (void*)0
   StackResults,  // Wasm multi-value stack result area, which may contain refs
   Shape,         // A Shape pointer.
-  ObjectGroup,   // An ObjectGroup pointer.
-  Last = ObjectGroup,
+#ifndef ENABLE_WASM_SIMD
   // Representing both SIMD.IntBxN and SIMD.UintBxN.
   Int8x16 = Int32 | (4 << VECTOR_SCALE_SHIFT),
   Int16x8 = Int32 | (3 << VECTOR_SCALE_SHIFT),
@@ -427,11 +443,14 @@ enum class MIRType : uint8_t {
   Bool16x8 = Boolean | (3 << VECTOR_SCALE_SHIFT),
   Bool32x4 = Boolean | (2 << VECTOR_SCALE_SHIFT),
   Doublex2 = Double | (1 << VECTOR_SCALE_SHIFT)
+#endif
 };
 
+#ifndef ENABLE_WASM_SIMD
 static inline bool IsSimdType(MIRType type) {
   return ((uint8_t(type) >> VECTOR_SCALE_SHIFT) & VECTOR_SCALE_MASK) != 0;
 }
+#endif
 
 static inline MIRType MIRTypeFromValueType(JSValueType type) {
   // This function does not deal with magic types. Magic constants should be
@@ -481,7 +500,6 @@ static inline JSValueType ValueTypeFromMIRType(MIRType type) {
       return JSVAL_TYPE_SYMBOL;
     case MIRType::BigInt:
       return JSVAL_TYPE_BIGINT;
-    case MIRType::MagicOptimizedArguments:
     case MIRType::MagicOptimizedOut:
     case MIRType::MagicHole:
     case MIRType::MagicIsConstructing:
@@ -507,6 +525,10 @@ static inline size_t MIRTypeToSize(MIRType type) {
       return 4;
     case MIRType::Double:
       return 8;
+#ifdef ENABLE_WASM_SIMD
+    case MIRType::Simd128:
+      return 16;
+#endif
     case MIRType::Pointer:
     case MIRType::RefOrNull:
       return sizeof(uintptr_t);
@@ -541,8 +563,6 @@ static inline const char* StringFromMIRType(MIRType type) {
       return "BigInt";
     case MIRType::Object:
       return "Object";
-    case MIRType::MagicOptimizedArguments:
-      return "MagicOptimizedArguments";
     case MIRType::MagicOptimizedOut:
       return "MagicOptimizedOut";
     case MIRType::MagicHole:
@@ -567,8 +587,10 @@ static inline const char* StringFromMIRType(MIRType type) {
       return "StackResults";
     case MIRType::Shape:
       return "Shape";
-    case MIRType::ObjectGroup:
-      return "ObjectGroup";
+#ifdef ENABLE_WASM_SIMD
+    case MIRType::Simd128:
+      return "Simd128";
+#else
     case MIRType::Int32x4:
       return "Int32x4";
     case MIRType::Int16x8:
@@ -585,6 +607,7 @@ static inline const char* StringFromMIRType(MIRType type) {
       return "Bool8x16";
     case MIRType::Doublex2:
       return "Doublex2";
+#endif
   }
   MOZ_CRASH("Unknown MIRType.");
 }
@@ -622,7 +645,6 @@ static inline bool IsNullOrUndefined(MIRType type) {
 static inline bool IsMagicType(MIRType type) {
   return type == MIRType::MagicHole || type == MIRType::MagicOptimizedOut ||
          type == MIRType::MagicIsConstructing ||
-         type == MIRType::MagicOptimizedArguments ||
          type == MIRType::MagicUninitializedLexical;
 }
 
@@ -645,6 +667,10 @@ static inline MIRType ScalarTypeToMIRType(Scalar::Type type) {
     case Scalar::BigInt64:
     case Scalar::BigUint64:
       MOZ_CRASH("NYI");
+#ifdef ENABLE_WASM_SIMD
+    case Scalar::Simd128:
+      return MIRType::Simd128;
+#endif
     case Scalar::MaxTypedArrayViewType:
       break;
   }
@@ -821,6 +847,9 @@ enum ABIFunctionType : uint32_t {
   Args_Int32_GeneralInt32Int32Int32Int32Int32 = detail::MakeABIFunctionType(
       ArgType_Int32, {ArgType_General, ArgType_Int32, ArgType_Int32,
                       ArgType_Int32, ArgType_Int32, ArgType_Int32}),
+  Args_Int32_GeneralInt32Int32Int32Int32General = detail::MakeABIFunctionType(
+      ArgType_Int32, {ArgType_General, ArgType_Int32, ArgType_Int32,
+                      ArgType_Int32, ArgType_Int32, ArgType_General}),
   Args_Int32_GeneralInt32Int32Int32General = detail::MakeABIFunctionType(
       ArgType_Int32, {ArgType_General, ArgType_Int32, ArgType_Int32,
                       ArgType_Int32, ArgType_General}),
@@ -841,6 +870,8 @@ enum ABIFunctionType : uint32_t {
                       ArgType_Int32, ArgType_Int32}),
   Args_Int32_GeneralGeneral = detail::MakeABIFunctionType(
       ArgType_Int32, {ArgType_General, ArgType_General}),
+  Args_Int32_GeneralGeneralGeneral = detail::MakeABIFunctionType(
+      ArgType_Int32, {ArgType_General, ArgType_General, ArgType_General}),
   Args_Int32_GeneralGeneralInt32Int32 = detail::MakeABIFunctionType(
       ArgType_Int32,
       {ArgType_General, ArgType_General, ArgType_Int32, ArgType_Int32}),

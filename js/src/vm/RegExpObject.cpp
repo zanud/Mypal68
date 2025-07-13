@@ -72,7 +72,7 @@ RegExpObject* js::RegExpAlloc(JSContext* cx, NewObjectKind newKind,
 
   regexp->clearShared();
 
-  if (!EmptyShape::ensureInitialCustomShape<RegExpObject>(cx, regexp)) {
+  if (!SharedShape::ensureInitialCustomShape<RegExpObject>(cx, regexp)) {
     return nullptr;
   }
 
@@ -263,8 +263,13 @@ Shape* RegExpObject::assignInitialShape(JSContext* cx,
   static_assert(LAST_INDEX_SLOT == 0);
 
   /* The lastIndex property alone is writable but non-configurable. */
-  return NativeObject::addDataProperty(cx, self, cx->names().lastIndex,
-                                       LAST_INDEX_SLOT, JSPROP_PERMANENT);
+  if (!NativeObject::addPropertyInReservedSlot(cx, self, cx->names().lastIndex,
+                                               LAST_INDEX_SLOT,
+                                               {PropertyFlag::Writable})) {
+    return nullptr;
+  }
+
+  return self->shape();
 }
 
 void RegExpObject::initIgnoringLastIndex(JSAtom* source, RegExpFlags flags) {
@@ -891,7 +896,7 @@ ArrayObject* RegExpRealm::createMatchResultTemplateObject(
                                   groupsVal, JSPROP_ENUMERATE)) {
       return nullptr;
     }
-    MOZ_ASSERT(templateObject->lastProperty()->slot() == IndicesGroupsSlot);
+    MOZ_ASSERT(templateObject->getLastProperty().slot() == IndicesGroupsSlot);
 
     matchResultTemplateObjects_[kind].set(templateObject);
     return matchResultTemplateObjects_[kind];
@@ -903,7 +908,7 @@ ArrayObject* RegExpRealm::createMatchResultTemplateObject(
                                 JSPROP_ENUMERATE)) {
     return nullptr;
   }
-  MOZ_ASSERT(templateObject->lastProperty()->slot() ==
+  MOZ_ASSERT(templateObject->getLastProperty().slot() ==
              MatchResultObjectIndexSlot);
 
   /* Set dummy input property */
@@ -912,7 +917,7 @@ ArrayObject* RegExpRealm::createMatchResultTemplateObject(
                                 JSPROP_ENUMERATE)) {
     return nullptr;
   }
-  MOZ_ASSERT(templateObject->lastProperty()->slot() ==
+  MOZ_ASSERT(templateObject->getLastProperty().slot() ==
              MatchResultObjectInputSlot);
 
   /* Set dummy groups property */
@@ -921,7 +926,7 @@ ArrayObject* RegExpRealm::createMatchResultTemplateObject(
                                 groupsVal, JSPROP_ENUMERATE)) {
     return nullptr;
   }
-  MOZ_ASSERT(templateObject->lastProperty()->slot() ==
+  MOZ_ASSERT(templateObject->getLastProperty().slot() ==
              MatchResultObjectGroupsSlot);
 
   if (kind == ResultTemplateKind::WithIndices) {
@@ -931,7 +936,7 @@ ArrayObject* RegExpRealm::createMatchResultTemplateObject(
                                   indicesVal, JSPROP_ENUMERATE)) {
       return nullptr;
     }
-    MOZ_ASSERT(templateObject->lastProperty()->slot() ==
+    MOZ_ASSERT(templateObject->getLastProperty().slot() ==
                MatchResultObjectIndicesSlot);
   }
 
@@ -942,21 +947,15 @@ ArrayObject* RegExpRealm::createMatchResultTemplateObject(
 
 void RegExpRealm::traceWeak(JSTracer* trc) {
   for (auto& templateObject : matchResultTemplateObjects_) {
-    if (templateObject) {
-      TraceWeakEdge(trc, &templateObject,
-                    "RegExpRealm::matchResultTemplateObject_");
-    }
+    TraceWeakEdge(trc, &templateObject,
+                  "RegExpRealm::matchResultTemplateObject_");
   }
 
-  if (optimizableRegExpPrototypeShape_) {
-    TraceWeakEdge(trc, &optimizableRegExpPrototypeShape_,
-                  "RegExpRealm::optimizableRegExpPrototypeShape_");
-  }
+  TraceWeakEdge(trc, &optimizableRegExpPrototypeShape_,
+                "RegExpRealm::optimizableRegExpPrototypeShape_");
 
-  if (optimizableRegExpInstanceShape_) {
-    TraceWeakEdge(trc, &optimizableRegExpInstanceShape_,
-                  "RegExpRealm::optimizableRegExpInstanceShape_");
-  }
+  TraceWeakEdge(trc, &optimizableRegExpInstanceShape_,
+                "RegExpRealm::optimizableRegExpInstanceShape_");
 }
 
 RegExpShared* RegExpZone::get(JSContext* cx, HandleAtom source,
@@ -981,8 +980,9 @@ RegExpShared* RegExpZone::get(JSContext* cx, HandleAtom source,
   return shared;
 }
 
-size_t RegExpZone::sizeOfExcludingThis(mozilla::MallocSizeOf mallocSizeOf) {
-  return set_.sizeOfExcludingThis(mallocSizeOf);
+size_t RegExpZone::sizeOfIncludingThis(
+    mozilla::MallocSizeOf mallocSizeOf) const {
+  return mallocSizeOf(this) + set_.sizeOfExcludingThis(mallocSizeOf);
 }
 
 RegExpZone::RegExpZone(Zone* zone) : set_(zone, zone) {}
@@ -1000,9 +1000,7 @@ JSObject* js::CloneRegExpObject(JSContext* cx, Handle<RegExpObject*> regex) {
 
   clone->clearShared();
 
-  if (!EmptyShape::ensureInitialCustomShape<RegExpObject>(cx, clone)) {
-    return nullptr;
-  }
+  clone->setShape(regex->shape());
 
   RegExpShared* shared = RegExpObject::getShared(cx, regex);
   if (!shared) {
@@ -1200,7 +1198,7 @@ JS_PUBLIC_API bool JS::ClearRegExpStatics(JSContext* cx, HandleObject obj) {
 }
 
 JS_PUBLIC_API bool JS::ExecuteRegExp(JSContext* cx, HandleObject obj,
-                                     HandleObject reobj, char16_t* chars,
+                                     HandleObject reobj, const char16_t* chars,
                                      size_t length, size_t* indexp, bool test,
                                      MutableHandleValue rval) {
   AssertHeapIsIdle();
@@ -1222,8 +1220,9 @@ JS_PUBLIC_API bool JS::ExecuteRegExp(JSContext* cx, HandleObject obj,
 }
 
 JS_PUBLIC_API bool JS::ExecuteRegExpNoStatics(JSContext* cx, HandleObject obj,
-                                              char16_t* chars, size_t length,
-                                              size_t* indexp, bool test,
+                                              const char16_t* chars,
+                                              size_t length, size_t* indexp,
+                                              bool test,
                                               MutableHandleValue rval) {
   AssertHeapIsIdle();
   CHECK_THREAD(cx);

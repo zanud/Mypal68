@@ -140,8 +140,8 @@ const ClassSpec WeakSetObject::classSpec_ = {
 
 const JSClass WeakSetObject::class_ = {
     "WeakSet",
-    JSCLASS_HAS_PRIVATE | JSCLASS_HAS_CACHED_PROTO(JSProto_WeakSet) |
-        JSCLASS_BACKGROUND_FINALIZE,
+    JSCLASS_HAS_RESERVED_SLOTS(SlotCount) |
+        JSCLASS_HAS_CACHED_PROTO(JSProto_WeakSet) | JSCLASS_BACKGROUND_FINALIZE,
     &WeakCollectionObject::classOps_, &WeakSetObject::classSpec_};
 
 const JSClass WeakSetObject::protoClass_ = {
@@ -226,7 +226,7 @@ bool WeakSetObject::construct(JSContext* cx, unsigned argc, Value* vp) {
   return true;
 }
 
-JS_FRIEND_API bool JS_NondeterministicGetWeakSetKeys(JSContext* cx,
+JS_PUBLIC_API bool JS_NondeterministicGetWeakSetKeys(JSContext* cx,
                                                      HandleObject objArg,
                                                      MutableHandleObject ret) {
   RootedObject obj(cx, UncheckedUnwrap(objArg));

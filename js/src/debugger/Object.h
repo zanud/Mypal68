@@ -46,9 +46,6 @@ class DebuggerObject : public NativeObject {
   [[nodiscard]] static bool getClassName(JSContext* cx,
                                          HandleDebuggerObject object,
                                          MutableHandleString result);
-  [[nodiscard]] static bool getParameterNames(
-      JSContext* cx, HandleDebuggerObject object,
-      MutableHandle<StringVector> result);
   [[nodiscard]] static bool getBoundTargetFunction(
       JSContext* cx, HandleDebuggerObject object,
       MutableHandleDebuggerObject result);
@@ -109,9 +106,12 @@ class DebuggerObject : public NativeObject {
   [[nodiscard]] static bool getOwnPropertySymbols(
       JSContext* cx, HandleDebuggerObject object,
       MutableHandle<IdVector> result);
+  [[nodiscard]] static bool getOwnPrivateProperties(
+      JSContext* cx, HandleDebuggerObject object,
+      MutableHandle<IdVector> result);
   [[nodiscard]] static bool getOwnPropertyDescriptor(
       JSContext* cx, HandleDebuggerObject object, HandleId id,
-      MutableHandle<PropertyDescriptor> desc);
+      MutableHandle<mozilla::Maybe<PropertyDescriptor>> desc);
   [[nodiscard]] static bool preventExtensions(JSContext* cx,
                                               HandleDebuggerObject object);
   [[nodiscard]] static bool seal(JSContext* cx, HandleDebuggerObject object);
@@ -174,16 +174,19 @@ class DebuggerObject : public NativeObject {
   bool isInstance() const;
   Debugger* owner() const;
 
+  JSObject* maybeReferent() const {
+    return maybePtrFromReservedSlot<JSObject>(OBJECT_SLOT);
+  }
   JSObject* referent() const {
-    JSObject* obj = (JSObject*)getPrivate();
+    JSObject* obj = maybeReferent();
     MOZ_ASSERT(obj);
     return obj;
   }
 
- private:
-  enum { OWNER_SLOT };
+  void clearReferent() { clearReservedSlotGCThingAsPrivate(OBJECT_SLOT); }
 
-  static const unsigned RESERVED_SLOTS = 1;
+ private:
+  enum { OBJECT_SLOT, OWNER_SLOT, RESERVED_SLOTS };
 
   static const JSClassOps classOps_;
 

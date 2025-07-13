@@ -618,10 +618,27 @@ JSObject* NewObjectOperation(JSContext* cx, HandleScript script, jsbytecode* pc,
 
 JSObject* NewObjectOperationWithTemplate(JSContext* cx,
                                          HandleObject templateObject);
+
+JSObject* NewPlainObjectBaselineFallback(JSContext* cx, HandleShape shape,
+                                         gc::AllocKind allocKind,
+                                         gc::AllocSite* site);
+
+JSObject* NewPlainObjectOptimizedFallback(JSContext* cx, HandleShape shape,
+                                          gc::AllocKind allocKind,
+                                          gc::InitialHeap initialHeap);
+
 JSObject* CreateThisWithTemplate(JSContext* cx, HandleObject templateObject);
 
 ArrayObject* NewArrayOperation(JSContext* cx, uint32_t length,
                                NewObjectKind newKind = GenericObject);
+
+// Called from JIT code when inline array allocation fails.
+ArrayObject* NewArrayObjectBaselineFallback(JSContext* cx, uint32_t length,
+                                            gc::AllocKind allocKind,
+                                            gc::AllocSite* site);
+ArrayObject* NewArrayObjectOptimizedFallback(JSContext* cx, uint32_t length,
+                                             gc::AllocKind allocKind,
+                                             NewObjectKind newKind);
 
 [[nodiscard]] bool GetImportOperation(JSContext* cx, HandleObject envChain,
                                       HandleScript script, jsbytecode* pc,
@@ -636,8 +653,7 @@ void ReportRuntimeLexicalError(JSContext* cx, unsigned errorNumber,
 void ReportRuntimeLexicalError(JSContext* cx, unsigned errorNumber,
                                HandleScript script, jsbytecode* pc);
 
-void ReportInNotObjectError(JSContext* cx, HandleValue lref, int lindex,
-                            HandleValue rref, int rindex);
+void ReportInNotObjectError(JSContext* cx, HandleValue lref, HandleValue rref);
 
 // The parser only reports redeclarations that occurs within a single
 // script. Due to the extensibility of the global lexical scope, we also check
@@ -650,8 +666,6 @@ bool ThrowCheckIsObject(JSContext* cx, CheckIsObjectKind kind);
 bool ThrowUninitializedThis(JSContext* cx);
 
 bool ThrowInitializedThis(JSContext* cx);
-
-bool ThrowHomeObjectNotObject(JSContext* cx);
 
 bool ThrowObjectCoercible(JSContext* cx, HandleValue value);
 
@@ -666,9 +680,14 @@ PlainObject* ObjectWithProtoOperation(JSContext* cx, HandleValue proto);
 JSObject* FunWithProtoOperation(JSContext* cx, HandleFunction fun,
                                 HandleObject parent, HandleObject proto);
 
-bool SetPropertySuper(JSContext* cx, HandleObject obj, HandleValue receiver,
-                      HandlePropertyName id, HandleValue rval, bool strict);
+bool SetPropertySuper(JSContext* cx, HandleValue lval, HandleValue receiver,
+                      HandlePropertyName name, HandleValue rval, bool strict);
 
+bool SetElementSuper(JSContext* cx, HandleValue lval, HandleValue receiver,
+                     HandleValue index, HandleValue rval, bool strict);
+
+bool LoadAliasedDebugVar(JSContext* cx, JSObject* env, jsbytecode* pc,
+                         MutableHandleValue result);
 } /* namespace js */
 
 #endif /* vm_Interpreter_h */

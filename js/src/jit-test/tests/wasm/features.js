@@ -1,4 +1,4 @@
-// |jit-test| test-also=--wasm-gc;
+// |jit-test| test-also=--wasm-extended-const; test-also=--wasm-exceptions; test-also=--wasm-function-references; test-also=--wasm-gc
 
 // Test that if a feature is 'experimental' then we must be in a nightly build,
 // and if a feature is 'released' then it must be enabled on release and beta.
@@ -24,8 +24,32 @@ let { release_or_beta } = getBuildConfiguration();
 let nightly = !release_or_beta;
 
 let nightlyOnlyFeatures = [
-  ['gc', wasmGcEnabled(), `(module (type $s (struct)) (func (param (ref null $s))))`],
-  ['simd', wasmSimdSupported(), `(module (memory 1 1) (func i32.const 0 i8x16.splat drop))`],
+  [
+    'extended-const',
+    wasmExtendedConstEnabled(),
+    `(module
+      (global i32
+        i32.const 0
+        i32.const 0
+        i32.add
+      )
+    )`
+  ],
+  [
+    'exceptions',
+    wasmExceptionsEnabled(),
+    `(module (type (func)) (event (type 0)))`
+  ],
+  [
+    'function-references',
+    wasmFunctionReferencesEnabled(),
+    `(module (func (param (ref extern))))`
+  ],
+  [
+    'gc',
+    wasmGcEnabled(),
+    `(module (type $s (struct)) (func (param (ref null $s))))`
+  ],
 ];
 
 for (let [name, enabled, test] of nightlyOnlyFeatures) {
@@ -37,10 +61,28 @@ for (let [name, enabled, test] of nightlyOnlyFeatures) {
   }
 }
 
+// These are features that are enabled in beta/release but may be disabled at
+// run-time for other reasons.  The best we can do for these features is to say
+// that if one claims to be supported then it must work, and otherwise there
+// must be a CompileError.
+
+let releasedFeaturesMaybeDisabledAnyway = [
+  // SIMD will be disabled dynamically on x86/x64 if the hardware isn't SSE4.1+.
+  ['simd', wasmSimdEnabled(), `(module (func (result v128) i32.const 0 i8x16.splat))`]
+];
+
+for (let [name, enabled, test] of releasedFeaturesMaybeDisabledAnyway) {
+  if (release_or_beta) {
+    if (enabled) {
+      wasmEvalText(test);
+    } else {
+      assertErrorMessage(() => wasmEvalText(test), WebAssembly.CompileError, /./);
+    }
+  }
+}
+
 let releasedFeatures = [
-  ['multi-value', wasmMultiValueEnabled(), `(module (func (result i32 i32) i32.const 0 i32.const 0))`],
-  ['threads', wasmThreadsSupported(), `(module (memory 1 1 shared))`],
-  ['reference-types', wasmReftypesEnabled(), `(module (func (param externref)))`],
+  ['threads', wasmThreadsEnabled(), `(module (memory 1 1 shared))`],
 ];
 
 for (let [name, enabled, test] of releasedFeatures) {

@@ -1,7 +1,5 @@
-commit 516ca9af3938bfe8694cf0998f9193c57e826adb
-Author: Gus Caplan <me@gus.host>
-Date:   Wed Oct 21 20:14:28 2020 -0400
+commit 86e23998e37e2f1d8107afa51d7be355f3f65cca
+Author: Frank Tang <ftang@chromium.org>
+Date:   Thu Aug 5 15:57:57 2021 -0700
 
-    Update tests for ECMA262 #2216
-
-    https://github.com/tc39/ecma262/pull/2216
+    Add more tests

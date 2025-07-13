@@ -44,13 +44,13 @@ inline JSFunction* CloneFunctionObject(JSContext* cx, HandleFunction fun,
 
 /* static */ inline JS::Result<JSFunction*, JS::OOM> JSFunction::create(
     JSContext* cx, js::gc::AllocKind kind, js::gc::InitialHeap heap,
-    js::HandleShape shape, js::HandleObjectGroup group) {
+    js::HandleShape shape) {
   MOZ_ASSERT(kind == js::gc::AllocKind::FUNCTION ||
              kind == js::gc::AllocKind::FUNCTION_EXTENDED);
 
-  debugCheckNewObject(group, shape, kind, heap);
+  debugCheckNewObject(shape, kind, heap);
 
-  const JSClass* clasp = group->clasp();
+  const JSClass* clasp = shape->getObjectClass();
   MOZ_ASSERT(clasp->isNativeObject());
   MOZ_ASSERT(clasp->isJSFunction());
 
@@ -64,13 +64,11 @@ inline JSFunction* CloneFunctionObject(JSContext* cx, HandleFunction fun,
   }
 
   NativeObject* nobj = static_cast<NativeObject*>(obj);
-  nobj->initGroup(group);
   nobj->initShape(shape);
 
   nobj->initEmptyDynamicSlots();
   nobj->setEmptyElements();
 
-  MOZ_ASSERT(!clasp->hasPrivate());
   MOZ_ASSERT(shape->slotSpan() == 0);
 
   JSFunction* fun = static_cast<JSFunction*>(nobj);

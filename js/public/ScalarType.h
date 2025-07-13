@@ -48,6 +48,9 @@ enum Type {
   MaxTypedArrayViewType,
 
   Int64,
+#ifdef ENABLE_WASM_SIMD
+  Simd128,
+#endif
 };
 
 static inline size_t byteSize(Type atype) {
@@ -68,6 +71,10 @@ static inline size_t byteSize(Type atype) {
     case BigInt64:
     case BigUint64:
       return 8;
+#ifdef ENABLE_WASM_SIMD
+    case Simd128:
+      return 16;
+#endif
     case MaxTypedArrayViewType:
       break;
   }
@@ -89,6 +96,9 @@ static inline bool isSignedIntType(Type atype) {
     case Float32:
     case Float64:
     case BigUint64:
+#ifdef ENABLE_WASM_SIMD
+    case Simd128:
+#endif
       return false;
     case MaxTypedArrayViewType:
       break;
@@ -111,6 +121,9 @@ static inline bool isBigIntType(Type atype) {
     case Uint32:
     case Float32:
     case Float64:
+#ifdef ENABLE_WASM_SIMD
+    case Simd128:
+#endif
       return false;
     case MaxTypedArrayViewType:
       break;
@@ -150,6 +163,34 @@ static inline const char* name(Type atype) {
     case Simd128:
       return "Simd128";
 #endif
+  }
+  MOZ_CRASH("invalid scalar type");
+}
+
+static inline const char* byteSizeString(Type atype) {
+  switch (atype) {
+    case Int8:
+    case Uint8:
+    case Uint8Clamped:
+      return "1";
+    case Int16:
+    case Uint16:
+      return "2";
+    case Int32:
+    case Uint32:
+    case Float32:
+      return "4";
+    case Int64:
+    case Float64:
+    case BigInt64:
+    case BigUint64:
+      return "8";
+#ifdef ENABLE_WASM_SIMD
+    case Simd128:
+      return "16";
+#endif
+    case MaxTypedArrayViewType:
+      break;
   }
   MOZ_CRASH("invalid scalar type");
 }

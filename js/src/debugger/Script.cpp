@@ -41,7 +41,8 @@
 #include "vm/StringType.h"            // for NameToId, PropertyName, JSAtom
 #include "wasm/WasmDebug.h"           // for ExprLoc, DebugState
 #include "wasm/WasmInstance.h"        // for Instance
-#include "wasm/WasmTypes.h"           // for Bytes
+#include "wasm/WasmJS.h"              // for WasmInstanceObject
+#include "wasm/WasmTypeDecls.h"       // for Bytes
 
 #include "vm/BytecodeUtil-inl.h"  // for BytecodeRangeWithPosition
 #include "vm/JSAtom-inl.h"        // for ValueToId
@@ -70,25 +71,23 @@ const JSClassOps DebuggerScript::classOps_ = {
 };
 
 const JSClass DebuggerScript::class_ = {
-    "Script", JSCLASS_HAS_PRIVATE | JSCLASS_HAS_RESERVED_SLOTS(RESERVED_SLOTS),
-    &classOps_};
+    "Script", JSCLASS_HAS_RESERVED_SLOTS(RESERVED_SLOTS), &classOps_};
 
 void DebuggerScript::trace(JSTracer* trc) {
-  JSObject* upcast = this;
   // This comes from a private pointer, so no barrier needed.
   gc::Cell* cell = getReferentCell();
   if (cell) {
     if (cell->is<BaseScript>()) {
       BaseScript* script = cell->as<BaseScript>();
       TraceManuallyBarrieredCrossCompartmentEdge(
-          trc, upcast, &script, "Debugger.Script script referent");
-      setPrivateUnbarriered(script);
+          trc, this, &script, "Debugger.Script script referent");
+      setReservedSlotGCThingAsPrivateUnbarriered(SCRIPT_SLOT, script);
     } else {
       JSObject* wasm = cell->as<JSObject>();
       TraceManuallyBarrieredCrossCompartmentEdge(
-          trc, upcast, &wasm, "Debugger.Script wasm referent");
+          trc, this, &wasm, "Debugger.Script wasm referent");
       MOZ_ASSERT(wasm->is<WasmInstanceObject>());
-      setPrivateUnbarriered(wasm);
+      setReservedSlotGCThingAsPrivateUnbarriered(SCRIPT_SLOT, wasm);
     }
   }
 }
@@ -113,8 +112,9 @@ DebuggerScript* DebuggerScript::create(JSContext* cx, HandleObject proto,
 
   scriptobj->setReservedSlot(DebuggerScript::OWNER_SLOT,
                              ObjectValue(*debugger));
-  referent.get().match(
-      [&](auto& scriptHandle) { scriptobj->setPrivateGCThing(scriptHandle); });
+  referent.get().match([&](auto& scriptHandle) {
+    scriptobj->setReservedSlotGCThingAsPrivate(SCRIPT_SLOT, scriptHandle);
+  });
 
   return scriptobj;
 }
@@ -217,6 +217,7 @@ struct MOZ_STACK_CLASS DebuggerScript::CallData {
   bool getIsFunction();
   bool getIsModule();
   bool getDisplayName();
+  bool getParameterNames();
   bool getUrl();
   bool getStartLine();
   bool getStartColumn();
@@ -241,7 +242,6 @@ struct MOZ_STACK_CLASS DebuggerScript::CallData {
   bool clearAllBreakpoints();
   bool isInCatchScope();
   bool getOffsetsCoverage();
-  bool setInstrumentationId();
 
   using Method = bool (CallData::*)();
 
@@ -317,6 +317,26 @@ bool DebuggerScript::CallData::getDisplayName() {
     return false;
   }
   args.rval().set(namev);
+  return true;
+}
+
+bool DebuggerScript::CallData::getParameterNames() {
+  if (!ensureScript()) {
+    return false;
+  }
+
+  RootedFunction fun(cx, referent.as<BaseScript*>()->function());
+  if (!fun) {
+    args.rval().setUndefined();
+    return true;
+  }
+
+  ArrayObject* arr = GetFunctionParameterNamesArray(cx, fun);
+  if (!arr) {
+    return false;
+  }
+
+  args.rval().setObject(*arr);
   return true;
 }
 
@@ -470,6 +490,11 @@ static bool PushFunctionScript(JSContext* cx, Debugger* dbg, HandleFunction fun,
   }
 
   Rooted<BaseScript*> script(cx, fun->baseScript());
+  MOZ_ASSERT(script);
+  if (!script) {
+    // If the function doesn't have script, ignore it.
+    return true;
+  }
   RootedObject wrapped(cx, dbg->wrapScript(cx, script));
   if (!wrapped) {
     return false;
@@ -490,6 +515,12 @@ static bool PushInnerFunctions(JSContext* cx, Debugger* dbg, HandleObject array,
     JSObject* obj = &gcThing.as<JSObject>();
     if (obj->is<JSFunction>()) {
       fun = &obj->as<JSFunction>();
+
+      // Ignore any delazification placeholder functions. These should not be
+      // exposed to debugger in any way.
+      if (fun->isGhost()) {
+        continue;
+      }
 
       if (!PushFunctionScript(cx, dbg, fun, array)) {
         return false;
@@ -1466,6 +1497,7 @@ static bool BytecodeIsEffectful(JSOp op) {
     case JSOp::Swap:
     case JSOp::Pick:
     case JSOp::Unpick:
+    case JSOp::GetAliasedDebugVar:
     case JSOp::GetAliasedVar:
     case JSOp::Uint24:
     case JSOp::ResumeIndex:
@@ -1494,6 +1526,7 @@ static bool BytecodeIsEffectful(JSOp op) {
     case JSOp::PopLexicalEnv:
     case JSOp::FreshenLexicalEnv:
     case JSOp::RecreateLexicalEnv:
+    case JSOp::PushClassBodyEnv:
     case JSOp::Iter:
     case JSOp::MoreIter:
     case JSOp::IsNoIter:
@@ -1514,9 +1547,6 @@ static bool BytecodeIsEffectful(JSOp op) {
     case JSOp::IsConstructing:
     case JSOp::OptimizeSpreadCall:
     case JSOp::ImportMeta:
-    case JSOp::InstrumentationActive:
-    case JSOp::InstrumentationCallback:
-    case JSOp::InstrumentationScriptId:
     case JSOp::EnterWith:
     case JSOp::LeaveWith:
     case JSOp::SpreadNew:
@@ -2264,27 +2294,6 @@ bool DebuggerScript::CallData::getOffsetsCoverage() {
   return true;
 }
 
-bool DebuggerScript::CallData::setInstrumentationId() {
-  if (!ensureScriptMaybeLazy()) {
-    return false;
-  }
-
-  if (!obj->getInstrumentationId().isUndefined()) {
-    JS_ReportErrorASCII(cx, "Script instrumentation ID is already set");
-    return false;
-  }
-
-  if (!args.get(0).isNumber()) {
-    JS_ReportErrorASCII(cx, "Script instrumentation ID must be a number");
-    return false;
-  }
-
-  obj->setReservedSlot(INSTRUMENTATION_ID_SLOT, args.get(0));
-
-  args.rval().setUndefined();
-  return true;
-}
-
 /* static */
 bool DebuggerScript::construct(JSContext* cx, unsigned argc, Value* vp) {
   JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_NO_CONSTRUCTOR,
@@ -2298,6 +2307,7 @@ const JSPropertySpec DebuggerScript::properties_[] = {
     JS_DEBUG_PSG("isFunction", getIsFunction),
     JS_DEBUG_PSG("isModule", getIsModule),
     JS_DEBUG_PSG("displayName", getDisplayName),
+    JS_DEBUG_PSG("parameterNames", getParameterNames),
     JS_DEBUG_PSG("url", getUrl),
     JS_DEBUG_PSG("startLine", getStartLine),
     JS_DEBUG_PSG("startColumn", getStartColumn),
@@ -2322,7 +2332,6 @@ const JSFunctionSpec DebuggerScript::methods_[] = {
     JS_DEBUG_FN("getOffsetMetadata", getOffsetMetadata, 1),
     JS_DEBUG_FN("getOffsetsCoverage", getOffsetsCoverage, 0),
     JS_DEBUG_FN("getEffectfulOffsets", getEffectfulOffsets, 1),
-    JS_DEBUG_FN("setInstrumentationId", setInstrumentationId, 1),
 
     // The following APIs are deprecated due to their reliance on the
     // under-defined 'entrypoint' concept. Make use of getPossibleBreakpoints,

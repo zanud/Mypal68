@@ -3,7 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "gc/Zone.h"
-#include "js/Array.h"  // JS::GetArrayLength
+#include "js/Array.h"               // JS::GetArrayLength
+#include "js/PropertyAndElement.h"  // JS_DefineProperty
 #include "jsapi-tests/tests.h"
 #include "vm/Realm.h"
 
@@ -97,7 +98,7 @@ BEGIN_TEST(testWeakMap_keyDelegates) {
   JSRuntime* rt = cx->runtime();
   CHECK(newCCW(map, delegateRoot));
   js::SliceBudget budget(js::WorkBudget(1000));
-  rt->gc.startDebugGC(GC_NORMAL, budget);
+  rt->gc.startDebugGC(JS::GCOptions::Normal, budget);
   if (JS::IsIncrementalGCInProgress(cx)) {
     // Wait until we've started marking before finishing the GC
     // non-incrementally.
@@ -122,7 +123,7 @@ BEGIN_TEST(testWeakMap_keyDelegates) {
   key = nullptr;
   CHECK(newCCW(map, delegateRoot));
   budget = js::SliceBudget(js::WorkBudget(1000));
-  rt->gc.startDebugGC(GC_NORMAL, budget);
+  rt->gc.startDebugGC(JS::GCOptions::Normal, budget);
   if (JS::IsIncrementalGCInProgress(cx)) {
     // Wait until we've started marking before finishing the GC
     // non-incrementally.
@@ -163,7 +164,7 @@ static size_t DelegateObjectMoved(JSObject* obj, JSObject* old) {
 
 JSObject* newKey() {
   static const JSClass keyClass = {
-      "keyWithDelegate", JSCLASS_HAS_PRIVATE | JSCLASS_HAS_RESERVED_SLOTS(1),
+      "keyWithDelegate", JSCLASS_HAS_RESERVED_SLOTS(1),
       JS_NULL_CLASS_OPS, JS_NULL_CLASS_SPEC,
       JS_NULL_CLASS_EXT, JS_NULL_OBJECT_OPS};
 

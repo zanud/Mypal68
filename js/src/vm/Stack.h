@@ -23,17 +23,19 @@
 #include "vm/JSFunction.h"
 #include "vm/JSScript.h"
 #include "vm/SavedFrame.h"
-#include "wasm/WasmTypes.h"  // js::wasm::DebugFrame
+#include "wasm/WasmFrame.h"  // js::wasm::DebugFrame
 
 namespace js {
 
 class InterpreterRegs;
 class CallObject;
 class FrameIter;
+class ClassBodyScope;
 class EnvironmentObject;
+class BlockLexicalEnvironmentObject;
+class ExtensibleLexicalEnvironmentObject;
 class GeckoProfilerRuntime;
 class InterpreterFrame;
-class LexicalEnvironmentObject;
 class EnvironmentIter;
 class EnvironmentCoordinate;
 
@@ -384,7 +386,7 @@ class InterpreterFrame {
   bool prologue(JSContext* cx);
   void epilogue(JSContext* cx, jsbytecode* pc);
 
-  bool checkReturn(JSContext* cx, HandleValue thisv);
+  bool checkReturn(JSContext* cx, HandleValue thisv, MutableHandleValue result);
 
   bool initFunctionEnvironmentObjects(JSContext* cx);
 
@@ -512,15 +514,18 @@ class InterpreterFrame {
   inline HandleObject environmentChain() const;
 
   inline EnvironmentObject& aliasedEnvironment(EnvironmentCoordinate ec) const;
+  inline EnvironmentObject& aliasedEnvironmentMaybeDebug(
+      EnvironmentCoordinate ec) const;
   inline GlobalObject& global() const;
   inline CallObject& callObj() const;
-  inline LexicalEnvironmentObject& extensibleLexicalEnvironment() const;
+  inline ExtensibleLexicalEnvironmentObject& extensibleLexicalEnvironment()
+      const;
 
   template <typename SpecificEnvironment>
   inline void pushOnEnvironmentChain(SpecificEnvironment& env);
   template <typename SpecificEnvironment>
   inline void popOffEnvironmentChain();
-  inline void replaceInnermostEnvironment(EnvironmentObject& env);
+  inline void replaceInnermostEnvironment(BlockLexicalEnvironmentObject& env);
 
   // Push a VarEnvironmentObject for function frames of functions that have
   // parameter expressions with closed over var bindings.
@@ -540,6 +545,8 @@ class InterpreterFrame {
   bool pushLexicalEnvironment(JSContext* cx, Handle<LexicalScope*> scope);
   bool freshenLexicalEnvironment(JSContext* cx);
   bool recreateLexicalEnvironment(JSContext* cx);
+
+  bool pushClassBodyEnvironment(JSContext* cx, Handle<ClassBodyScope*> scope);
 
   /*
    * Script
@@ -583,8 +590,7 @@ class InterpreterFrame {
    */
 
   JSFunction& callee() const {
-    MOZ_ASSERT(isFunctionFrame() || isModuleFrame());
-    MOZ_ASSERT_IF(isModuleFrame(), script()->isAsync());
+    MOZ_ASSERT(isFunctionFrame());
     return calleev().toObject().as<JSFunction>();
   }
 
@@ -876,7 +882,7 @@ class GenericArgsBase
   explicit GenericArgsBase(JSContext* cx) : v_(cx) {}
 
  public:
-  bool init(JSContext* cx, unsigned argc) {
+  bool init(JSContext* cx, uint64_t argc) {
     if (argc > ARGS_LENGTH_MAX) {
       JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
                                 JSMSG_TOO_MANY_ARGUMENTS);

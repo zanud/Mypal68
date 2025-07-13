@@ -40,9 +40,11 @@
 #include "vm/BigIntType.h"
 #include "vm/FunctionFlags.h"  // js::FunctionFlags
 #include "vm/GeneratorObject.h"
+#include "vm/GetterSetter.h"
 #include "vm/Uint8Clamped.h"
 
 #include "builtin/Boolean-inl.h"
+#include "gc/ObjectKind-inl.h"
 #include "jit/MacroAssembler-inl.h"
 #include "jit/SharedICHelpers-inl.h"
 #include "jit/VMFunctionList-inl.h"
@@ -181,7 +183,7 @@ void CacheRegisterAllocator::ensureDoubleRegister(MacroAssembler& masm,
       MOZ_ASSERT(loc.payloadType() == JSVAL_TYPE_INT32,
                  "Caller must ensure the operand is a number value");
       MOZ_ASSERT(loc.payloadStack() <= stackPushed_);
-      Address addr(masm.getStackPointer(), stackPushed_ - loc.payloadStack());
+      Address addr = payloadAddress(masm, &loc);
       addr.offset += stackOffset;
       masm.convertInt32ToDouble(addr, dest);
       return;
@@ -233,7 +235,7 @@ void CacheRegisterAllocator::copyToScratchRegister(MacroAssembler& masm,
     case OperandLocation::PayloadStack: {
       MOZ_ASSERT(loc.payloadType() == typedId.type());
       MOZ_ASSERT(loc.payloadStack() <= stackPushed_);
-      Address addr(masm.getStackPointer(), stackPushed_ - loc.payloadStack());
+      Address addr = payloadAddress(masm, &loc);
       addr.offset += stackOffset;
       masm.loadPtr(addr, dest);
       return;
@@ -245,51 +247,46 @@ void CacheRegisterAllocator::copyToScratchRegister(MacroAssembler& masm,
   }
 }
 
-ValueOperand CacheRegisterAllocator::useFixedValueRegister(MacroAssembler& masm,
-                                                           ValOperandId valId,
-                                                           ValueOperand reg) {
-  allocateFixedValueRegister(masm, reg);
+void CacheRegisterAllocator::copyToScratchValueRegister(
+    MacroAssembler& masm, ValOperandId valId, ValueOperand dest) const {
+  MOZ_ASSERT(!addedFailurePath_);
+  MOZ_ASSERT(!hasAutoScratchFloatRegisterSpill());
 
-  OperandLocation& loc = operandLocations_[valId.id()];
+  const OperandLocation& loc = operandLocations_[valId.id()];
   switch (loc.kind()) {
     case OperandLocation::ValueReg:
-      masm.moveValue(loc.valueReg(), reg);
-      MOZ_ASSERT(!currentOpRegs_.aliases(loc.valueReg()),
-                 "Register shouldn't be in use");
-      availableRegs_.add(loc.valueReg());
+      masm.moveValue(loc.valueReg(), dest);
       break;
-    case OperandLocation::ValueStack:
-      popValue(masm, &loc, reg);
+    case OperandLocation::ValueStack: {
+      Address addr = valueAddress(masm, &loc);
+      masm.loadValue(addr, dest);
       break;
+    }
     case OperandLocation::BaselineFrame: {
       Address addr = addressOf(masm, loc.baselineFrameSlot());
-      masm.loadValue(addr, reg);
+      masm.loadValue(addr, dest);
       break;
     }
     case OperandLocation::Constant:
-      masm.moveValue(loc.constant(), reg);
+      masm.moveValue(loc.constant(), dest);
       break;
     case OperandLocation::PayloadReg:
-      masm.tagValue(loc.payloadType(), loc.payloadReg(), reg);
-      MOZ_ASSERT(!currentOpRegs_.has(loc.payloadReg()),
-                 "Register shouldn't be in use");
-      availableRegs_.add(loc.payloadReg());
+      masm.tagValue(loc.payloadType(), loc.payloadReg(), dest);
       break;
-    case OperandLocation::PayloadStack:
-      popPayload(masm, &loc, reg.scratchReg());
-      masm.tagValue(loc.payloadType(), reg.scratchReg(), reg);
+    case OperandLocation::PayloadStack: {
+      Address addr = payloadAddress(masm, &loc);
+      masm.loadPtr(addr, dest.scratchReg());
+      masm.tagValue(loc.payloadType(), dest.scratchReg(), dest);
       break;
+    }
     case OperandLocation::DoubleReg: {
       ScratchDoubleScope fpscratch(masm);
-      masm.boxDouble(loc.doubleReg(), reg, fpscratch);
+      masm.boxDouble(loc.doubleReg(), dest, fpscratch);
       break;
     }
     case OperandLocation::Uninitialized:
       MOZ_CRASH();
   }
-
-  loc.setValueReg(reg);
-  return reg;
 }
 
 Register CacheRegisterAllocator::useRegister(MacroAssembler& masm,
@@ -834,9 +831,7 @@ void CacheRegisterAllocator::popPayload(MacroAssembler& masm,
     stackPushed_ -= sizeof(uintptr_t);
   } else {
     MOZ_ASSERT(loc->payloadStack() < stackPushed_);
-    masm.loadPtr(
-        Address(masm.getStackPointer(), stackPushed_ - loc->payloadStack()),
-        dest);
+    masm.loadPtr(payloadAddress(masm, loc), dest);
     masm.propagateOOM(freePayloadSlots_.append(loc->payloadStack()));
   }
 
@@ -847,6 +842,12 @@ Address CacheRegisterAllocator::valueAddress(MacroAssembler& masm,
                                              const OperandLocation* loc) const {
   MOZ_ASSERT(loc >= operandLocations_.begin() && loc < operandLocations_.end());
   return Address(masm.getStackPointer(), stackPushed_ - loc->valueStack());
+}
+
+Address CacheRegisterAllocator::payloadAddress(
+    MacroAssembler& masm, const OperandLocation* loc) const {
+  MOZ_ASSERT(loc >= operandLocations_.begin() && loc < operandLocations_.end());
+  return Address(masm.getStackPointer(), stackPushed_ - loc->payloadStack());
 }
 
 void CacheRegisterAllocator::popValue(MacroAssembler& masm,
@@ -1046,7 +1047,7 @@ static GCPtr<T>* AsGCPtr(uintptr_t* ptr) {
 
 uintptr_t CacheIRStubInfo::getStubRawWord(const uint8_t* stubData,
                                           uint32_t offset) const {
-  MOZ_ASSERT(uintptr_t(stubData) % sizeof(uintptr_t) == 0);
+  MOZ_ASSERT(uintptr_t(stubData + offset) % sizeof(uintptr_t) == 0);
   return *reinterpret_cast<const uintptr_t*>(stubData + offset);
 }
 
@@ -1058,7 +1059,7 @@ uintptr_t CacheIRStubInfo::getStubRawWord(ICCacheIRStub* stub,
 
 int64_t CacheIRStubInfo::getStubRawInt64(const uint8_t* stubData,
                                          uint32_t offset) const {
-  MOZ_ASSERT(uintptr_t(stubData) % sizeof(int64_t) == 0);
+  MOZ_ASSERT(uintptr_t(stubData + offset) % sizeof(int64_t) == 0);
   return *reinterpret_cast<const int64_t*>(stubData + offset);
 }
 
@@ -1071,7 +1072,7 @@ int64_t CacheIRStubInfo::getStubRawInt64(ICCacheIRStub* stub,
 void CacheIRStubInfo::replaceStubRawWord(uint8_t* stubData, uint32_t offset,
                                          uintptr_t oldWord,
                                          uintptr_t newWord) const {
-  MOZ_ASSERT(uintptr_t(stubData) % sizeof(uintptr_t) == 0);
+  MOZ_ASSERT(uintptr_t(stubData + offset) % sizeof(uintptr_t) == 0);
   uintptr_t* addr = reinterpret_cast<uintptr_t*>(stubData + offset);
   MOZ_ASSERT(*addr == oldWord);
   *addr = newWord;
@@ -1080,14 +1081,14 @@ void CacheIRStubInfo::replaceStubRawWord(uint8_t* stubData, uint32_t offset,
 template <class Stub, class T>
 GCPtr<T>& CacheIRStubInfo::getStubField(Stub* stub, uint32_t offset) const {
   uint8_t* stubData = (uint8_t*)stub + stubDataOffset_;
-  MOZ_ASSERT(uintptr_t(stubData) % sizeof(uintptr_t) == 0);
+  MOZ_ASSERT(uintptr_t(stubData + offset) % sizeof(uintptr_t) == 0);
 
   return *AsGCPtr<T>((uintptr_t*)(stubData + offset));
 }
 
 template GCPtr<Shape*>& CacheIRStubInfo::getStubField<ICCacheIRStub>(
     ICCacheIRStub* stub, uint32_t offset) const;
-template GCPtr<ObjectGroup*>& CacheIRStubInfo::getStubField<ICCacheIRStub>(
+template GCPtr<GetterSetter*>& CacheIRStubInfo::getStubField<ICCacheIRStub>(
     ICCacheIRStub* stub, uint32_t offset) const;
 template GCPtr<JSObject*>& CacheIRStubInfo::getStubField<ICCacheIRStub>(
     ICCacheIRStub* stub, uint32_t offset) const;
@@ -1106,6 +1107,17 @@ template GCPtr<JSClass*>& CacheIRStubInfo::getStubField<ICCacheIRStub>(
 template GCPtr<ArrayObject*>& CacheIRStubInfo::getStubField<ICCacheIRStub>(
     ICCacheIRStub* stub, uint32_t offset) const;
 
+template <class Stub, class T>
+T* CacheIRStubInfo::getPtrStubField(Stub* stub, uint32_t offset) const {
+  uint8_t* stubData = (uint8_t*)stub + stubDataOffset_;
+  MOZ_ASSERT(uintptr_t(stubData + offset) % sizeof(uintptr_t) == 0);
+
+  return *reinterpret_cast<T**>(stubData + offset);
+}
+
+template gc::AllocSite* CacheIRStubInfo::getPtrStubField(ICCacheIRStub* stub,
+                                                         uint32_t offset) const;
+
 template <typename T, typename V>
 static void InitGCPtr(uintptr_t* ptr, V val) {
   AsGCPtr<T>(ptr)->init(mozilla::BitwiseCast<T>(val));
@@ -1117,19 +1129,23 @@ void CacheIRWriter::copyStubData(uint8_t* dest) const {
   uintptr_t* destWords = reinterpret_cast<uintptr_t*>(dest);
 
   for (const StubField& field : stubFields_) {
+    MOZ_ASSERT((uintptr_t(destWords) % field.sizeInBytes()) == 0,
+               "Unaligned stub field");
+
     switch (field.type()) {
       case StubField::Type::RawInt32:
       case StubField::Type::RawPointer:
+      case StubField::Type::AllocSite:
         *destWords = field.asWord();
         break;
       case StubField::Type::Shape:
         InitGCPtr<Shape*>(destWords, field.asWord());
         break;
+      case StubField::Type::GetterSetter:
+        InitGCPtr<GetterSetter*>(destWords, field.asWord());
+        break;
       case StubField::Type::JSObject:
         InitGCPtr<JSObject*>(destWords, field.asWord());
-        break;
-      case StubField::Type::ObjectGroup:
-        InitGCPtr<ObjectGroup*>(destWords, field.asWord());
         break;
       case StubField::Type::Symbol:
         InitGCPtr<JS::Symbol*>(destWords, field.asWord());
@@ -1169,13 +1185,19 @@ void jit::TraceCacheIRStub(JSTracer* trc, T* stub,
       case StubField::Type::RawPointer:
       case StubField::Type::RawInt64:
         break;
-      case StubField::Type::Shape:
-        TraceEdge(trc, &stubInfo->getStubField<T, Shape*>(stub, offset),
-                  "cacheir-shape");
+      case StubField::Type::Shape: {
+        // For CCW IC stubs, we can store same-zone but cross-compartment
+        // shapes. Use TraceSameZoneCrossCompartmentEdge to not assert in the
+        // GC. Note: CacheIRWriter::writeShapeField asserts we never store
+        // cross-zone shapes.
+        GCPtrShape& shapeField =
+            stubInfo->getStubField<T, Shape*>(stub, offset);
+        TraceSameZoneCrossCompartmentEdge(trc, &shapeField, "cacheir-shape");
         break;
-      case StubField::Type::ObjectGroup:
-        TraceEdge(trc, &stubInfo->getStubField<T, ObjectGroup*>(stub, offset),
-                  "cacheir-group");
+      }
+      case StubField::Type::GetterSetter:
+        TraceEdge(trc, &stubInfo->getStubField<T, GetterSetter*>(stub, offset),
+                  "cacheir-getter-setter");
         break;
       case StubField::Type::JSObject:
         TraceEdge(trc, &stubInfo->getStubField<T, JSObject*>(stub, offset),
@@ -1201,6 +1223,12 @@ void jit::TraceCacheIRStub(JSTracer* trc, T* stub,
         TraceEdge(trc, &stubInfo->getStubField<T, JS::Value>(stub, offset),
                   "cacheir-value");
         break;
+      case StubField::Type::AllocSite: {
+        gc::AllocSite* site =
+            stubInfo->getPtrStubField<T, gc::AllocSite>(stub, offset);
+        site->trace(trc);
+        break;
+      }
       case StubField::Type::Limit:
         return;  // Done.
     }
@@ -1511,26 +1539,6 @@ bool CacheIRCompiler::emitGuardIsUndefined(ValOperandId inputId) {
   }
 
   masm.branchTestUndefined(Assembler::NotEqual, input, failure->label());
-  return true;
-}
-
-bool CacheIRCompiler::emitGuardIsObjectOrNull(ValOperandId inputId) {
-  JitSpew(JitSpew_Codegen, "%s", __FUNCTION__);
-  JSValueType knownType = allocator.knownType(inputId);
-  if (knownType == JSVAL_TYPE_OBJECT || knownType == JSVAL_TYPE_NULL) {
-    return true;
-  }
-
-  ValueOperand input = allocator.useValueRegister(masm, inputId);
-  FailurePath* failure;
-  if (!addFailurePath(&failure)) {
-    return false;
-  }
-
-  Label done;
-  masm.branchTestObject(Assembler::Equal, input, &done);
-  masm.branchTestNull(Assembler::NotEqual, input, failure->label());
-  masm.bind(&done);
   return true;
 }
 
@@ -2000,6 +2008,63 @@ bool CacheIRCompiler::emitGuardDynamicSlotIsSpecificObject(
   return true;
 }
 
+bool CacheIRCompiler::emitGuardFixedSlotValue(ObjOperandId objId,
+                                              uint32_t offsetOffset,
+                                              uint32_t valOffset) {
+  JitSpew(JitSpew_Codegen, "%s", __FUNCTION__);
+
+  Register obj = allocator.useRegister(masm, objId);
+
+  AutoScratchRegister scratch(allocator, masm);
+  AutoScratchValueRegister scratchVal(allocator, masm);
+
+  FailurePath* failure;
+  if (!addFailurePath(&failure)) {
+    return false;
+  }
+
+  StubFieldOffset offset(offsetOffset, StubField::Type::RawInt32);
+  emitLoadStubField(offset, scratch);
+
+  StubFieldOffset val(valOffset, StubField::Type::Value);
+  emitLoadValueStubField(val, scratchVal);
+
+  BaseIndex slotVal(obj, scratch, TimesOne);
+  masm.branchTestValue(Assembler::NotEqual, slotVal, scratchVal,
+                       failure->label());
+  return true;
+}
+
+bool CacheIRCompiler::emitGuardDynamicSlotValue(ObjOperandId objId,
+                                                uint32_t offsetOffset,
+                                                uint32_t valOffset) {
+  JitSpew(JitSpew_Codegen, "%s", __FUNCTION__);
+
+  Register obj = allocator.useRegister(masm, objId);
+
+  AutoScratchRegister scratch1(allocator, masm);
+  AutoScratchRegister scratch2(allocator, masm);
+  AutoScratchValueRegister scratchVal(allocator, masm);
+
+  FailurePath* failure;
+  if (!addFailurePath(&failure)) {
+    return false;
+  }
+
+  masm.loadPtr(Address(obj, NativeObject::offsetOfSlots()), scratch1);
+
+  StubFieldOffset offset(offsetOffset, StubField::Type::RawInt32);
+  emitLoadStubField(offset, scratch2);
+
+  StubFieldOffset val(valOffset, StubField::Type::Value);
+  emitLoadValueStubField(val, scratchVal);
+
+  BaseIndex slotVal(scratch1, scratch2, TimesOne);
+  masm.branchTestValue(Assembler::NotEqual, slotVal, scratchVal,
+                       failure->label());
+  return true;
+}
+
 bool CacheIRCompiler::emitGuardIsNativeObject(ObjOperandId objId) {
   JitSpew(JitSpew_Codegen, "%s", __FUNCTION__);
 
@@ -2093,20 +2158,6 @@ bool CacheIRCompiler::emitGuardIsNotDOMProxy(ObjOperandId objId) {
   masm.branchTestProxyHandlerFamily(Assembler::Equal, obj, scratch,
                                     GetDOMProxyHandlerFamily(),
                                     failure->label());
-  return true;
-}
-
-bool CacheIRCompiler::emitGuardMagicValue(ValOperandId valId,
-                                          JSWhyMagic magic) {
-  JitSpew(JitSpew_Codegen, "%s", __FUNCTION__);
-  ValueOperand val = allocator.useValueRegister(masm, valId);
-
-  FailurePath* failure;
-  if (!addFailurePath(&failure)) {
-    return false;
-  }
-
-  masm.branchTestMagicValue(Assembler::NotEqual, val, magic, failure->label());
   return true;
 }
 
@@ -2381,6 +2432,14 @@ bool CacheIRCompiler::emitLoadBooleanResult(bool val) {
   JitSpew(JitSpew_Codegen, "%s", __FUNCTION__);
   AutoOutputRegister output(*this);
   EmitStoreBoolean(masm, val, output);
+  return true;
+}
+
+bool CacheIRCompiler::emitLoadOperandResult(ValOperandId inputId) {
+  JitSpew(JitSpew_Codegen, "%s", __FUNCTION__);
+  AutoOutputRegister output(*this);
+  ValueOperand input = allocator.useValueRegister(masm, inputId);
+  masm.moveValue(input, output.valueReg());
   return true;
 }
 
@@ -2819,7 +2878,7 @@ bool CacheIRCompiler::emitInt32RightShiftResult(Int32OperandId lhsId,
 
 bool CacheIRCompiler::emitInt32URightShiftResult(Int32OperandId lhsId,
                                                  Int32OperandId rhsId,
-                                                 bool allowDouble) {
+                                                 bool forceDouble) {
   JitSpew(JitSpew_Codegen, "%s", __FUNCTION__);
   AutoOutputRegister output(*this);
 
@@ -2834,7 +2893,7 @@ bool CacheIRCompiler::emitInt32URightShiftResult(Int32OperandId lhsId,
 
   masm.mov(lhs, scratch);
   masm.flexibleRshift32(rhs, scratch);
-  if (allowDouble) {
+  if (forceDouble) {
     ScratchDoubleScope fpscratch(masm);
     masm.convertUInt32ToDouble(scratch, fpscratch);
     masm.boxDouble(fpscratch, output.valueReg(), fpscratch);
@@ -3426,31 +3485,6 @@ bool CacheIRCompiler::emitGuardIndexGreaterThanDenseInitLength(
   return true;
 }
 
-bool CacheIRCompiler::emitGuardIndexGreaterThanArrayLength(
-    ObjOperandId objId, Int32OperandId indexId) {
-  JitSpew(JitSpew_Codegen, "%s", __FUNCTION__);
-  Register obj = allocator.useRegister(masm, objId);
-  Register index = allocator.useRegister(masm, indexId);
-  AutoScratchRegister scratch(allocator, masm);
-  AutoSpectreBoundsScratchRegister spectreScratch(allocator, masm);
-
-  FailurePath* failure;
-  if (!addFailurePath(&failure)) {
-    return false;
-  }
-
-  // Load obj->elements.
-  masm.loadPtr(Address(obj, NativeObject::offsetOfElements()), scratch);
-
-  // Ensure index >= length;
-  Label outOfBounds;
-  Address length(scratch, ObjectElements::offsetOfLength());
-  masm.spectreBoundsCheck32(index, length, spectreScratch, &outOfBounds);
-  masm.jump(failure->label());
-  masm.bind(&outOfBounds);
-  return true;
-}
-
 bool CacheIRCompiler::emitGuardIndexIsValidUpdateOrAdd(ObjOperandId objId,
                                                        Int32OperandId indexId) {
   JitSpew(JitSpew_Codegen, "%s", __FUNCTION__);
@@ -3576,16 +3610,20 @@ bool CacheIRCompiler::emitGuardXrayNoExpando(ObjOperandId objId) {
   return true;
 }
 
-bool CacheIRCompiler::emitGuardNoAllocationMetadataBuilder() {
+bool CacheIRCompiler::emitGuardNoAllocationMetadataBuilder(
+    uint32_t builderAddrOffset) {
   JitSpew(JitSpew_Codegen, "%s", __FUNCTION__);
+  AutoScratchRegister scratch(allocator, masm);
+
   FailurePath* failure;
   if (!addFailurePath(&failure)) {
     return false;
   }
 
-  masm.branchPtr(Assembler::NotEqual,
-                 AbsoluteAddress(cx_->realm()->addressOfMetadataBuilder()),
-                 ImmWord(0), failure->label());
+  StubFieldOffset builderField(builderAddrOffset, StubField::Type::RawPointer);
+  emitLoadStubField(builderField, scratch);
+  masm.branchPtr(Assembler::NotEqual, Address(scratch, 0), ImmWord(0),
+                 failure->label());
 
   return true;
 }
@@ -5068,6 +5106,9 @@ bool CacheIRCompiler::emitStoreTypedArrayElement(ObjOperandId objId,
 
     case Scalar::MaxTypedArrayViewType:
     case Scalar::Int64:
+#ifdef ENABLE_WASM_SIMD
+    case Scalar::Simd128:
+#endif
       MOZ_CRASH("Unsupported TypedArray type");
   }
 
@@ -5126,27 +5167,32 @@ bool CacheIRCompiler::emitStoreTypedArrayElement(ObjOperandId objId,
   return true;
 }
 
-static bool CanNurseryAllocateBigInt(JSContext* cx) {
+static gc::InitialHeap InitialBigIntHeap(JSContext* cx) {
   JS::Zone* zone = cx->zone();
-  return zone->runtimeFromAnyThread()->gc.nursery().canAllocateBigInts() &&
-         zone->allocNurseryBigInts;
+  bool canNurseryAllocate =
+      zone->runtimeFromAnyThread()->gc.nursery().canAllocateBigInts() &&
+      zone->allocNurseryBigInts;
+  return canNurseryAllocate ? gc::DefaultHeap : gc::TenuredHeap;
 }
 
 static void EmitAllocateBigInt(MacroAssembler& masm, Register result,
                                Register temp, const LiveRegisterSet& liveSet,
-                               Label* fail, bool attemptNursery) {
+                               gc::InitialHeap initialHeap, Label* fail) {
   Label fallback, done;
-  masm.newGCBigInt(result, temp, &fallback, attemptNursery);
+  masm.newGCBigInt(result, temp, initialHeap, &fallback);
   masm.jump(&done);
   {
     masm.bind(&fallback);
-    masm.PushRegsInMask(liveSet);
 
+    // Request a minor collection at a later time if nursery allocation failed.
+    bool requestMinorGC = initialHeap == gc::DefaultHeap;
+
+    masm.PushRegsInMask(liveSet);
     using Fn = void* (*)(JSContext * cx, bool requestMinorGC);
     masm.setupUnalignedABICall(temp);
     masm.loadJSContext(temp);
     masm.passABIArg(temp);
-    masm.move32(Imm32(attemptNursery), result);
+    masm.move32(Imm32(requestMinorGC), result);
     masm.passABIArg(result);
     masm.callWithABI<Fn, jit::AllocateBigIntNoGC>();
     masm.storeCallPointerResult(result);
@@ -5159,7 +5205,7 @@ static void EmitAllocateBigInt(MacroAssembler& masm, Register result,
 
 bool CacheIRCompiler::emitLoadTypedArrayElementResult(
     ObjOperandId objId, IntPtrOperandId indexId, Scalar::Type elementType,
-    bool handleOOB, bool allowDoubleForUint32) {
+    bool handleOOB, bool forceDoubleForUint32) {
   JitSpew(JitSpew_Codegen, "%s", __FUNCTION__);
   AutoOutputRegister output(*this);
   Register obj = allocator.useRegister(masm, objId);
@@ -5196,9 +5242,9 @@ bool CacheIRCompiler::emitLoadTypedArrayElementResult(
     save.takeUnchecked(scratch2);
     save.takeUnchecked(output);
 
-    bool attemptNursery = CanNurseryAllocateBigInt(cx_);
-    EmitAllocateBigInt(masm, *bigInt, scratch1, save, failure->label(),
-                       attemptNursery);
+    gc::InitialHeap initialHeap = InitialBigIntHeap(cx_);
+    EmitAllocateBigInt(masm, *bigInt, scratch1, save, initialHeap,
+                       failure->label());
   }
 
   // Load the elements vector.
@@ -5226,8 +5272,11 @@ bool CacheIRCompiler::emitLoadTypedArrayElementResult(
 
     masm.tagValue(JSVAL_TYPE_BIGINT, *bigInt, output.valueReg());
   } else {
-    masm.loadFromTypedArray(elementType, source, output.valueReg(),
-                            allowDoubleForUint32, scratch1, failure->label());
+    MacroAssembler::Uint32Mode uint32Mode =
+        forceDoubleForUint32 ? MacroAssembler::Uint32Mode::ForceDouble
+                             : MacroAssembler::Uint32Mode::FailOnDouble;
+    masm.loadFromTypedArray(elementType, source, output.valueReg(), uint32Mode,
+                            scratch1, failure->label());
   }
 
   if (handleOOB) {
@@ -5262,7 +5311,7 @@ static void EmitDataViewBoundsCheck(MacroAssembler& masm, size_t byteSize,
 bool CacheIRCompiler::emitLoadDataViewValueResult(
     ObjOperandId objId, IntPtrOperandId offsetId,
     BooleanOperandId littleEndianId, Scalar::Type elementType,
-    bool allowDoubleForUint32) {
+    bool forceDoubleForUint32) {
   JitSpew(JitSpew_Codegen, "%s", __FUNCTION__);
 
   AutoOutputRegister output(*this);
@@ -5359,10 +5408,14 @@ bool CacheIRCompiler::emitLoadDataViewValueResult(
     case Scalar::Int32:
       masm.tagValue(JSVAL_TYPE_INT32, outputScratch, output.valueReg());
       break;
-    case Scalar::Uint32:
-      masm.boxUint32(outputScratch, output.valueReg(), allowDoubleForUint32,
+    case Scalar::Uint32: {
+      MacroAssembler::Uint32Mode uint32Mode =
+          forceDoubleForUint32 ? MacroAssembler::Uint32Mode::ForceDouble
+                               : MacroAssembler::Uint32Mode::FailOnDouble;
+      masm.boxUint32(outputScratch, output.valueReg(), uint32Mode,
                      failure->label());
       break;
+    }
     case Scalar::Float32: {
       FloatRegister scratchFloat32 = floatScratch0.get().asSingle();
       masm.moveGPRToFloat32(outputScratch, scratchFloat32);
@@ -5388,9 +5441,8 @@ bool CacheIRCompiler::emitLoadDataViewValueResult(
                            liveVolatileFloatRegs());
       save.takeUnchecked(bigInt);
       save.takeUnchecked(bigIntScratch);
-      bool attemptNursery = CanNurseryAllocateBigInt(cx_);
-      EmitAllocateBigInt(masm, bigInt, bigIntScratch, save, &fail,
-                         attemptNursery);
+      gc::InitialHeap initialHeap = InitialBigIntHeap(cx_);
+      EmitAllocateBigInt(masm, bigInt, bigIntScratch, save, initialHeap, &fail);
       masm.jump(&done);
 
       masm.bind(&fail);
@@ -5456,6 +5508,9 @@ bool CacheIRCompiler::emitStoreDataViewValueResult(
 
     case Scalar::MaxTypedArrayViewType:
     case Scalar::Int64:
+#ifdef ENABLE_WASM_SIMD
+    case Scalar::Simd128:
+#endif
       MOZ_CRASH("Unsupported type");
   }
 
@@ -5996,26 +6051,6 @@ bool CacheIRCompiler::emitLoadValueTruthyResult(ValOperandId inputId) {
   masm.moveValue(BooleanValue(false), output.valueReg());
 
   masm.bind(&done);
-  return true;
-}
-
-bool CacheIRCompiler::emitLoadNewObjectFromTemplateResult(
-    uint32_t templateObjectOffset, uint32_t, uint32_t) {
-  JitSpew(JitSpew_Codegen, "%s", __FUNCTION__);
-  AutoOutputRegister output(*this);
-  AutoScratchRegister obj(allocator, masm);
-  AutoScratchRegisterMaybeOutput scratch(allocator, masm, output);
-
-  TemplateObject templateObj(objectStubFieldUnchecked(templateObjectOffset));
-
-  FailurePath* failure;
-  if (!addFailurePath(&failure)) {
-    return false;
-  }
-
-  masm.createGCObject(obj, scratch, templateObj, gc::DefaultHeap,
-                      failure->label());
-  masm.tagValue(JSVAL_TYPE_OBJECT, obj, output.valueReg());
   return true;
 }
 
@@ -6714,11 +6749,11 @@ void CacheIRCompiler::emitLoadStubFieldConstant(StubFieldOffset val,
     case StubField::Type::Shape:
       masm.movePtr(ImmGCPtr(shapeStubField(val.getOffset())), dest);
       break;
+    case StubField::Type::GetterSetter:
+      masm.movePtr(ImmGCPtr(getterSetterStubField(val.getOffset())), dest);
+      break;
     case StubField::Type::String:
       masm.movePtr(ImmGCPtr(stringStubField(val.getOffset())), dest);
-      break;
-    case StubField::Type::ObjectGroup:
-      masm.movePtr(ImmGCPtr(groupStubField(val.getOffset())), dest);
       break;
     case StubField::Type::JSObject:
       masm.movePtr(ImmGCPtr(objectStubField(val.getOffset())), dest);
@@ -6728,6 +6763,9 @@ void CacheIRCompiler::emitLoadStubFieldConstant(StubFieldOffset val,
       break;
     case StubField::Type::RawInt32:
       masm.move32(Imm32(int32StubField(val.getOffset())), dest);
+      break;
+    case StubField::Type::Id:
+      masm.movePropertyKey(idStubField(val.getOffset()), dest);
       break;
     default:
       MOZ_CRASH("Unhandled stub field constant type");
@@ -6752,7 +6790,7 @@ void CacheIRCompiler::emitLoadStubField(StubFieldOffset val, Register dest) {
     switch (val.getStubFieldType()) {
       case StubField::Type::RawPointer:
       case StubField::Type::Shape:
-      case StubField::Type::ObjectGroup:
+      case StubField::Type::GetterSetter:
       case StubField::Type::JSObject:
       case StubField::Type::Symbol:
       case StubField::Type::String:
@@ -6768,19 +6806,17 @@ void CacheIRCompiler::emitLoadStubField(StubFieldOffset val, Register dest) {
   }
 }
 
-Address CacheIRCompiler::emitAddressFromStubField(StubFieldOffset val,
-                                                  Register base) {
-  JitSpew(JitSpew_Codegen, "%s", __FUNCTION__);
-  MOZ_ASSERT(val.getStubFieldType() == StubField::Type::RawInt32);
+void CacheIRCompiler::emitLoadValueStubField(StubFieldOffset val,
+                                             ValueOperand dest) {
+  MOZ_ASSERT(val.getStubFieldType() == StubField::Type::Value);
 
   if (stubFieldPolicy_ == StubFieldPolicy::Constant) {
-    int32_t offset = int32StubField(val.getOffset());
-    return Address(base, offset);
+    MOZ_ASSERT(mode_ == Mode::Ion);
+    masm.moveValue(valueStubField(val.getOffset()), dest);
+  } else {
+    Address addr(ICStubReg, stubDataOffset_ + val.getOffset());
+    masm.loadValue(addr, dest);
   }
-
-  Address offsetAddr(ICStubReg, stubDataOffset_ + val.getOffset());
-  masm.addPtr(offsetAddr, base);
-  return Address(base, 0);
 }
 
 bool CacheIRCompiler::emitLoadInstanceOfObjectResult(ValOperandId lhsId,
@@ -6932,13 +6968,19 @@ bool CacheIRCompiler::emitMegamorphicStoreSlot(ObjOperandId objId,
 }
 
 bool CacheIRCompiler::emitGuardHasGetterSetter(ObjOperandId objId,
-                                               uint32_t shapeOffset) {
+                                               uint32_t idOffset,
+                                               uint32_t getterSetterOffset) {
   JitSpew(JitSpew_Codegen, "%s", __FUNCTION__);
+
   Register obj = allocator.useRegister(masm, objId);
-  StubFieldOffset shape(shapeOffset, StubField::Type::Shape);
+
+  StubFieldOffset id(idOffset, StubField::Type::Id);
+  StubFieldOffset getterSetter(getterSetterOffset,
+                               StubField::Type::GetterSetter);
 
   AutoScratchRegister scratch1(allocator, masm);
   AutoScratchRegister scratch2(allocator, masm);
+  AutoScratchRegister scratch3(allocator, masm);
 
   FailurePath* failure;
   if (!addFailurePath(&failure)) {
@@ -6951,13 +6993,16 @@ bool CacheIRCompiler::emitGuardHasGetterSetter(ObjOperandId objId,
   volatileRegs.takeUnchecked(scratch2);
   masm.PushRegsInMask(volatileRegs);
 
-  using Fn = bool (*)(JSContext * cx, JSObject * obj, Shape * propShape);
+  using Fn = bool (*)(JSContext * cx, JSObject * obj, jsid id,
+                      GetterSetter * getterSetter);
   masm.setupUnalignedABICall(scratch1);
   masm.loadJSContext(scratch1);
   masm.passABIArg(scratch1);
   masm.passABIArg(obj);
-  emitLoadStubField(shape, scratch2);
+  emitLoadStubField(id, scratch2);
   masm.passABIArg(scratch2);
+  emitLoadStubField(getterSetter, scratch3);
+  masm.passABIArg(scratch3);
   masm.callWithABI<Fn, ObjectHasGetterSetterPure>();
   masm.mov(ReturnReg, scratch1);
   masm.PopRegsInMask(volatileRegs);
@@ -7896,20 +7941,11 @@ bool CacheIRCompiler::emitAtomicsLoadResult(ObjOperandId objId,
   auto sync = Synchronization::Load();
 
   masm.memoryBarrierBefore(sync);
-  if (elementType != Scalar::Uint32) {
-    bool allowDouble = false;
-    Register tempUint32 = Register::Invalid();
-    Label* failUint32 = nullptr;
 
-    masm.loadFromTypedArray(elementType, source, output->valueReg(),
-                            allowDouble, tempUint32, failUint32);
-  } else {
-    Label* failUint32 = nullptr;
-
-    masm.loadFromTypedArray(elementType, source, AnyRegister(floatReg), scratch,
-                            failUint32);
-    masm.boxDouble(floatReg, output->valueReg(), floatReg);
-  }
+  Label* failUint32 = nullptr;
+  MacroAssembler::Uint32Mode mode = MacroAssembler::Uint32Mode::ForceDouble;
+  masm.loadFromTypedArray(elementType, source, output->valueReg(), mode,
+                          scratch, failUint32);
   masm.memoryBarrierAfter(sync);
 
   return true;

@@ -42,7 +42,7 @@ using mozilla::Some;
 using frontend::DummyTokenStream;
 using frontend::TokenStreamAnyChars;
 
-using v8::internal::DisallowHeapAllocation;
+using v8::internal::DisallowGarbageCollection;
 using v8::internal::FlatStringReader;
 using v8::internal::HandleScope;
 using v8::internal::InputOutputData;
@@ -108,6 +108,10 @@ static uint32_t ErrorNumber(RegExpError err) {
       // and off in the middle of a regular expression. Unless it
       // becomes standardized, SM does not support this feature.
       MOZ_CRASH("Mode modifiers not supported");
+    case RegExpError::kNotLinear:
+      // V8 has an experimental non-backtracking engine. We do not
+      // support it yet.
+      MOZ_CRASH("Non-backtracking execution not supported");
     case RegExpError::kTooManyCaptures:
       return JSMSG_TOO_MANY_PARENS;
     case RegExpError::kInvalidCaptureGroupName:
@@ -276,7 +280,7 @@ static bool CheckPatternSyntaxImpl(JSContext* cx, FlatStringReader* pattern,
   Zone zone(allocScope.alloc());
 
   HandleScope handleScope(cx->isolate);
-  DisallowHeapAllocation no_gc;
+  DisallowGarbageCollection no_gc;
   return RegExpParser::VerifyRegExpSyntax(cx->isolate, &zone, pattern, flags,
                                           result, no_gc);
 }
@@ -378,7 +382,8 @@ class RegExpDepthCheck final : public v8::internal::RegExpVisitor {
   void* Visit##Kind(v8::internal::RegExp##Kind* node, void*) override { \
     uint8_t padding[FRAME_PADDING];                                     \
     dummy_ = padding; /* Prevent padding from being optimized away.*/   \
-    return (void*)CheckRecursionLimitDontReport(cx_);                   \
+    AutoCheckRecursionLimit recursion(cx_);                             \
+    return (void*)recursion.checkDontReport(cx_);                       \
   }
 
   LEAF_DEPTH(Assertion)
@@ -394,7 +399,8 @@ class RegExpDepthCheck final : public v8::internal::RegExpVisitor {
   void* Visit##Kind(v8::internal::RegExp##Kind* node, void*) override { \
     uint8_t padding[FRAME_PADDING];                                     \
     dummy_ = padding; /* Prevent padding from being optimized away.*/   \
-    if (!CheckRecursionLimitDontReport(cx_)) {                          \
+    AutoCheckRecursionLimit recursion(cx_);                             \
+    if (!recursion.checkDontReport(cx_)) {                              \
       return nullptr;                                                   \
     }                                                                   \
     return node->body()->Accept(this, nullptr);                         \
@@ -410,7 +416,8 @@ class RegExpDepthCheck final : public v8::internal::RegExpVisitor {
                          void*) override {
     uint8_t padding[FRAME_PADDING];
     dummy_ = padding; /* Prevent padding from being optimized away.*/
-    if (!CheckRecursionLimitDontReport(cx_)) {
+    AutoCheckRecursionLimit recursion(cx_);
+    if (!recursion.checkDontReport(cx_)) {
       return nullptr;
     }
     for (auto* child : *node->nodes()) {
@@ -424,7 +431,8 @@ class RegExpDepthCheck final : public v8::internal::RegExpVisitor {
                          void*) override {
     uint8_t padding[FRAME_PADDING];
     dummy_ = padding; /* Prevent padding from being optimized away.*/
-    if (!CheckRecursionLimitDontReport(cx_)) {
+    AutoCheckRecursionLimit recursion(cx_);
+    if (!recursion.checkDontReport(cx_)) {
       return nullptr;
     }
     for (auto* child : *node->alternatives()) {

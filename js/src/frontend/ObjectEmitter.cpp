@@ -16,8 +16,8 @@
 #include "vm/BytecodeUtil.h"           // IsHiddenInitOp
 #include "vm/FunctionPrefixKind.h"     // FunctionPrefixKind
 #include "vm/JSContext.h"              // JSContext
+#include "vm/JSObject.h"               // TenuredObject
 #include "vm/NativeObject.h"           // NativeDefineDataProperty
-#include "vm/ObjectGroup.h"            // TenuredObject
 #include "vm/Opcodes.h"                // JSOp
 #include "vm/Runtime.h"                // cx->parserNames()
 #include "vm/SharedStencil.h"          // GCThingIndex
@@ -133,6 +133,16 @@ MOZ_ALWAYS_INLINE bool PropertyEmitter::prepareForProp(
   return true;
 }
 
+bool PropertyEmitter::prepareForPrivateMethod() {
+  MOZ_ASSERT(propertyState_ == PropertyState::Start ||
+             propertyState_ == PropertyState::Init);
+
+#ifdef DEBUG
+  propertyState_ = PropertyState::PrivateMethodValue;
+#endif
+  return true;
+}
+
 bool PropertyEmitter::prepareForPropValue(const Maybe<uint32_t>& keyPos,
                                           Kind kind /* = Kind::Prototype */) {
   MOZ_ASSERT(propertyState_ == PropertyState::Start ||
@@ -222,6 +232,7 @@ bool PropertyEmitter::prepareForComputedPropValue() {
 
 bool PropertyEmitter::emitInitHomeObject() {
   MOZ_ASSERT(propertyState_ == PropertyState::PropValue ||
+             propertyState_ == PropertyState::PrivateMethodValue ||
              propertyState_ == PropertyState::IndexValue ||
              propertyState_ == PropertyState::ComputedValue);
 
@@ -252,6 +263,8 @@ bool PropertyEmitter::emitInitHomeObject() {
 #ifdef DEBUG
   if (propertyState_ == PropertyState::PropValue) {
     propertyState_ = PropertyState::InitHomeObj;
+  } else if (propertyState_ == PropertyState::PrivateMethodValue) {
+    propertyState_ = PropertyState::InitHomeObjForPrivateMethod;
   } else if (propertyState_ == PropertyState::IndexValue) {
     propertyState_ = PropertyState::InitHomeObjForIndex;
   } else {
@@ -312,6 +325,15 @@ bool PropertyEmitter::emitInit(JSOp op, TaggedParserAtomIndex key) {
     return false;
   }
 
+#ifdef DEBUG
+  propertyState_ = PropertyState::Init;
+#endif
+  return true;
+}
+
+bool PropertyEmitter::skipInit() {
+  MOZ_ASSERT(propertyState_ == PropertyState::PrivateMethodValue ||
+             propertyState_ == PropertyState::InitHomeObjForPrivateMethod);
 #ifdef DEBUG
   propertyState_ = PropertyState::Init;
 #endif
@@ -441,7 +463,7 @@ bool ClassEmitter::emitScope(LexicalScope::ParserData* scopeBindings) {
   return true;
 }
 
-bool ClassEmitter::emitBodyScope(LexicalScope::ParserData* scopeBindings) {
+bool ClassEmitter::emitBodyScope(ClassBodyScope::ParserData* scopeBindings) {
   MOZ_ASSERT(propertyState_ == PropertyState::Start);
   MOZ_ASSERT(classState_ == ClassState::Start ||
              classState_ == ClassState::Scope);
@@ -449,7 +471,7 @@ bool ClassEmitter::emitBodyScope(LexicalScope::ParserData* scopeBindings) {
   bodyTdzCache_.emplace(bce_);
 
   bodyScope_.emplace(bce_);
-  if (!bodyScope_->enterLexical(bce_, ScopeKind::ClassBody, scopeBindings)) {
+  if (!bodyScope_->enterClassBody(bce_, ScopeKind::ClassBody, scopeBindings)) {
     return false;
   }
 
@@ -723,10 +745,10 @@ bool ClassEmitter::emitStoreMemberInitializer() {
   MOZ_ASSERT(memberState_ == MemberState::Initializer ||
              memberState_ == MemberState::InitializerWithHomeObject);
   MOZ_ASSERT(initializerIndex_ < numInitializers_);
-  //          [stack] HOMEOBJ HERITAGE? ARRAY METHOD
+  //                [stack] HOMEOBJ HERITAGE? ARRAY METHOD
 
   if (!bce_->emitUint32Operand(JSOp::InitElemArray, initializerIndex_)) {
-    //          [stack] HOMEOBJ HERITAGE? ARRAY
+    //              [stack] HOMEOBJ HERITAGE? ARRAY
     return false;
   }
 

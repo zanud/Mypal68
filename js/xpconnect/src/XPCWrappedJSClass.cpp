@@ -5,8 +5,10 @@
 /* Sharable code and data for wrapper around JSObjects. */
 
 #include "xpcprivate.h"
-#include "js/Object.h"  // JS::GetClass
+#include "js/CallAndConstruct.h"  // JS_CallFunctionValue
+#include "js/Object.h"            // JS::GetClass
 #include "js/Printf.h"
+#include "js/PropertyAndElement.h"  // JS_Enumerate, JS_GetProperty, JS_GetPropertyById, JS_HasProperty, JS_HasPropertyById, JS_SetProperty, JS_SetPropertyById
 #include "nsArrayEnumerator.h"
 #include "nsINamed.h"
 #include "nsIScriptError.h"
@@ -15,6 +17,7 @@
 #include "nsJSUtils.h"
 #include "nsPrintfCString.h"
 #include "mozilla/Attributes.h"
+#include "mozilla/dom/AutoEntryScript.h"
 #include "mozilla/dom/BindingUtils.h"
 #include "mozilla/dom/DOMException.h"
 #include "mozilla/dom/DOMExceptionBinding.h"
@@ -323,6 +326,9 @@ nsresult nsXPCWrappedJS::DelegatedQueryInterface(REFNSIID aIID,
   nsIGlobalObject* nativeGlobal = NativeGlobal(js::UncheckedUnwrap(obj));
   NS_ENSURE_TRUE(nativeGlobal, NS_ERROR_FAILURE);
   NS_ENSURE_TRUE(nativeGlobal->HasJSGlobal(), NS_ERROR_FAILURE);
+
+  AutoAllowLegacyScriptExecution exemption;
+
   AutoEntryScript aes(nativeGlobal, "XPCWrappedJS QueryInterface",
                       /* aIsMainThread = */ true);
   XPCCallContext ccx(aes.cx());
@@ -763,6 +769,9 @@ nsXPCWrappedJS::CallMethod(uint16_t methodIndex, const nsXPTMethodInfo* info,
   // definitely will be when we turn off XPConnect for the web.
   RootedObject obj(RootingCx(), GetJSObject());
   nsIGlobalObject* nativeGlobal = NativeGlobal(js::UncheckedUnwrap(obj));
+
+  AutoAllowLegacyScriptExecution exemption;
+
   AutoEntryScript aes(nativeGlobal, "XPCWrappedJS method call",
                       /* aIsMainThread = */ true);
   XPCCallContext ccx(aes.cx());

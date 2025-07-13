@@ -5,6 +5,8 @@
 #ifndef builtin_MapObject_h
 #define builtin_MapObject_h
 
+#include "mozilla/MemoryReporting.h"
+
 #include "builtin/SelfHostingDefines.h"
 #include "vm/GlobalObject.h"
 #include "vm/JSObject.h"
@@ -109,7 +111,7 @@ class MapObject : public NativeObject {
   static const JSClass class_;
   static const JSClass protoClass_;
 
-  enum { NurseryKeysSlot, HasNurseryMemorySlot, SlotCount };
+  enum { DataSlot, NurseryKeysSlot, HasNurseryMemorySlot, SlotCount };
 
   [[nodiscard]] static bool getKeysAndValuesInterleaved(
       HandleObject obj, JS::MutableHandle<GCVector<JS::Value>> entries);
@@ -141,6 +143,8 @@ class MapObject : public NativeObject {
 
   static void sweepAfterMinorGC(JSFreeOp* fop, MapObject* mapobj);
 
+  size_t sizeOfData(mozilla::MallocSizeOf mallocSizeOf);
+
  private:
   static const ClassSpec classSpec_;
   static const JSClassOps classOps_;
@@ -151,7 +155,8 @@ class MapObject : public NativeObject {
 
   static bool finishInit(JSContext* cx, HandleObject ctor, HandleObject proto);
 
-  ValueMap* getData() { return static_cast<ValueMap*>(getPrivate()); }
+  ValueMap* getData() { return maybePtrFromReservedSlot<ValueMap>(DataSlot); }
+
   static ValueMap& extract(HandleObject o);
   static ValueMap& extract(const CallArgs& args);
   static void trace(JSTracer* trc, JSObject* obj);
@@ -238,7 +243,7 @@ class SetObject : public NativeObject {
   static const JSClass class_;
   static const JSClass protoClass_;
 
-  enum { NurseryKeysSlot, HasNurseryMemorySlot, SlotCount };
+  enum { DataSlot, NurseryKeysSlot, HasNurseryMemorySlot, SlotCount };
 
   [[nodiscard]] static bool keys(JSContext* cx, HandleObject obj,
                                  JS::MutableHandle<GCVector<JS::Value>> keys);
@@ -264,6 +269,8 @@ class SetObject : public NativeObject {
 
   static void sweepAfterMinorGC(JSFreeOp* fop, SetObject* setobj);
 
+  size_t sizeOfData(mozilla::MallocSizeOf mallocSizeOf);
+
  private:
   static const ClassSpec classSpec_;
   static const JSClassOps classOps_;
@@ -274,7 +281,8 @@ class SetObject : public NativeObject {
 
   static bool finishInit(JSContext* cx, HandleObject ctor, HandleObject proto);
 
-  ValueSet* getData() { return static_cast<ValueSet*>(getPrivate()); }
+  ValueSet* getData() { return maybePtrFromReservedSlot<ValueSet>(DataSlot); }
+
   static ValueSet& extract(HandleObject o);
   static ValueSet& extract(const CallArgs& args);
   static void trace(JSTracer* trc, JSObject* obj);
@@ -373,13 +381,13 @@ template <SetInitGetPrototypeOp getPrototypeOp, SetInitIsBuiltinOp isBuiltinOp>
   }
 
   // Look up the 'add' value on the prototype object.
-  Shape* addShape = setProto->lookup(cx, cx->names().add);
-  if (!addShape || !addShape->isDataProperty()) {
+  mozilla::Maybe<PropertyInfo> addProp = setProto->lookup(cx, cx->names().add);
+  if (addProp.isNothing() || !addProp->isDataProperty()) {
     return true;
   }
 
   // Get the referred value, ensure it holds the canonical add function.
-  RootedValue add(cx, setProto->getSlot(addShape->slot()));
+  RootedValue add(cx, setProto->getSlot(addProp->slot()));
   if (!isBuiltinOp(add)) {
     return true;
   }

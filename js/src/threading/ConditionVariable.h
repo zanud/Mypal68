@@ -10,7 +10,7 @@
 
 #include <stdint.h>
 #include <utility>
-#ifndef XP_WIN
+#if !defined(XP_WIN) && !defined(__wasi__)
 #  include <pthread.h>
 #endif
 

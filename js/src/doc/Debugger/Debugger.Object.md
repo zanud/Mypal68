@@ -118,7 +118,7 @@ var s = f(function () {});  // display name: s<
 ```
 
 ### `parameterNames`
-If the referent is a debuggee function, the names of the its parameters,
+If the referent is a debuggee function, the names of its parameters,
 as an array of strings. If the referent is not a debuggee function, or
 not a function at all, this is `undefined`.
 
@@ -128,9 +128,9 @@ is `undefined`.
 
 If the referent is a function proxy, return an empty array.
 
-If the referent uses destructuring parameters, then the array's elements
-reflect the structure of the parameters. For example, if the referent is
-a function declared in this way:
+If the function uses destructuring parameters, the corresponding array elements
+are `undefined`. For example, if the referent is a function declared in this
+way:
 
 ```js
 function f(a, [b, c], {d, e:f}) { ... }
@@ -140,7 +140,7 @@ then this `Debugger.Object` instance's `parameterNames` property would
 have the value:
 
 ```js
-["a", ["b", "c"], {d:"d", e:"f"}]
+["a", undefined, undefined]
 ```
 
 ### `script`
@@ -509,7 +509,7 @@ follows the [invocation function conventions][inv fr].
 If the referent is a global object, evaluate <i>code</i> in that global
 environment, and return a [completion value][cv] describing how it completed.
 <i>Code</i> is a string. All extant handler methods, breakpoints,
-and so on remain active during the call. This function
+and so on remain active during the call (pending note below). This function
 follows the [invocation function conventions][inv fr].
 If the referent is not a global object, throw a `TypeError` exception.
 
@@ -522,6 +522,10 @@ mode code, variable declarations in <i>code</i> affect the referent global
 object.
 
 The <i>options</i> argument is as for [`Debugger.Frame.prototype.eval`][fr eval].
+
+Note: If this method is called on an object whose owner
+[Debugger object][debugger-object] has an onNativeCall handler, only hooks
+on objects associated with that debugger will be called during the evaluation.
 
 ### `executeInGlobalWithBindings(code, bindings, [options])`
 Like `executeInGlobal`, but evaluate <i>code</i> using the referent as the
@@ -548,6 +552,10 @@ declarative environment, which is the eval code's `LexicalEnvironment`.)
 
 The <i>options</i> argument is as for [`Debugger.Frame.prototype.eval`][fr eval].
 
+Note: If this method is called on an object whose owner
+[Debugger object][debugger-object] has an onNativeCall handler, only hooks
+on objects associated with that debugger will be called during the evaluation.
+
 ### `createSource(options)`
 If the referent is a global object, return a new JavaScript source in the
 global's realm which has its properties filled in according to the `options`
@@ -560,7 +568,7 @@ exception.  The `options` object can have the following properties:
     If not specified, the source map URL can be filled in if specified by
     the source's text.
   * `isScriptElement`: Optional boolean which will set the source's
-    `introductionType` to `"scriptElement"` if specified.  Otherwise, the
+    `introductionType` to `"inlineScript"` if specified.  Otherwise, the
     source's `introductionType` will be `undefined`.
 
 ### `asEnvironment()`
@@ -596,48 +604,6 @@ that has not yet been updated.
 ### `forceLexicalInitializationByName(binding)`
 If <i>binding</i> is in an uninitialized state initialize it to undefined
 and return true, otherwise do nothing and return false.
-
-### `setInstrumentation(callback, kinds)`
-If the referent is a global object, this specifies how instrumentation
-should be installed on scripts created in the future in this global's realm.
-If the referent is not a global object, throw a `TypeError`.  If the global
-already has instrumentation specified, throw an `Error`. `callback` is a
-`Debugger.Object` wrapping the callback to invoke, and `kinds` is an array
-of strings specifying the kinds of operations at which the callback should
-be invoked. Instrumentation is initially inactive, and can be activated via
-`DebuggerObject.setInstrumentationActive`. When instrumentation is active
-and an operation described by one of the instrumentation kinds executes,
-the callback is invoked with at least three arguments: the string kind of
-operation executing, the ID for the script specified by
-`Debugger.Script.setInstrumentationId`, and the bytecode offset
-of the script location following the instrumentation.  More call arguments
-are possible for some instrumentation kinds.  If an instrumented script is
-invoked without having `setInstrumentationId` called on it, it will throw an
-`Error`.  The possible instrumentation kinds and any extra arguments are as
-follows:
-
-* `main`: The main entry point of a script.
-* `entry`: Points other than the main entry point where a frame for the
-  script might begin executing when it was not previously on the stack.
-  Only applies to generator/async scripts.
-* `exit`: Points at which a script's frame will be popped or suspended.
-* `breakpoint`: Breakpoint sites in a script.
-* `getProperty`: Property read operations, including `x.f` and
-  destructuring operations. The callback will be additionally invoked with
-  the object and property name.
-* `setProperty`: Property write operations. The callback will be
-  additionally invoked with the object, property name, and rhs.
-* `getElement`: Element read operations. The callback will be additionally
-  invoked with the object and element value.
-* `setElement`: Element write operations. The callback will be
-  additionally invoked with the object, element value, and rhs.
-
-### `setInstrumentationActive(active)`
-If the referent is a global object, set whether instrumentation is active
-in the global's realm.  The instrumentation callback is only invoked when
-instrumentation is active, and code will run faster when instrumentation is
-inactive. If the referent is not a global object, throw a `TypeError`.
-If the referent has not had instrumentation installed, throw an `Error`.
 
 ### `getPromiseReactions`
 

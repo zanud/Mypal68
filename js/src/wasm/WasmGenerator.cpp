@@ -18,10 +18,8 @@
 #include "mozilla/CheckedInt.h"
 #include "mozilla/EnumeratedRange.h"
 #include "mozilla/SHA1.h"
-#include "mozilla/Unused.h"
 
 #include <algorithm>
-#include <thread>
 
 #include "util/Memory.h"
 #include "util/Text.h"
@@ -31,6 +29,7 @@
 #include "wasm/WasmBaselineCompile.h"
 #include "wasm/WasmCompile.h"
 #include "wasm/WasmCraneliftCompile.h"
+#include "wasm/WasmGC.h"
 #include "wasm/WasmIonCompile.h"
 #include "wasm/WasmStubs.h"
 
@@ -42,7 +41,6 @@ using namespace js::wasm;
 
 using mozilla::CheckedInt;
 using mozilla::MakeEnumeratedRange;
-using mozilla::Unused;
 
 bool CompiledCode::swap(MacroAssembler& masm) {
   MOZ_ASSERT(bytes.empty());
@@ -217,16 +215,16 @@ bool ModuleGenerator::init(Metadata* maybeAsmJSMetadata) {
 
   size_t estimatedCodeSize =
       1.2 * EstimateCompiledCodeSize(tier(), codeSectionSize);
-  Unused << masm_.reserve(std::min(estimatedCodeSize, MaxCodeBytesPerProcess));
+  (void)masm_.reserve(std::min(estimatedCodeSize, MaxCodeBytesPerProcess));
 
-  Unused << metadataTier_->codeRanges.reserve(2 * moduleEnv_->numFuncDefs());
+  (void)metadataTier_->codeRanges.reserve(2 * moduleEnv_->numFuncDefs());
 
   const size_t ByteCodesPerCallSite = 50;
-  Unused << metadataTier_->callSites.reserve(codeSectionSize /
-                                             ByteCodesPerCallSite);
+  (void)metadataTier_->callSites.reserve(codeSectionSize /
+                                         ByteCodesPerCallSite);
 
   const size_t ByteCodesPerOOBTrap = 10;
-  Unused << metadataTier_->trapSites[Trap::OutOfBounds].reserve(
+  (void)metadataTier_->trapSites[Trap::OutOfBounds].reserve(
       codeSectionSize / ByteCodesPerOOBTrap);
 
   // Allocate space in TlsData for declarations that need it.
@@ -296,22 +294,26 @@ bool ModuleGenerator::init(Metadata* maybeAsmJSMetadata) {
     // types that fit in an immediate.
     if (moduleEnv_->functionReferencesEnabled()) {
       // Do a linear pass to create a map from src index to dest index.
-      RenumberMap map;
+      RenumberVector renumbering;
+      if (!renumbering.reserve(moduleEnv_->types.length())) {
+        return false;
+      }
       for (uint32_t srcIndex = 0, destIndex = 0;
            srcIndex < moduleEnv_->types.length(); srcIndex++) {
         const TypeDef& typeDef = moduleEnv_->types[srcIndex];
         if (!TypeIdDesc::isGlobal(typeDef)) {
+          renumbering.infallibleAppend(UINT32_MAX);
           continue;
         }
-        if (!map.put(srcIndex, destIndex++)) {
-          return false;
-        }
+        MOZ_ASSERT(renumbering.length() == srcIndex);
+        renumbering.infallibleAppend(destIndex++);
       }
 
-      // Apply the map
+      // Apply the renumbering
       for (TypeDefWithId& typeDef : metadata_->types) {
-        typeDef.renumber(map);
+        typeDef.renumber(renumbering);
       }
+      metadata_->typesRenumbering = std::move(renumbering);
     }
   }
 
@@ -335,102 +337,34 @@ bool ModuleGenerator::init(Metadata* maybeAsmJSMetadata) {
   // - explicitly marked as such;
   // - implicitly exported by being an element of function tables;
   // - implicitly exported by being the start function;
-  // The FuncExportVector stored in Metadata needs to be sorted (to allow
-  // O(log(n)) lookup at runtime) and deduplicated. Use a vector with invalid
-  // entries for every single function, that we'll fill as we go through the
-  // exports, and in which we'll remove invalid entries after the fact.
+  // - implicitly exported by being used in global ref.func initializer
+  // ModuleEnvironment accumulates this information for us during decoding,
+  // transfer it to the FuncExportVector stored in Metadata.
 
-  static_assert(((uint64_t(MaxFuncs) << 1) | 1) < uint64_t(UINT32_MAX),
-                "bit packing won't work in ExportedFunc");
-
-  class ExportedFunc {
-    uint32_t value;
-
-   public:
-    ExportedFunc() : value(UINT32_MAX) {}
-    ExportedFunc(uint32_t index, bool isExplicit)
-        : value((index << 1) | (isExplicit ? 1 : 0)) {}
-    uint32_t index() const { return value >> 1; }
-    bool isExplicit() const { return value & 0x1; }
-    bool operator<(const ExportedFunc& other) const {
-      return index() < other.index();
+  uint32_t exportedFuncCount = 0;
+  for (const FuncDesc& func : moduleEnv_->funcs) {
+    if (func.isExported()) {
+      exportedFuncCount++;
     }
-    bool operator==(const ExportedFunc& other) const {
-      return index() == other.index();
-    }
-    bool isInvalid() const { return value == UINT32_MAX; }
-    void mergeExplicit(bool explicitBit) {
-      if (!isExplicit() && explicitBit) {
-        value |= 0x1;
-      }
-    }
-  };
-
-  Vector<ExportedFunc, 8, SystemAllocPolicy> exportedFuncs;
-  if (!exportedFuncs.resize(moduleEnv_->numFuncs())) {
+  }
+  if (!metadataTier_->funcExports.reserve(exportedFuncCount)) {
     return false;
   }
 
-  auto addOrMerge = [&exportedFuncs](ExportedFunc newEntry) {
-    uint32_t index = newEntry.index();
-    if (exportedFuncs[index].isInvalid()) {
-      exportedFuncs[index] = newEntry;
-    } else {
-      exportedFuncs[index].mergeExplicit(newEntry.isExplicit());
+  for (uint32_t funcIndex = 0; funcIndex < moduleEnv_->funcs.length();
+       funcIndex++) {
+    const FuncDesc& func = moduleEnv_->funcs[funcIndex];
+
+    if (!func.isExported()) {
+      continue;
     }
-  };
 
-  for (const Export& exp : moduleEnv_->exports) {
-    if (exp.kind() == DefinitionKind::Function) {
-      addOrMerge(ExportedFunc(exp.funcIndex(), true));
-    }
-  }
-
-  if (moduleEnv_->startFuncIndex) {
-    addOrMerge(ExportedFunc(*moduleEnv_->startFuncIndex, true));
-  }
-
-  for (const ElemSegment* seg : moduleEnv_->elemSegments) {
-    // For now, the segments always carry function indices regardless of the
-    // segment's declared element type; this works because the only legal
-    // element types are funcref and externref and the only legal values are
-    // functions and null.  We always add functions in segments as exported
-    // functions, regardless of the segment's type.  In the future, if we make
-    // the representation of AnyRef segments different, we will have to consider
-    // function values in those segments specially.
-    bool isAsmJS = seg->active() && moduleEnv_->tables[seg->tableIndex].isAsmJS;
-    if (!isAsmJS) {
-      for (uint32_t funcIndex : seg->elemFuncIndices) {
-        if (funcIndex != NullFuncIndex) {
-          addOrMerge(ExportedFunc(funcIndex, false));
-        }
-      }
-    }
-  }
-
-  for (const GlobalDesc& global : moduleEnv_->globals) {
-    if (global.isVariable() &&
-        global.initExpr().kind() == InitExpr::Kind::RefFunc) {
-      addOrMerge(ExportedFunc(global.initExpr().refFuncIndex(), false));
-    }
-  }
-
-  auto* newEnd =
-      std::remove_if(exportedFuncs.begin(), exportedFuncs.end(),
-                     [](const ExportedFunc& exp) { return exp.isInvalid(); });
-  exportedFuncs.erase(newEnd, exportedFuncs.end());
-
-  if (!metadataTier_->funcExports.reserve(exportedFuncs.length())) {
-    return false;
-  }
-
-  for (const ExportedFunc& funcIndex : exportedFuncs) {
     FuncType funcType;
-    if (!funcType.clone(*moduleEnv_->funcs[funcIndex.index()].type)) {
+    if (!funcType.clone(*func.type)) {
       return false;
     }
-    metadataTier_->funcExports.infallibleEmplaceBack(
-        std::move(funcType), funcIndex.index(), funcIndex.isExplicit());
+    metadataTier_->funcExports.infallibleEmplaceBack(std::move(funcType),
+                                                     funcIndex, func.isEager());
   }
 
   // Determine whether parallel or sequential compilation is to be used and
@@ -506,10 +440,10 @@ static bool InRange(uint32_t caller, uint32_t callee) {
   return caller - callee < range;
 }
 
-typedef HashMap<uint32_t, uint32_t, DefaultHasher<uint32_t>, SystemAllocPolicy>
-    OffsetMap;
-typedef EnumeratedArray<Trap, Trap::Limit, Maybe<uint32_t>>
-    TrapMaybeOffsetArray;
+using OffsetMap =
+    HashMap<uint32_t, uint32_t, DefaultHasher<uint32_t>, SystemAllocPolicy>;
+using TrapMaybeOffsetArray =
+    EnumeratedArray<Trap, Trap::Limit, Maybe<uint32_t>>;
 
 bool ModuleGenerator::linkCallSites() {
   masm_.haltingAlign(CodeAlignment);
@@ -814,6 +748,18 @@ void CompileTask::runHelperThreadTask(AutoLockHelperThreadState& lock) {
   state.condVar().notify_one(); /* failed or finished */
 }
 
+ThreadType CompileTask::threadType() {
+  switch (compilerEnv.mode()) {
+    case CompileMode::Once:
+    case CompileMode::Tier1:
+      return ThreadType::THREAD_TYPE_WASM_COMPILE_TIER1;
+    case CompileMode::Tier2:
+      return ThreadType::THREAD_TYPE_WASM_COMPILE_TIER2;
+    default:
+      MOZ_CRASH();
+  }
+}
+
 bool ModuleGenerator::locallyCompileCurrentTask() {
   if (!ExecuteCompileTask(currentTask_, error_)) {
     return false;
@@ -995,7 +941,7 @@ bool ModuleGenerator::finishCodegen() {
 }
 
 bool ModuleGenerator::finishMetadataTier() {
-  // The stack maps aren't yet sorted.  Do so now, since we'll need to
+  // The stackmaps aren't yet sorted.  Do so now, since we'll need to
   // binary-search them at GC time.
   metadataTier_->stackMaps.sort();
 
@@ -1005,7 +951,7 @@ bool ModuleGenerator::finishMetadataTier() {
 #endif
 
 #ifdef DEBUG
-  // Check that the stack map contains no duplicates, since that could lead to
+  // Check that the stackmap contains no duplicates, since that could lead to
   // ambiguities about stack slot pointerness.
   uint8_t* previousNextInsnAddr = nullptr;
   for (size_t i = 0; i < metadataTier_->stackMaps.length(); i++) {
@@ -1122,11 +1068,11 @@ UniqueCodeTier ModuleGenerator::finishCodeTier() {
   metadataTier_->stackMaps.offsetBy(uintptr_t(segment->base()));
 
 #ifdef DEBUG
-  // Check that each stack map is associated with a plausible instruction.
+  // Check that each stackmap is associated with a plausible instruction.
   for (size_t i = 0; i < metadataTier_->stackMaps.length(); i++) {
     MOZ_ASSERT(IsValidStackMapKey(compilerEnv_->debugEnabled(),
                                   metadataTier_->stackMaps.get(i).nextInsnAddr),
-               "wasm stack map does not reference a valid insn");
+               "wasm stackmap does not reference a valid insn");
   }
 #endif
 
@@ -1140,14 +1086,12 @@ SharedMetadata ModuleGenerator::finishMetadata(const Bytes& bytecode) {
 
   // Copy over data from the ModuleEnvironment.
 
-  metadata_->memoryUsage = moduleEnv_->memoryUsage;
-  metadata_->minMemoryLength = moduleEnv_->minMemoryLength;
-  metadata_->maxMemoryLength = moduleEnv_->maxMemoryLength;
+  metadata_->memory = moduleEnv_->memory;
   metadata_->startFuncIndex = moduleEnv_->startFuncIndex;
   metadata_->tables = std::move(moduleEnv_->tables);
   metadata_->globals = std::move(moduleEnv_->globals);
 #ifdef ENABLE_WASM_EXCEPTIONS
-  metadata_->events = std::move(moduleEnv_->events);
+  metadata_->tags = std::move(moduleEnv_->tags);
 #endif
   metadata_->nameCustomSectionIndex = moduleEnv_->nameCustomSectionIndex;
   metadata_->moduleName = moduleEnv_->moduleName;
@@ -1218,12 +1162,11 @@ SharedModule ModuleGenerator::finishModule(
     return nullptr;
   }
   for (const DataSegmentEnv& srcSeg : moduleEnv_->dataSegments) {
-    MutableDataSegment dstSeg = js_new<DataSegment>(srcSeg);
+    MutableDataSegment dstSeg = js_new<DataSegment>();
     if (!dstSeg) {
       return nullptr;
     }
-    if (!dstSeg->bytes.append(bytecode.begin() + srcSeg.bytecodeOffset,
-                              srcSeg.length)) {
+    if (!dstSeg->init(bytecode, srcSeg)) {
       return nullptr;
     }
     dataSegments.infallibleAppend(std::move(dstSeg));
@@ -1326,7 +1269,7 @@ bool ModuleGenerator::finishTier2(const Module& module) {
   if (MOZ_UNLIKELY(JitOptions.wasmDelayTier2)) {
     // Introduce an artificial delay when testing wasmDelayTier2, since we
     // want to exercise both tier1 and tier2 code in this case.
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    ThisThread::SleepMilliseconds(500);
   }
 
   return module.finishTier2(*linkData_, std::move(codeTier));

@@ -34,18 +34,21 @@ class SandboxPrivate : public nsIGlobalObject,
     // The type used to cast to void needs to match the one in GetPrivate.
     nsIScriptObjectPrincipal* sop =
         static_cast<nsIScriptObjectPrincipal*>(sbp.forget().take());
-    JS::SetPrivate(global, sop);
+    JS::SetObjectISupports(global, sop);
   }
 
   static SandboxPrivate* GetPrivate(JSObject* obj) {
     // The type used to cast to void needs to match the one in Create.
-    return static_cast<SandboxPrivate*>(
-        static_cast<nsIScriptObjectPrincipal*>(JS::GetPrivate(obj)));
+    nsIScriptObjectPrincipal* sop =
+        JS::GetObjectISupports<nsIScriptObjectPrincipal>(obj);
+    return static_cast<SandboxPrivate*>(sop);
   }
 
   nsIPrincipal* GetPrincipal() override { return mPrincipal; }
 
   nsIPrincipal* GetEffectiveStoragePrincipal() override { return mPrincipal; }
+
+  nsIPrincipal* IntrinsicStoragePrincipal() override { return mPrincipal; }
 
   JSObject* GetGlobalJSObject() override { return GetWrapper(); }
   JSObject* GetGlobalJSObjectPreserveColor() const override {

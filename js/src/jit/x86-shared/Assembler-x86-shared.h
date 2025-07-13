@@ -17,19 +17,22 @@
 #  error "Unknown architecture!"
 #endif
 #include "jit/CompactBuffer.h"
-#include "wasm/WasmTypes.h"
+#include "wasm/WasmTypeDecls.h"
 
 namespace js {
 namespace jit {
 
+// Do not reference ScratchFloat32Reg_ directly, use ScratchFloat32Scope
+// instead.
 struct ScratchFloat32Scope : public AutoFloatRegisterScope {
   explicit ScratchFloat32Scope(MacroAssembler& masm)
-      : AutoFloatRegisterScope(masm, ScratchFloat32Reg) {}
+      : AutoFloatRegisterScope(masm, ScratchFloat32Reg_) {}
 };
 
+// Do not reference ScratchDoubleReg_ directly, use ScratchDoubleScope instead.
 struct ScratchDoubleScope : public AutoFloatRegisterScope {
   explicit ScratchDoubleScope(MacroAssembler& masm)
-      : AutoFloatRegisterScope(masm, ScratchDoubleReg) {}
+      : AutoFloatRegisterScope(masm, ScratchDoubleReg_) {}
 };
 
 struct ScratchSimd128Scope : public AutoFloatRegisterScope {
@@ -1080,7 +1083,11 @@ class AssemblerX86Shared : public AssemblerShared {
   static bool SupportsUnalignedAccesses() { return true; }
   static bool SupportsFastUnalignedAccesses() { return true; }
   static bool SupportsSimd() {
+#ifdef ENABLE_WASM_SIMD
+    return js::jit::SupportsSimd && CPUInfo::IsSSE41Present();
+#else
     return js::jit::SupportsSimd && CPUInfo::IsSSE2Present();
+#endif
   }
   static bool HasAVX() { return CPUInfo::IsAVXPresent(); }
 
@@ -1120,6 +1127,10 @@ class AssemblerX86Shared : public AssemblerShared {
         break;
       case Operand::MEM_REG_DISP:
         masm.cmpl_rm(rhs.encoding(), lhs.disp(), lhs.base());
+        break;
+      case Operand::MEM_SCALE:
+        masm.cmpl_rm(rhs.encoding(), lhs.disp(), lhs.base(), lhs.index(),
+                     lhs.scale());
         break;
       case Operand::MEM_ADDRESS32:
         masm.cmpl_rm(rhs.encoding(), lhs.address());
@@ -1684,6 +1695,19 @@ class AssemblerX86Shared : public AssemblerShared {
   }
   void shldl_cl(Register src, Register dest) {
     masm.shldl_CLr(src.encoding(), dest.encoding());
+  }
+
+  void sarxl(Register src, Register shift, Register dest) {
+    MOZ_ASSERT(HasBMI2());
+    masm.sarxl_rrr(src.encoding(), shift.encoding(), dest.encoding());
+  }
+  void shlxl(Register src, Register shift, Register dest) {
+    MOZ_ASSERT(HasBMI2());
+    masm.shlxl_rrr(src.encoding(), shift.encoding(), dest.encoding());
+  }
+  void shrxl(Register src, Register shift, Register dest) {
+    MOZ_ASSERT(HasBMI2());
+    masm.shrxl_rrr(src.encoding(), shift.encoding(), dest.encoding());
   }
 
   void roll(const Imm32 imm, Register dest) {

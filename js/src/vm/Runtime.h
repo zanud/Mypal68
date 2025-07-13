@@ -19,7 +19,6 @@
 #include "mozilla/XorShift128PlusRNG.h"
 
 #include <algorithm>
-#include <setjmp.h>
 
 #include "jsapi.h"
 
@@ -28,6 +27,7 @@
 #  include "builtin/intl/SharedIntlData.h"
 #endif
 #include "frontend/NameCollections.h"
+#include "frontend/ScriptIndex.h"
 #include "gc/GCRuntime.h"
 #include "gc/Tracer.h"
 #include "js/AllocationRecording.h"
@@ -36,9 +36,9 @@
 #include "js/experimental/CTypes.h"      // JS::CTypesActivityCallback
 #include "js/experimental/SourceHook.h"  // js::SourceHook
 #include "js/friend/StackLimits.h"       // js::ReportOverRecursed
-#include "js/friend/UsageStatistics.h"   // JSAccumulateTelemetryDataCallback
 #include "js/GCVector.h"
 #include "js/HashTable.h"
+#include "js/Initialization.h"
 #include "js/Modules.h"  // JS::Module{DynamicImport,Metadata,Resolve}Hook
 #ifdef DEBUG
 #  include "js/Proxy.h"  // For AutoEnterPolicy
@@ -63,7 +63,7 @@
 #include "vm/SharedStencil.h"  // js::SharedImmutableScriptDataTable
 #include "vm/Stack.h"
 #include "vm/SymbolType.h"
-#include "wasm/WasmTypes.h"
+#include "wasm/WasmTypeDecls.h"
 
 struct JSClass;
 
@@ -113,6 +113,9 @@ class Simulator;
 }  // namespace jit
 
 namespace frontend {
+struct CompilationGCOutput;
+struct CompilationInput;
+struct CompilationStencil;
 class WellKnownParserAtoms;
 }  // namespace frontend
 
@@ -228,6 +231,8 @@ struct JSRuntime {
    */
   JSRuntime* const parentRuntime;
 
+  bool isMainRuntime() const { return !parentRuntime; }
+
 #ifdef DEBUG
   /* The number of child runtimes that have this runtime as their parent. */
   mozilla::Atomic<size_t> childRuntimeCount;
@@ -296,21 +301,11 @@ struct JSRuntime {
     profilerSampleBufferRangeStart_ = rangeStart;
   }
 
-  /* Call this to accumulate telemetry data. */
-  js::MainThreadData<JSAccumulateTelemetryDataCallback> telemetryCallback;
-
-  js::MainThreadData<JSGetElementCallback> getElementCallback;
+  js::MainThreadData<JSSourceElementCallback> sourceElementCallback;
 
  public:
-  // Accumulates data for Firefox telemetry. |id| is the ID of a JS_TELEMETRY_*
-  // histogram. |key| provides an additional key to identify the histogram.
-  // |sample| is the data to add to the histogram.
-  void addTelemetry(int id, uint32_t sample, const char* key = nullptr);
-
-  void setTelemetryCallback(JSRuntime* rt,
-                            JSAccumulateTelemetryDataCallback callback);
-
-  void setElementCallback(JSRuntime* rt, JSGetElementCallback callback);
+  void setSourceElementCallback(JSRuntime* rt,
+                                JSSourceElementCallback callback);
 
   js::UnprotectedData<js::OffThreadPromiseRuntimeState> offThreadPromiseState;
   js::UnprotectedData<JS::ConsumeStreamCallback> consumeStreamCallback;
@@ -368,6 +363,32 @@ struct JSRuntime {
   // instead instead of a BaseScript. This contains the minimal pointers to
   // trampolines for the scripts to support direct jitCodeRaw calls.
   js::UnprotectedData<js::SelfHostedLazyScript> selfHostedLazyScript;
+
+ private:
+  // The self-hosted JS code is compiled as a Stencil which is then attached to
+  // the Runtime. This is used to instantiate functions into realms on demand.
+  js::WriteOnceData<js::frontend::CompilationInput*> selfHostStencilInput_;
+  js::WriteOnceData<js::frontend::CompilationStencil*> selfHostStencil_;
+
+ public:
+  // The self-hosted stencil is immutable once attached to the runtime, so
+  // worker runtimes directly use the stencil on the parent runtime.
+  js::frontend::CompilationInput& selfHostStencilInput() {
+    MOZ_ASSERT(hasSelfHostStencil());
+    return *selfHostStencilInput_.ref();
+  }
+  js::frontend::CompilationStencil& selfHostStencil() {
+    MOZ_ASSERT(hasSelfHostStencil());
+    return *selfHostStencil_.ref();
+  }
+  bool hasSelfHostStencil() const { return bool(selfHostStencil_.ref()); }
+
+  // A mapping from the name of self-hosted function to a ScriptIndex range of
+  // the function and inner-functions within the self-hosted stencil.
+  js::MainThreadData<
+      JS::GCHashMap<js::PreBarriered<JSAtom*>, js::frontend::ScriptIndexRange,
+                    js::DefaultHasher<JSAtom*>, js::SystemAllocPolicy>>
+      selfHostScriptMap;
 
  private:
   /* Gecko profiling metadata */
@@ -606,27 +627,9 @@ struct JSRuntime {
  private:
   js::UnprotectedData<js::jit::JitRuntime*> jitRuntime_;
 
-  /*
-   * Self-hosting state cloned on demand into other compartments. Shared with
-   * the parent runtime if there is one.
-   */
-  js::WriteOnceData<js::NativeObject*> selfHostingGlobal_;
-
-  // Optional reference to an array which contains the XDR content to be used
-  // instead of parsing the self-hosted source text. It is cleared once the
-  // self-hosted global is initialized.
-  JS::TranscodeRange selfHostedXDR = {};
-
-  // Callback to copy the XDR content of the self-hosted code.
-  using TranscodeBufferWriter = bool (*)(JSContext* cx,
-                                         const JS::TranscodeBuffer&);
-  TranscodeBufferWriter selfHostedXDRWriter = nullptr;
-
-  static js::GlobalObject* createSelfHostingGlobal(JSContext* cx);
-
  public:
-  void getUnclonedSelfHostedValue(js::PropertyName* name, JS::Value* vp);
-  JSFunction* getUnclonedSelfHostedFunction(js::PropertyName* name);
+  mozilla::Maybe<js::frontend::ScriptIndexRange> getSelfHostedScriptIndexRange(
+      js::PropertyName* name);
 
   [[nodiscard]] bool createJitRuntime(JSContext* cx);
   js::jit::JitRuntime* jitRuntime() const { return jitRuntime_.ref(); }
@@ -651,50 +654,19 @@ struct JSRuntime {
   // Self-hosting support
   //-------------------------------------------------------------------------
 
-  // Optional XDR compiled data for self-hosting. If set this, will be used to
-  // parse the self-hosting code instead of from source code.
-  //
-  // This field is cleared internally after self-hosting is initialized.
-  void setSelfHostedXDR(JS::TranscodeRange enctext) {
-    MOZ_RELEASE_ASSERT(!hasInitializedSelfHosting());
-    MOZ_RELEASE_ASSERT(enctext.length() > 0);
-    new (&selfHostedXDR) mozilla::Range(enctext);
-  }
+  bool hasInitializedSelfHosting() const { return hasSelfHostStencil(); }
 
-  // Register a callback which would be used to return a buffer if the
-  // self-hosted code should be serialized and stored in the returned buffer.
-  void setSelfHostedXDRWriterCallback(TranscodeBufferWriter writer) {
-    MOZ_RELEASE_ASSERT(!hasInitializedSelfHosting());
-    MOZ_RELEASE_ASSERT(!selfHostedXDRWriter);
-    selfHostedXDRWriter = writer;
-  }
-
-  bool hasInitializedSelfHosting() const { return selfHostingGlobal_; }
-
-  bool initSelfHosting(JSContext* cx);
+  bool initSelfHosting(JSContext* cx, JS::SelfHostedCache xdrCache = nullptr,
+                       JS::SelfHostedWriter xdrWriter = nullptr);
   void finishSelfHosting();
-  void traceSelfHostingGlobal(JSTracer* trc);
-  bool isSelfHostingGlobal(JSObject* global) {
-    return global == selfHostingGlobal_;
-  }
-  js::GeneratorKind getSelfHostedFunctionGeneratorKind(JSAtom* name);
-  bool createLazySelfHostedFunctionClone(JSContext* cx,
-                                         js::HandlePropertyName selfHostedName,
-                                         js::HandleAtom name, unsigned nargs,
-                                         js::NewObjectKind newKind,
-                                         js::MutableHandleFunction fun);
-  bool cloneSelfHostedFunctionScript(JSContext* cx,
-                                     js::Handle<js::PropertyName*> name,
-                                     js::Handle<JSFunction*> targetFun);
-  bool cloneSelfHostedValue(JSContext* cx, js::Handle<js::PropertyName*> name,
-                            js::MutableHandleValue vp);
-  void assertSelfHostedFunctionHasCanonicalName(JSContext* cx,
-                                                js::HandlePropertyName name);
-#if DEBUG
-  bool isSelfHostingZone(const JS::Zone* zone) const {
-    return selfHostingGlobal_ && selfHostingGlobal_->zone() == zone;
-  }
-#endif
+  void traceSelfHostingStencil(JSTracer* trc);
+  js::GeneratorKind getSelfHostedFunctionGeneratorKind(js::PropertyName* name);
+  bool delazifySelfHostedFunction(JSContext* cx,
+                                  js::Handle<js::PropertyName*> name,
+                                  js::Handle<JSFunction*> targetFun);
+  bool getSelfHostedValue(JSContext* cx, js::Handle<js::PropertyName*> name,
+                          js::MutableHandleValue vp);
+  void assertSelfHostedFunctionHasCanonicalName(js::HandlePropertyName name);
 
   //-------------------------------------------------------------------------
   // Locale information
@@ -931,13 +903,13 @@ struct JSRuntime {
    *
    * The function must be called outside the GC lock.
    */
-  JS_FRIEND_API void* onOutOfMemory(js::AllocFunction allocator,
+  JS_PUBLIC_API void* onOutOfMemory(js::AllocFunction allocator,
                                     arena_id_t arena, size_t nbytes,
                                     void* reallocPtr = nullptr,
                                     JSContext* maybecx = nullptr);
 
   /*  onOutOfMemory but can call OnLargeAllocationFailure. */
-  JS_FRIEND_API void* onOutOfMemoryCanGC(js::AllocFunction allocator,
+  JS_PUBLIC_API void* onOutOfMemoryCanGC(js::AllocFunction allocator,
                                          arena_id_t arena, size_t nbytes,
                                          void* reallocPtr = nullptr);
 

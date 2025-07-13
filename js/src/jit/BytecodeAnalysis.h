@@ -49,8 +49,6 @@ class BytecodeAnalysis {
   JSScript* script_;
   Vector<BytecodeInfo, 0, JitAllocPolicy> infos_;
 
-  bool hasTryFinally_;
-
  public:
   explicit BytecodeAnalysis(TempAllocator& alloc, JSScript* script);
 
@@ -69,8 +67,6 @@ class BytecodeAnalysis {
     }
     return nullptr;
   }
-
-  bool hasTryFinally() const { return hasTryFinally_; }
 
   void checkWarpSupport(JSOp op);
 };

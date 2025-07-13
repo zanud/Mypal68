@@ -65,6 +65,10 @@ class LIRGeneratorNone : public LIRGeneratorShared {
                                MDefinition*) {
     MOZ_CRASH();
   }
+  void lowerForCompareI64AndBranch(MTest*, MCompare*, JSOp, MDefinition*,
+                                   MDefinition*, MBasicBlock*, MBasicBlock*) {
+    MOZ_CRASH();
+  }
 
   void lowerConstantDouble(double, MInstruction*) { MOZ_CRASH(); }
   void lowerConstantFloat32(float, MInstruction*) { MOZ_CRASH(); }
@@ -85,6 +89,7 @@ class LIRGeneratorNone : public LIRGeneratorShared {
   void lowerWasmBuiltinDivI64(MWasmBuiltinDivI64* div) { MOZ_CRASH(); }
   void lowerModI64(MMod*) { MOZ_CRASH(); }
   void lowerWasmBuiltinModI64(MWasmBuiltinModI64* mod) { MOZ_CRASH(); }
+  void lowerNegI(MInstruction*, MDefinition*, int32_t) { MOZ_CRASH(); }
   void lowerMulI(MMul*, MDefinition*, MDefinition*) { MOZ_CRASH(); }
   void lowerUDiv(MDiv*) { MOZ_CRASH(); }
   void lowerUMod(MMod*) { MOZ_CRASH(); }

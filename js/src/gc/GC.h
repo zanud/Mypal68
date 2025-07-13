@@ -9,10 +9,12 @@
 #ifndef gc_GC_h
 #define gc_GC_h
 
-#include "jsapi.h"
-
 #include "gc/AllocKind.h"
 #include "gc/GCEnum.h"
+#include "js/GCAPI.h"
+#include "js/HeapAPI.h"
+#include "js/RealmIterators.h"
+#include "js/RealmOptions.h"
 #include "js/TraceKind.h"
 
 class JSExternalString;
@@ -21,7 +23,6 @@ class JSTracer;
 
 namespace js {
 
-class AccessorShape;
 class FatInlineAtom;
 class NormalAtom;
 
@@ -131,8 +132,6 @@ void WaitForBackgroundTasks(JSContext* cx);
  * the only realm in its zone.
  */
 void MergeRealms(JS::Realm* source, JS::Realm* target);
-
-void CollectSelfHostingZone(JSContext* cx);
 
 enum VerifierType { PreBarrierVerifier };
 

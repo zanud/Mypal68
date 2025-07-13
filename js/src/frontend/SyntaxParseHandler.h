@@ -10,6 +10,7 @@
 
 #include <string.h>
 
+#include "frontend/CompilationStencil.h"  // CompilationState
 #include "frontend/FunctionSyntaxKind.h"  // FunctionSyntaxKind
 #include "frontend/NameAnalysisTypes.h"   // PrivateNameKind
 #include "frontend/ParseNode.h"
@@ -88,7 +89,8 @@ class SyntaxParseHandler {
     NodeOptionalElement,
     // A distinct node for [PrivateName], to make detecting delete this.#x
     // detectable in syntax parse
-    NodePrivateElement,
+    NodePrivateMemberAccess,
+    NodeOptionalPrivateMemberAccess,
 
     // Destructuring target patterns can't be parenthesized: |([a]) = [3];|
     // must be a syntax error.  (We can't use NodeGeneric instead of these
@@ -140,13 +142,14 @@ class SyntaxParseHandler {
     return node == NodeFunctionExpression;
   }
 
-  bool isPropertyAccess(Node node) {
+  bool isPropertyOrPrivateMemberAccess(Node node) {
     return node == NodeDottedProperty || node == NodeElement ||
-           node == NodePrivateElement;
+           node == NodePrivateMemberAccess;
   }
 
-  bool isOptionalPropertyAccess(Node node) {
-    return node == NodeOptionalDottedProperty || node == NodeOptionalElement;
+  bool isOptionalPropertyOrPrivateMemberAccess(Node node) {
+    return node == NodeOptionalDottedProperty || node == NodeOptionalElement ||
+           node == NodeOptionalPrivateMemberAccess;
   }
 
   bool isFunctionCall(Node node) {
@@ -168,8 +171,9 @@ class SyntaxParseHandler {
   }
 
  public:
-  SyntaxParseHandler(JSContext* cx, LifoAlloc& alloc,
-                     BaseScript* lazyOuterFunction) {}
+  SyntaxParseHandler(JSContext* cx, CompilationState& compilationState) {
+    MOZ_ASSERT(!compilationState.input.isDelazifying());
+  }
 
   static NullNode null() { return NodeFailure; }
 
@@ -256,8 +260,6 @@ class SyntaxParseHandler {
     return NodeGeneric;
   }
 
-  Node newElision() { return NodeGeneric; }
-
   UnaryNodeType newDelete(uint32_t begin, Node expr) {
     return NodeUnparenthesizedUnary;
   }
@@ -327,6 +329,10 @@ class SyntaxParseHandler {
     return NodeLexicalDeclaration;
   }
 
+  ClassBodyScopeNodeType newClassBodyScope(Node body) {
+    return NodeLexicalDeclaration;
+  }
+
   BinaryNodeType newNewTarget(NullaryNodeType newHolder,
                               NullaryNodeType targetHolder) {
     return NodeGeneric;
@@ -375,6 +381,11 @@ class SyntaxParseHandler {
                                              bool isStatic) {
     return NodeGeneric;
   }
+
+  [[nodiscard]] Node newStaticClassBlock(FunctionNodeType block) {
+    return NodeGeneric;
+  }
+
   [[nodiscard]] bool addClassMemberDefinition(ListNodeType memberList,
                                               Node member) {
     return true;
@@ -517,15 +528,24 @@ class SyntaxParseHandler {
   }
 
   PropertyByValueType newPropertyByValue(Node lhs, Node index, uint32_t end) {
-    if (isPrivateName(index)) {
-      return NodePrivateElement;
-    }
+    MOZ_ASSERT(!isPrivateName(index));
     return NodeElement;
   }
 
   PropertyByValueType newOptionalPropertyByValue(Node lhs, Node index,
                                                  uint32_t end) {
     return NodeOptionalElement;
+  }
+
+  PrivateMemberAccessType newPrivateMemberAccess(Node lhs, Node privateName,
+                                                 uint32_t end) {
+    return NodePrivateMemberAccess;
+  }
+
+  PrivateMemberAccessType newOptionalPrivateMemberAccess(Node lhs,
+                                                         Node privateName,
+                                                         uint32_t end) {
+    return NodeOptionalPrivateMemberAccess;
   }
 
   [[nodiscard]] bool setupCatchScope(LexicalScopeNodeType lexicalScope,
@@ -699,18 +719,14 @@ class SyntaxParseHandler {
            node == NodeEvalName || node == NodePotentialAsyncKeyword;
   }
 
-  bool isArgumentsName(Node node, JSContext* cx) {
-    return node == NodeArgumentsName;
-  }
-
-  bool isEvalName(Node node, JSContext* cx) { return node == NodeEvalName; }
-
-  bool isAsyncKeyword(Node node, JSContext* cx) {
-    return node == NodePotentialAsyncKeyword;
-  }
+  bool isArgumentsName(Node node) { return node == NodeArgumentsName; }
+  bool isEvalName(Node node) { return node == NodeEvalName; }
+  bool isAsyncKeyword(Node node) { return node == NodePotentialAsyncKeyword; }
 
   bool isPrivateName(Node node) { return node == NodePrivateName; }
-  bool isPrivateField(Node node) { return node == NodePrivateElement; }
+  bool isPrivateMemberAccess(Node node) {
+    return node == NodePrivateMemberAccess;
+  }
 
   TaggedParserAtomIndex maybeDottedProperty(Node node) {
     // Note: |super.apply(...)| is a special form that calls an "apply"
@@ -732,9 +748,9 @@ class SyntaxParseHandler {
     return TaggedParserAtomIndex::null();
   }
 
-  bool canSkipLazyInnerFunctions() { return false; }
-  bool canSkipLazyClosedOverBindings() { return false; }
-  JSAtom* nextLazyClosedOverBinding() {
+  bool reuseLazyInnerFunctions() { return false; }
+  bool reuseClosedOverBindings() { return false; }
+  TaggedParserAtomIndex nextLazyClosedOverBinding() {
     MOZ_CRASH(
         "SyntaxParseHandler::canSkipLazyClosedOverBindings must return false");
   }

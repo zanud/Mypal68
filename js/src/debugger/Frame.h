@@ -118,7 +118,8 @@ class DebuggerFrame : public NativeObject {
   static const JSClass class_;
 
   enum {
-    OWNER_SLOT = 0,
+    FRAME_ITER_SLOT = 0,
+    OWNER_SLOT,
     ARGUMENTS_SLOT,
     ONSTEP_HANDLER_SLOT,
     ONPOP_HANDLER_SLOT,
@@ -176,7 +177,7 @@ class DebuggerFrame : public NativeObject {
       HandleDebuggerFrame frame);
   [[nodiscard]] static bool setOnStepHandler(JSContext* cx,
                                              HandleDebuggerFrame frame,
-                                             OnStepHandler* handler);
+                                             UniquePtr<OnStepHandler> handler);
 
   [[nodiscard]] static JS::Result<Completion> eval(
       JSContext* cx, HandleDebuggerFrame frame,
@@ -186,9 +187,6 @@ class DebuggerFrame : public NativeObject {
   [[nodiscard]] static DebuggerFrame* check(JSContext* cx, HandleValue thisv);
 
   bool isOnStack() const;
-
-  // Like isOnStack, but works even in the midst of a relocating GC.
-  bool isOnStackMaybeForwarded() const;
 
   bool isSuspended() const;
 
@@ -223,8 +221,9 @@ class DebuggerFrame : public NativeObject {
    * association while the call is on the stack, and the relationships are easy
    * to discern.
    */
-  [[nodiscard]] bool setGeneratorInfo(JSContext* cx,
-                                      Handle<AbstractGeneratorObject*> genObj);
+  [[nodiscard]] static bool setGeneratorInfo(
+      JSContext* cx, HandleDebuggerFrame frame,
+      Handle<AbstractGeneratorObject*> genObj);
 
   /*
    * Undo the effects of a prior call to setGenerator.
@@ -272,7 +271,8 @@ class DebuggerFrame : public NativeObject {
 
   [[nodiscard]] bool incrementStepperCounter(JSContext* cx,
                                              AbstractFramePtr referent);
-  [[nodiscard]] bool incrementStepperCounter(JSContext* cx, JSScript* script);
+  [[nodiscard]] bool incrementStepperCounter(JSContext* cx,
+                                             HandleScript script);
   void decrementStepperCounter(JSFreeOp* fop, JSScript* script);
   void decrementStepperCounter(JSFreeOp* fop, AbstractFramePtr referent);
 

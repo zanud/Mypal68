@@ -33,7 +33,6 @@
 #include "mozilla/FloatingPoint.h"
 #include "mozilla/Likely.h"
 #include "mozilla/MathAlgorithms.h"
-#include "mozilla/Unused.h"
 
 #include "jit/arm/Assembler-arm.h"
 #include "jit/arm/disasm/Constants-arm.h"
@@ -1062,11 +1061,10 @@ void SimulatorProcess::checkICacheLocked(SimInstruction* instr) {
 
   if (cache_hit) {
     // Check that the data in memory matches the contents of the I-cache.
-    int cmpret =
+    mozilla::DebugOnly<int> cmpret =
         memcmp(reinterpret_cast<void*>(instr), cache_page->cachedData(offset),
                SimInstruction::kInstrSize);
     MOZ_ASSERT(cmpret == 0);
-    mozilla::Unused << cmpret;
   } else {
     // Cache miss. Load memory into the cache.
     memcpy(cached_line, line, CachePage::kLineLength);
@@ -2375,6 +2373,8 @@ typedef int32_t (*Prototype_Int32_GeneralInt32Int32Int32Int32)(int32_t, int32_t,
                                                                int32_t);
 typedef int32_t (*Prototype_Int32_GeneralInt32Int32Int32Int32Int32)(
     int32_t, int32_t, int32_t, int32_t, int32_t, int32_t);
+typedef int32_t (*Prototype_Int32_GeneralInt32Int32Int32Int32General)(
+    int32_t, int32_t, int32_t, int32_t, int32_t, int32_t);
 typedef int32_t (*Prototype_Int32_GeneralInt32Int32Int32General)(
     int32_t, int32_t, int32_t, int32_t, int32_t);
 typedef int32_t (*Prototype_Int32_GeneralInt32Int32Int64)(int32_t, int32_t,
@@ -2388,6 +2388,8 @@ typedef int32_t (*Prototype_Int32_GeneralInt32GeneralInt32)(int32_t, int32_t,
 typedef int32_t (*Prototype_Int32_GeneralInt32GeneralInt32Int32)(
     int32_t, int32_t, int32_t, int32_t, int32_t);
 typedef int32_t (*Prototype_Int32_GeneralGeneral)(int32_t, int32_t);
+typedef int32_t (*Prototype_Int32_GeneralGeneralGeneral)(int32_t, int32_t,
+                                                         int32_t);
 typedef int32_t (*Prototype_Int32_GeneralGeneralInt32Int32)(int32_t, int32_t,
                                                             int32_t, int32_t);
 typedef int32_t (*Prototype_General_GeneralInt32)(int32_t, int32_t);
@@ -2838,6 +2840,15 @@ void Simulator::softwareInterrupt(SimInstruction* instr) {
           setCallResult(result);
           break;
         }
+        case Args_Int32_GeneralInt32Int32Int32Int32General: {
+          Prototype_Int32_GeneralInt32Int32Int32Int32General target =
+              reinterpret_cast<
+                  Prototype_Int32_GeneralInt32Int32Int32Int32General>(external);
+          int64_t result = target(arg0, arg1, arg2, arg3, arg4, arg5);
+          scratchVolatileRegisters(/* scratchFloat = true */);
+          setCallResult(result);
+          break;
+        }
         case Args_Int32_GeneralInt32Int32Int32General: {
           Prototype_Int32_GeneralInt32Int32Int32General target =
               reinterpret_cast<Prototype_Int32_GeneralInt32Int32Int32General>(
@@ -2897,6 +2908,14 @@ void Simulator::softwareInterrupt(SimInstruction* instr) {
           Prototype_Int32_GeneralGeneral target =
               reinterpret_cast<Prototype_Int32_GeneralGeneral>(external);
           int64_t result = target(arg0, arg1);
+          scratchVolatileRegisters(/* scratchFloat = true */);
+          setCallResult(result);
+          break;
+        }
+        case Args_Int32_GeneralGeneralGeneral: {
+          Prototype_Int32_GeneralGeneralGeneral target =
+              reinterpret_cast<Prototype_Int32_GeneralGeneralGeneral>(external);
+          int64_t result = target(arg0, arg1, arg2);
           scratchVolatileRegisters(/* scratchFloat = true */);
           setCallResult(result);
           break;

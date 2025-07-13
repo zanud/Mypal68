@@ -53,8 +53,12 @@ class MoveEmitterX86 {
                        const MoveResolver& moves, size_t i);
   void emitFloat32Move(const MoveOperand& from, const MoveOperand& to);
   void emitDoubleMove(const MoveOperand& from, const MoveOperand& to);
+#ifdef ENABLE_WASM_SIMD
+  void emitSimd128Move(const MoveOperand& from, const MoveOperand& to);
+#else
   void emitSimd128FloatMove(const MoveOperand& from, const MoveOperand& to);
   void emitSimd128IntMove(const MoveOperand& from, const MoveOperand& to);
+#endif
   void breakCycle(const MoveOperand& to, MoveOp::Type type);
   void completeCycle(const MoveOperand& to, MoveOp::Type type);
 

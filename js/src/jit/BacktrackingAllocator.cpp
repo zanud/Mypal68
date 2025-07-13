@@ -2456,7 +2456,12 @@ bool BacktrackingAllocator::populateSafepoints() {
                         def->type() == LDefinition::GENERAL ||
                             def->type() == LDefinition::INT32 ||
                             def->type() == LDefinition::FLOAT32 ||
+#ifdef ENABLE_WASM_SIMD
+                            def->type() == LDefinition::DOUBLE ||
+                            def->type() == LDefinition::SIMD128);
+#else
                             def->type() == LDefinition::DOUBLE);
+#endif
           continue;
         }
 

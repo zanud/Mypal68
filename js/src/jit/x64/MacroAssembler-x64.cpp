@@ -660,12 +660,21 @@ void MacroAssembler::wasmLoadI64(const wasm::MemoryAccessDesc& access,
       break;
     case Scalar::Float32:
     case Scalar::Float64:
+#ifdef ENABLE_WASM_SIMD
+    case Scalar::Simd128:
+      MOZ_CRASH("float loads must use wasmLoad");
+#else
       MOZ_CRASH("non-int64 loads should use load()");
+#endif
     case Scalar::Uint8Clamped:
     case Scalar::BigInt64:
     case Scalar::BigUint64:
     case Scalar::MaxTypedArrayViewType:
+#ifdef ENABLE_WASM_SIMD
+      MOZ_CRASH("unexpected scalar type for wasmLoadI64");
+#else
       MOZ_CRASH("unexpected array type");
+#endif
   }
 
   memoryBarrierAfter(access.sync());
@@ -698,6 +707,11 @@ void MacroAssembler::wasmStore(const wasm::MemoryAccessDesc& access,
     case Scalar::Float64:
       storeUncanonicalizedDouble(value.fpu(), dstAddr);
       break;
+#ifdef ENABLE_WASM_SIMD
+    case Scalar::Simd128:
+      MacroAssemblerX64::storeUnalignedSimd128(value.fpu(), dstAddr);
+      break;
+#endif
     case Scalar::Uint8Clamped:
     case Scalar::BigInt64:
     case Scalar::BigUint64:
@@ -1119,6 +1133,25 @@ void MacroAssembler::patchNearAddressMove(CodeLocationLabel loc,
   MOZ_ASSERT(off > ptrdiff_t(INT32_MIN));
   MOZ_ASSERT(off < ptrdiff_t(INT32_MAX));
   PatchWrite_Imm32(loc, Imm32(off));
+}
+
+void MacroAssembler::wasmBoundsCheck64(Condition cond, Register64 index,
+                                       Register64 boundsCheckLimit,
+                                       Label* label) {
+  cmpPtr(index.reg, boundsCheckLimit.reg);
+  j(cond, label);
+  if (JitOptions.spectreIndexMasking) {
+    cmovCCq(cond, Operand(boundsCheckLimit.reg), index.reg);
+  }
+}
+
+void MacroAssembler::wasmBoundsCheck64(Condition cond, Register64 index,
+                                       Address boundsCheckLimit, Label* label) {
+  cmpPtr(index.reg, Operand(boundsCheckLimit));
+  j(cond, label);
+  if (JitOptions.spectreIndexMasking) {
+    cmovCCq(cond, Operand(boundsCheckLimit), index.reg);
+  }
 }
 
 //}}} check_macroassembler_style

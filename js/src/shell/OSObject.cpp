@@ -6,6 +6,7 @@
 
 #include "shell/OSObject.h"
 
+#include "mozilla/ScopeExit.h"
 #include "mozilla/TextUtils.h"
 
 #include <errno.h>
@@ -14,7 +15,14 @@
 #  include <direct.h>
 #  include <process.h>
 #  include <string.h>
+#  include <windows.h>
+#elif __wasi__
+#  include <dirent.h>
+#  include <sys/types.h>
+#  include <unistd.h>
 #else
+#  include <dirent.h>
+#  include <sys/types.h>
 #  include <sys/wait.h>
 #  include <unistd.h>
 #endif
@@ -28,11 +36,13 @@
 #include "js/Conversions.h"
 #include "js/experimental/TypedData.h"  // JS_NewUint8Array
 #include "js/Object.h"                  // JS::GetReservedSlot
+#include "js/PropertyAndElement.h"      // JS_DefineProperty
 #include "js/PropertySpec.h"
 #include "js/Value.h"  // JS::Value
 #include "js/Wrapper.h"
 #include "shell/jsshell.h"
 #include "shell/StringUtils.h"
+#include "util/GetPidProvider.h"  // getpid()
 #include "util/StringBuffer.h"
 #include "util/Text.h"
 #include "util/Windows.h"
@@ -46,6 +56,8 @@
 #    define PATH_MAX (MAX_PATH > _MAX_DIR ? MAX_PATH : _MAX_DIR)
 #  endif
 #  define getcwd _getcwd
+#elif defined(__wasi__)
+// Nothing.
 #else
 #  include <libgen.h>
 #endif
@@ -92,6 +104,9 @@ JSString* ResolvePath(JSContext* cx, HandleString filenameStr,
   if (!filenameStr) {
 #ifdef XP_WIN
     return JS_NewStringCopyZ(cx, "nul");
+#elif defined(__wasi__)
+    MOZ_CRASH("NYI for WASI");
+    return nullptr;
 #else
     return JS_NewStringCopyZ(cx, "/dev/null");
 #endif
@@ -139,9 +154,22 @@ JSString* ResolvePath(JSContext* cx, HandleString filenameStr,
       return nullptr;
     }
 
+#  ifdef __wasi__
+    // dirname() seems not to behave properly with wasi-libc; so we do our own
+    // simple thing here.
+    char* p = buffer + strlen(buffer);
+    while (p > buffer) {
+      if (*p == '/') {
+        *p = '\0';
+        break;
+      }
+      p--;
+    }
+#  else
     // dirname(buffer) might return buffer, or it might return a
     // statically-allocated string
     memmove(buffer, dirname(buffer), strlen(buffer) + 1);
+#  endif
 #endif
   } else {
     const char* cwd = getcwd(buffer, PATH_MAX);
@@ -319,6 +347,99 @@ static bool osfile_readRelativeToScript(JSContext* cx, unsigned argc,
   return ReadFile(cx, argc, vp, true);
 }
 
+static bool osfile_listDir(JSContext* cx, unsigned argc, Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+
+  if (args.length() != 1) {
+    JS_ReportErrorASCII(cx, "os.file.listDir requires 1 argument");
+    return false;
+  }
+
+  if (!args[0].isString()) {
+    JS_ReportErrorNumberASCII(cx, js::shell::my_GetErrorMessage, nullptr,
+                              JSSMSG_INVALID_ARGS, "os.file.listDir");
+    return false;
+  }
+
+  RootedString givenPath(cx, args[0].toString());
+  RootedString str(cx, ResolvePath(cx, givenPath, ScriptRelative));
+  if (!str) {
+    return false;
+  }
+
+  UniqueChars pathname = JS_EncodeStringToLatin1(cx, str);
+  if (!pathname) {
+    JS_ReportErrorASCII(cx, "os.file.listDir cannot convert path to Latin1");
+    return false;
+  }
+
+  RootedValueVector elems(cx);
+  auto append = [&](const char* name) -> bool {
+    if (!(str = JS_NewStringCopyZ(cx, name))) {
+      return false;
+    }
+    if (!elems.append(StringValue(str))) {
+      js::ReportOutOfMemory(cx);
+      return false;
+    }
+    return true;
+  };
+
+#if defined(XP_UNIX)
+  {
+    DIR* dir = opendir(pathname.get());
+    if (!dir) {
+      JS_ReportErrorASCII(cx, "os.file.listDir is unable to open: %s",
+                          pathname.get());
+      return false;
+    }
+    auto close = mozilla::MakeScopeExit([&] {
+      if (closedir(dir) != 0) {
+        MOZ_CRASH("Could not close dir");
+      }
+    });
+
+    while (struct dirent* entry = readdir(dir)) {
+      if (!append(entry->d_name)) {
+        return false;
+      }
+    }
+  }
+#elif defined(XP_WIN)
+  {
+    const size_t pathlen = strlen(pathname.get());
+    Vector<char> pattern(cx);
+    if (!pattern.append(pathname.get(), pathlen) ||
+        !pattern.append(PathSeparator) || !pattern.append("*", 2)) {
+      js::ReportOutOfMemory(cx);
+      return false;
+    }
+
+    WIN32_FIND_DATA FindFileData;
+    HANDLE hFind = FindFirstFile(pattern.begin(), &FindFileData);
+    auto close = mozilla::MakeScopeExit([&] {
+      if (!FindClose(hFind)) {
+        MOZ_CRASH("Could not close Find");
+      }
+    });
+    for (bool found = (hFind != INVALID_HANDLE_VALUE); found;
+         found = FindNextFile(hFind, &FindFileData)) {
+      if (!append(FindFileData.cFileName)) {
+        return false;
+      }
+    }
+  }
+#endif
+
+  JSObject* array = JS::NewArrayObject(cx, elems);
+  if (!array) {
+    return false;
+  }
+
+  args.rval().setObject(*array);
+  return true;
+}
+
 static bool osfile_writeTypedArrayToFile(JSContext* cx, unsigned argc,
                                          Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
@@ -368,7 +489,7 @@ static bool osfile_writeTypedArrayToFile(JSContext* cx, unsigned argc,
     return false;
   }
   void* buf = obj->dataPointerUnshared();
-  size_t length = obj->length().get();
+  size_t length = obj->length();
   if (fwrite(buf, obj->bytesPerElement(), length, file) != length ||
       !autoClose.release()) {
     filename = JS_EncodeStringToUTF8(cx, str);
@@ -609,6 +730,12 @@ static const JSFunctionSpecWithHelp osfile_functions[] = {
 "  as the second argument, in which case it returns a Uint8Array. Filename is\n"
 "  relative to the current working directory."),
 
+    JS_FN_HELP("listDir", osfile_listDir, 1, 0,
+"listDir(filename)",
+"  Read entire contents of a directory. The \"filename\" parameter is relate to the\n"
+"  current working directory.Returns a list of filenames within the given directory.\n"
+"  Note that \".\" and \"..\" are also listed."),
+
     JS_FN_HELP("readRelativeToScript", osfile_readRelativeToScript, 1, 0,
 "readRelativeToScript(filename, [\"binary\"])",
 "  Read filename into returned string. Filename is relative to the directory\n"
@@ -763,7 +890,8 @@ static bool os_getpid(JSContext* cx, unsigned argc, Value* vp) {
   return true;
 }
 
-#if !defined(XP_WIN)
+#ifndef __wasi__
+#  if !defined(XP_WIN)
 
 // There are two possible definitions of strerror_r floating around. The GNU
 // one returns a char* which may or may not be the buffer you passed in. The
@@ -776,18 +904,18 @@ inline char* strerror_message(int result, char* buffer) {
 
 inline char* strerror_message(char* result, char* buffer) { return result; }
 
-#endif
+#  endif
 
 static void ReportSysError(JSContext* cx, const char* prefix) {
   char buffer[200];
 
-#if defined(XP_WIN)
+#  if defined(XP_WIN)
   strerror_s(buffer, sizeof(buffer), errno);
   const char* errstr = buffer;
-#else
+#  else
   const char* errstr =
       strerror_message(strerror_r(errno, buffer, sizeof(buffer)), buffer);
-#endif
+#  endif
 
   if (!errstr) {
     errstr = "unknown error";
@@ -828,7 +956,7 @@ static bool os_system(JSContext* cx, unsigned argc, Value* vp) {
   return true;
 }
 
-#ifndef XP_WIN
+#  ifndef XP_WIN
 static bool os_spawn(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
 
@@ -947,6 +1075,7 @@ static bool os_waitpid(JSContext* cx, unsigned argc, Value* vp) {
   args.rval().setObject(*info);
   return true;
 }
+#  endif  // !__wasi__
 #endif
 
 // clang-format off
@@ -959,12 +1088,13 @@ static const JSFunctionSpecWithHelp os_functions[] = {
 "getpid()",
 "  Return the current process id."),
 
+#ifndef __wasi__
     JS_FN_HELP("system", os_system, 1, 0,
 "system(command)",
 "  Execute command on the current host, returning result code or throwing an\n"
 "  exception on failure."),
 
-#ifndef XP_WIN
+#  ifndef XP_WIN
     JS_FN_HELP("spawn", os_spawn, 1, 0,
 "spawn(command)",
 "  Start up a separate process running the given command. Returns the pid."),
@@ -979,7 +1109,8 @@ static const JSFunctionSpecWithHelp os_functions[] = {
 "  Calls waitpid(). 'nohang' is a boolean indicating whether to pass WNOHANG.\n"
 "  The return value is an object containing a 'pid' field, if a process was waitable\n"
 "  and an 'exitStatus' field if a pid exited."),
-#endif
+#  endif
+#endif  // !__wasi__
 
     JS_FS_HELP_END
 };

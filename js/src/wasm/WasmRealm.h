@@ -16,7 +16,7 @@
 #ifndef wasm_realm_h
 #define wasm_realm_h
 
-#include "wasm/WasmJS.h"
+#include "wasm/WasmTypeDecls.h"
 
 namespace js {
 namespace wasm {

@@ -17,6 +17,7 @@
 #include "builtin/streams/ReadableStreamInternals.h"  // js::ReadableStreamCancel
 #include "builtin/streams/ReadableStreamReader.h"  // js::CreateReadableStreamDefaultReader, js::ForAuthorCodeBool, js::ReadableStream{,Default}Reader, js::ReadableStreamDefaultReaderRead
 #include "builtin/streams/TeeState.h"              // js::TeeState
+#include "js/CallAndConstruct.h"                   // JS::IsCallable
 #include "js/CallArgs.h"                           // JS::CallArgs{,FromVp}
 #include "js/Promise.h"  // JS::CallOriginalPromiseThen, JS::AddPromiseReactions
 #include "js/RootingAPI.h"        // JS::{,Mutable}Handle, JS::Rooted
@@ -133,7 +134,9 @@ using JS::Value;
     return nullptr;
   }
 
-  stream->setPrivate(nsISupportsObject_alreadyAddreffed);
+  static_assert(Slot_ISupports == 0,
+                "Must use right slot for JSCLASS_SLOT0_IS_NSISUPPORTS");
+  JS::SetObjectISupports(stream, nsISupportsObject_alreadyAddreffed);
 
   // Step 1: Set stream.[[state]] to "readable".
   stream->initStateBits(Readable);
@@ -235,12 +238,16 @@ static bool TeeReaderReadHandler(JSContext* cx, unsigned argc, Value* vp) {
       }
     }
 
-    // Step 4: Resolve cancelPromise with undefined.
-    Rooted<PromiseObject*> unwrappedCancelPromise(
-        cx, unwrappedTeeState->cancelPromise());
-    MOZ_ASSERT(unwrappedCancelPromise != nullptr);
-    if (!ResolveUnwrappedPromiseWithUndefined(cx, unwrappedCancelPromise)) {
-      return false;
+    // Step 4: If canceled1 is false or canceled2 is false,
+    //         resolve cancelPromise with undefined.
+    if (!unwrappedTeeState->canceled1() || !unwrappedTeeState->canceled2()) {
+      Rooted<PromiseObject*> unwrappedCancelPromise(
+          cx, unwrappedTeeState->cancelPromise());
+      MOZ_ASSERT(unwrappedCancelPromise != nullptr);
+
+      if (!ResolveUnwrappedPromiseWithUndefined(cx, unwrappedCancelPromise)) {
+        return false;
+      }
     }
 
     args.rval().setUndefined();

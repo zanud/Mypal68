@@ -19,6 +19,10 @@
 
 struct UFormattedValue;
 
+namespace mozilla::intl {
+enum class ICUError : uint8_t;
+}
+
 namespace js {
 
 namespace intl {
@@ -56,6 +60,9 @@ extern JSObject* GetInternalsObject(JSContext* cx, JS::Handle<JSObject*> obj);
 
 /** Report an Intl internal error not directly tied to a spec step. */
 extern void ReportInternalError(JSContext* cx);
+
+/** Report an Intl internal error not directly tied to a spec step. */
+extern void ReportInternalError(JSContext* cx, mozilla::intl::ICUError error);
 
 static inline bool StringsAreEqual(const char* s1, const char* s2) {
   return !strcmp(s1, s2);

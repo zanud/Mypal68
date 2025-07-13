@@ -23,8 +23,13 @@
 #include "threading/ExclusiveData.h"
 #include "util/Memory.h"
 #include "vm/MutexIDs.h"
+#include "wasm/WasmCodegenTypes.h"
 #include "wasm/WasmGC.h"
-#include "wasm/WasmTypes.h"
+#include "wasm/WasmLog.h"
+#include "wasm/WasmModuleTypes.h"
+#include "wasm/WasmSerialize.h"
+#include "wasm/WasmTypeDef.h"
+#include "wasm/WasmValType.h"
 
 namespace js {
 
@@ -63,7 +68,7 @@ struct LinkData : LinkDataCacheablePod {
     uint32_t mode;
 #endif
   };
-  typedef Vector<InternalLink, 0, SystemAllocPolicy> InternalLinkVector;
+  using InternalLinkVector = Vector<InternalLink, 0, SystemAllocPolicy>;
 
   struct SymbolicLinkArray
       : EnumeratedArray<SymbolicAddress, SymbolicAddress::Limit, Uint32Vector> {
@@ -236,12 +241,7 @@ class FuncExport {
     return pod.eagerInterpEntryOffset_;
   }
 
-  bool canHaveJitEntry() const {
-    return !funcType_.hasUnexposableArgOrRet() &&
-           !funcType_.temporarilyUnsupportedReftypeForEntry() &&
-           !funcType_.temporarilyUnsupportedResultCountForJitEntry() &&
-           JitOptions.enableWasmJitEntry;
-  }
+  bool canHaveJitEntry() const { return funcType_.canHaveJitEntry(); }
 
   bool clone(const FuncExport& src) {
     mozilla::PodAssign(&pod, &src.pod);
@@ -251,7 +251,7 @@ class FuncExport {
   WASM_DECLARE_SERIALIZABLE(FuncExport)
 };
 
-typedef Vector<FuncExport, 0, SystemAllocPolicy> FuncExportVector;
+using FuncExportVector = Vector<FuncExport, 0, SystemAllocPolicy>;
 
 // An FuncImport contains the runtime metadata needed to implement a call to an
 // imported function. Each function import has two call stubs: an optimized path
@@ -296,10 +296,12 @@ class FuncImport {
     return funcType_.clone(src.funcType_);
   }
 
+  bool canHaveJitExit() const { return funcType_.canHaveJitExit(); }
+
   WASM_DECLARE_SERIALIZABLE(FuncImport)
 };
 
-typedef Vector<FuncImport, 0, SystemAllocPolicy> FuncImportVector;
+using FuncImportVector = Vector<FuncImport, 0, SystemAllocPolicy>;
 
 // Metadata holds all the data that is needed to describe compiled wasm code
 // at runtime (as opposed to data that is only used to statically link or
@@ -315,10 +317,8 @@ typedef Vector<FuncImport, 0, SystemAllocPolicy> FuncImportVector;
 
 struct MetadataCacheablePod {
   ModuleKind kind;
-  MemoryUsage memoryUsage;
-  uint64_t minMemoryLength;
+  Maybe<MemoryDesc> memory;
   uint32_t globalDataLength;
-  Maybe<uint64_t> maxMemoryLength;
   Maybe<uint32_t> startFuncIndex;
   Maybe<uint32_t> nameCustomSectionIndex;
   bool filenameIsURL;
@@ -326,23 +326,22 @@ struct MetadataCacheablePod {
 
   explicit MetadataCacheablePod(ModuleKind kind)
       : kind(kind),
-        memoryUsage(MemoryUsage::None),
-        minMemoryLength(0),
         globalDataLength(0),
         filenameIsURL(false),
         omitsBoundsChecks(false) {}
 };
 
 typedef uint8_t ModuleHash[8];
-typedef Vector<ValTypeVector, 0, SystemAllocPolicy> FuncArgTypesVector;
-typedef Vector<ValTypeVector, 0, SystemAllocPolicy> FuncReturnTypesVector;
+using FuncArgTypesVector = Vector<ValTypeVector, 0, SystemAllocPolicy>;
+using FuncReturnTypesVector = Vector<ValTypeVector, 0, SystemAllocPolicy>;
 
 struct Metadata : public ShareableBase<Metadata>, public MetadataCacheablePod {
   TypeDefWithIdVector types;
+  RenumberVector typesRenumbering;
   GlobalDescVector globals;
   TableDescVector tables;
 #ifdef ENABLE_WASM_EXCEPTIONS
-  EventDescVector events;
+  TagDescVector tags;
 #endif
   CacheableChars filename;
   CacheableChars sourceMapURL;
@@ -367,8 +366,10 @@ struct Metadata : public ShareableBase<Metadata>, public MetadataCacheablePod {
   MetadataCacheablePod& pod() { return *this; }
   const MetadataCacheablePod& pod() const { return *this; }
 
-  bool usesMemory() const { return memoryUsage != MemoryUsage::None; }
-  bool usesSharedMemory() const { return memoryUsage == MemoryUsage::Shared; }
+  bool usesMemory() const { return memory.isSome(); }
+  bool usesSharedMemory() const {
+    return memory.isSome() && memory->isShared();
+  }
 
   // Invariant: The result of getFuncResultType can only be used as long as
   // MetaData is live, because the returned ResultType may encode a pointer to
@@ -605,8 +606,37 @@ class CodeTier {
                      size_t* data) const;
 };
 
-// Jump tables to take tiering into account, when calling either from wasm to
-// wasm (through rabaldr) or from jit to wasm (jit entry).
+// Jump tables that implement function tiering and fast js-to-wasm calls.
+//
+// There is one JumpTable object per Code object, holding two jump tables: the
+// tiering jump table and the jit-entry jump table.  The JumpTable is not
+// serialized with its Code, but is a run-time entity only.  At run-time it is
+// shared across threads with its owning Code (and the Module that owns the
+// Code).  Values in the JumpTable /must/ /always/ be JSContext-agnostic and
+// Instance-agnostic, because of this sharing.
+//
+// Both jump tables have a number of entries equal to the number of functions in
+// their Module, including imports.  In the tiering table, the elements
+// corresponding to the Module's imported functions are unused; in the jit-entry
+// table, the elements corresponding to the Module's non-exported functions are
+// unused.  (Functions can be exported explicitly via the exports section or
+// implicitly via a mention of their indices outside function bodies.)  See
+// comments at JumpTables::init() and WasmInstanceObject::getExportedFunction().
+// The entries are void*.  Unused entries are null.
+//
+// The tiering jump table.
+//
+// This table holds code pointers that are used by baseline functions to enter
+// optimized code.  See the large comment block in WasmCompile.cpp for
+// information about how tiering works.
+//
+// The jit-entry jump table.
+//
+// The jit-entry jump table entry for a function holds a stub that allows Jitted
+// JS code to call wasm using the JS JIT ABI.  See large comment block at
+// WasmInstanceObject::getExportedFunction() for more about exported functions
+// and stubs and the lifecycle of the entries in the jit-entry table - there are
+// complex invariants.
 
 class JumpTables {
   using TablePointer = mozilla::UniquePtr<void*[], JS::FreePolicy>;
@@ -739,6 +769,11 @@ class Code : public ShareableBase<Code> {
   void ensureProfilingLabels(bool profilingEnabled) const;
   const char* profilingLabel(uint32_t funcIndex) const;
 
+  // Wasm disassembly support
+
+  void disassemble(JSContext* cx, Tier tier, int kindSelection,
+                   PrintCallback printString) const;
+
   // about:memory reporting:
 
   void addSizeOfMiscIfNotSeen(MallocSizeOf mallocSizeOf,
@@ -754,7 +789,7 @@ class Code : public ShareableBase<Code> {
   uint8_t* serialize(uint8_t* cursor, const LinkData& linkData) const;
   static const uint8_t* deserialize(const uint8_t* cursor,
                                     const LinkData& linkData,
-                                    Metadata& metadata, SharedCode* code);
+                                    Metadata& metadata, SharedCode* out);
 };
 
 void PatchDebugSymbolicAccesses(uint8_t* codeBase, jit::MacroAssembler& masm);

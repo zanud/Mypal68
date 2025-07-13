@@ -68,10 +68,10 @@ class ValueNumberer {
   bool dependenciesBroken_;        // Have we broken AliasAnalysis?
   bool hasOSRFixups_;              // Have we created any OSR fixup blocks?
 
-  enum UseRemovedOption { DontSetUseRemoved, SetUseRemoved };
+  enum ImplicitUseOption { DontSetImplicitUse, SetImplicitUse };
 
   [[nodiscard]] bool handleUseReleased(MDefinition* def,
-                                       UseRemovedOption useRemovedOption);
+                                       ImplicitUseOption implicitUseOption);
   [[nodiscard]] bool discardDefsRecursively(MDefinition* def);
   [[nodiscard]] bool releaseResumePointOperands(MResumePoint* resume);
   [[nodiscard]] bool releaseAndRemovePhiOperands(MPhi* phi);
@@ -79,8 +79,7 @@ class ValueNumberer {
   [[nodiscard]] bool discardDef(MDefinition* def);
   [[nodiscard]] bool processDeadDefs();
 
-  [[nodiscard]] bool fixupOSROnlyLoop(MBasicBlock* block,
-                                      MBasicBlock* backedge);
+  [[nodiscard]] bool fixupOSROnlyLoop(MBasicBlock* block);
   [[nodiscard]] bool removePredecessorAndDoDCE(MBasicBlock* block,
                                                MBasicBlock* pred,
                                                size_t predIndex);

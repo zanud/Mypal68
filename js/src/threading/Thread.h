@@ -155,6 +155,10 @@ void SetName(const char* name);
 // 'nameBuffer', including the terminating NUL.
 void GetName(char* nameBuffer, size_t len);
 
+// Causes the current thread to sleep until the
+// number of real-time milliseconds specified have elapsed.
+void SleepMilliseconds(size_t ms);
+
 }  // namespace ThisThread
 
 namespace detail {
@@ -211,7 +215,7 @@ class ThreadTrampoline {
     // thread that spawned us is ready.
     createMutex.lock();
     createMutex.unlock();
-    f(mozilla::Get<Indices>(args)...);
+    f(std::move(mozilla::Get<Indices>(args))...);
   }
 };
 

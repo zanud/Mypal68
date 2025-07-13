@@ -19,6 +19,7 @@
 #include "builtin/Array.h"
 #include "jit/AtomicOperations.h"
 #include "jit/InlinableNatives.h"
+#include "js/CallAndConstruct.h"  // JS::Construct
 #include "js/Conversions.h"
 #include "js/experimental/TypedData.h"  // JS_NewDataView
 #include "js/friend/ErrorMessages.h"    // js::GetErrorMessage, JSMSG_*
@@ -48,7 +49,7 @@ using mozilla::AssertedCast;
 using mozilla::WrapToSigned;
 
 DataViewObject* DataViewObject::create(
-    JSContext* cx, BufferSize byteOffset, BufferSize byteLength,
+    JSContext* cx, size_t byteOffset, size_t byteLength,
     Handle<ArrayBufferObjectMaybeShared*> arrayBuffer, HandleObject proto) {
   if (arrayBuffer->isDetached()) {
     JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
@@ -70,8 +71,8 @@ DataViewObject* DataViewObject::create(
 bool DataViewObject::getAndCheckConstructorArgs(JSContext* cx,
                                                 HandleObject bufobj,
                                                 const CallArgs& args,
-                                                BufferSize* byteOffsetPtr,
-                                                BufferSize* byteLengthPtr) {
+                                                size_t* byteOffsetPtr,
+                                                size_t* byteLengthPtr) {
   // Step 3.
   if (!bufobj->is<ArrayBufferObjectMaybeShared>()) {
     JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
@@ -95,7 +96,7 @@ bool DataViewObject::getAndCheckConstructorArgs(JSContext* cx,
   }
 
   // Step 6.
-  size_t bufferByteLength = buffer->byteLength().get();
+  size_t bufferByteLength = buffer->byteLength();
 
   // Step 7.
   if (offset > bufferByteLength) {
@@ -126,8 +127,8 @@ bool DataViewObject::getAndCheckConstructorArgs(JSContext* cx,
   }
   MOZ_ASSERT(viewByteLength <= ArrayBufferObject::maxBufferByteLength());
 
-  *byteOffsetPtr = BufferSize(offset);
-  *byteLengthPtr = BufferSize(viewByteLength);
+  *byteOffsetPtr = offset;
+  *byteLengthPtr = viewByteLength;
   return true;
 }
 
@@ -137,8 +138,8 @@ bool DataViewObject::constructSameCompartment(JSContext* cx,
   MOZ_ASSERT(args.isConstructing());
   cx->check(bufobj);
 
-  BufferSize byteOffset(0);
-  BufferSize byteLength(0);
+  size_t byteOffset = 0;
+  size_t byteLength = 0;
   if (!getAndCheckConstructorArgs(cx, bufobj, args, &byteOffset, &byteLength)) {
     return false;
   }
@@ -183,8 +184,8 @@ bool DataViewObject::constructWrapped(JSContext* cx, HandleObject bufobj,
   }
 
   // NB: This entails the IsArrayBuffer check
-  BufferSize byteOffset(0);
-  BufferSize byteLength(0);
+  size_t byteOffset = 0;
+  size_t byteLength = 0;
   if (!getAndCheckConstructorArgs(cx, unwrapped, args, &byteOffset,
                                   &byteLength)) {
     return false;
@@ -934,11 +935,6 @@ bool DataViewObject::byteOffsetGetter(JSContext* cx, unsigned argc, Value* vp) {
   return CallNonGenericMethod<is, byteOffsetGetterImpl>(cx, args);
 }
 
-JSObject* DataViewObject::CreatePrototype(JSContext* cx, JSProtoKey key) {
-  return GlobalObject::createBlankPrototype(cx, cx->global(),
-                                            &DataViewObject::protoClass_);
-}
-
 static const JSClassOps DataViewObjectClassOps = {
     nullptr,                       // addProperty
     nullptr,                       // delProperty
@@ -964,8 +960,7 @@ const ClassSpec DataViewObject::classSpec_ = {
 
 const JSClass DataViewObject::class_ = {
     "DataView",
-    JSCLASS_HAS_PRIVATE |
-        JSCLASS_HAS_RESERVED_SLOTS(DataViewObject::RESERVED_SLOTS) |
+    JSCLASS_HAS_RESERVED_SLOTS(DataViewObject::RESERVED_SLOTS) |
         JSCLASS_HAS_CACHED_PROTO(JSProto_DataView),
     &DataViewObjectClassOps, &DataViewObject::classSpec_};
 
@@ -1022,7 +1017,7 @@ const JSPropertySpec DataViewObject::properties[] = {
     JS_PSG("byteOffset", DataViewObject::byteOffsetGetter, 0),
     JS_STRING_SYM_PS(toStringTag, "DataView", JSPROP_READONLY), JS_PS_END};
 
-JS_FRIEND_API JSObject* JS_NewDataView(JSContext* cx, HandleObject buffer,
+JS_PUBLIC_API JSObject* JS_NewDataView(JSContext* cx, HandleObject buffer,
                                        size_t byteOffset, size_t byteLength) {
   JSProtoKey key = JSProto_DataView;
   RootedObject constructor(cx, GlobalObject::getOrCreateConstructor(cx, key));

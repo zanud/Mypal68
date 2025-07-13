@@ -33,7 +33,7 @@ bool CallOrNewEmitter::emitNameCallee(TaggedParserAtomIndex name) {
       bce_, name,
       isCall() ? NameOpEmitter::Kind::Call : NameOpEmitter::Kind::Get);
   if (!noe.emitGet()) {
-    //              [stack] CALLEE THIS
+    //              [stack] CALLEE THIS?
     return false;
   }
 
@@ -55,17 +55,27 @@ bool CallOrNewEmitter::emitNameCallee(TaggedParserAtomIndex name) {
 }
 
 [[nodiscard]] ElemOpEmitter& CallOrNewEmitter::prepareForElemCallee(
-    bool isSuperElem, bool isPrivate) {
+    bool isSuperElem) {
   MOZ_ASSERT(state_ == State::Start);
 
   eoe_.emplace(bce_,
                isCall() ? ElemOpEmitter::Kind::Call : ElemOpEmitter::Kind::Get,
                isSuperElem ? ElemOpEmitter::ObjKind::Super
-                           : ElemOpEmitter::ObjKind::Other,
-               isPrivate ? NameVisibility::Private : NameVisibility::Public);
+                           : ElemOpEmitter::ObjKind::Other);
 
   state_ = State::ElemCallee;
   return *eoe_;
+}
+
+PrivateOpEmitter& CallOrNewEmitter::prepareForPrivateCallee(
+    TaggedParserAtomIndex privateName) {
+  MOZ_ASSERT(state_ == State::Start);
+  xoe_.emplace(
+      bce_,
+      isCall() ? PrivateOpEmitter::Kind::Call : PrivateOpEmitter::Kind::Get,
+      privateName);
+  state_ = State::PrivateCallee;
+  return *xoe_;
 }
 
 bool CallOrNewEmitter::prepareForFunctionCallee() {
@@ -104,8 +114,9 @@ bool CallOrNewEmitter::prepareForOtherCallee() {
 
 bool CallOrNewEmitter::emitThis() {
   MOZ_ASSERT(state_ == State::NameCallee || state_ == State::PropCallee ||
-             state_ == State::ElemCallee || state_ == State::FunctionCallee ||
-             state_ == State::SuperCallee || state_ == State::OtherCallee);
+             state_ == State::ElemCallee || state_ == State::PrivateCallee ||
+             state_ == State::FunctionCallee || state_ == State::SuperCallee ||
+             state_ == State::OtherCallee);
 
   bool needsThis = false;
   switch (state_) {
@@ -122,6 +133,12 @@ bool CallOrNewEmitter::emitThis() {
       break;
     case State::ElemCallee:
       eoe_.reset();
+      if (!isCall()) {
+        needsThis = true;
+      }
+      break;
+    case State::PrivateCallee:
+      xoe_.reset();
       if (!isCall()) {
         needsThis = true;
       }

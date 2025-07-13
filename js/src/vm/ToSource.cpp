@@ -16,8 +16,9 @@
 #include "builtin/Boolean.h"        // BooleanToString
 #include "builtin/Object.h"         // ObjectToSource
 #include "gc/Allocator.h"           // CanGC
+#include "js/CallAndConstruct.h"    // JS::IsCallable
 #include "js/Class.h"               // ESClass
-#include "js/friend/StackLimits.h"  // js::CheckRecursionLimit
+#include "js/friend/StackLimits.h"  // js::AutoCheckRecursionLimit
 #include "js/Object.h"              // JS::GetBuiltinClass
 #include "js/Symbol.h"              // SymbolCode, JS::WellKnownSymbolLimit
 #include "js/TypeDecls.h"  // Rooted{Function, Object, String, Value}, HandleValue, Latin1Char
@@ -116,7 +117,8 @@ static JSString* BoxedToSource(JSContext* cx, HandleObject obj,
 }
 
 JSString* js::ValueToSource(JSContext* cx, HandleValue v) {
-  if (!CheckRecursionLimit(cx)) {
+  AutoCheckRecursionLimit recursion(cx);
+  if (!recursion.check(cx)) {
     return nullptr;
   }
   cx->check(v);

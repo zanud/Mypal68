@@ -329,11 +329,19 @@ void MacroAssembler::rotateRight(Register count, Register input,
 // Shift instructions
 
 void MacroAssembler::lshift32(Register shift, Register srcDest) {
+  if (HasBMI2()) {
+    shlxl(srcDest, shift, srcDest);
+    return;
+  }
   MOZ_ASSERT(shift == ecx);
   shll_cl(srcDest);
 }
 
 void MacroAssembler::flexibleLshift32(Register shift, Register srcDest) {
+  if (HasBMI2()) {
+    shlxl(srcDest, shift, srcDest);
+    return;
+  }
   if (shift == ecx) {
     shll_cl(srcDest);
   } else {
@@ -345,11 +353,19 @@ void MacroAssembler::flexibleLshift32(Register shift, Register srcDest) {
 }
 
 void MacroAssembler::rshift32(Register shift, Register srcDest) {
+  if (HasBMI2()) {
+    shrxl(srcDest, shift, srcDest);
+    return;
+  }
   MOZ_ASSERT(shift == ecx);
   shrl_cl(srcDest);
 }
 
 void MacroAssembler::flexibleRshift32(Register shift, Register srcDest) {
+  if (HasBMI2()) {
+    shrxl(srcDest, shift, srcDest);
+    return;
+  }
   if (shift == ecx) {
     shrl_cl(srcDest);
   } else {
@@ -361,12 +377,20 @@ void MacroAssembler::flexibleRshift32(Register shift, Register srcDest) {
 }
 
 void MacroAssembler::rshift32Arithmetic(Register shift, Register srcDest) {
+  if (HasBMI2()) {
+    sarxl(srcDest, shift, srcDest);
+    return;
+  }
   MOZ_ASSERT(shift == ecx);
   sarl_cl(srcDest);
 }
 
 void MacroAssembler::flexibleRshift32Arithmetic(Register shift,
                                                 Register srcDest) {
+  if (HasBMI2()) {
+    sarxl(srcDest, shift, srcDest);
+    return;
+  }
   if (shift == ecx) {
     sarl_cl(srcDest);
   } else {
@@ -501,6 +525,11 @@ void MacroAssembler::branchPtr(Condition cond, const Address& lhs, ImmWord rhs,
 
 void MacroAssembler::branchPtr(Condition cond, const BaseIndex& lhs,
                                ImmWord rhs, Label* label) {
+  branchPtrImpl(cond, lhs, rhs, label);
+}
+
+void MacroAssembler::branchPtr(Condition cond, const BaseIndex& lhs,
+                               Register rhs, Label* label) {
   branchPtrImpl(cond, lhs, rhs, label);
 }
 
@@ -1129,14 +1158,6 @@ void MacroAssembler::memoryBarrier(MemoryBarrierBits barrier) {
 // ========================================================================
 // Wasm SIMD
 #ifdef ENABLE_WASM_SIMD
-// For vector operations of the form "operationSimd128" we currently bias in
-// favor of an integer representation on x86, but this is subject to later
-// adjustment based on an analysis of use cases and actual programs.
-//
-// The order of operations here follows the header file.
-
-// Moves.
-//
 // Some parts of the masm API are currently agnostic as to the data's
 // interpretation as int or float, despite the Intel architecture having
 // separate functional units and sometimes penalizing type-specific instructions
@@ -1146,12 +1167,18 @@ void MacroAssembler::memoryBarrier(MemoryBarrierBits barrier) {
 // forced to choose blind, but whether that is right or wrong depends on the
 // application.  This applies to moveSimd128, zeroSimd128, loadConstantSimd128,
 // loadUnalignedSimd128, and storeUnalignedSimd128, at least.
+//
+// SSE4.1 or better is assumed.
+//
+// The order of operations here follows the header file.
+
+// Moves.  See comments above regarding integer operation.
 
 void MacroAssembler::moveSimd128(FloatRegister src, FloatRegister dest) {
   MacroAssemblerX86Shared::moveSimd128Int(src, dest);
 }
 
-// Constants.  See comments at moveSimd128, above.
+// Constants.  See comments above regarding integer operation.
 
 void MacroAssembler::zeroSimd128(FloatRegister dest) {
   MacroAssemblerX86Shared::zeroSimd128Int(dest);
@@ -1256,7 +1283,7 @@ void MacroAssembler::replaceLaneFloat64x2(unsigned lane, FloatRegister rhs,
 
 // Shuffle - permute with immediate indices
 
-void MacroAssembler::shuffleInt8x16(uint8_t lanes[16], FloatRegister rhs,
+void MacroAssembler::shuffleInt8x16(const uint8_t lanes[16], FloatRegister rhs,
                                     FloatRegister lhsDest, FloatRegister temp) {
   MacroAssemblerX86Shared::shuffleInt8x16(
       lhsDest, rhs, lhsDest, mozilla::Some(temp), mozilla::Nothing(), lanes);
@@ -1307,6 +1334,28 @@ void MacroAssembler::allTrueInt32x4(FloatRegister src, Register dest) {
   testl(dest, dest);
   setCC(Zero, dest);
   movzbl(dest, dest);
+}
+
+// Bitmask
+
+void MacroAssembler::bitmaskInt8x16(FloatRegister src, Register dest) {
+  vpmovmskb(src, dest);
+}
+
+void MacroAssembler::bitmaskInt16x8(FloatRegister src, Register dest) {
+  ScratchSimd128Scope scratch(*this);
+  // A three-instruction sequence is possible by using scratch as a don't-care
+  // input and shifting rather than masking at the end, but creates a false
+  // dependency on the old value of scratch.  The better fix is to allow src to
+  // be clobbered.
+  moveSimd128(src, scratch);
+  vpacksswb(Operand(scratch), scratch, scratch);
+  vpmovmskb(scratch, dest);
+  andl(Imm32(0xFF), dest);
+}
+
+void MacroAssembler::bitmaskInt32x4(FloatRegister src, Register dest) {
+  vmovmskps(src, dest);
 }
 
 // Swizzle - permute with variable indices
@@ -1801,7 +1850,7 @@ void MacroAssembler::compareFloat64x2(Assembler::Condition cond,
   }
 }
 
-// Load.  See comment at moveSimd128, above.
+// Load.  See comments above regarding integer operation.
 
 void MacroAssembler::loadUnalignedSimd128(const Address& src,
                                           FloatRegister dest) {
@@ -1813,7 +1862,7 @@ void MacroAssembler::loadUnalignedSimd128(const BaseIndex& src,
   loadUnalignedSimd128Int(src, dest);
 }
 
-// Store.  See comment at moveSimd128, above.
+// Store.  See comments above regarding integer operation.
 
 void MacroAssembler::storeUnalignedSimd128(FloatRegister src,
                                            const Address& dest) {

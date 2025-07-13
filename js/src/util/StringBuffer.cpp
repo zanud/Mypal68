@@ -6,7 +6,6 @@
 
 #include "mozilla/Latin1.h"
 #include "mozilla/Range.h"
-#include "mozilla/Unused.h"
 
 #include <algorithm>
 

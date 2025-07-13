@@ -69,15 +69,14 @@ CompileGlobalScriptToExtensibleStencil(
 // Part of InstantiateStencils can be done by calling PrepareForInstantiate.
 // PrepareForInstantiate is GC-free operation that can be performed
 // off-main-thread without parse global.
-extern bool PrepareForInstantiate(
+[[nodiscard]] extern bool PrepareForInstantiate(
     JSContext* cx, CompilationInput& input, const CompilationStencil& stencil,
-    CompilationGCOutput& gcOutput,
-    CompilationGCOutput* gcOutputForDelazification = nullptr);
+    CompilationGCOutput& gcOutput);
 
-extern bool InstantiateStencils(
-    JSContext* cx, CompilationInput& input, const CompilationStencil& stencil,
-    CompilationGCOutput& gcOutput,
-    CompilationGCOutput* gcOutputForDelazification = nullptr);
+[[nodiscard]] extern bool InstantiateStencils(JSContext* cx,
+                                              CompilationInput& input,
+                                              const CompilationStencil& stencil,
+                                              CompilationGCOutput& gcOutput);
 
 extern JSScript* CompileGlobalScript(JSContext* cx,
                                      const JS::ReadOnlyCompileOptions& options,
@@ -95,14 +94,8 @@ extern JSScript* CompileEvalScript(JSContext* cx,
                                    JS::Handle<js::Scope*> enclosingScope,
                                    JS::Handle<JSObject*> enclosingEnv);
 
-extern void FillCompileOptionsForLazyFunction(JS::CompileOptions& options,
-                                              Handle<BaseScript*> lazy);
-
-extern bool CompileLazyFunction(JSContext* cx, CompilationInput& input,
-                                const char16_t* units, size_t length);
-
-extern bool CompileLazyFunction(JSContext* cx, CompilationInput& input,
-                                const mozilla::Utf8Unit* units, size_t length);
+extern bool DelazifyCanonicalScriptedFunction(JSContext* cx,
+                                              Handle<JSFunction*> fun);
 
 // Certain compile options will disable the syntax parser entirely.
 inline bool CanLazilyParse(const JS::ReadOnlyCompileOptions& options) {

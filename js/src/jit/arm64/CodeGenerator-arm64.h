@@ -11,8 +11,12 @@
 namespace js {
 namespace jit {
 
+class CodeGeneratorARM64;
 class OutOfLineBailout;
 class OutOfLineTableSwitch;
+
+using OutOfLineWasmTruncateCheck =
+    OutOfLineWasmTruncateCheckBase<CodeGeneratorARM64>;
 
 class CodeGeneratorARM64 : public CodeGeneratorShared {
   friend class MoveResolverARM64;
@@ -94,6 +98,8 @@ class CodeGeneratorARM64 : public CodeGeneratorShared {
                      Register output, Label* fail);
   void emitBigIntMod(LBigIntMod* ins, Register dividend, Register divisor,
                      Register output, Label* fail);
+  void emitSimpleBinaryI64(
+      LInstructionHelper<INT64_PIECES, 2 * INT64_PIECES, 0>* lir, JSOp op);
 
   ValueOperand ToValue(LInstruction* ins, size_t pos);
   ValueOperand ToTempValue(LInstruction* ins, size_t pos);
@@ -103,6 +109,7 @@ class CodeGeneratorARM64 : public CodeGeneratorShared {
  public:
   void visitOutOfLineBailout(OutOfLineBailout* ool);
   void visitOutOfLineTableSwitch(OutOfLineTableSwitch* ool);
+  void visitOutOfLineWasmTruncateCheck(OutOfLineWasmTruncateCheck* ool);
 };
 
 typedef CodeGeneratorARM64 CodeGeneratorSpecific;

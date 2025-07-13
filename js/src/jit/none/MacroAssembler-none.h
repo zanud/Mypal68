@@ -9,7 +9,7 @@
 
 #include "jit/MoveResolver.h"
 #include "jit/shared/Assembler-shared.h"
-#include "wasm/WasmTypes.h"
+#include "wasm/WasmTypeDecls.h"
 
 namespace js {
 namespace jit {
@@ -22,9 +22,6 @@ static constexpr Register ReturnReg{Registers::invalid_reg2};
 static constexpr FloatRegister ReturnFloat32Reg = {FloatRegisters::invalid_reg};
 static constexpr FloatRegister ReturnDoubleReg = {FloatRegisters::invalid_reg};
 static constexpr FloatRegister ReturnSimd128Reg = {FloatRegisters::invalid_reg};
-static constexpr FloatRegister ScratchFloat32Reg = {
-    FloatRegisters::invalid_reg};
-static constexpr FloatRegister ScratchDoubleReg = {FloatRegisters::invalid_reg};
 static constexpr FloatRegister ScratchSimd128Reg = {
     FloatRegisters::invalid_reg};
 static constexpr FloatRegister InvalidFloatReg = {FloatRegisters::invalid_reg};
@@ -287,6 +284,10 @@ class MacroAssemblerNone : public Assembler {
   }
   template <typename T, typename S, typename U>
   void storeValue(T, S, U) {
+    MOZ_CRASH();
+  }
+  template <typename T, typename S>
+  void storePrivateValue(const T&, const S&) {
     MOZ_CRASH();
   }
   template <typename T, typename S>

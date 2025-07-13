@@ -27,9 +27,8 @@ using ScriptVector = JS::GCVector<JSScript*>;
 class HandleValueArray;
 
 class ObjectOpResult;
-class PropertyResult;
 
-struct JS_PUBLIC_API PropertyDescriptor;
+class JS_PUBLIC_API PropertyDescriptor;
 
 }  // namespace JS
 
@@ -133,9 +132,9 @@ using JS::UndefinedHandleValue;
 using JS::HandleValueArray;
 
 using JS::ObjectOpResult;
-using JS::PropertyResult;
 
 using JS::PropertyDescriptor;
+using JS::PropertyKey;
 
 using JS::Compartment;
 using JS::Realm;

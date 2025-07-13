@@ -35,7 +35,7 @@ using namespace js;
 using namespace js::jit;
 using namespace js::wasm;
 
-typedef Vector<jit::MIRType, 8, SystemAllocPolicy> MIRTypeVector;
+using MIRTypeVector = Vector<jit::MIRType, 8, SystemAllocPolicy>;
 using ABIArgMIRTypeIter = jit::ABIArgIter<MIRTypeVector>;
 
 /*****************************************************************************/
@@ -51,10 +51,36 @@ static uint32_t ResultStackSize(ValType type) {
       return ABIResult::StackSizeOfFloat;
     case ValType::F64:
       return ABIResult::StackSizeOfDouble;
+#ifdef ENABLE_WASM_SIMD
+    case ValType::V128:
+      return ABIResult::StackSizeOfV128;
+#endif
     case ValType::Ref:
       return ABIResult::StackSizeOfPtr;
     default:
       MOZ_CRASH("Unexpected result type");
+  }
+}
+
+uint32_t js::wasm::MIRTypeToABIResultSize(jit::MIRType type) {
+  switch (type) {
+    case MIRType::Int32:
+      return ABIResult::StackSizeOfInt32;
+    case MIRType::Int64:
+      return ABIResult::StackSizeOfInt64;
+    case MIRType::Float32:
+      return ABIResult::StackSizeOfFloat;
+    case MIRType::Double:
+      return ABIResult::StackSizeOfDouble;
+#ifdef ENABLE_WASM_SIMD
+    case MIRType::Simd128:
+      return ABIResult::StackSizeOfV128;
+#endif
+    case MIRType::Pointer:
+    case MIRType::RefOrNull:
+      return ABIResult::StackSizeOfPtr;
+    default:
+      MOZ_CRASH("MIRTypeToABIResultSize - unhandled case");
   }
 }
 
@@ -79,9 +105,15 @@ void ABIResultIter::settleRegister(ValType type) {
     case ValType::F64:
       cur_ = ABIResult(type, ReturnDoubleReg);
       break;
+    case ValType::Rtt:
     case ValType::Ref:
       cur_ = ABIResult(type, ReturnReg);
       break;
+#ifdef ENABLE_WASM_SIMD
+    case ValType::V128:
+      cur_ = ABIResult(type, ReturnSimd128Reg);
+      break;
+#endif
     default:
       MOZ_CRASH("Unexpected result type");
   }
@@ -242,6 +274,15 @@ static void GenPrintF64(DebugChannel channel, MacroAssembler& masm,
     }
   });
 }
+
+#  ifdef ENABLE_WASM_SIMD
+static void GenPrintV128(DebugChannel channel, MacroAssembler& masm,
+                         const FloatRegister& src) {
+  // TODO: We might try to do something meaningful here once SIMD data are
+  // aligned and hence C++-ABI compliant.  For now, just make ourselves visible.
+  GenPrintf(channel, masm, "v128");
+}
+#  endif
 #else
 static void GenPrintf(DebugChannel channel, MacroAssembler& masm,
                       const char* fmt, ...) {}
@@ -255,6 +296,10 @@ static void GenPrintF32(DebugChannel channel, MacroAssembler& masm,
                         const FloatRegister& src) {}
 static void GenPrintF64(DebugChannel channel, MacroAssembler& masm,
                         const FloatRegister& src) {}
+#  ifdef ENABLE_WASM_SIMD
+static void GenPrintV128(DebugChannel channel, MacroAssembler& masm,
+                         const FloatRegister& src) {}
+#  endif
 #endif
 
 static bool FinishOffsets(MacroAssembler& masm, Offsets* offsets) {
@@ -314,6 +359,9 @@ static void SetupABIArguments(MacroAssembler& masm, const FuncExport& fe,
                               Register argv, Register scratch) {
   // Copy parameters out of argv and into the registers/stack-slots specified by
   // the wasm ABI.
+  //
+  // SetupABIArguments are only used for C++ -> wasm calls through callExport(),
+  // and V128 and Ref types (other than externref) are not currently allowed.
   ArgTypeVector args(fe.funcType());
   for (WasmABIArgIter iter(args); !iter.done(); iter++) {
     unsigned argOffset = iter.index() * sizeof(ExportArg);
@@ -353,8 +401,16 @@ static void SetupABIArguments(MacroAssembler& masm, const FuncExport& fe,
           case MIRType::Float32:
             masm.loadFloat32(src, iter->fpu());
             break;
+#ifdef ENABLE_WASM_SIMD
+          case MIRType::Simd128:
+            // We will reach this point when we generate interpreter entry stubs
+            // for exports that receive v128 values, but the code will never be
+            // executed because such exports cannot be called from JS.
+            masm.breakpoint();
+            break;
+#endif
           default:
-            MOZ_MAKE_COMPILER_ASSUME_IS_UNREACHABLE("unexpected FPU type");
+            MOZ_CRASH("unexpected FPU type");
             break;
         }
         break;
@@ -390,6 +446,15 @@ static void SetupABIArguments(MacroAssembler& masm, const FuncExport& fe,
                                                  iter->offsetFromArgBase()));
             break;
           }
+#ifdef ENABLE_WASM_SIMD
+          case MIRType::Simd128: {
+            // We will reach this point when we generate interpreter entry stubs
+            // for exports that receive v128 values, but the code will never be
+            // executed because such exports cannot be called from JS.
+            masm.breakpoint();
+            break;
+          }
+#endif
           case MIRType::StackResults: {
             MOZ_ASSERT(args.isSyntheticStackResultPointerArg(iter.index()));
             masm.loadPtr(src, scratch);
@@ -398,8 +463,7 @@ static void SetupABIArguments(MacroAssembler& masm, const FuncExport& fe,
             break;
           }
           default:
-            MOZ_MAKE_COMPILER_ASSUME_IS_UNREACHABLE(
-                "unexpected stack arg type");
+            MOZ_CRASH("unexpected stack arg type");
         }
         break;
       case ABIArg::Uninitialized:
@@ -424,6 +488,11 @@ static void StoreRegisterResult(MacroAssembler& masm, const FuncExport& fe,
         case ValType::I64:
           masm.store64(result.gpr64(), Address(loc, 0));
           break;
+#ifdef ENABLE_WASM_SIMD
+        case ValType::V128:
+          masm.storeUnalignedSimd128Float(result.fpr(), Address(loc, 0));
+          break;
+#endif
         case ValType::F32:
           masm.canonicalizeFloat(result.fpr());
           masm.storeFloat32(result.fpr(), Address(loc, 0));
@@ -432,6 +501,7 @@ static void StoreRegisterResult(MacroAssembler& masm, const FuncExport& fe,
           masm.canonicalizeDouble(result.fpr());
           masm.storeDouble(result.fpr(), Address(loc, 0));
           break;
+        case ValType::Rtt:
         case ValType::Ref:
           masm.storePtr(result.gpr(), Address(loc, 0));
           break;
@@ -467,19 +537,7 @@ static const LiveRegisterSet NonVolatileRegs =
                     FloatRegisterSet(FloatRegisters::NonVolatileMask));
 #endif
 
-#if defined(JS_CODEGEN_NONE)
-static const unsigned NonVolatileRegsPushSize = 0;
-#else
-static const unsigned NonVolatileRegsPushSize =
-    NonVolatileRegs.gprs().size() * sizeof(intptr_t) +
-    NonVolatileRegs.fpus().getPushSizeInBytes();
-#endif
-
-#ifdef ENABLE_WASM_REFTYPES
 static const unsigned NumExtraPushed = 2;  // tls and argv
-#else
-static const unsigned NumExtraPushed = 1;  // argv
-#endif
 
 #ifdef JS_CODEGEN_ARM64
 static const unsigned WasmPushSize = 16;
@@ -487,12 +545,16 @@ static const unsigned WasmPushSize = 16;
 static const unsigned WasmPushSize = sizeof(void*);
 #endif
 
-static const unsigned FramePushedBeforeAlign =
-    NonVolatileRegsPushSize + NumExtraPushed * WasmPushSize;
-
-static void AssertExpectedSP(const MacroAssembler& masm) {
+static void AssertExpectedSP(MacroAssembler& masm) {
 #ifdef JS_CODEGEN_ARM64
   MOZ_ASSERT(sp.Is(masm.GetStackPointer64()));
+#  ifdef DEBUG
+  // Since we're asserting that SP is the currently active stack pointer,
+  // let's also in effect assert that PSP is dead -- by setting it to 1, so as
+  // to cause to cause any attempts to use it to segfault in an easily
+  // identifiable way.
+  masm.asVIXL().Mov(PseudoStackPointer64, 1);
+#  endif
 #endif
 }
 
@@ -527,6 +589,7 @@ static void MoveSPForJitABI(MacroAssembler& masm) {
 static void CallFuncExport(MacroAssembler& masm, const FuncExport& fe,
                            const Maybe<ImmPtr>& funcPtr) {
   MOZ_ASSERT(fe.hasEagerStubs() == !funcPtr);
+  MoveSPForJitABI(masm);
   if (funcPtr) {
     masm.call(*funcPtr);
   } else {
@@ -663,7 +726,11 @@ static bool GenerateInterpEntry(MacroAssembler& masm, const FuncExport& fe,
   // the wasm callee (which does not preserve non-volatile registers).
   masm.setFramePushed(0);
   masm.PushRegsInMask(NonVolatileRegs);
-  MOZ_ASSERT(masm.framePushed() == NonVolatileRegsPushSize);
+
+  const unsigned nonVolatileRegsPushSize =
+      masm.PushRegsInMaskSizeInBytes(NonVolatileRegs);
+
+  MOZ_ASSERT(masm.framePushed() == nonVolatileRegsPushSize);
 
   // Put the 'argv' argument into a non-argument/return/TLS register so that
   // we can use 'argv' while we fill in the arguments for the wasm callee.
@@ -697,16 +764,17 @@ static bool GenerateInterpEntry(MacroAssembler& masm, const FuncExport& fe,
         WasmTlsReg);
   }
 
-#ifdef ENABLE_WASM_REFTYPES
   WasmPush(masm, WasmTlsReg);
-#endif
 
   // Save 'argv' on the stack so that we can recover it after the call.
   WasmPush(masm, argv);
 
   // Since we're about to dynamically align the stack, reset the frame depth
   // so we can still assert static stack depth balancing.
-  MOZ_ASSERT(masm.framePushed() == FramePushedBeforeAlign);
+  const unsigned framePushedBeforeAlign =
+      nonVolatileRegsPushSize + NumExtraPushed * WasmPushSize;
+
+  MOZ_ASSERT(masm.framePushed() == framePushedBeforeAlign);
   masm.setFramePushed(0);
 
   // Dynamically align the stack since ABIStackAlignment is not necessarily
@@ -752,14 +820,12 @@ static bool GenerateInterpEntry(MacroAssembler& masm, const FuncExport& fe,
   masm.PopStackPtr();
 #endif
   MOZ_ASSERT(masm.framePushed() == 0);
-  masm.setFramePushed(FramePushedBeforeAlign);
+  masm.setFramePushed(framePushedBeforeAlign);
 
   // Recover the 'argv' pointer which was saved before aligning the stack.
   WasmPop(masm, argv);
 
-#ifdef ENABLE_WASM_REFTYPES
   WasmPop(masm, WasmTlsReg);
-#endif
 
   // Store the register result, if any, in argv[0].
   // No spectre.index_masking is required, as the value leaves ReturnReg.
@@ -1097,6 +1163,12 @@ static bool GenerateJitEntry(MacroAssembler& masm, size_t funcExportIndex,
         }
         break;
       }
+#ifdef ENABLE_WASM_SIMD
+      case ValType::V128: {
+        // Guarded against by hasUnexposableArgOrRet()
+        MOZ_CRASH("unexpected argument type when calling from the jit");
+      }
+#endif
       default: {
         MOZ_CRASH("unexpected argument type when calling from the jit");
       }
@@ -1253,6 +1325,12 @@ static bool GenerateJitEntry(MacroAssembler& masm, size_t funcExportIndex,
         masm.setFramePushed(0);
         break;
       }
+#ifdef ENABLE_WASM_SIMD
+      case ValType::V128:
+#endif
+      case ValType::Rtt: {
+        MOZ_CRASH("unexpected return type when calling from ion to wasm");
+      }
       case ValType::Ref: {
         switch (results[0].refTypeKind()) {
           case RefType::Func:
@@ -1278,8 +1356,13 @@ static bool GenerateJitEntry(MacroAssembler& masm, size_t funcExportIndex,
 
   MOZ_ASSERT(masm.framePushed() == 0);
 #ifdef JS_CODEGEN_ARM64
+  AssertExpectedSP(masm);
   masm.loadPtr(Address(sp, 0), lr);
   masm.addToStackPtr(Imm32(8));
+  // Copy SP into PSP to enforce return-point invariants (SP == PSP).
+  // `addToStackPtr` won't sync them because SP is the active pointer here.
+  // For the same reason, we can't use initPseudoStackPtr to do the sync, so
+  // we have to do it "by hand".  Omitting this causes many tests to segfault.
   masm.moveStackPtrTo(PseudoStackPointer);
   masm.abiret();
 #else
@@ -1513,9 +1596,10 @@ void wasm::GenerateDirectCallFromJit(MacroAssembler& masm, const FuncExport& fe,
   void* callee = codeTier.segment().base() + codeRange.funcUncheckedCallEntry();
 
   masm.assertStackAlignment(WasmStackAlignment);
+  MoveSPForJitABI(masm);
   masm.callJit(ImmPtr(callee));
 #ifdef JS_CODEGEN_ARM64
-  // WASM does not use the emulated stack pointer, so reinitialize it as it
+  // WASM does not always keep PSP in sync with SP.  So reinitialize it as it
   // might be clobbered either by WASM or by any C++ calls within.
   masm.initPseudoStackPtr();
 #endif
@@ -1571,6 +1655,11 @@ void wasm::GenerateDirectCallFromJit(MacroAssembler& masm, const FuncExport& fe,
             MOZ_CRASH("unexpected return type when calling from ion to wasm");
         }
         break;
+      case wasm::ValType::Rtt:
+#ifdef ENABLE_WASM_SIMD
+      case wasm::ValType::V128:
+#endif
+        MOZ_CRASH("unexpected return type when calling from ion to wasm");
     }
   }
 
@@ -1624,6 +1713,13 @@ static void StackCopy(MacroAssembler& masm, MIRType type, Register scratch,
     masm.loadDouble(src, fpscratch);
     GenPrintF64(DebugChannel::Import, masm, fpscratch);
     masm.storeDouble(fpscratch, dst);
+#ifdef ENABLE_WASM_SIMD
+  } else if (type == MIRType::Simd128) {
+    ScratchSimd128Scope fpscratch(masm);
+    masm.loadUnalignedSimd128(src, fpscratch);
+    GenPrintV128(DebugChannel::Import, masm, fpscratch);
+    masm.storeUnalignedSimd128(fpscratch, dst);
+#endif
   } else {
     MOZ_CRASH("StackCopy: unexpected type");
   }
@@ -1712,7 +1808,9 @@ static void FillArgumentArrayForExit(
         break;
 #endif
       case ABIArg::FPU: {
+#ifndef ENABLE_WASM_SIMD
         MOZ_ASSERT(IsFloatingPointType(type));
+#endif
         FloatRegister srcReg = i->fpu();
         if (type == MIRType::Double) {
           if (toValue) {
@@ -1726,8 +1824,12 @@ static void FillArgumentArrayForExit(
             GenPrintF64(DebugChannel::Import, masm, srcReg);
             masm.storeDouble(srcReg, dst);
           }
+#ifdef ENABLE_WASM_SIMD
+        } else if (type == MIRType::Float32) {
+#else
         } else {
           MOZ_ASSERT(type == MIRType::Float32);
+#endif
           if (toValue) {
             // JS::Values can't store Float32, so convert to a Double.
             ScratchDoubleScope fpscratch(masm);
@@ -1740,6 +1842,23 @@ static void FillArgumentArrayForExit(
             GenPrintF32(DebugChannel::Import, masm, srcReg);
             masm.storeFloat32(srcReg, dst);
           }
+#ifdef ENABLE_WASM_SIMD
+        } else if (type == MIRType::Simd128) {
+          // The value should never escape; the call will be stopped later as
+          // the import is being called.  But we should generate something sane
+          // here for the boxed case since a debugger or the stack walker may
+          // observe something.
+          ScratchDoubleScope dscratch(masm);
+          masm.loadConstantDouble(0, dscratch);
+          GenPrintF64(DebugChannel::Import, masm, dscratch);
+          if (toValue) {
+            masm.boxDouble(dscratch, dst);
+          } else {
+            masm.storeDouble(dscratch, dst);
+          }
+        } else {
+          MOZ_CRASH("Unknown MIRType in wasm exit stub");
+#endif
         }
         break;
       }
@@ -1779,6 +1898,17 @@ static void FillArgumentArrayForExit(
             masm.canonicalizeDouble(dscratch);
             GenPrintF64(DebugChannel::Import, masm, dscratch);
             masm.boxDouble(dscratch, dst);
+#ifdef ENABLE_WASM_SIMD
+          } else if (type == MIRType::Simd128) {
+            // The value should never escape; the call will be stopped later as
+            // the import is being called.  But we should generate something
+            // sane here for the boxed case since a debugger or the stack walker
+            // may observe something.
+            ScratchDoubleScope dscratch(masm);
+            masm.loadConstantDouble(0, dscratch);
+            GenPrintF64(DebugChannel::Import, masm, dscratch);
+            masm.boxDouble(dscratch, dst);
+#endif
           } else {
             MOZ_CRASH(
                 "FillArgumentArrayForExit, ABIArg::Stack: unexpected type");
@@ -2014,6 +2144,14 @@ static bool GenerateImportInterpExit(MacroAssembler& masm, const FuncImport& fi,
                   funcImportIndex);
         GenPrintI64(DebugChannel::Import, masm, ReturnReg64);
         break;
+      case ValType::Rtt:
+#ifdef ENABLE_WASM_SIMD
+      case ValType::V128:
+#endif
+        // Note, CallImport_Rtt/V128 currently always throws, so we should never
+        // reach this point.
+        masm.breakpoint();
+        break;
       case ValType::F32:
         masm.loadFloat32(argv, ReturnFloat32Reg);
         GenPrintf(DebugChannel::Import, masm, "wasm-import[%u]; returns ",
@@ -2172,10 +2310,14 @@ static bool GenerateImportJitExit(MacroAssembler& masm, const FuncImport& fi,
   AssertStackAlignment(masm, JitStackAlignment,
                        sizeOfRetAddr + frameAlignExtra);
 #ifdef JS_CODEGEN_ARM64
-  // Conform to JIT ABI.
+  AssertExpectedSP(masm);
+  // Conform to JIT ABI.  Note this doesn't update PSP since SP is the active
+  // pointer.
   masm.addToStackPtr(Imm32(8));
+  // Manually resync PSP.  Omitting this causes eg tests/wasm/import-export.js
+  // to segfault.
+  masm.moveStackPtrTo(PseudoStackPointer);
 #endif
-  MoveSPForJitABI(masm);
   masm.callJitNoProfiler(callee);
 #ifdef JS_CODEGEN_ARM64
   // Conform to platform conventions - align the SP.
@@ -2244,6 +2386,13 @@ static bool GenerateImportJitExit(MacroAssembler& masm, const FuncImport& fi,
       case ValType::I64:
         // No fastpath for now, go immediately to ool case
         masm.jump(&oolConvert);
+        break;
+      case ValType::Rtt:
+#ifdef ENABLE_WASM_SIMD
+      case ValType::V128:
+#endif
+        // Unreachable as callImport should not call the stub.
+        masm.breakpoint();
         break;
       case ValType::F32:
         masm.convertValueToFloat(JSReturnOperand, ReturnFloat32Reg,
@@ -2493,8 +2642,9 @@ static const LiveRegisterSet RegsToPreserve(
                        ~((Registers::SetType(1) << Registers::sp) |
                          (Registers::SetType(1) << Registers::pc))),
     FloatRegisterSet(FloatRegisters::AllDoubleMask));
-static_assert(!SupportsSimd,
-              "high lanes of SIMD registers need to be saved too.");
+#  ifdef ENABLE_WASM_SIMD
+#    error "high lanes of SIMD registers need to be saved too."
+#  endif
 #elif defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
 static const LiveRegisterSet RegsToPreserve(
     GeneralRegisterSet(Registers::AllMask &
@@ -2503,27 +2653,32 @@ static const LiveRegisterSet RegsToPreserve(
                          (Registers::SetType(1) << Registers::sp) |
                          (Registers::SetType(1) << Registers::zero))),
     FloatRegisterSet(FloatRegisters::AllDoubleMask));
-static_assert(!SupportsSimd,
-              "high lanes of SIMD registers need to be saved too.");
+#  ifdef ENABLE_WASM_SIMD
+#    error "high lanes of SIMD registers need to be saved too."
+#  endif
 #elif defined(JS_CODEGEN_ARM64)
 // We assume that traps do not happen while lr is live. This both ensures that
 // the size of RegsToPreserve is a multiple of 2 (preserving WasmStackAlignment)
 // and gives us a register to clobber in the return path.
 static const LiveRegisterSet RegsToPreserve(
     GeneralRegisterSet(Registers::AllMask &
-                       ~((Registers::SetType(1) << Registers::StackPointer) |
+                       ~((Registers::SetType(1) << RealStackPointer.code()) |
                          (Registers::SetType(1) << Registers::lr))),
-    FloatRegisterSet(FloatRegisters::AllDoubleMask));
 #  ifdef ENABLE_WASM_SIMD
-#    error "high lanes of SIMD registers need to be saved too."
+    FloatRegisterSet(FloatRegisters::AllSimd128Mask));
+#  else
+    // If SIMD is not enabled, it's pointless to save/restore the upper 64
+    // bits of each vector register.
+    FloatRegisterSet(FloatRegisters::AllDoubleMask));
 #  endif
 #elif defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64)
-// It's fine to use AllVector128Mask even when SIMD is not enabled:
-// PushRegsInMask strips out the high lanes of the XMM registers in this case.
+// It's correct to use FloatRegisters::AllMask even when SIMD is not enabled;
+// PushRegsInMask strips out the high lanes of the XMM registers in this case,
+// while the singles will be stripped as they are aliased by the larger doubles.
 static const LiveRegisterSet RegsToPreserve(
     GeneralRegisterSet(Registers::AllMask &
                        ~(Registers::SetType(1) << Registers::StackPointer)),
-    FloatRegisterSet(FloatRegisters::AllVector128Mask));
+    FloatRegisterSet(FloatRegisters::AllMask));
 #else
 static const LiveRegisterSet RegsToPreserve(
     GeneralRegisterSet(0), FloatRegisterSet(FloatRegisters::AllDoubleMask));
@@ -2666,8 +2821,8 @@ static bool GenerateThrowStub(MacroAssembler& masm, Label* throwLabel,
   masm.bind(&resumeCatch);
   masm.loadPtr(Address(ReturnReg, offsetof(ResumeFromException, framePointer)),
                FramePointer);
-  masm.loadStackPtr(
-      Address(ReturnReg, offsetof(ResumeFromException, stackPointer)));
+  // Defer reloading stackPointer until just before the jump, so as to
+  // protect other live data on the stack.
 
   // When there is a catch handler, HandleThrow passes it the Value needed for
   // the handler's argument as well.
@@ -2681,6 +2836,11 @@ static bool GenerateThrowStub(MacroAssembler& masm, Label* throwLabel,
   Register obj = masm.extractObject(val, scratch2);
   masm.loadPtr(Address(ReturnReg, offsetof(ResumeFromException, target)),
                scratch);
+  // Now it's safe to reload stackPointer.
+  masm.loadStackPtr(
+      Address(ReturnReg, offsetof(ResumeFromException, stackPointer)));
+  // This move must come after the SP is reloaded because WasmExceptionReg may
+  // alias ReturnReg.
   masm.movePtr(obj, WasmExceptionReg);
   masm.jump(scratch);
 
@@ -2774,18 +2934,7 @@ bool wasm::GenerateEntryStubs(MacroAssembler& masm, size_t funcExportIndex,
     return false;
   }
 
-  if (isAsmJS || fe.funcType().temporarilyUnsupportedReftypeForEntry()) {
-    return true;
-  }
-
-  // SIMD spec requires JS calls to exports with V128 in the signature to throw.
-  if (fe.funcType().hasUnexposableArgOrRet()) {
-    return true;
-  }
-
-  // Returning multiple values to JS JIT code not yet implemented (see
-  // bug 1595031).
-  if (fe.funcType().temporarilyUnsupportedResultCountForJitEntry()) {
+  if (isAsmJS || !fe.canHaveJitEntry()) {
     return true;
   }
 
@@ -2799,8 +2948,8 @@ bool wasm::GenerateEntryStubs(MacroAssembler& masm, size_t funcExportIndex,
   return true;
 }
 
-bool wasm::GenerateProvisionalJitEntryStub(MacroAssembler& masm,
-                                           Offsets* offsets) {
+bool wasm::GenerateProvisionalLazyJitEntryStub(MacroAssembler& masm,
+                                               Offsets* offsets) {
   AssertExpectedSP(masm);
   masm.setFramePushed(0);
   offsets->begin = masm.currentOffset();
@@ -2834,10 +2983,7 @@ bool wasm::GenerateProvisionalJitEntryStub(MacroAssembler& masm,
   masm.SetStackPointer64(sp);
 #endif
 
-  if (!FinishOffsets(masm, offsets)) {
-    return false;
-  }
-  return true;
+  return FinishOffsets(masm, offsets);
 }
 
 bool wasm::GenerateStubs(const ModuleEnvironment& env,
@@ -2869,19 +3015,9 @@ bool wasm::GenerateStubs(const ModuleEnvironment& env,
       return false;
     }
 
-    // SIMD spec requires calls to JS functions with V128 in the signature to
-    // throw.
-    if (fi.funcType().hasUnexposableArgOrRet()) {
-      continue;
-    }
-
-    if (fi.funcType().temporarilyUnsupportedReftypeForExit()) {
-      continue;
-    }
-
-    // Exit to JS JIT code returning multiple values not yet implemented
-    // (see bug 1595031).
-    if (fi.funcType().temporarilyUnsupportedResultCountForJitExit()) {
+    // Skip if the function does not have a signature that allows for a JIT
+    // exit.
+    if (!fi.canHaveJitExit()) {
       continue;
     }
 

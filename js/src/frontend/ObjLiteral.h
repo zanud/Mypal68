@@ -6,7 +6,6 @@
 #define frontend_ObjLiteral_h
 
 #include "mozilla/BloomFilter.h"  // mozilla::BitBloomFilter
-#include "mozilla/EndianUtils.h"
 #include "mozilla/EnumSet.h"
 #include "mozilla/Span.h"
 
@@ -15,6 +14,7 @@
 #include "js/GCPolicyAPI.h"
 #include "js/Value.h"
 #include "js/Vector.h"
+#include "util/EnumFlags.h"
 
 /*
  * [SMDOC] ObjLiteral (Object Literal) Handling
@@ -108,7 +108,7 @@ class JSONPrinter;
 
 namespace frontend {
 struct CompilationAtomCache;
-struct BaseCompilationStencil;
+struct CompilationStencil;
 class StencilXDR;
 }  // namespace frontend
 
@@ -132,19 +132,19 @@ enum class ObjLiteralOpcode : uint8_t {
 // (These become bitflags by wrapping with EnumSet below.)
 enum class ObjLiteralFlag : uint8_t {
   // If set, this object is an array.
-  Array = 1,
+  Array = 1 << 0,
 
   // If set, this is an object literal in a singleton context and property
   // values are included. See also JSOp::Object.
-  Singleton = 2,
+  Singleton = 1 << 1,
 
   // If set, this object contains index property, or duplicate non-index
   // property.
   // This flag is valid only if Array flag isn't set.
-  HasIndexOrDuplicatePropName = 3,
+  HasIndexOrDuplicatePropName = 1 << 2,
 };
 
-using ObjLiteralFlags = mozilla::EnumSet<ObjLiteralFlag>;
+using ObjLiteralFlags = EnumFlags<ObjLiteralFlag>;
 
 inline bool ObjLiteralOpcodeHasValueArg(ObjLiteralOpcode op) {
   return op == ObjLiteralOpcode::ConstValue;
@@ -248,8 +248,7 @@ struct ObjLiteralWriterBase {
     if (!prepareBytes(cx, sizeof(T), &p)) {
       return false;
     }
-    mozilla::NativeEndian::copyAndSwapToLittleEndian(reinterpret_cast<void*>(p),
-                                                     &data, 1);
+    memcpy(p, &data, sizeof(T));
     return true;
   }
 
@@ -298,7 +297,7 @@ struct ObjLiteralWriter : private ObjLiteralWriterBase {
     // Only valid in object-mode.
     setPropNameNoDuplicateCheck(parserAtoms, propName);
 
-    if (flags_.contains(ObjLiteralFlag::HasIndexOrDuplicatePropName)) {
+    if (flags_.hasFlag(ObjLiteralFlag::HasIndexOrDuplicatePropName)) {
       return true;
     }
 
@@ -319,20 +318,20 @@ struct ObjLiteralWriter : private ObjLiteralWriterBase {
       frontend::ParserAtomsTable& parserAtoms,
       const frontend::TaggedParserAtomIndex propName) {
     // Only valid in object-mode.
-    MOZ_ASSERT(!flags_.contains(ObjLiteralFlag::Array));
+    MOZ_ASSERT(!flags_.hasFlag(ObjLiteralFlag::Array));
     parserAtoms.markUsedByStencil(propName);
     nextKey_ = ObjLiteralKey::fromPropName(propName);
   }
   void setPropIndex(uint32_t propIndex) {
     // Only valid in object-mode.
-    MOZ_ASSERT(!flags_.contains(ObjLiteralFlag::Array));
+    MOZ_ASSERT(!flags_.hasFlag(ObjLiteralFlag::Array));
     MOZ_ASSERT(propIndex <= ATOM_INDEX_MASK);
     nextKey_ = ObjLiteralKey::fromArrayIndex(propIndex);
-    flags_ += ObjLiteralFlag::HasIndexOrDuplicatePropName;
+    flags_.setFlag(ObjLiteralFlag::HasIndexOrDuplicatePropName);
   }
   void beginDenseArrayElements() {
     // Only valid in array-mode.
-    MOZ_ASSERT(flags_.contains(ObjLiteralFlag::Array));
+    MOZ_ASSERT(flags_.hasFlag(ObjLiteralFlag::Array));
     // Dense array element sequences do not use the keys; the indices are
     // implicit.
     nextKey_ = ObjLiteralKey::none();
@@ -377,9 +376,9 @@ struct ObjLiteralWriter : private ObjLiteralWriterBase {
 #if defined(DEBUG) || defined(JS_JITSPEW)
   void dump() const;
   void dump(JSONPrinter& json,
-            const frontend::BaseCompilationStencil* stencil) const;
+            const frontend::CompilationStencil* stencil) const;
   void dumpFields(JSONPrinter& json,
-                  const frontend::BaseCompilationStencil* stencil) const;
+                  const frontend::CompilationStencil* stencil) const;
 #endif
 
  private:
@@ -432,8 +431,7 @@ struct ObjLiteralReaderBase {
     if (!readBytes(sizeof(T), &p)) {
       return false;
     }
-    mozilla::NativeEndian::copyAndSwapFromLittleEndian(
-        data, reinterpret_cast<const void*>(p), 1);
+    memcpy(data, p, sizeof(T));
     return true;
   }
 
@@ -473,6 +471,8 @@ struct ObjLiteralReaderBase {
   [[nodiscard]] bool readAtomArg(frontend::TaggedParserAtomIndex* atomIndex) {
     return readRawData(atomIndex->rawDataRef());
   }
+
+  size_t cursor() const { return cursor_; }
 };
 
 // A single object-literal instruction, creating one property on an object.
@@ -586,6 +586,70 @@ struct ObjLiteralReader : private ObjLiteralReaderBase {
   }
 };
 
+// A class to modify the code, while keeping the structure.
+struct ObjLiteralModifier : private ObjLiteralReaderBase {
+  mozilla::Span<uint8_t> mutableData_;
+
+ public:
+  explicit ObjLiteralModifier(mozilla::Span<uint8_t> data)
+      : ObjLiteralReaderBase(data), mutableData_(data) {}
+
+ private:
+  // Map `atom` with `map`, and write to `atomCursor` of `mutableData_`.
+  template <typename MapT>
+  void mapOneAtom(MapT map, frontend::TaggedParserAtomIndex atom,
+                  size_t atomCursor) {
+    auto atomIndex = map(atom);
+    memcpy(mutableData_.data() + atomCursor, atomIndex.rawDataRef(),
+           sizeof(frontend::TaggedParserAtomIndex));
+  }
+
+  // Map atoms in single instruction.
+  // Return true if it successfully maps.
+  // Return false if there's no more instruction.
+  template <typename MapT>
+  bool mapInsnAtom(MapT map) {
+    ObjLiteralOpcode op;
+    ObjLiteralKey key;
+
+    size_t opCursor = cursor();
+    if (!readOpAndKey(&op, &key)) {
+      return false;
+    }
+    if (key.isAtomIndex()) {
+      static constexpr size_t OpLength = 1;
+      size_t atomCursor = opCursor + OpLength;
+      mapOneAtom(map, key.getAtomIndex(), atomCursor);
+    }
+
+    if (ObjLiteralOpcodeHasValueArg(op)) {
+      JS::Value value;
+      if (!readValueArg(&value)) {
+        return false;
+      }
+    } else if (ObjLiteralOpcodeHasAtomArg(op)) {
+      size_t atomCursor = cursor();
+
+      frontend::TaggedParserAtomIndex atomIndex;
+      if (!readAtomArg(&atomIndex)) {
+        return false;
+      }
+
+      mapOneAtom(map, atomIndex, atomCursor);
+    }
+
+    return true;
+  }
+
+ public:
+  // Map TaggedParserAtomIndex inside the code in place, with given function.
+  template <typename MapT>
+  void mapAtom(MapT map) {
+    while (mapInsnAtom(map)) {
+    }
+  }
+};
+
 class ObjLiteralStencil {
   friend class frontend::StencilXDR;
 
@@ -605,6 +669,10 @@ class ObjLiteralStencil {
   JSObject* create(JSContext* cx,
                    const frontend::CompilationAtomCache& atomCache) const;
 
+  mozilla::Span<const uint8_t> code() const { return code_; }
+  ObjLiteralFlags flags() const { return flags_; }
+  uint32_t propertyCount() const { return propertyCount_; }
+
 #ifdef DEBUG
   bool isContainedIn(const LifoAlloc& alloc) const;
 #endif
@@ -612,9 +680,9 @@ class ObjLiteralStencil {
 #if defined(DEBUG) || defined(JS_JITSPEW)
   void dump() const;
   void dump(JSONPrinter& json,
-            const frontend::BaseCompilationStencil* stencil) const;
+            const frontend::CompilationStencil* stencil) const;
   void dumpFields(JSONPrinter& json,
-                  const frontend::BaseCompilationStencil* stencil) const;
+                  const frontend::CompilationStencil* stencil) const;
 
 #endif
 };

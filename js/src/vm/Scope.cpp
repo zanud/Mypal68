@@ -47,6 +47,10 @@ const char* js::BindingKindString(BindingKind kind) {
       return "const";
     case BindingKind::NamedLambdaCallee:
       return "named lambda callee";
+    case BindingKind::Synthetic:
+      return "synthetic";
+    case BindingKind::PrivateMethod:
+      return "private method";
   }
   MOZ_CRASH("Bad BindingKind");
 }
@@ -91,96 +95,90 @@ const char* js::ScopeKindString(ScopeKind kind) {
 }
 
 Shape* js::EmptyEnvironmentShape(JSContext* cx, const JSClass* cls,
-                                 uint32_t numSlots, uint32_t baseShapeFlags) {
+                                 uint32_t numSlots, ObjectFlags objectFlags) {
   // Put as many slots into the object header as possible.
   uint32_t numFixed = gc::GetGCKindSlots(gc::GetGCObjectKind(numSlots));
-  return EmptyShape::getInitialShape(cx, cls, TaggedProto(nullptr), numFixed,
-                                     baseShapeFlags);
+  return SharedShape::getInitialShape(
+      cx, cls, cx->realm(), TaggedProto(nullptr), numFixed, objectFlags);
 }
 
-static Shape* NextEnvironmentShape(JSContext* cx, HandleAtom name,
-                                   BindingKind bindKind, uint32_t slot,
-                                   StackBaseShape& stackBase,
-                                   HandleShape shape) {
-  UnownedBaseShape* base = BaseShape::getUnowned(cx, stackBase);
-  if (!base) {
-    return nullptr;
-  }
-
-  unsigned attrs = JSPROP_PERMANENT | JSPROP_ENUMERATE;
+static bool AddToEnvironmentMap(JSContext* cx, const JSClass* clasp,
+                                HandleId id, BindingKind bindKind,
+                                uint32_t slot,
+                                MutableHandle<SharedPropMap*> map,
+                                uint32_t* mapLength, ObjectFlags* objectFlags) {
+  PropertyFlags propFlags = {PropertyFlag::Enumerable};
   switch (bindKind) {
     case BindingKind::Const:
     case BindingKind::NamedLambdaCallee:
-      attrs |= JSPROP_READONLY;
+      // Non-writable.
       break;
     default:
+      propFlags.setFlag(PropertyFlag::Writable);
       break;
   }
 
-  jsid id = NameToId(name->asPropertyName());
-  Rooted<StackShape> child(cx, StackShape(base, id, slot, attrs));
-  return cx->zone()->propertyTree().getChild(cx, shape, child);
+  return SharedPropMap::addPropertyWithKnownSlot(cx, clasp, map, mapLength, id,
+                                                 propFlags, slot, objectFlags);
 }
 
 Shape* js::CreateEnvironmentShape(JSContext* cx, BindingIter& bi,
                                   const JSClass* cls, uint32_t numSlots,
-                                  uint32_t baseShapeFlags) {
-  RootedShape shape(cx,
-                    EmptyEnvironmentShape(cx, cls, numSlots, baseShapeFlags));
-  if (!shape) {
-    return nullptr;
-  }
+                                  ObjectFlags objectFlags) {
+  Rooted<SharedPropMap*> map(cx);
+  uint32_t mapLength = 0;
 
-  RootedAtom name(cx);
-  StackBaseShape stackBase(cls, baseShapeFlags);
+  RootedId id(cx);
   for (; bi; bi++) {
     BindingLocation loc = bi.location();
     if (loc.kind() == BindingLocation::Kind::Environment) {
-      name = bi.name();
+      JSAtom* name = bi.name();
       cx->markAtom(name);
-      shape = NextEnvironmentShape(cx, name, bi.kind(), loc.slot(), stackBase,
-                                   shape);
-      if (!shape) {
+      id = NameToId(name->asPropertyName());
+      if (!AddToEnvironmentMap(cx, cls, id, bi.kind(), loc.slot(), &map,
+                               &mapLength, &objectFlags)) {
         return nullptr;
       }
     }
   }
 
-  return shape;
+  uint32_t numFixed = gc::GetGCKindSlots(gc::GetGCObjectKind(numSlots));
+  return SharedShape::getInitialOrPropMapShape(cx, cls, cx->realm(),
+                                               TaggedProto(nullptr), numFixed,
+                                               map, mapLength, objectFlags);
 }
 
 Shape* js::CreateEnvironmentShape(
     JSContext* cx, frontend::CompilationAtomCache& atomCache,
     AbstractBindingIter<frontend::TaggedParserAtomIndex>& bi,
-    const JSClass* cls, uint32_t numSlots, uint32_t baseShapeFlags) {
-  RootedShape shape(cx,
-                    EmptyEnvironmentShape(cx, cls, numSlots, baseShapeFlags));
-  if (!shape) {
-    return nullptr;
-  }
+    const JSClass* cls, uint32_t numSlots, ObjectFlags objectFlags) {
+  Rooted<SharedPropMap*> map(cx);
+  uint32_t mapLength = 0;
 
-  RootedAtom name(cx);
-  StackBaseShape stackBase(cls, baseShapeFlags);
+  RootedId id(cx);
   for (; bi; bi++) {
     BindingLocation loc = bi.location();
     if (loc.kind() == BindingLocation::Kind::Environment) {
-      name = atomCache.getExistingAtomAt(cx, bi.name());
+      JSAtom* name = atomCache.getExistingAtomAt(cx, bi.name());
       MOZ_ASSERT(name);
       cx->markAtom(name);
-      shape = NextEnvironmentShape(cx, name, bi.kind(), loc.slot(), stackBase,
-                                   shape);
-      if (!shape) {
+      id = NameToId(name->asPropertyName());
+      if (!AddToEnvironmentMap(cx, cls, id, bi.kind(), loc.slot(), &map,
+                               &mapLength, &objectFlags)) {
         return nullptr;
       }
     }
   }
 
-  return shape;
+  uint32_t numFixed = gc::GetGCKindSlots(gc::GetGCObjectKind(numSlots));
+  return SharedShape::getInitialOrPropMapShape(cx, cls, cx->realm(),
+                                               TaggedProto(nullptr), numFixed,
+                                               map, mapLength, objectFlags);
 }
 
 template <class DataT>
 inline size_t SizeOfAllocatedData(DataT* data) {
-  return SizeOfScopeData<DataT>(data->slotInfo.length);
+  return SizeOfScopeData<DataT>(data->length);
 }
 
 template <typename ConcreteScope>
@@ -190,10 +188,9 @@ static UniquePtr<typename ConcreteScope::RuntimeData> CopyScopeData(
 
   // Make sure the binding names are marked in the context's zone, if we are
   // copying data from another zone.
-  BindingName* names = data->trailingNames.start();
-  uint32_t length = data->slotInfo.length;
-  for (size_t i = 0; i < length; i++) {
-    if (JSAtom* name = names[i].name()) {
+  auto names = GetScopeDataTrailingNames(data);
+  for (auto binding : names) {
+    if (JSAtom* name = binding.name()) {
       cx->markAtom(name);
     }
   }
@@ -206,8 +203,9 @@ static UniquePtr<typename ConcreteScope::RuntimeData> CopyScopeData(
 
   auto* dataCopy = new (bytes) Data(*data);
 
-  std::uninitialized_copy_n(data->trailingNames.start(), data->slotInfo.length,
-                            dataCopy->trailingNames.start());
+  std::uninitialized_copy_n(GetScopeDataTrailingNamesPointer(data),
+                            data->length,
+                            GetScopeDataTrailingNamesPointer(dataCopy));
 
   return UniquePtr<Data>(dataCopy);
 }
@@ -216,10 +214,9 @@ template <typename ConcreteScope>
 static void MarkParserScopeData(JSContext* cx,
                                 typename ConcreteScope::ParserData* data,
                                 frontend::CompilationState& compilationState) {
-  auto* names = data->trailingNames.start();
-  uint32_t length = data->slotInfo.length;
-  for (size_t i = 0; i < length; i++) {
-    auto index = names[i].name();
+  auto names = GetScopeDataTrailingNames(data);
+  for (auto& binding : names) {
+    auto index = binding.name();
     if (!index) {
       continue;
     }
@@ -230,17 +227,17 @@ static void MarkParserScopeData(JSContext* cx,
 static bool SetEnvironmentShape(JSContext* cx, BindingIter& freshBi,
                                 BindingIter& bi, const JSClass* cls,
                                 uint32_t firstFrameSlot,
-                                uint32_t baseShapeFlags,
+                                ObjectFlags objectFlags,
                                 MutableHandleShape envShape) {
-  envShape.set(CreateEnvironmentShape(
-      cx, freshBi, cls, bi.nextEnvironmentSlot(), baseShapeFlags));
+  envShape.set(CreateEnvironmentShape(cx, freshBi, cls,
+                                      bi.nextEnvironmentSlot(), objectFlags));
   return envShape;
 }
 
 static bool SetEnvironmentShape(JSContext* cx, ParserBindingIter& freshBi,
                                 ParserBindingIter& bi, const JSClass* cls,
                                 uint32_t firstFrameSlot,
-                                uint32_t baseShapeFlags,
+                                ObjectFlags objectFlags,
                                 mozilla::Maybe<uint32_t>* envShape) {
   envShape->emplace(bi.nextEnvironmentSlot());
   return true;
@@ -253,7 +250,7 @@ static bool PrepareScopeData(
     typename MaybeRootedScopeData<ConcreteScope, AtomT>::HandleType data,
     uint32_t firstFrameSlot, ShapeT envShape) {
   const JSClass* cls = &EnvironmentT::class_;
-  uint32_t baseShapeFlags = EnvironmentT::BASESHAPE_FLAGS;
+  constexpr ObjectFlags objectFlags = EnvironmentT::OBJECT_FLAGS;
 
   // Copy a fresh BindingIter for use below.
   AbstractBindingIter<AtomT> freshBi(bi);
@@ -271,8 +268,8 @@ static bool PrepareScopeData(
 
   // Make a new environment shape if any environment slots were used.
   if (bi.nextEnvironmentSlot() != JSSLOT_FREE(cls)) {
-    if (!SetEnvironmentShape(cx, freshBi, bi, cls, firstFrameSlot,
-                             baseShapeFlags, envShape)) {
+    if (!SetEnvironmentShape(cx, freshBi, bi, cls, firstFrameSlot, objectFlags,
+                             envShape)) {
       return false;
     }
   }
@@ -320,12 +317,11 @@ static UniquePtr<typename ConcreteScope::RuntimeData> LiftParserScopeData(
   // Convert all scope ParserAtoms to rooted JSAtoms.
   // Rooting is necessary as conversion can gc.
   JS::RootedVector<JSAtom*> jsatoms(cx);
-  if (!jsatoms.reserve(data->slotInfo.length)) {
+  if (!jsatoms.reserve(data->length)) {
     return nullptr;
   }
-  auto* names = data->trailingNames.start();
-  uint32_t length = data->slotInfo.length;
-  for (size_t i = 0; i < length; i++) {
+  auto names = GetScopeDataTrailingNames(data);
+  for (size_t i = 0; i < names.size(); i++) {
     JSAtom* jsatom = nullptr;
     if (names[i].name()) {
       jsatom = atomCache.getExistingAtomAt(cx, names[i].name());
@@ -336,17 +332,22 @@ static UniquePtr<typename ConcreteScope::RuntimeData> LiftParserScopeData(
 
   // Allocate a new scope-data of the right kind.
   UniquePtr<ConcreteData> scopeData(
-      NewEmptyScopeData<ConcreteScope, JSAtom>(cx, data->slotInfo.length));
+      NewEmptyScopeData<ConcreteScope, JSAtom>(cx, data->length));
   if (!scopeData) {
     return nullptr;
   }
+
+  // NOTE: There shouldn't be any fallible operation or GC between setting
+  //       `length` and filling `trailingNames`.
+  scopeData.get()->length = data->length;
 
   memcpy(&scopeData.get()->slotInfo, &data->slotInfo,
          sizeof(typename ConcreteScope::SlotInfo));
 
   // Initialize new scoped names.
-  auto* namesOut = scopeData->trailingNames.start();
-  for (size_t i = 0; i < length; i++) {
+  auto namesOut = GetScopeDataTrailingNames(scopeData.get());
+  MOZ_ASSERT(data->length == namesOut.size());
+  for (size_t i = 0; i < namesOut.size(); i++) {
     namesOut[i] = names[i].copyWithNewAtom(jsatoms[i].get());
   }
 
@@ -407,7 +408,7 @@ XDRResult Scope::XDRSizedBindingNames(
 
   uint32_t length;
   if (mode == XDR_ENCODE) {
-    length = scope->data().slotInfo.length;
+    length = scope->data().length;
   }
   MOZ_TRY(xdr->codeUint32(&length));
 
@@ -427,14 +428,13 @@ XDRResult Scope::XDRSizedBindingNames(
     }
   });
 
+  BindingName* names = GetScopeDataTrailingNamesPointer(data.get());
   for (uint32_t i = 0; i < length; i++) {
     if (mode == XDR_DECODE) {
-      MOZ_ASSERT(i == data->slotInfo.length, "must be decoding at the end");
+      MOZ_ASSERT(i == data->length, "must be decoding at the end");
     }
-    MOZ_TRY(
-        XDRTrailingName(xdr, &data->trailingNames[i], &data->slotInfo.length));
+    MOZ_TRY(XDRTrailingName(xdr, &names[i], &data->length));
   }
-  MOZ_ASSERT(data->slotInfo.length == length);
 
   dataGuard.release();
   return Ok();
@@ -508,7 +508,6 @@ uint32_t Scope::firstFrameSlot() const {
     case ScopeKind::SimpleCatch:
     case ScopeKind::Catch:
     case ScopeKind::FunctionLexical:
-    case ScopeKind::ClassBody:
       // For intra-frame scopes, find the enclosing scope's next frame slot.
       MOZ_ASSERT(is<LexicalScope>());
       return LexicalScope::nextFrameSlot(enclosing());
@@ -517,6 +516,10 @@ uint32_t Scope::firstFrameSlot() const {
     case ScopeKind::StrictNamedLambda:
       // Named lambda scopes cannot have frame slots.
       return LOCALNO_LIMIT;
+
+    case ScopeKind::ClassBody:
+      MOZ_ASSERT(is<ClassBodyScope>());
+      return ClassBodyScope::nextFrameSlot(enclosing());
 
     case ScopeKind::FunctionBodyVar:
       if (enclosing()->is<FunctionScope>()) {
@@ -549,12 +552,12 @@ uint32_t Scope::environmentChainLength() const {
 }
 
 Shape* Scope::maybeCloneEnvironmentShape(JSContext* cx) {
-  // Clone the environment shape if cloning into a different zone.
+  // Clone the environment shape if cloning into a different realm.
   Shape* shape = environmentShape();
-  if (shape && shape->zoneFromAnyThread() != cx->zone()) {
+  if (shape && shape->realm() != cx->realm()) {
     BindingIter bi(this);
     return CreateEnvironmentShape(cx, bi, shape->getObjectClass(),
-                                  shape->slotSpan(), shape->getObjectFlags());
+                                  shape->slotSpan(), shape->objectFlags());
   }
   return shape;
 }
@@ -600,8 +603,7 @@ Scope* Scope::clone(JSContext* cx, HandleScope scope, HandleScope enclosing) {
     case ScopeKind::Catch:
     case ScopeKind::NamedLambda:
     case ScopeKind::StrictNamedLambda:
-    case ScopeKind::FunctionLexical:
-    case ScopeKind::ClassBody: {
+    case ScopeKind::FunctionLexical: {
       Rooted<UniquePtr<LexicalScope::RuntimeData>> dataClone(cx);
       dataClone =
           CopyScopeData<LexicalScope>(cx, &scope->as<LexicalScope>().data());
@@ -610,6 +612,17 @@ Scope* Scope::clone(JSContext* cx, HandleScope scope, HandleScope enclosing) {
       }
       return create<LexicalScope>(cx, scope->kind_, enclosing, envShape,
                                   &dataClone);
+    }
+
+    case ScopeKind::ClassBody: {
+      Rooted<UniquePtr<ClassBodyScope::RuntimeData>> dataClone(cx);
+      dataClone = CopyScopeData<ClassBodyScope>(
+          cx, &scope->as<ClassBodyScope>().data());
+      if (!dataClone) {
+        return nullptr;
+      }
+      return create<ClassBodyScope>(cx, scope->kind_, enclosing, envShape,
+                                    &dataClone);
     }
 
     case ScopeKind::With:
@@ -766,8 +779,7 @@ bool Scope::dumpForDisassemble(JSContext* cx, JS::Handle<Scope*> scope,
 
 #endif /* defined(DEBUG) || defined(JS_JITSPEW) */
 
-/* static */
-uint32_t LexicalScope::nextFrameSlot(Scope* scope) {
+static uint32_t NextFrameSlot(Scope* scope) {
   for (ScopeIter si(scope); si; si++) {
     switch (si.kind()) {
       case ScopeKind::With:
@@ -783,8 +795,10 @@ uint32_t LexicalScope::nextFrameSlot(Scope* scope) {
       case ScopeKind::SimpleCatch:
       case ScopeKind::Catch:
       case ScopeKind::FunctionLexical:
-      case ScopeKind::ClassBody:
         return si.scope()->as<LexicalScope>().nextFrameSlot();
+
+      case ScopeKind::ClassBody:
+        return si.scope()->as<ClassBodyScope>().nextFrameSlot();
 
       case ScopeKind::NamedLambda:
       case ScopeKind::StrictNamedLambda:
@@ -811,6 +825,16 @@ uint32_t LexicalScope::nextFrameSlot(Scope* scope) {
   MOZ_CRASH("Not an enclosing intra-frame Scope");
 }
 
+/* static */
+uint32_t LexicalScope::nextFrameSlot(Scope* scope) {
+  return NextFrameSlot(scope);
+}
+
+/* static */
+uint32_t ClassBodyScope::nextFrameSlot(Scope* scope) {
+  return NextFrameSlot(scope);
+}
+
 template <typename AtomT, typename ShapeT>
 bool LexicalScope::prepareForScopeCreation(
     JSContext* cx, ScopeKind kind, uint32_t firstFrameSlot,
@@ -822,7 +846,7 @@ bool LexicalScope::prepareForScopeCreation(
   MOZ_ASSERT_IF(isNamedLambda, firstFrameSlot == LOCALNO_LIMIT);
 
   AbstractBindingIter<AtomT> bi(*data, firstFrameSlot, isNamedLambda);
-  if (!PrepareScopeData<LexicalScope, AtomT, LexicalEnvironmentObject>(
+  if (!PrepareScopeData<LexicalScope, AtomT, BlockLexicalEnvironmentObject>(
           cx, bi, data, firstFrameSlot, envShape)) {
     return false;
   }
@@ -852,8 +876,7 @@ LexicalScope* LexicalScope::createWithData(
 /* static */
 Shape* LexicalScope::getEmptyExtensibleEnvironmentShape(JSContext* cx) {
   const JSClass* cls = &LexicalEnvironmentObject::class_;
-  return EmptyEnvironmentShape(cx, cls, JSSLOT_FREE(cls),
-                               /* baseShapeFlags = */ 0);
+  return EmptyEnvironmentShape(cx, cls, JSSLOT_FREE(cls), ObjectFlags());
 }
 
 template <XDRMode mode>
@@ -910,6 +933,94 @@ template
     XDRResult
     LexicalScope::XDR(XDRState<XDR_DECODE>* xdr, ScopeKind kind,
                       HandleScope enclosing, MutableHandleScope scope);
+
+template <typename AtomT, typename ShapeT>
+bool ClassBodyScope::prepareForScopeCreation(
+    JSContext* cx, ScopeKind kind, uint32_t firstFrameSlot,
+    typename MaybeRootedScopeData<ClassBodyScope, AtomT>::MutableHandleType
+        data,
+    ShapeT envShape) {
+  MOZ_ASSERT(kind == ScopeKind::ClassBody);
+
+  AbstractBindingIter<AtomT> bi(*data, firstFrameSlot);
+  return PrepareScopeData<ClassBodyScope, AtomT, BlockLexicalEnvironmentObject>(
+      cx, bi, data, firstFrameSlot, envShape);
+}
+
+/* static */
+ClassBodyScope* ClassBodyScope::createWithData(
+    JSContext* cx, ScopeKind kind, MutableHandle<UniquePtr<RuntimeData>> data,
+    uint32_t firstFrameSlot, HandleScope enclosing) {
+  RootedShape envShape(cx);
+
+  if (!prepareForScopeCreation<JSAtom>(cx, kind, firstFrameSlot, data,
+                                       &envShape)) {
+    return nullptr;
+  }
+
+  auto* scope =
+      Scope::create<ClassBodyScope>(cx, kind, enclosing, envShape, data);
+  if (!scope) {
+    return nullptr;
+  }
+
+  MOZ_ASSERT(scope->firstFrameSlot() == firstFrameSlot);
+  return scope;
+}
+
+template <XDRMode mode>
+/* static */
+XDRResult ClassBodyScope::XDR(XDRState<mode>* xdr, ScopeKind kind,
+                              HandleScope enclosing, MutableHandleScope scope) {
+  JSContext* cx = xdr->cx();
+
+  Rooted<RuntimeData*> data(cx);
+  MOZ_TRY(XDRSizedBindingNames<ClassBodyScope>(xdr, scope.as<ClassBodyScope>(),
+                                               &data));
+
+  {
+    Maybe<Rooted<UniquePtr<RuntimeData>>> uniqueData;
+    if (mode == XDR_DECODE) {
+      uniqueData.emplace(cx, data);
+    }
+
+    uint32_t firstFrameSlot;
+    uint32_t nextFrameSlot;
+    if (mode == XDR_ENCODE) {
+      firstFrameSlot = scope->firstFrameSlot();
+      nextFrameSlot = data->slotInfo.nextFrameSlot;
+    }
+
+    MOZ_TRY(xdr->codeUint32(&firstFrameSlot));
+    MOZ_TRY(xdr->codeUint32(&nextFrameSlot));
+
+    if (mode == XDR_DECODE) {
+      scope.set(createWithData(cx, kind, &uniqueData.ref(), firstFrameSlot,
+                               enclosing));
+      if (!scope) {
+        return xdr->fail(JS::TranscodeResult::Throw);
+      }
+
+      // nextFrameSlot is used only for this correctness check.
+      MOZ_ASSERT(nextFrameSlot ==
+                 scope->as<ClassBodyScope>().data().slotInfo.nextFrameSlot);
+    }
+  }
+
+  return Ok();
+}
+
+template
+    /* static */
+    XDRResult
+    ClassBodyScope::XDR(XDRState<XDR_ENCODE>* xdr, ScopeKind kind,
+                        HandleScope enclosing, MutableHandleScope scope);
+
+template
+    /* static */
+    XDRResult
+    ClassBodyScope::XDR(XDRState<XDR_DECODE>* xdr, ScopeKind kind,
+                        HandleScope enclosing, MutableHandleScope scope);
 
 static void SetCanonicalFunction(FunctionScope::RuntimeData& data,
                                  HandleFunction fun) {
@@ -1040,7 +1151,7 @@ XDRResult FunctionScope::XDR(XDRState<mode>* xdr, HandleFunction fun,
     MOZ_TRY(xdr->codeUint32(&nextFrameSlot));
 
     if (mode == XDR_DECODE) {
-      if (!data->slotInfo.length) {
+      if (!data->length) {
         MOZ_ASSERT(!data->slotInfo.nonPositionalFormalStart);
         MOZ_ASSERT(!data->slotInfo.varStart);
         MOZ_ASSERT(!data->slotInfo.nextFrameSlot);
@@ -1136,7 +1247,7 @@ XDRResult VarScope::XDR(XDRState<mode>* xdr, ScopeKind kind,
     MOZ_TRY(xdr->codeUint32(&nextFrameSlot));
 
     if (mode == XDR_DECODE) {
-      if (!data->slotInfo.length) {
+      if (!data->length) {
         MOZ_ASSERT(!data->slotInfo.nextFrameSlot);
       }
 
@@ -1227,7 +1338,7 @@ XDRResult GlobalScope::XDR(XDRState<mode>* xdr, ScopeKind kind,
     MOZ_TRY(xdr->codeUint32(&data->slotInfo.constStart));
 
     if (mode == XDR_DECODE) {
-      if (!data->slotInfo.length) {
+      if (!data->length) {
         MOZ_ASSERT(!data->slotInfo.letStart);
         MOZ_ASSERT(!data->slotInfo.constStart);
       }
@@ -1301,12 +1412,7 @@ bool EvalScope::prepareForScopeCreation(
     }
   }
 
-  // Strict eval and direct eval in parameter expressions always get their own
-  // var environment even if there are no bindings.
-  bool needsEnvironment = (scopeKind == ScopeKind::StrictEval);
-
-  return updateEnvShapeIfRequired<VarEnvironmentObject>(cx, envShape,
-                                                        needsEnvironment);
+  return true;
 }
 
 /* static */
@@ -1355,7 +1461,7 @@ XDRResult EvalScope::XDR(XDRState<mode>* xdr, ScopeKind kind,
     MOZ_TRY(XDRSizedBindingNames<EvalScope>(xdr, scope.as<EvalScope>(), &data));
 
     if (mode == XDR_DECODE) {
-      if (!data->slotInfo.length) {
+      if (!data->length) {
         MOZ_ASSERT(!data->slotInfo.nextFrameSlot);
       }
       scope.set(createWithData(cx, kind, &uniqueData.ref(), enclosing));
@@ -1380,8 +1486,9 @@ template
     EvalScope::XDR(XDRState<XDR_DECODE>* xdr, ScopeKind kind,
                    HandleScope enclosing, MutableHandleScope scope);
 
-ModuleScope::RuntimeData::RuntimeData(size_t nameCount)
-    : trailingNames(nameCount) {}
+ModuleScope::RuntimeData::RuntimeData(size_t length) {
+  PoisonNames(this, length);
+}
 
 static void InitModule(ModuleScope::RuntimeData& data,
                        HandleModuleObject module) {
@@ -1470,7 +1577,7 @@ XDRResult ModuleScope::XDR(XDRState<mode>* xdr, HandleModuleObject module,
     MOZ_TRY(xdr->codeUint32(&nextFrameSlot));
 
     if (mode == XDR_DECODE) {
-      if (!data->slotInfo.length) {
+      if (!data->length) {
         MOZ_ASSERT(!data->slotInfo.varStart);
         MOZ_ASSERT(!data->slotInfo.letStart);
         MOZ_ASSERT(!data->slotInfo.constStart);
@@ -1503,8 +1610,8 @@ template
     ModuleScope::XDR(XDRState<XDR_DECODE>* xdr, HandleModuleObject module,
                      HandleScope enclosing, MutableHandleScope scope);
 
-static void InitializeTrailingName(
-    AbstractTrailingNamesArray<JSAtom>& trailingNames, size_t i, JSAtom* name) {
+static void InitializeTrailingName(AbstractBindingName<JSAtom>* trailingNames,
+                                   size_t i, JSAtom* name) {
   void* trailingName = &trailingNames[i];
   new (trailingName) BindingName(name, false);
 }
@@ -1512,12 +1619,14 @@ static void InitializeTrailingName(
 template <class DataT>
 static void InitializeNextTrailingName(const Rooted<UniquePtr<DataT>>& data,
                                        JSAtom* name) {
-  InitializeTrailingName(data->trailingNames, data->slotInfo.length, name);
-  data->slotInfo.length++;
+  InitializeTrailingName(GetScopeDataTrailingNamesPointer(data.get().get()),
+                         data->length, name);
+  data->length++;
 }
 
-WasmInstanceScope::RuntimeData::RuntimeData(size_t nameCount)
-    : trailingNames(nameCount) {}
+WasmInstanceScope::RuntimeData::RuntimeData(size_t length) {
+  PoisonNames(this, length);
+}
 
 /* static */
 WasmInstanceScope* WasmInstanceScope::create(JSContext* cx,
@@ -1554,7 +1663,7 @@ WasmInstanceScope* WasmInstanceScope::create(JSContext* cx,
     InitializeNextTrailingName(data, wasmName);
   }
 
-  MOZ_ASSERT(data->slotInfo.length == namesCount);
+  MOZ_ASSERT(data->length == namesCount);
 
   data->instance.init(instance);
   data->slotInfo.globalsStart = globalsStart;
@@ -1600,7 +1709,7 @@ WasmFunctionScope* WasmFunctionScope::create(JSContext* cx,
 
     InitializeNextTrailingName(data, wasmName);
   }
-  MOZ_ASSERT(data->slotInfo.length == namesCount);
+  MOZ_ASSERT(data->length == namesCount);
 
   return Scope::create<WasmFunctionScope>(cx, ScopeKind::WasmFunction,
                                           enclosing,
@@ -1623,13 +1732,15 @@ AbstractBindingIter<JSAtom>::AbstractBindingIter(ScopeKind kind,
     case ScopeKind::SimpleCatch:
     case ScopeKind::Catch:
     case ScopeKind::FunctionLexical:
-    case ScopeKind::ClassBody:
       init(*static_cast<LexicalScope::RuntimeData*>(data), firstFrameSlot, 0);
       break;
     case ScopeKind::NamedLambda:
     case ScopeKind::StrictNamedLambda:
       init(*static_cast<LexicalScope::RuntimeData*>(data), LOCALNO_LIMIT,
            IsNamedLambda);
+      break;
+    case ScopeKind::ClassBody:
+      init(*static_cast<ClassBodyScope::RuntimeData*>(data), firstFrameSlot);
       break;
     case ScopeKind::With:
       // With scopes do not have bindings.
@@ -1687,20 +1798,39 @@ void BaseAbstractBindingIter<NameT>::init(
   if (flags & IsNamedLambda) {
     // Named lambda binding is weird. Normal BindingKind ordering rules
     // don't apply.
-    init(0, 0, 0, 0, 0, CanHaveEnvironmentSlots | flags, firstFrameSlot,
+    init(/* positionalFormalStart= */ 0,
+         /* nonPositionalFormalStart= */ 0,
+         /* varStart= */ 0,
+         /* letStart= */ 0,
+         /* constStart= */ 0,
+         /* syntheticStart= */ data.length,
+         /* privageMethodStart= */ data.length,
+         /* flags= */ CanHaveEnvironmentSlots | flags,
+         /* firstFrameSlot= */ firstFrameSlot,
+         /* firstEnvironmentSlot= */
          JSSLOT_FREE(&LexicalEnvironmentObject::class_),
-         data.trailingNames.start(), slotInfo.length);
+         /* names= */ GetScopeDataTrailingNames(&data));
   } else {
     //            imports - [0, 0)
     // positional formals - [0, 0)
     //      other formals - [0, 0)
     //               vars - [0, 0)
     //               lets - [0, slotInfo.constStart)
-    //             consts - [slotInfo.constStart, slotInfo.length)
-    init(0, 0, 0, 0, slotInfo.constStart,
-         CanHaveFrameSlots | CanHaveEnvironmentSlots | flags, firstFrameSlot,
+    //             consts - [slotInfo.constStart, data.length)
+    //          synthetic - [data.length, data.length)
+    //    private methods - [data.length, data.length)
+    init(/* positionalFormalStart= */ 0,
+         /* nonPositionalFormalStart= */ 0,
+         /* varStart= */ 0,
+         /* letStart= */ 0,
+         /* constStart= */ slotInfo.constStart,
+         /* syntheticStart= */ data.length,
+         /* privateMethodStart= */ data.length,
+         /* flags= */ CanHaveFrameSlots | CanHaveEnvironmentSlots | flags,
+         /* firstFrameSlot= */ firstFrameSlot,
+         /* firstEnvironmentSlot= */
          JSSLOT_FREE(&LexicalEnvironmentObject::class_),
-         data.trailingNames.start(), slotInfo.length);
+         /* names= */ GetScopeDataTrailingNames(&data));
   }
 }
 
@@ -1712,23 +1842,66 @@ template void BaseAbstractBindingIter<frontend::TaggedParserAtomIndex>::init(
 
 template <typename NameT>
 void BaseAbstractBindingIter<NameT>::init(
+    ClassBodyScope::AbstractData<NameT>& data, uint32_t firstFrameSlot) {
+  auto& slotInfo = data.slotInfo;
+
+  //            imports - [0, 0)
+  // positional formals - [0, 0)
+  //      other formals - [0, 0)
+  //               vars - [0, 0)
+  //               lets - [0, 0)
+  //             consts - [0, 0)
+  //          synthetic - [0, slotInfo.privateMethodStart)
+  //    private methods - [slotInfo.privateMethodStart, data.length)
+  init(/* positionalFormalStart= */ 0,
+       /* nonPositionalFormalStart= */ 0,
+       /* varStart= */ 0,
+       /* letStart= */ 0,
+       /* constStart= */ 0,
+       /* syntheticStart= */ 0,
+       /* privateMethodStart= */ slotInfo.privateMethodStart,
+       /* flags= */ CanHaveFrameSlots | CanHaveEnvironmentSlots,
+       /* firstFrameSlot= */ firstFrameSlot,
+       /* firstEnvironmentSlot= */
+       JSSLOT_FREE(&ClassBodyLexicalEnvironmentObject::class_),
+       /* names= */ GetScopeDataTrailingNames(&data));
+}
+
+template void BaseAbstractBindingIter<JSAtom>::init(
+    ClassBodyScope::AbstractData<JSAtom>&, uint32_t);
+template void BaseAbstractBindingIter<frontend::TaggedParserAtomIndex>::init(
+    ClassBodyScope::AbstractData<frontend::TaggedParserAtomIndex>&, uint32_t);
+
+template <typename NameT>
+void BaseAbstractBindingIter<NameT>::init(
     FunctionScope::AbstractData<NameT>& data, uint8_t flags) {
   flags = CanHaveFrameSlots | CanHaveEnvironmentSlots | flags;
   if (!(flags & HasFormalParameterExprs)) {
     flags |= CanHaveArgumentSlots;
   }
 
+  auto length = data.length;
   auto& slotInfo = data.slotInfo;
 
   //            imports - [0, 0)
   // positional formals - [0, slotInfo.nonPositionalFormalStart)
   //      other formals - [slotInfo.nonPositionalParamStart, slotInfo.varStart)
-  //               vars - [slotInfo.varStart, slotInfo.length)
-  //               lets - [slotInfo.length, slotInfo.length)
-  //             consts - [slotInfo.length, slotInfo.length)
-  init(0, slotInfo.nonPositionalFormalStart, slotInfo.varStart, slotInfo.length,
-       slotInfo.length, flags, 0, JSSLOT_FREE(&CallObject::class_),
-       data.trailingNames.start(), slotInfo.length);
+  //               vars - [slotInfo.varStart, length)
+  //               lets - [length, length)
+  //             consts - [length, length)
+  //          synthetic - [length, length)
+  //    private methods - [length, length)
+  init(/* positionalFormalStart= */ 0,
+       /* nonPositionalFormalStart= */ slotInfo.nonPositionalFormalStart,
+       /* varStart= */ slotInfo.varStart,
+       /* letStart= */ length,
+       /* constStart= */ length,
+       /* syntheticStart= */ length,
+       /* privateMethodStart= */ length,
+       /* flags= */ flags,
+       /* firstFrameSlot= */ 0,
+       /* firstEnvironmentSlot= */ JSSLOT_FREE(&CallObject::class_),
+       /* names= */ GetScopeDataTrailingNames(&data));
 }
 template void BaseAbstractBindingIter<JSAtom>::init(
     FunctionScope::AbstractData<JSAtom>&, uint8_t);
@@ -1738,18 +1911,27 @@ template void BaseAbstractBindingIter<frontend::TaggedParserAtomIndex>::init(
 template <typename NameT>
 void BaseAbstractBindingIter<NameT>::init(VarScope::AbstractData<NameT>& data,
                                           uint32_t firstFrameSlot) {
-  auto& slotInfo = data.slotInfo;
+  auto length = data.length;
 
   //            imports - [0, 0)
   // positional formals - [0, 0)
   //      other formals - [0, 0)
-  //               vars - [0, slotInfo.length)
-  //               lets - [slotInfo.length, slotInfo.length)
-  //             consts - [slotInfo.length, slotInfo.length)
-  init(0, 0, 0, slotInfo.length, slotInfo.length,
-       CanHaveFrameSlots | CanHaveEnvironmentSlots, firstFrameSlot,
-       JSSLOT_FREE(&VarEnvironmentObject::class_), data.trailingNames.start(),
-       slotInfo.length);
+  //               vars - [0, length)
+  //               lets - [length, length)
+  //             consts - [length, length)
+  //          synthetic - [length, length)
+  //    private methods - [length, length)
+  init(/* positionalFormalStart= */ 0,
+       /* nonPositionalFormalStart= */ 0,
+       /* varStart= */ 0,
+       /* letStart= */ length,
+       /* constStart= */ length,
+       /* syntheticStart= */ length,
+       /* privateMethodStart= */ length,
+       /* flags= */ CanHaveFrameSlots | CanHaveEnvironmentSlots,
+       /* firstFrameSlot= */ firstFrameSlot,
+       /* firstEnvironmentSlot= */ JSSLOT_FREE(&VarEnvironmentObject::class_),
+       /* names= */ GetScopeDataTrailingNames(&data));
 }
 template void BaseAbstractBindingIter<JSAtom>::init(
     VarScope::AbstractData<JSAtom>&, uint32_t);
@@ -1766,9 +1948,20 @@ void BaseAbstractBindingIter<NameT>::init(
   //      other formals - [0, 0)
   //               vars - [0, slotInfo.letStart)
   //               lets - [slotInfo.letStart, slotInfo.constStart)
-  //             consts - [slotInfo.constStart, slotInfo.length)
-  init(0, 0, 0, slotInfo.letStart, slotInfo.constStart, CannotHaveSlots,
-       UINT32_MAX, UINT32_MAX, data.trailingNames.start(), slotInfo.length);
+  //             consts - [slotInfo.constStart, data.length)
+  //          synthetic - [data.length, data.length)
+  //    private methods - [data.length, data.length)
+  init(/* positionalFormalStart= */ 0,
+       /* nonPositionalFormalStart= */ 0,
+       /* varStart= */ 0,
+       /* letStart= */ slotInfo.letStart,
+       /* constStart= */ slotInfo.constStart,
+       /* syntheticStart= */ data.length,
+       /* privateMethoodStart= */ data.length,
+       /* flags= */ CannotHaveSlots,
+       /* firstFrameSlot= */ UINT32_MAX,
+       /* firstEnvironmentSlot= */ UINT32_MAX,
+       /* names= */ GetScopeDataTrailingNames(&data));
 }
 template void BaseAbstractBindingIter<JSAtom>::init(
     GlobalScope::AbstractData<JSAtom>&);
@@ -1791,16 +1984,27 @@ void BaseAbstractBindingIter<NameT>::init(EvalScope::AbstractData<NameT>& data,
     firstEnvironmentSlot = UINT32_MAX;
   }
 
-  auto& slotInfo = data.slotInfo;
+  auto length = data.length;
 
   //            imports - [0, 0)
   // positional formals - [0, 0)
   //      other formals - [0, 0)
-  //               vars - [0, slotInfo.length)
-  //               lets - [slotInfo.length, slotInfo.length)
-  //             consts - [slotInfo.length, slotInfo.length)
-  init(0, 0, 0, slotInfo.length, slotInfo.length, flags, firstFrameSlot,
-       firstEnvironmentSlot, data.trailingNames.start(), slotInfo.length);
+  //               vars - [0, length)
+  //               lets - [length, length)
+  //             consts - [length, length)
+  //          synthetic - [length, length)
+  //    private methods - [length, length)
+  init(/* positionalFormalStart= */ 0,
+       /* nonPositionalFormalStart= */ 0,
+       /* varStart= */ 0,
+       /* letStart= */ length,
+       /* constStart= */ length,
+       /* syntheticStart= */ length,
+       /* privateMethodStart= */ length,
+       /* flags= */ flags,
+       /* firstFrameSlot= */ firstFrameSlot,
+       /* firstEnvironmentSlot= */ firstEnvironmentSlot,
+       /* names= */ GetScopeDataTrailingNames(&data));
 }
 template void BaseAbstractBindingIter<JSAtom>::init(
     EvalScope::AbstractData<JSAtom>&, bool);
@@ -1817,12 +2021,21 @@ void BaseAbstractBindingIter<NameT>::init(
   //      other formals - [slotInfo.varStart, slotInfo.varStart)
   //               vars - [slotInfo.varStart, slotInfo.letStart)
   //               lets - [slotInfo.letStart, slotInfo.constStart)
-  //             consts - [slotInfo.constStart, slotInfo.length)
-  init(slotInfo.varStart, slotInfo.varStart, slotInfo.varStart,
-       slotInfo.letStart, slotInfo.constStart,
-       CanHaveFrameSlots | CanHaveEnvironmentSlots, 0,
-       JSSLOT_FREE(&ModuleEnvironmentObject::class_),
-       data.trailingNames.start(), slotInfo.length);
+  //             consts - [slotInfo.constStart, data.length)
+  //          synthetic - [data.length, data.length)
+  //    private methods - [data.length, data.length)
+  init(
+      /* positionalFormalStart= */ slotInfo.varStart,
+      /* nonPositionalFormalStart= */ slotInfo.varStart,
+      /* varStart= */ slotInfo.varStart,
+      /* letStart= */ slotInfo.letStart,
+      /* constStart= */ slotInfo.constStart,
+      /* syntheticStart= */ data.length,
+      /* privateMethodStart= */ data.length,
+      /* flags= */ CanHaveFrameSlots | CanHaveEnvironmentSlots,
+      /* firstFrameSlot= */ 0,
+      /* firstEnvironmentSlot= */ JSSLOT_FREE(&ModuleEnvironmentObject::class_),
+      /* names= */ GetScopeDataTrailingNames(&data));
 }
 template void BaseAbstractBindingIter<JSAtom>::init(
     ModuleScope::AbstractData<JSAtom>&);
@@ -1832,17 +2045,27 @@ template void BaseAbstractBindingIter<frontend::TaggedParserAtomIndex>::init(
 template <typename NameT>
 void BaseAbstractBindingIter<NameT>::init(
     WasmInstanceScope::AbstractData<NameT>& data) {
-  auto& slotInfo = data.slotInfo;
+  auto length = data.length;
 
   //            imports - [0, 0)
   // positional formals - [0, 0)
   //      other formals - [0, 0)
-  //               vars - [0, slotInfo.length)
-  //               lets - [slotInfo.length, slotInfo.length)
-  //             consts - [slotInfo.length, slotInfo.length)
-  init(0, 0, 0, slotInfo.length, slotInfo.length,
-       CanHaveFrameSlots | CanHaveEnvironmentSlots, UINT32_MAX, UINT32_MAX,
-       data.trailingNames.start(), slotInfo.length);
+  //               vars - [0, length)
+  //               lets - [length, length)
+  //             consts - [length, length)
+  //          synthetic - [length, length)
+  //    private methods - [length, length)
+  init(/* positionalFormalStart= */ 0,
+       /* nonPositionalFormalStart= */ 0,
+       /* varStart= */ 0,
+       /* letStart= */ length,
+       /* constStart= */ length,
+       /* syntheticStart= */ length,
+       /* privateMethodStart= */ length,
+       /* flags= */ CanHaveFrameSlots | CanHaveEnvironmentSlots,
+       /* firstFrameSlot= */ UINT32_MAX,
+       /* firstEnvironmentSlot= */ UINT32_MAX,
+       /* names= */ GetScopeDataTrailingNames(&data));
 }
 template void BaseAbstractBindingIter<JSAtom>::init(
     WasmInstanceScope::AbstractData<JSAtom>&);
@@ -1852,17 +2075,27 @@ template void BaseAbstractBindingIter<frontend::TaggedParserAtomIndex>::init(
 template <typename NameT>
 void BaseAbstractBindingIter<NameT>::init(
     WasmFunctionScope::AbstractData<NameT>& data) {
-  auto& slotInfo = data.slotInfo;
+  auto length = data.length;
 
   //            imports - [0, 0)
   // positional formals - [0, 0)
   //      other formals - [0, 0)
-  //               vars - [0, slotInfo.length)
-  //               lets - [slotInfo.length, slotInfo.length)
-  //             consts - [slotInfo.length, slotInfo.length)
-  init(0, 0, 0, slotInfo.length, slotInfo.length,
-       CanHaveFrameSlots | CanHaveEnvironmentSlots, UINT32_MAX, UINT32_MAX,
-       data.trailingNames.start(), slotInfo.length);
+  //               vars - [0, length)
+  //               lets - [length, length)
+  //             consts - [length, length)
+  //          synthetic - [length, length)
+  //    private methods - [length, length)
+  init(/* positionalFormalStart = */ 0,
+       /* nonPositionalFormalStart = */ 0,
+       /* varStart= */ 0,
+       /* letStart= */ length,
+       /* constStart= */ length,
+       /* syntheticStart= */ length,
+       /* privateMethodStart= */ length,
+       /* flags= */ CanHaveFrameSlots | CanHaveEnvironmentSlots,
+       /* firstFrameSlot= */ UINT32_MAX,
+       /* firstEnvironmentSlot= */ UINT32_MAX,
+       /* names= */ GetScopeDataTrailingNames(&data));
 }
 template void BaseAbstractBindingIter<JSAtom>::init(
     WasmFunctionScope::AbstractData<JSAtom>&);
@@ -1945,24 +2178,22 @@ JSAtom* js::FrameSlotName(JSScript* script, jsbytecode* pc) {
       return name;
     }
   }
-
   // If not found, look for it in a lexical scope.
   for (ScopeIter si(script->innermostScope(pc)); si; si++) {
-    if (!si.scope()->is<LexicalScope>()) {
+    if (!si.scope()->is<LexicalScope>() && !si.scope()->is<ClassBodyScope>()) {
       continue;
     }
-    LexicalScope& lexicalScope = si.scope()->as<LexicalScope>();
 
     // Is the slot within bounds of the current lexical scope?
-    if (slot < lexicalScope.firstFrameSlot()) {
+    if (slot < si.scope()->firstFrameSlot()) {
       continue;
     }
-    if (slot >= lexicalScope.nextFrameSlot()) {
+    if (slot >= LexicalScope::nextFrameSlot(si.scope())) {
       break;
     }
 
     // If so, get the name.
-    if (JSAtom* name = GetFrameSlotNameInScope(&lexicalScope, slot)) {
+    if (JSAtom* name = GetFrameSlotNameInScope(si.scope(), slot)) {
       return name;
     }
   }
@@ -1991,6 +2222,10 @@ template <typename... Args>
     return false;
   }
   if (!compilationState.scopeNames.append(data)) {
+    compilationState.scopeData.popBack();
+    MOZ_ASSERT(compilationState.scopeData.length() ==
+               compilationState.scopeNames.length());
+
     js::ReportOutOfMemory(cx);
     return false;
   }
@@ -2051,7 +2286,34 @@ bool ScopeStencil::createForLexicalScope(
   }
 
   mozilla::Maybe<uint32_t> envShape;
-  if (!LexicalScope::prepareForScopeCreation<frontend::TaggedParserAtomIndex>(
+  if (!ScopeType::prepareForScopeCreation<frontend::TaggedParserAtomIndex>(
+          cx, kind, firstFrameSlot, &data, &envShape)) {
+    return false;
+  }
+
+  return appendScopeStencilAndData(cx, compilationState, data, index, kind,
+                                   enclosing, firstFrameSlot, envShape);
+}
+
+/* static */
+bool ScopeStencil::createForClassBodyScope(
+    JSContext* cx, frontend::CompilationState& compilationState, ScopeKind kind,
+    ClassBodyScope::ParserData* data, uint32_t firstFrameSlot,
+    mozilla::Maybe<ScopeIndex> enclosing, ScopeIndex* index) {
+  using ScopeType = ClassBodyScope;
+  MOZ_ASSERT(matchScopeKind<ScopeType>(kind));
+
+  if (data) {
+    MarkParserScopeData<ScopeType>(cx, data, compilationState);
+  } else {
+    data = NewEmptyParserScopeData<ScopeType>(cx, compilationState.alloc);
+    if (!data) {
+      return false;
+    }
+  }
+
+  mozilla::Maybe<uint32_t> envShape;
+  if (!ScopeType::prepareForScopeCreation<frontend::TaggedParserAtomIndex>(
           cx, kind, firstFrameSlot, &data, &envShape)) {
     return false;
   }
@@ -2185,17 +2447,17 @@ bool ScopeStencil::createSpecificShape(JSContext* cx, ScopeKind kind,
                                        BaseScopeData* scopeData,
                                        MutableHandleShape shape) const {
   const JSClass* cls = &SpecificEnvironmentT::class_;
-  uint32_t baseShapeFlags = SpecificEnvironmentT::BASESHAPE_FLAGS;
+  constexpr ObjectFlags objectFlags = SpecificEnvironmentT::OBJECT_FLAGS;
 
   if (hasEnvironmentShape()) {
     if (numEnvironmentSlots() > 0) {
       BindingIter bi(kind, scopeData, firstFrameSlot_);
       shape.set(CreateEnvironmentShape(cx, bi, cls, numEnvironmentSlots(),
-                                       baseShapeFlags));
+                                       objectFlags));
       return shape;
     }
 
-    shape.set(EmptyEnvironmentShape(cx, cls, JSSLOT_FREE(cls), baseShapeFlags));
+    shape.set(EmptyEnvironmentShape(cx, cls, JSSLOT_FREE(cls), objectFlags));
     return shape;
   }
 
@@ -2307,7 +2569,11 @@ template Scope* ScopeStencil::createSpecificScope<FunctionScope, CallObject>(
     JSContext* cx, CompilationAtomCache& atomCache, HandleScope enclosingScope,
     BaseParserScopeData* baseData) const;
 template Scope*
-ScopeStencil::createSpecificScope<LexicalScope, LexicalEnvironmentObject>(
+ScopeStencil::createSpecificScope<LexicalScope, BlockLexicalEnvironmentObject>(
+    JSContext* cx, CompilationAtomCache& atomCache, HandleScope enclosingScope,
+    BaseParserScopeData* baseData) const;
+template Scope* ScopeStencil::createSpecificScope<
+    ClassBodyScope, BlockLexicalEnvironmentObject>(
     JSContext* cx, CompilationAtomCache& atomCache, HandleScope enclosingScope,
     BaseParserScopeData* baseData) const;
 template Scope*

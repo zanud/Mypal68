@@ -108,6 +108,9 @@ class CodeGenerator final : public CodeGeneratorSpecific {
                          Register scratch);
   void emitIntToString(Register input, Register output, Label* ool);
 
+  void emitTypeOfCheck(JSValueType type, Register tag, Register output,
+                       Label* done, Label* oolObject);
+  void emitTypeOfName(JSValueType type, Register output);
   void emitTypeOfObject(Register obj, Register output, Label* done);
 
   template <typename Fn, Fn fn, class ArgSeq, class StoreOutputTo>
@@ -192,7 +195,6 @@ class CodeGenerator final : public CodeGeneratorSpecific {
 
   void emitRest(LInstruction* lir, Register array, Register numActuals,
                 Register temp0, Register temp1, unsigned numFormals,
-                JSObject* templateObject, bool saveAndRestore,
                 Register resultreg);
   void emitInstanceOf(LInstruction* ins, const LAllocation* prototypeObject);
 
@@ -250,6 +252,12 @@ class CodeGenerator final : public CodeGeneratorSpecific {
 
   IonScriptCounts* maybeCreateScriptCounts();
 
+  void testValueTruthyForType(JSValueType type, ScratchTagScope& tag,
+                              const ValueOperand& value, Register scratch1,
+                              Register scratch2, FloatRegister fr,
+                              Label* ifTruthy, Label* ifFalsy,
+                              OutOfLineTestObject* ool, bool skipTypeTest);
+
   // This function behaves like testValueTruthy with the exception that it can
   // choose to let control flow fall through when the object is truthy, as
   // an optimization. Use testValueTruthy when it's required to branch to one
@@ -257,8 +265,8 @@ class CodeGenerator final : public CodeGeneratorSpecific {
   void testValueTruthyKernel(const ValueOperand& value,
                              const LDefinition* scratch1,
                              const LDefinition* scratch2, FloatRegister fr,
-                             Label* ifTruthy, Label* ifFalsy,
-                             OutOfLineTestObject* ool, MDefinition* valueMIR);
+                             TypeDataList observedTypes, Label* ifTruthy,
+                             Label* ifFalsy, OutOfLineTestObject* ool);
 
   // Test whether value is truthy or not and jump to the corresponding label.
   // If the value can be an object that emulates |undefined|, |ool| must be
@@ -267,8 +275,8 @@ class CodeGenerator final : public CodeGeneratorSpecific {
   // truthy.
   void testValueTruthy(const ValueOperand& value, const LDefinition* scratch1,
                        const LDefinition* scratch2, FloatRegister fr,
-                       Label* ifTruthy, Label* ifFalsy,
-                       OutOfLineTestObject* ool, MDefinition* valueMIR);
+                       TypeDataList observedTypes, Label* ifTruthy,
+                       Label* ifFalsy, OutOfLineTestObject* ool);
 
   // This function behaves like testObjectEmulatesUndefined with the exception
   // that it can choose to let control flow fall through when the object

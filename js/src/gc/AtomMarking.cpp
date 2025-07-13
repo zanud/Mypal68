@@ -67,8 +67,7 @@ void AtomMarkingRuntime::unregisterArena(Arena* arena, const AutoLockGC& lock) {
   MOZ_ASSERT(arena->zone->isAtomsZone());
 
   // Leak these atom bits if we run out of memory.
-  mozilla::Unused << freeArenaIndexes.ref().emplaceBack(
-      arena->atomBitmapStart());
+  (void)freeArenaIndexes.ref().emplaceBack(arena->atomBitmapStart());
 }
 
 bool AtomMarkingRuntime::computeBitmapFromChunkMarkBits(JSRuntime* runtime,
@@ -162,12 +161,12 @@ template void AtomMarkingRuntime::markAtom(JSContext* cx, JSAtom* thing);
 template void AtomMarkingRuntime::markAtom(JSContext* cx, JS::Symbol* thing);
 
 void AtomMarkingRuntime::markId(JSContext* cx, jsid id) {
-  if (JSID_IS_ATOM(id)) {
-    markAtom(cx, JSID_TO_ATOM(id));
+  if (id.isAtom()) {
+    markAtom(cx, id.toAtom());
     return;
   }
-  if (JSID_IS_SYMBOL(id)) {
-    markAtom(cx, JSID_TO_SYMBOL(id));
+  if (id.isSymbol()) {
+    markAtom(cx, id.toSymbol());
     return;
   }
   MOZ_ASSERT(!id.isGCThing());
@@ -249,12 +248,12 @@ bool AtomMarkingRuntime::atomIsMarked(Zone* zone, TenuredCell* thing) {
 }
 
 bool AtomMarkingRuntime::idIsMarked(Zone* zone, jsid id) {
-  if (JSID_IS_ATOM(id)) {
-    return atomIsMarked(zone, JSID_TO_ATOM(id));
+  if (id.isAtom()) {
+    return atomIsMarked(zone, id.toAtom());
   }
 
-  if (JSID_IS_SYMBOL(id)) {
-    return atomIsMarked(zone, JSID_TO_SYMBOL(id));
+  if (id.isSymbol()) {
+    return atomIsMarked(zone, id.toSymbol());
   }
 
   MOZ_ASSERT(!id.isGCThing());
