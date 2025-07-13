@@ -1,3 +1,8 @@
+// Wasm SIMD.
+//
+// These nodes are really x86-shared, but as some Masm APIs are not yet
+// available on x86 we keep them here.
+#ifdef ENABLE_WASM_SIMD
 // Constant Simd128
 class LSimd128 : public LInstructionHelper<1, 0, 0> {
   SimdConstant v_;
@@ -268,3 +273,5 @@ class LWasmReduceSimd128ToInt64
   uint32_t imm() const { return mir_->toWasmReduceSimd128()->imm(); }
   wasm::SimdOp simdOp() const { return mir_->toWasmReduceSimd128()->simdOp(); }
 };
+#endif
+// End Wasm SIMD

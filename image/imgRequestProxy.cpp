@@ -14,6 +14,7 @@
 #include "imgLoader.h"
 #include "mozilla/Telemetry.h"     // for Telemetry
 #include "mozilla/dom/DocGroup.h"  // for DocGroup
+#include "mozilla/dom/Document.h"
 #include "mozilla/dom/TabGroup.h"  // for TabGroup
 #include "nsCRTGlue.h"
 #include "nsError.h"

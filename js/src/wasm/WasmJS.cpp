@@ -297,10 +297,6 @@ bool wasm::CraneliftDisabledByFeatures(JSContext* cx, bool* isDisabled,
   bool functionReferences = WasmFunctionReferencesFlag(cx);
   bool gc = WasmGcFlag(cx);
   bool threads = WasmThreadsFlag(cx);
-  bool multiValueOnX64 = false;
-#if defined(JS_CODEGEN_X64)
-  multiValueOnX64 = WasmMultiValueFlag(cx);
-#endif
   bool exn = WasmExceptionsFlag(cx);
   if (reason) {
     char sep = 0;
@@ -313,13 +309,10 @@ bool wasm::CraneliftDisabledByFeatures(JSContext* cx, bool* isDisabled,
     if (gc && !Append(reason, "gc", &sep)) {
       return false;
     }
-    if (multiValueOnX64 && !Append(reason, "multi-value", &sep)) {
-      return false;
-    }
     if (threads && !Append(reason, "threads", &sep)) {
       return false;
     }
-  *isDisabled = debug || functionReferences || gc || multiValueOnX64 || threads || exn;
+  *isDisabled = debug || functionReferences || gc || threads || exn;
     if (exn && !Append(reason, "exceptions", &sep)) {
       return false;
     }
