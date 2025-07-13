@@ -84,7 +84,6 @@ class GeckoInstance(object):
         # Do not scan Wifi
         "geo.wifi.scan": False,
 
-        "javascript.options.showInConsole": True,
 
         # Enable Marionette component
         "marionette.enabled": True,
@@ -114,9 +113,6 @@ class GeckoInstance(object):
 
         # Tests don't wait for the notification button security delay
         "security.notification_enable_delay": 0,
-
-        # Ensure blocklist updates don't hit the network
-        "services.settings.server": "http://%(server)s/dummy/blocklist/",
 
         # Disable password capture, so that tests that include forms aren"t
         # influenced by the presence of the persistent doorhanger notification

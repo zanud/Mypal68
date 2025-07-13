@@ -138,7 +138,6 @@ user_pref("identity.fxaccounts.remote.root", "https://{server}/");
 // Avoid idle-daily notifications, to avoid expensive operations that may
 // cause unexpected test timeouts.
 user_pref("idle.lastDailyNotification", -1);
-user_pref("javascript.options.showInConsole", true);
 // Make sure CSS error reporting is enabled for tests
 user_pref("layout.css.report_errors", true);
 // Disable spammy layout warnings because they pollute test logs
@@ -190,8 +189,6 @@ user_pref("security.default_personal_cert", "Select Automatically"); // Need to 
 // Existing tests don't wait for the notification button security delay
 user_pref("security.notification_enable_delay", 0);
 user_pref("security.warn_viewing_mixed", false);
-// Ensure blocklist updates don't hit the network
-user_pref("services.settings.server", "http://{server}/dummy-kinto/v1");
 user_pref("shell.checkDefaultClient", false);
 // Disable password capture, so that mochitests that include forms aren't
 // influenced by the presence of the persistent doorhanger notification.

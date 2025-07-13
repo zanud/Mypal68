@@ -4,14 +4,14 @@
 user_pref("browser.safebrowsing.downloads.remote.url", "https://%(server)s/safebrowsing-dummy");
 user_pref("browser.search.geoip.url", "https://%(server)s/geoip-dummy");
 user_pref("extensions.systemAddon.update.url", "http://%(server)s/dummy-system-addons.xml");
+// Treat WebExtension API/schema warnings as errors.
+user_pref("extensions.webextensions.warnings-as-errors", true);
 // Always use network provider for geolocation tests
 // so we bypass the OSX dialog raised by the corelocation provider
 user_pref("geo.provider.testing", true);
 user_pref("media.gmp-manager.updateEnabled", false);
 user_pref("media.gmp-manager.url.override", "http://%(server)s/dummy-gmp-manager.xml");
 user_pref("toolkit.telemetry.server", "https://%(server)s/telemetry-dummy");
-// Prevent Remote Settings to issue non local connections.
-user_pref("services.settings.server", "http://localhost/remote-settings-dummy/v1");
 // Prevent intermediate preloads to be downloaded on Remote Settings polling.
 user_pref("security.remote_settings.intermediates.enabled", false);
 // The process priority manager only shifts priorities when it has at least

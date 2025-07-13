@@ -11,6 +11,21 @@ On Windows, be sure to add the Python directory (`c:\python2x`, by default) to
 your `%Path%` [Environment Variable](http://www.computerhope.com/issues/ch000549.htm),
 and read the [Windows Notes](#windows-notes) section below.
 
+<!--
+  There does not appear to be a cross-platform means of installing `pip`.
+  https://github.com/web-platform-tests/wpt/pull/16670
+-->
+
+Install `pip`. On many systems, this can be achieved with the command `python
+-m ensurepip`. If this is not possible, use your system's package manager to
+install the `python-pip` package.
+
+Next, install `virtualenv` using the following command:
+
+```bash
+pip install virtualenv
+```
+
 To get the tests running, you need to set up the test domains in your
 [`hosts` file](http://en.wikipedia.org/wiki/Hosts_%28file%29%23Location_in_the_file_system).
 
@@ -32,6 +47,15 @@ python wpt make-hosts-file | Out-File %SystemRoot%\System32\drivers\etc\hosts -E
 
 If you are behind a proxy, you also need to make sure the domains above are
 excluded from your proxy lookups.
+
+[The Ahem font](../writing-tests/ahem) is used to test precise rendering
+behavior. This font should be loaded as a web font in tests, using the
+`/fonts/ahem.css` stylesheet, as follows:
+
+```
+<link rel="stylesheet" type="text/css" href="/fonts/ahem.css" />
+```
+
 
 ### Windows Notes
 
@@ -71,10 +95,15 @@ After your `hosts` file is configured, the servers will be locally accessible at
 http://web-platform.test:8000/<br>
 https://web-platform.test:8443/ *
 
+To use the web-based runner point your browser to:
+
+http://web-platform.test:8000/tools/runner/index.html<br>
+https://web-platform.test:8443/tools/runner/index.html *
+
 This server has all the capabilities of the publicly-deployed version--see
 [Running the Tests from the Web](from-web).
 
-\**See [Trusting Root CA](https://github.com/web-platform-tests/wpt/blob/master/README.md#trusting-root-ca)*
+\**See [Trusting Root CA](../tools/certs/README.md)*
 
 ## Via the command line
 
@@ -97,6 +126,16 @@ customising the test run:
 
     ./wpt run --help
 
+[A complete listing of the command-line arguments is available
+here](command-line-arguments).
+
+```eval_rst
+.. toctree::
+   :hidden:
+
+   command-line-arguments
+```
+
 Additional browser-specific documentation:
 
 ```eval_rst
@@ -104,5 +143,7 @@ Additional browser-specific documentation:
 
   chrome
   chrome_android
+  android_webview
   safari
+  webkitgtk_minibrowser
 ```

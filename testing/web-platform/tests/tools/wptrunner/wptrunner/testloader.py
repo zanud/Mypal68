@@ -1,14 +1,14 @@
 import hashlib
 import os
-import urlparse
+from six.moves.urllib.parse import urlsplit
 from abc import ABCMeta, abstractmethod
-from Queue import Empty
+from six.moves.queue import Empty
 from collections import defaultdict, deque
 from multiprocessing import Queue
 
-import manifestinclude
-import manifestexpected
-import wpttest
+from . import manifestinclude
+from . import manifestexpected
+from . import wpttest
 from mozlog import structured
 
 manifest = None
@@ -277,9 +277,8 @@ class TestSource(object):
         self.current_metadata = None
 
     @abstractmethod
-    # noqa: N805
-    #@classmethod (doesn't compose with @abstractmethod)
-    def make_queue(cls, tests, **kwargs):
+    #@classmethod (doesn't compose with @abstractmethod in < 3.3)
+    def make_queue(cls, tests, **kwargs):  # noqa: N805
         pass
 
     @classmethod
@@ -347,7 +346,7 @@ class PathGroupedSource(GroupedSource):
         depth = kwargs.get("depth")
         if depth is True or depth == 0:
             depth = None
-        path = urlparse.urlsplit(test.url).path.split("/")[1:-1][:depth]
+        path = urlsplit(test.url).path.split("/")[1:-1][:depth]
         rv = path != state.get("prev_path")
         state["prev_path"] = path
         return rv

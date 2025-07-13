@@ -120,9 +120,6 @@ lazy_static! {
         // No hang monitor
         ("hangmonitor.timeout", Pref::new(0)),
 
-        // Show chrome errors and warnings in the error console
-        ("javascript.options.showInConsole", Pref::new(true)),
-
         // Disable download and usage of OpenH264, plugins
         ("media.gmp-manager.updateEnabled", Pref::new(false)),
 
@@ -143,9 +140,6 @@ lazy_static! {
 
         // Don't do network connections for mitm priming
         ("security.certerrors.mitm.priming.enabled", Pref::new(false)),
-
-        // Ensure blocklist updates don't hit the network
-        ("services.settings.server", Pref::new("http://%(server)s/dummy/blocklist/")),
 
         // Disable first run pages
         ("startup.homepage_welcome_url", Pref::new("about:blank")),

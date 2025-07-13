@@ -6,7 +6,7 @@
 
    idlharness
    testharness-api
-   testdriver-tutorial
+   testdriver-extension-tutorial
    testdriver
 ```
 
@@ -24,6 +24,10 @@ documented in two sections:
 
 See [server features](server-features) for advanced testing features that are commonly used
 with testharness.js. See also the [general guidelines](general-guidelines) for all test types.
+
+This page describes testharness.js exhaustively; [the tutorial on writing a
+testharness.js test](testharness-tutorial) provides a concise guide to writing
+a test--a good place to start for newcomers to the project.
 
 ## Variants
 
@@ -165,7 +169,7 @@ are:
 
 * `window` (default): to be run at <code><var>x</var>.any.html</code>
 * `dedicatedworker` (default): to be run at <code><var>x</var>.any.worker.html</code>
-* `serviceworker`: to be run at <code><var>x</var>.https.any.serviceworker.html</code>
+* `serviceworker`: to be run at <code><var>x</var>.any.serviceworker.html</code> (`.https` is implied)
 * `sharedworker`: to be run at <code><var>x</var>.any.sharedworker.html</code>
 * `jsshell`: to be run in a JavaScript shell, without access to the DOM
   (currently only supported in SpiderMonkey, and skipped in wptrunner)

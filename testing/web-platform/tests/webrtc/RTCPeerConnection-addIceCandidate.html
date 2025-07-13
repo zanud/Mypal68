@@ -128,7 +128,7 @@ a=rtcp-rsize
 
     t.add_cleanup(() => pc.close());
 
-    return promise_rejects(t, 'InvalidStateError',
+    return promise_rejects_dom(t, 'InvalidStateError',
       pc.addIceCandidate({
         candidate: candidateStr1,
         sdpMid: sdpMid1,
@@ -220,7 +220,7 @@ a=rtcp-rsize
     t.add_cleanup(() => pc.close());
 
     await pc.setRemoteDescription(sessionDesc);
-    await promise_rejects(t, 'OperationError',
+    await promise_rejects_dom(t, 'OperationError',
       pc.addIceCandidate({usernameFragment: "no such ufrag"}));
   }, 'addIceCandidate({usernameFragment: "no such ufrag"}) should not work');
 
@@ -419,7 +419,7 @@ a=rtcp-rsize
 
     return pc.setRemoteDescription(sessionDesc)
     .then(() =>
-      promise_rejects(t, new TypeError(),
+      promise_rejects_js(t, TypeError,
         pc.addIceCandidate({
           candidate: candidateStr1,
           sdpMid: null,
@@ -434,7 +434,7 @@ a=rtcp-rsize
 
     return pc.setRemoteDescription(sessionDesc)
     .then(() =>
-      promise_rejects(t, new TypeError(),
+      promise_rejects_js(t, TypeError,
         pc.addIceCandidate({
           candidate: candidateStr1
         })));
@@ -447,7 +447,7 @@ a=rtcp-rsize
 
     return pc.setRemoteDescription(sessionDesc)
     .then(() =>
-      promise_rejects(t, new TypeError(),
+      promise_rejects_js(t, TypeError,
         pc.addIceCandidate({
           candidate: invalidCandidateStr,
           sdpMid: null,
@@ -469,7 +469,7 @@ a=rtcp-rsize
 
     return pc.setRemoteDescription(sessionDesc)
     .then(() =>
-      promise_rejects(t, 'OperationError',
+      promise_rejects_dom(t, 'OperationError',
         pc.addIceCandidate({
           candidate: candidateStr1,
           sdpMid: 'invalid',
@@ -493,7 +493,7 @@ a=rtcp-rsize
 
     return pc.setRemoteDescription(sessionDesc)
     .then(() =>
-      promise_rejects(t, 'OperationError',
+      promise_rejects_dom(t, 'OperationError',
         pc.addIceCandidate({
           candidate: candidateStr1,
           sdpMLineIndex: 2,
@@ -549,7 +549,7 @@ a=rtcp-rsize
 
     return pc.setRemoteDescription(sessionDesc)
     .then(() =>
-      promise_rejects(t, 'OperationError',
+      promise_rejects_dom(t, 'OperationError',
         pc.addIceCandidate({
           candidate: candidateStr1,
           sdpMid: sdpMid1,
@@ -572,7 +572,7 @@ a=rtcp-rsize
 
     return pc.setRemoteDescription(sessionDesc)
     .then(() =>
-      promise_rejects(t, 'OperationError',
+      promise_rejects_dom(t, 'OperationError',
         pc.addIceCandidate({
           candidate: invalidCandidateStr,
           sdpMid: sdpMid1,
@@ -588,7 +588,7 @@ a=rtcp-rsize
 
     return pc.setRemoteDescription(sessionDesc)
     .then(() =>
-      promise_rejects(t, 'OperationError',
+      promise_rejects_dom(t, 'OperationError',
         pc.addIceCandidate({
           candidate: candidateStr2,
           sdpMid: sdpMid2,

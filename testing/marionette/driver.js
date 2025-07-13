@@ -25,10 +25,9 @@ const { Capabilities, Timeouts, UnhandledPromptBehavior } = ChromeUtils.import(
 const { capture } = ChromeUtils.import(
   "chrome://marionette/content/capture.js"
 );
-const {
-  CertificateOverrideManager,
-  InsecureSweepingOverride,
-} = ChromeUtils.import("chrome://marionette/content/cert.js");
+const { allowAllCerts } = ChromeUtils.import(
+  "chrome://marionette/content/cert.js"
+);
 const { cookie } = ChromeUtils.import("chrome://marionette/content/cookie.js");
 const { WebElementEventTarget } = ChromeUtils.import(
   "chrome://marionette/content/dom.js"
@@ -727,8 +726,7 @@ GeckoDriver.prototype.newSession = async function(cmd) {
 
     if (!this.secureTLS) {
       logger.warn("TLS certificate errors will be ignored for this session");
-      let acceptAllCerts = new InsecureSweepingOverride();
-      CertificateOverrideManager.install(acceptAllCerts);
+      allowAllCerts.enable();
     }
 
     if (this.proxy.init()) {
@@ -2941,7 +2939,7 @@ GeckoDriver.prototype.deleteSession = function() {
   modal.removeHandler(this.dialogHandler);
 
   this.sandboxes.clear();
-  CertificateOverrideManager.uninstall();
+  allowAllCerts.disable();
 
   this.sessionID = null;
   this.capabilities = new Capabilities();

@@ -36,6 +36,8 @@ user_pref("dom.send_after_paint_to_content", true);
 user_pref("extensions.enabledScopes", 5);
 // Turn off extension updates so they don't bother tests
 user_pref("extensions.update.enabled", false);
+// Treat WebExtension API/schema warnings as errors.
+user_pref("extensions.webextensions.warnings-as-errors", true);
 // Disable useragent updates.
 user_pref("general.useragent.updates.enabled", false);
 // Ensure WR doesn't get enabled in tests unless we do it explicitly with the MOZ_WEBRENDER envvar.
@@ -46,8 +48,6 @@ user_pref("media.gmp-manager.updateEnabled", false);
 user_pref("security.certerrors.mitm.priming.enabled", false);
 // Enable some dangerous features for test code. :-(
 user_pref("security.turn_off_all_security_so_that_viruses_can_take_over_this_computer", true);
-// Prevent Remote Settings to issue non local connections.
-user_pref("services.settings.server", "http://localhost/remote-settings-dummy/v1");
 // Ensure autoplay is enabled for all platforms.
 user_pref("media.autoplay.default", 0); // 0=Allowed, 1=Blocked, 2=Prompt
 user_pref("media.autoplay.enabled.user-gestures-needed", true);

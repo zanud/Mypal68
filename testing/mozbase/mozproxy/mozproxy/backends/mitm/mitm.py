@@ -228,7 +228,7 @@ class Mitmproxy(Playback):
                     "--set",
                     "websocket=false",
                     "--set",
-                    "server_replay_files={}".format(" ".join(recording_paths)),
+                    "server_replay_files={}".format(",".join(recording_paths)),
                     "--scripts",
                     script,
                 ]
