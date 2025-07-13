@@ -1,5 +1,6 @@
 ﻿// © 2016 and later: Unicode, Inc. and others.
-// License & terms of use: http://www.unicode.org/copyright.html#License
+// License & terms of use: http://www.unicode.org/copyright.html
+// Generated using tools/cldr/cldr-to-icu/build-icu-data.xml
 hsb{
     AuxExemplarCharacters{
         "[á à ă â å ä ã ą ā æ ç ď đ é è ĕ ê ë ė ę ē ğ í ì ĭ î ï İ ī ı ĺ ľ ň ñ ò ŏ ô ö"
@@ -196,7 +197,6 @@ hsb{
         }
         minimumGroupingDigits{"1"}
     }
-    Version{"37"}
     calendar{
         generic{
             DateTimePatterns{
@@ -351,7 +351,10 @@ hsb{
                 MEd{"E, d.M."}
                 MMM{"LLL"}
                 MMMEd{"E, d. MMM"}
+                MMMMd{"d. MMMM"}
                 MMMd{"d. MMM"}
+                MMd{"d. MM"}
+                MMdd{"dd. MM"}
                 Md{"d.M."}
                 d{"d"}
                 h{"h a"}
@@ -361,9 +364,12 @@ hsb{
                 y{"y"}
                 yM{"M.y"}
                 yMEd{"E, d.M.y"}
+                yMM{"MM y"}
                 yMMM{"MMM y"}
                 yMMMEd{"E, d. MMM y"}
+                yMMMM{"LLLL y"}
                 yMMMd{"d. MMM y"}
+                yMMdd{"dd. MM y"}
                 yMd{"d.M.y"}
                 yQQQ{"QQQ y"}
                 yQQQQ{"QQQQ y"}

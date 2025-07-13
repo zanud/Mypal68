@@ -142,7 +142,7 @@ TEST(Intl_Locale_LocaleService, GetDefaultLocale)
 
 TEST(Intl_Locale_LocaleService, IsAppLocaleRTL)
 {
-  // For now we can only test if the method doesn't crash.
-  LocaleService::GetInstance()->IsAppLocaleRTL();
-  ASSERT_TRUE(true);
+  mozilla::Preferences::SetCString("intl.l10n.pseudo", "bidi");
+  ASSERT_TRUE(LocaleService::GetInstance()->IsAppLocaleRTL());
+  mozilla::Preferences::ClearUser("intl.l10n.pseudo");
 }

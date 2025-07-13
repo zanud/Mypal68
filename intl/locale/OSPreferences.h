@@ -9,7 +9,6 @@
 #include "nsDataHashtable.h"
 #include "nsString.h"
 #include "nsTArray.h"
-#include "unicode/uloc.h"
 
 #include "mozIOSPreferences.h"
 

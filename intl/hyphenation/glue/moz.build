@@ -12,17 +12,15 @@ UNIFIED_SOURCES += [
     'nsHyphenator.cpp',
 ]
 
+include('/ipc/chromium/chromium-config.mozbuild')
+
 FINAL_LIBRARY = 'xul'
 
 if CONFIG['CC_TYPE'] in ('clang', 'gcc'):
     CXXFLAGS += ['-Wno-error=shadow']
 
-GENERATED_FILES += [
-    'mapped_hyph.h'
-]
-
-generated = GENERATED_FILES['mapped_hyph.h']
-generated.script = '/layout/style/RunCbindgen.py:generate'
-generated.inputs = [
-    '/third_party/rust/mapped_hyph'
-]
+if CONFIG['COMPILE_ENVIRONMENT']:
+    GeneratedFile('mapped_hyph.h',
+                  script='/build/RunCbindgen.py',
+                  entry_point='generate',
+                  inputs=['/third_party/rust/mapped_hyph'])

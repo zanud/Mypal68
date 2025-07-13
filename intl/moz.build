@@ -3,31 +3,32 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 TEST_DIRS += [
-    'gtest',
+    "gtest",
 ]
 
 DIRS += [
-    'hyphenation/glue',
-    'locale',
-    'locales',
-    'lwbrk',
-    'strres',
-    'unicharutil',
-    'l10n',
+    "components",
+    "hyphenation/glue",
+    "locale",
+    "locales",
+    "lwbrk",
+    "strres",
+    "unicharutil",
+    "l10n",
 ]
 
 DIRS += [
-    'uconv',
-    'build',
+    "uconv",
+    "build",
 ]
 
 EXPORTS.mozilla += [
-    'Encoding.h',
+    "Encoding.h",
 ]
 
 EXPORTS += [
-    '../third_party/rust/encoding_c/include/encoding_rs.h',
-    '../third_party/rust/encoding_c/include/encoding_rs_statics.h',
+    "../third_party/rust/encoding_c/include/encoding_rs.h",
+    "../third_party/rust/encoding_c/include/encoding_rs_statics.h",
 ]
 
 with Files("**"):
@@ -48,4 +49,4 @@ with Files("update*"):
 with Files("icu_sources_data.py"):
     BUG_COMPONENT = ("Firefox Build System", "General")
 
-SPHINX_TREES['/intl'] = 'docs'
+SPHINX_TREES["/intl"] = "docs"

@@ -174,7 +174,7 @@ nsStaticAtom* nsLanguageAtomService::GetUncachedLanguageGroup(
     if (loc.IsWellFormed()) {
       // Fill in script subtag if not present.
       if (loc.GetScript().IsEmpty()) {
-        loc.AddLikelySubtags();
+        loc.Maximize();
       }
       // Traditional Chinese has separate prefs for Hong Kong / Taiwan;
       // check the region subtag.
@@ -186,7 +186,7 @@ nsStaticAtom* nsLanguageAtomService::GetUncachedLanguageGroup(
       }
       // Search list of known script subtags that map to langGroup codes.
       size_t foundIndex;
-      const nsDependentCSubstring& script = loc.GetScript();
+      nsDependentCSubstring script = loc.GetScript();
       if (BinarySearchIf(
               kScriptLangGroup, 0, ArrayLength(kScriptLangGroup),
               [script](const auto& entry) -> int {

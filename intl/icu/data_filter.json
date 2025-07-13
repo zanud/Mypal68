@@ -53,6 +53,8 @@
             ],
             "rules": [
                 "-/*",
+                "+/%%ALIAS",
+                "+/%%Parent",
 
                 "+/*/area/acre",
                 "+/*/digital/bit",
@@ -194,6 +196,8 @@
             ],
             "rules": [
                 "-/*",
+                "+/%%ALIAS",
+                "+/%%Parent",
 
                 "+/Languages",
                 "+/Languages%short",
@@ -201,6 +205,8 @@
                 "+/Scripts%short",
                 "+/Scripts%stand-alone",
                 "+/Variants",
+                "+/Types/calendar",
+                "+/Types%short/calendar",
                 "+/localeDisplayPattern"
             ]
         },
@@ -210,6 +216,8 @@
             ],
             "rules": [
                 "-/*",
+                "+/%%ALIAS",
+                "+/%%Parent",
 
                 "+/Countries",
                 "+/Countries%short"

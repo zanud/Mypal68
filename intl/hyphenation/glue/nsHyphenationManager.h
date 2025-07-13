@@ -10,6 +10,7 @@
 #include "nsHashKeys.h"
 #include "nsIObserver.h"
 #include "mozilla/Omnijar.h"
+#include "mozilla/ipc/SharedMemoryBasic.h"
 
 class nsHyphenator;
 class nsAtom;
@@ -20,6 +21,10 @@ class nsHyphenationManager {
   nsHyphenationManager();
 
   already_AddRefed<nsHyphenator> GetHyphenator(nsAtom* aLocale);
+
+  void ShareHyphDictToProcess(
+      nsIURI* aURI, base::ProcessId aPid,
+      mozilla::ipc::SharedMemoryBasic::Handle* aOutHandle, uint32_t* aOutSize);
 
   static nsHyphenationManager* Instance();
 

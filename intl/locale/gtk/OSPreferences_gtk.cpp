@@ -8,6 +8,8 @@
 #include "glib.h"
 #include "gio/gio.h"
 
+#include "unicode/uloc.h"
+
 using namespace mozilla::intl;
 
 OSPreferences::OSPreferences() {}

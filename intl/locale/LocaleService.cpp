@@ -19,8 +19,6 @@
 #include "nsXULAppAPI.h"
 #include "nsZipArchive.h"
 
-#include "unicode/uloc.h"
-
 #define INTL_SYSTEM_LOCALES_CHANGED "intl:system-locales-changed"
 
 #define REQUESTED_LOCALES_PREF "intl.locale.requested"
@@ -236,18 +234,11 @@ void LocaleService::LocalesChanged() {
 }
 
 bool LocaleService::IsLocaleRTL(const nsACString& aLocale) {
-  // First, let's check if there's a manual override
-  // preference for directionality set.
-  int pref = Preferences::GetInt("intl.uidirection", -1);
-  if (pref >= 0) {
-    return (pref > 0);
-  }
-
-  return uloc_isRightToLeft(PromiseFlatCString(aLocale).get());
+  return unic_langid_is_rtl(&aLocale);
 }
 
 bool LocaleService::IsAppLocaleRTL() {
-  // First, check if there is a pseudo locale `bidi` set.
+  // Next, check if there is a pseudo locale `bidi` set.
   nsAutoCString pseudoLocale;
   if (NS_SUCCEEDED(Preferences::GetCString("intl.l10n.pseudo", pseudoLocale))) {
     if (pseudoLocale.EqualsLiteral("bidi")) {
