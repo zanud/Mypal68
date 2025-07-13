@@ -26,6 +26,7 @@
 #include "js/ComparisonOperators.h"
 #include "js/CompileOptions.h"
 #include "js/Id.h"
+#include "js/PropertyAndElement.h"  // JS_DefineProperty, JS_GetProperty
 #include "js/PropertyDescriptor.h"
 #include "js/RealmOptions.h"
 #include "js/RootingAPI.h"
@@ -76,6 +77,7 @@
 #include "mozilla/UniquePtr.h"
 #include "mozilla/Unused.h"
 #include "mozilla/dom/AudioContext.h"
+#include "mozilla/dom/AutoEntryScript.h"
 #include "mozilla/dom/BarProps.h"
 #include "mozilla/dom/BindingDeclarations.h"
 #include "mozilla/dom/BindingUtils.h"
@@ -90,6 +92,7 @@
 #include "mozilla/dom/ClientsBinding.h"
 #include "mozilla/dom/Console.h"
 #include "mozilla/dom/ContentFrameMessageManager.h"
+#include "mozilla/dom/CustomElementRegistry.h"
 #include "mozilla/dom/DOMJSProxyHandler.h"
 #include "mozilla/dom/DebuggerNotification.h"
 #include "mozilla/dom/DebuggerNotificationBinding.h"
@@ -127,14 +130,17 @@
 #include "mozilla/dom/PopupBlocker.h"
 #include "mozilla/dom/PrimitiveConversions.h"
 #include "mozilla/dom/Promise.h"
+#ifdef THE_REPORTING
 #include "mozilla/dom/Report.h"
 #include "mozilla/dom/ReportingObserver.h"
+#endif
 #include "mozilla/dom/RootedDictionary.h"
 #include "mozilla/dom/ScriptLoader.h"
 #include "mozilla/dom/ScriptSettings.h"
 #include "mozilla/dom/ServiceWorker.h"
 #include "mozilla/dom/ServiceWorkerDescriptor.h"
 #include "mozilla/dom/ServiceWorkerRegistration.h"
+#include "mozilla/dom/SessionStorageManager.h"
 #include "mozilla/dom/SharedWorker.h"
 #include "mozilla/dom/Storage.h"
 #include "mozilla/dom/StorageEvent.h"
@@ -1162,6 +1168,7 @@ void nsGlobalWindowInner::FreeInnerObjects() {
     // Remember the document's principal, URI, and CSP.
     mDocumentPrincipal = mDoc->NodePrincipal();
     mDocumentStoragePrincipal = mDoc->EffectiveStoragePrincipal();
+    mDocumentIntrinsicStoragePrincipal = mDoc->IntrinsicStoragePrincipal();
     mDocumentURI = mDoc->GetDocumentURI();
     mDocBaseURI = mDoc->GetDocBaseURI();
     mDocumentCsp = mDoc->GetCsp();
@@ -1384,6 +1391,7 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INTERNAL(nsGlobalWindowInner)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mIndexedDB)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mDocumentPrincipal)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mDocumentStoragePrincipal)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mDocumentIntrinsicStoragePrincipal)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mDocumentCsp)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mBrowserChild)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mDoc)
@@ -1422,8 +1430,10 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INTERNAL(nsGlobalWindowInner)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mExternal)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mInstallTrigger)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mIntlUtils)
+#ifdef THE_REPORTING
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mReportRecords)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mReportingObservers)
+#endif
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mVisualViewport)
 
   tmp->TraverseHostObjectURIs(cb);
@@ -1497,6 +1507,7 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsGlobalWindowInner)
   }
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mDocumentPrincipal)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mDocumentStoragePrincipal)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mDocumentIntrinsicStoragePrincipal)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mDocumentCsp)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mBrowserChild)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mDoc)
@@ -1528,8 +1539,10 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsGlobalWindowInner)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mExternal)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mInstallTrigger)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mIntlUtils)
+#ifdef THE_REPORTING
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mReportRecords)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mReportingObservers)
+#endif
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mVisualViewport)
 
   tmp->UnlinkHostObjectURIs();
@@ -2113,6 +2126,29 @@ nsIPrincipal* nsGlobalWindowInner::GetEffectiveStoragePrincipal() {
   return nullptr;
 }
 
+nsIPrincipal* nsGlobalWindowInner::IntrinsicStoragePrincipal() {
+  if (mDoc) {
+    // If we have a document, get the principal from the document
+    return mDoc->EffectiveStoragePrincipal();
+  }
+
+  if (mDocumentIntrinsicStoragePrincipal) {
+    return mDocumentIntrinsicStoragePrincipal;
+  }
+
+  // If we don't have a storage principal and we don't have a document we ask
+  // the parent window for the storage principal.
+
+  nsCOMPtr<nsIScriptObjectPrincipal> objPrincipal =
+      do_QueryInterface(GetInProcessParentInternal());
+
+  if (objPrincipal) {
+    return objPrincipal->IntrinsicStoragePrincipal();
+  }
+
+  return nullptr;
+}
+
 //*****************************************************************************
 // nsGlobalWindowInner::nsIDOMWindow
 //*****************************************************************************
@@ -2404,6 +2440,10 @@ void nsGlobalWindowInner::UpdateTopInnerWindow() {
   }
 
   mTopInnerWindow->UpdateWebSocketCount(-(int32_t)mNumOfOpenWebSockets);
+}
+
+bool nsGlobalWindowInner::IsInSyncOperation() {
+  return GetExtantDoc() && GetExtantDoc()->IsInSyncOperation();
 }
 
 void nsPIDOMWindowInner::AddPeerConnection() {
@@ -2753,14 +2793,14 @@ const InterfaceShimEntry kInterfaceShimMap[] = {
 
 bool nsGlobalWindowInner::ResolveComponentsShim(
     JSContext* aCx, JS::Handle<JSObject*> aGlobal,
-    JS::MutableHandle<JS::PropertyDescriptor> aDesc) {
+    JS::MutableHandle<mozilla::Maybe<JS::PropertyDescriptor>> aDesc) {
   // Keep track of how often this happens.
   Telemetry::Accumulate(Telemetry::COMPONENTS_SHIM_ACCESSED_BY_CONTENT, true);
 
   // Warn once.
   nsCOMPtr<Document> doc = GetExtantDoc();
   if (doc) {
-    doc->WarnOnceAbout(Document::eComponents, /* asError = */ true);
+    doc->WarnOnceAbout(DeprecatedOperations::eComponents, /* asError = */ true);
   }
 
   // Create a fake Components object.
@@ -2809,8 +2849,10 @@ bool nsGlobalWindowInner::ResolveComponentsShim(
     }
   }
 
-  FillPropertyDescriptor(aDesc, aGlobal, JS::ObjectValue(*components), false);
-
+  aDesc.set(mozilla::Some(JS::PropertyDescriptor::Data(
+      JS::ObjectValue(*components),
+      {JS::PropertyAttribute::Configurable, JS::PropertyAttribute::Enumerable,
+       JS::PropertyAttribute::Writable})));
   return true;
 }
 
@@ -2825,7 +2867,7 @@ static const JSClass XULControllersShimClass = {"XULControllers", 0};
 
 bool nsGlobalWindowInner::DoResolve(
     JSContext* aCx, JS::Handle<JSObject*> aObj, JS::Handle<jsid> aId,
-    JS::MutableHandle<JS::PropertyDescriptor> aDesc) {
+    JS::MutableHandle<mozilla::Maybe<JS::PropertyDescriptor>> aDesc) {
   // Note: Keep this in sync with MayResolve.
 
   // Note: The infallibleInit call in GlobalResolve depends on this check.
@@ -2862,7 +2904,8 @@ bool nsGlobalWindowInner::DoResolve(
       !xpc::IsXrayWrapper(aObj) &&
       !nsContentUtils::ObjectPrincipal(aObj)->IsSystemPrincipal()) {
     if (GetExtantDoc()) {
-      GetExtantDoc()->WarnOnceAbout(Document::eWindow_Cc_ontrollers);
+      GetExtantDoc()->WarnOnceAbout(
+          DeprecatedOperations::eWindow_Cc_ontrollers);
     }
     const JSClass* clazz;
     if (aId ==
@@ -2876,9 +2919,11 @@ bool nsGlobalWindowInner::DoResolve(
     if (NS_WARN_IF(!shim)) {
       return false;
     }
-    FillPropertyDescriptor(aDesc, aObj, JS::ObjectValue(*shim),
-                           /* readOnly = */ false);
-    return true;
+
+    aDesc.set(mozilla::Some(JS::PropertyDescriptor::Data(
+        JS::ObjectValue(*shim),
+        {JS::PropertyAttribute::Configurable, JS::PropertyAttribute::Enumerable,
+         JS::PropertyAttribute::Writable})));
   }
 #endif
 
@@ -3727,13 +3772,13 @@ void nsGlobalWindowInner::SetResizable(bool aResizable) const {
 
 void nsGlobalWindowInner::CaptureEvents() {
   if (mDoc) {
-    mDoc->WarnOnceAbout(Document::eUseOfCaptureEvents);
+    mDoc->WarnOnceAbout(DeprecatedOperations::eUseOfCaptureEvents);
   }
 }
 
 void nsGlobalWindowInner::ReleaseEvents() {
   if (mDoc) {
-    mDoc->WarnOnceAbout(Document::eUseOfReleaseEvents);
+    mDoc->WarnOnceAbout(DeprecatedOperations::eUseOfReleaseEvents);
   }
 }
 
@@ -3945,6 +3990,12 @@ bool nsGlobalWindowInner::DispatchEvent(Event& aEvent, CallerType aCallerType,
     aRv.Throw(rv);
   }
   return retval;
+}
+
+mozilla::Maybe<mozilla::dom::EventCallbackDebuggerNotificationType>
+nsGlobalWindowInner::GetDebuggerNotificationType() const {
+  return mozilla::Some(
+      mozilla::dom::EventCallbackDebuggerNotificationType::Global);
 }
 
 bool nsGlobalWindowInner::ComputeDefaultWantsUntrusted(ErrorResult& aRv) {
@@ -4320,9 +4371,11 @@ already_AddRefed<nsICSSDeclaration> nsGlobalWindowInner::GetComputedStyleHelper(
 
 Storage* nsGlobalWindowInner::GetSessionStorage(ErrorResult& aError) {
   nsIPrincipal* principal = GetPrincipal();
+  nsIPrincipal* storagePrincipal = IntrinsicStoragePrincipal();
   nsIDocShell* docShell = GetDocShell();
 
-  if (!principal || !docShell || !Storage::StoragePrefIsEnabled()) {
+  if (!principal || !storagePrincipal || !docShell ||
+      !Storage::StoragePrefIsEnabled()) {
     return nullptr;
   }
 
@@ -4330,10 +4383,9 @@ Storage* nsGlobalWindowInner::GetSessionStorage(ErrorResult& aError) {
     MOZ_LOG(gDOMLeakPRLogInner, LogLevel::Debug,
             ("nsGlobalWindowInner %p has %p sessionStorage", this,
              mSessionStorage.get()));
-    bool canAccess = principal->Subsumes(mSessionStorage->Principal());
-    NS_ASSERTION(canAccess,
-                 "This window owned sessionStorage "
-                 "that could not be accessed!");
+    bool canAccess =
+        principal->Subsumes(mSessionStorage->Principal()) &&
+        storagePrincipal->Subsumes(mSessionStorage->StoragePrincipal());
     if (!canAccess) {
       mSessionStorage = nullptr;
     }
@@ -4383,7 +4435,8 @@ Storage* nsGlobalWindowInner::GetSessionStorage(ErrorResult& aError) {
     // BEHAVIOR_LIMIT_FOREIGN and this is a third-party window. This will return
     // eDeny with a reason of STATE_COOKIES_BLOCKED_FOREIGN.
     //
-    // 3. Tracking protection (BEHAVIOR_REJECT_TRACKER) is in effect and
+    // 3. Tracking protection (BEHAVIOR_REJECT_TRACKER and
+    // BEHAVIOR_REJECT_TRACKER_AND_PARTITION_FOREIGN) is in effect and
     // IsThirdPartyTrackingResourceWindow() returned true and there wasn't a
     // permission that allows it. This will return ePartitionTrackersOrDeny with
     // a reason of STATE_COOKIES_BLOCKED_TRACKER.
@@ -4411,8 +4464,7 @@ Storage* nsGlobalWindowInner::GetSessionStorage(ErrorResult& aError) {
     }
 
     RefPtr<Storage> storage;
-    // No StoragePrincipal for sessions.
-    aError = storageManager->CreateStorage(this, principal, principal,
+    aError = storageManager->CreateStorage(this, principal, storagePrincipal,
                                            documentURI, IsPrivateBrowsing(),
                                            getter_AddRefs(storage));
     if (aError.Failed()) {
@@ -4910,7 +4962,9 @@ nsresult nsGlobalWindowInner::Observe(nsISupports* aSubject, const char* aTopic,
   if (!nsCRT::strcmp(aTopic, MEMORY_PRESSURE_OBSERVER_TOPIC)) {
     if (mPerformance) {
       mPerformance->MemoryPressure();
+#ifdef THE_REPORTING
       mReportRecords.Clear();
+#endif
     }
     return NS_OK;
   }
@@ -5002,8 +5056,8 @@ void nsGlobalWindowInner::ObserveStorageNotification(
     nsCOMPtr<nsIDOMStorageManager> storageManager =
         do_QueryInterface(GetDocShell());
     if (storageManager) {
-      nsresult rv =
-          storageManager->CheckStorage(principal, changingStorage, &check);
+      nsresult rv = storageManager->CheckStorage(storagePrincipal,
+                                                 changingStorage, &check);
       if (NS_FAILED(rv)) {
         return;
       }
@@ -5689,8 +5743,8 @@ bool WindowScriptTimeoutHandler::Call(const char* aExecutionReason) {
   options.setNoScriptRval(true);
   JS::Rooted<JSObject*> global(aes.cx(), mGlobal->GetGlobalJSObject());
   {
-    JSExecutionContext exec(aes.cx(), global);
-    nsresult rv = exec.Compile(options, mExpr);
+    JSExecutionContext exec(aes.cx(), global, options);
+    nsresult rv = exec.Compile(mExpr);
 
     JS::Rooted<JSScript*> script(aes.cx(), exec.MaybeGetScript());
     if (script) {
@@ -6926,13 +6980,13 @@ void nsGlobalWindowInner::FireOnNewGlobalObject() {
 #endif
 
 already_AddRefed<Promise> nsGlobalWindowInner::CreateImageBitmap(
-    JSContext* aCx, const ImageBitmapSource& aImage, ErrorResult& aRv) {
+    const ImageBitmapSource& aImage, ErrorResult& aRv) {
   return ImageBitmap::Create(this, aImage, Nothing(), aRv);
 }
 
 already_AddRefed<Promise> nsGlobalWindowInner::CreateImageBitmap(
-    JSContext* aCx, const ImageBitmapSource& aImage, int32_t aSx, int32_t aSy,
-    int32_t aSw, int32_t aSh, ErrorResult& aRv) {
+    const ImageBitmapSource& aImage, int32_t aSx, int32_t aSy, int32_t aSw,
+    int32_t aSh, ErrorResult& aRv) {
   return ImageBitmap::Create(this, aImage,
                              Some(gfx::IntRect(aSx, aSy, aSw, aSh)), aRv);
 }
@@ -7218,6 +7272,7 @@ nsPIDOMWindowInner::nsPIDOMWindowInner(nsPIDOMWindowOuter* aOuterWindow)
   MOZ_ASSERT(aOuterWindow);
 }
 
+#ifdef THE_REPORTING
 void nsPIDOMWindowInner::RegisterReportingObserver(ReportingObserver* aObserver,
                                                    bool aBuffered) {
   MOZ_ASSERT(aObserver);
@@ -7233,10 +7288,11 @@ void nsPIDOMWindowInner::RegisterReportingObserver(ReportingObserver* aObserver,
   if (!aBuffered) {
     return;
   }
-
+#ifdef THE_REPORTING
   for (Report* report : mReportRecords) {
     aObserver->MaybeReport(report);
   }
+#endif
 }
 
 void nsPIDOMWindowInner::UnregisterReportingObserver(
@@ -7251,11 +7307,11 @@ void nsPIDOMWindowInner::BroadcastReport(Report* aReport) {
   for (ReportingObserver* observer : mReportingObservers) {
     observer->MaybeReport(aReport);
   }
-
+#ifdef THE_REPORTING
   if (NS_WARN_IF(!mReportRecords.AppendElement(aReport, fallible))) {
     return;
   }
-
+#endif
   while (mReportRecords.Length() > MAX_REPORT_RECORDS) {
     mReportRecords.RemoveElementAt(0);
   }
@@ -7273,6 +7329,7 @@ void nsPIDOMWindowInner::NotifyReportingObservers() {
     MOZ_KnownLive(observer)->MaybeNotify();
   }
 }
+#endif  //THE_REPORTING
 
 nsPIDOMWindowInner::~nsPIDOMWindowInner() = default;
 

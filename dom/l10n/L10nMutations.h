@@ -77,6 +77,7 @@ class L10nMutations final : public nsStubMutationObserver,
 
  private:
   ~L10nMutations();
+  bool IsInRoots(nsINode* aNode);
 };
 
 }  // namespace dom

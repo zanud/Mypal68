@@ -18,6 +18,7 @@
 #include "mozilla/UniquePtr.h"
 #include "nsCOMPtr.h"
 #include "nsCycleCollectionParticipant.h"
+#include "nsDataHashtable.h"
 #include "nsHashKeys.h"
 #include "nsTHashtable.h"
 #include "js/TypeDecls.h"
@@ -153,7 +154,6 @@ class AudioContext final : public DOMEventTargetHelper,
   nsISerialEventTarget* GetMainThread() const;
 
   virtual void DisconnectFromOwner() override;
-  virtual void BindToOwner(nsIGlobalObject* aNew) override;
 
   void Shutdown();  // idempotent
 

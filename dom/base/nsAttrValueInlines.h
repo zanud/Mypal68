@@ -11,6 +11,7 @@
 #include "mozilla/Atomics.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/ServoUtils.h"
+#include "mozilla/dom/DOMString.h"
 
 namespace mozilla {
 class ShadowParts;

@@ -17,29 +17,23 @@
 #include "js/String.h"  // JS::GetLatin1LinearStringChars, JS::GetTwoByteLinearStringChars, JS::GetLinearStringLength, JS::LinearStringHasLatin1Chars, JS::StringHasLatin1Chars
 #include "js/Wrapper.h"
 #include "mozilla/ArrayUtils.h"
-#include "mozilla/Alignment.h"
 #include "mozilla/Array.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/DeferredFinalize.h"
 #include "mozilla/UniquePtr.h"
 #include "mozilla/dom/BindingCallContext.h"
 #include "mozilla/dom/BindingDeclarations.h"
-#include "mozilla/dom/CallbackObject.h"
 #include "mozilla/dom/DOMJSClass.h"
 #include "mozilla/dom/DOMJSProxyHandler.h"
-#include "mozilla/dom/Exceptions.h"
 #include "mozilla/dom/JSSlots.h"
 #include "mozilla/dom/NonRefcountedDOMObject.h"
 #include "mozilla/dom/Nullable.h"
 #include "mozilla/dom/PrototypeList.h"
 #include "mozilla/dom/RemoteObjectProxy.h"
-#include "mozilla/dom/RootedDictionary.h"
-#include "mozilla/dom/ScriptSettings.h"
 #include "mozilla/SegmentedVector.h"
 #include "mozilla/ErrorResult.h"
 #include "mozilla/Likely.h"
 #include "mozilla/MemoryReporting.h"
-#include "mozilla/dom/Document.h"
 #include "nsIGlobalObject.h"
 #include "nsJSUtils.h"
 #include "nsISupportsImpl.h"
@@ -50,17 +44,23 @@
 
 #include "nsWrapperCacheInlines.h"
 
-class nsGenericHTMLElement;
+class nsGlobalWindowInner;
+class nsGlobalWindowOuter;
+class nsIInterfaceRequestor;
 
 namespace mozilla {
 
 namespace dom {
 class CustomElementReactionsStack;
+class Document;
+class EventTarget;
 class MessageManagerGlobal;
 class DedicatedWorkerGlobalScope;
 template <typename KeyType, typename ValueType>
 class Record;
 class WindowProxyHolder;
+
+enum class DeprecatedOperations : uint16_t;
 
 nsresult UnwrapArgImpl(JSContext* cx, JS::Handle<JSObject*> src,
                        const nsIID& iid, void** ppArg);
@@ -701,6 +701,14 @@ struct NamedConstructor {
  *                  on objects in chrome compartments. This must be null if the
  *                  interface doesn't have any ChromeOnly properties or if the
  *                  object is being created in non-chrome compartment.
+ * name the name to use for 1) the WebIDL class string, which is the value
+ *      that's used for @@toStringTag, 2) the name property for interface
+ *      objects and 3) the property on the global object that would be set to
+ *      the interface object. In general this is the interface identifier.
+ *      LegacyNamespace would expect something different for 1), but we don't
+ *      support that. The class string for default iterator objects is not
+ *      usable as 2) or 3), but default iterator objects don't have an interface
+ *      object.
  * defineOnGlobal controls whether properties should be defined on the given
  *                global for the interface object (if any) and named
  *                constructors (if any) for this interface.  This can be
@@ -1846,9 +1854,9 @@ static inline bool ConvertJSValueToString(
   return ConvertJSValueToString(cx, v, eStringify, eStringify, result);
 }
 
-MOZ_MUST_USE bool NormalizeUSVString(nsAString& aString);
+[[nodiscard]] bool NormalizeUSVString(nsAString& aString);
 
-MOZ_MUST_USE bool NormalizeUSVString(
+[[nodiscard]] bool NormalizeUSVString(
     binding_detail::FakeString<char16_t>& aString);
 
 template <typename T>
@@ -1870,11 +1878,11 @@ static inline bool ConvertJSValueToUSVString(
 template <typename T>
 inline bool ConvertIdToString(JSContext* cx, JS::HandleId id, T& result,
                               bool& isSymbol) {
-  if (MOZ_LIKELY(JSID_IS_STRING(id))) {
-    if (!AssignJSString(cx, result, JSID_TO_STRING(id))) {
+  if (MOZ_LIKELY(id.isString())) {
+    if (!AssignJSString(cx, result, id.toString())) {
       return false;
     }
-  } else if (JSID_IS_SYMBOL(id)) {
+  } else if (id.isSymbol()) {
     isSymbol = true;
     return true;
   } else {
@@ -2197,10 +2205,11 @@ bool Constructor(JSContext* cx, unsigned argc, JS::Value* vp);
  * obj is the target object of the Xray, a binding's instance object or a
  *     interface or interface prototype object.
  */
-bool XrayResolveOwnProperty(JSContext* cx, JS::Handle<JSObject*> wrapper,
-                            JS::Handle<JSObject*> obj, JS::Handle<jsid> id,
-                            JS::MutableHandle<JS::PropertyDescriptor> desc,
-                            bool& cacheOnHolder);
+bool XrayResolveOwnProperty(
+    JSContext* cx, JS::Handle<JSObject*> wrapper, JS::Handle<JSObject*> obj,
+    JS::Handle<jsid> id,
+    JS::MutableHandle<mozilla::Maybe<JS::PropertyDescriptor>> desc,
+    bool& cacheOnHolder);
 
 /**
  * Define a property on obj through an Xray wrapper.
@@ -2287,6 +2296,20 @@ const JSClass* XrayGetExpandoClass(JSContext* cx, JS::Handle<JSObject*> obj);
 bool XrayDeleteNamedProperty(JSContext* cx, JS::Handle<JSObject*> wrapper,
                              JS::Handle<JSObject*> obj, JS::Handle<jsid> id,
                              JS::ObjectOpResult& opresult);
+
+namespace binding_detail {
+
+// Default implementations of the NativePropertyHooks' mResolveOwnProperty and
+// mEnumerateOwnProperties for WebIDL bindings implemented as proxies.
+bool ResolveOwnProperty(
+    JSContext* cx, JS::Handle<JSObject*> wrapper, JS::Handle<JSObject*> obj,
+    JS::Handle<jsid> id,
+    JS::MutableHandle<mozilla::Maybe<JS::PropertyDescriptor>> desc);
+bool EnumerateOwnProperties(JSContext* cx, JS::Handle<JSObject*> wrapper,
+                            JS::Handle<JSObject*> obj,
+                            JS::MutableHandleVector<jsid> props);
+
+}  // namespace binding_detail
 
 /**
  * Get the object which should be used to cache the return value of a property
@@ -2449,6 +2472,10 @@ void ConstructJSImplementation(const char* aContractId,
                                nsIGlobalObject* aGlobal,
                                JS::MutableHandle<JSObject*> aObject,
                                ErrorResult& aRv);
+
+// XXX Avoid pulling in the whole ScriptSettings.h, however there should be a
+// unique declaration of this function somewhere else.
+JS::RootingContext* RootingCx();
 
 template <typename T>
 already_AddRefed<T> ConstructJSImplementation(const char* aContractId,
@@ -2879,7 +2906,7 @@ bool CreateGlobal(JSContext* aCx, T* aNative, nsWrapperCache* aCache,
   }
 
   JS::Handle<JSObject*> proto = GetProto(aCx);
-  if (!proto || !JS_SplicePrototype(aCx, aGlobal, proto)) {
+  if (!proto || !JS_SetPrototype(aCx, aGlobal, proto)) {
     NS_WARNING("Failed to set proto");
     return false;
   }
@@ -3086,11 +3113,13 @@ already_AddRefed<Element> CreateXULOrHTMLElement(
     JS::Handle<JSObject*> aGivenProto, ErrorResult& aRv);
 
 // Warnings
+#ifdef THE_REPORTING
 void DeprecationWarning(JSContext* aCx, JSObject* aObject,
-                        Document::DeprecatedOperations aOperation);
+                        DeprecatedOperations aOperation);
 
 void DeprecationWarning(const GlobalObject& aGlobal,
-                        Document::DeprecatedOperations aOperation);
+                        DeprecatedOperations aOperation);
+#endif
 
 // A callback to perform funToString on an interface object
 JSString* InterfaceObjectToString(JSContext* aCx, JS::Handle<JSObject*> aObject,

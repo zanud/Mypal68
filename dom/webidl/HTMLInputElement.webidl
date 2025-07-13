@@ -196,13 +196,13 @@ interface mixin MozEditableElement {
   // This is set to true if "input" event should be fired with InputEvent on
   // the element.  Otherwise, i.e., if "input" event should be fired with
   // Event, set to false.
-  [Func="IsChromeOrXBLOrUAWidget"]
+  [ChromeOnly]
   readonly attribute boolean isInputEventTarget;
 
   // This is similar to set .value on nsIDOMInput/TextAreaElements, but handling
   // of the value change is closer to the normal user input, so 'change' event
   // for example will be dispatched when focusing out the element.
-  [Func="IsChromeOrXBLOrUAWidget", NeedsSubjectPrincipal]
+  [Func="IsChromeOrUAWidget", NeedsSubjectPrincipal]
   void setUserInput(DOMString input);
 };
 
@@ -257,24 +257,24 @@ partial interface HTMLInputElement {
   [ChromeOnly, BinaryName="getMaximumAsDouble"]
   double getMaximum();
 
-  [Func="IsChromeOrXBLOrUAWidget"]
+  [Func="IsChromeOrUAWidget"]
   void openDateTimePicker(optional DateTimeValue initialValue = {});
 
-  [Func="IsChromeOrXBLOrUAWidget"]
+  [Func="IsChromeOrUAWidget"]
   void updateDateTimePicker(optional DateTimeValue value = {});
 
-  [Func="IsChromeOrXBLOrUAWidget"]
+  [Func="IsChromeOrUAWidget"]
   void closeDateTimePicker();
 
-  [Func="IsChromeOrXBLOrUAWidget"]
+  [Func="IsChromeOrUAWidget"]
   void setFocusState(boolean aIsFocused);
 
-  [Func="IsChromeOrXBLOrUAWidget"]
+  [Func="IsChromeOrUAWidget"]
   void updateValidityState();
 
-  [Func="IsChromeOrXBLOrUAWidget", BinaryName="getStepAsDouble"]
+  [Func="IsChromeOrUAWidget", BinaryName="getStepAsDouble"]
   double getStep();
 
-  [Func="IsChromeOrXBLOrUAWidget", BinaryName="getStepBaseAsDouble"]
+  [Func="IsChromeOrUAWidget", BinaryName="getStepBaseAsDouble"]
   double getStepBase();
 };

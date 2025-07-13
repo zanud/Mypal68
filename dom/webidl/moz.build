@@ -730,7 +730,7 @@ WEBIDL_FILES = [
     'RadioNodeList.webidl',
     'Range.webidl',
     'ReferrerPolicy.webidl',
-    'Reporting.webidl',
+    ##ifdef THE_REPORTING'Reporting.webidl',
     'Request.webidl',
     'ResizeObserver.webidl',
     'Response.webidl',

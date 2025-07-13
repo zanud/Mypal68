@@ -902,7 +902,8 @@ static nsresult FireEventForAccessibility(HTMLInputElement* aTarget,
 HTMLInputElement::HTMLInputElement(
     already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo,
     FromParser aFromParser, FromClone aFromClone)
-    : TextControlElement(std::move(aNodeInfo), kInputDefaultType->value),
+    : TextControlElement(std::move(aNodeInfo), aFromParser,
+                         kInputDefaultType->value),
       mAutocompleteAttrState(nsContentUtils::eAutocompleteAttrState_Unknown),
       mAutocompleteInfoState(nsContentUtils::eAutocompleteAttrState_Unknown),
       mDisabledChanged(false),
@@ -2831,7 +2832,7 @@ nsIRadioGroupContainer* HTMLInputElement::GetRadioGroupContainer() const {
     return mForm;
   }
 
-  if (IsInAnonymousSubtree()) {
+  if (IsInNativeAnonymousSubtree()) {
     return nullptr;
   }
 
@@ -5734,9 +5735,8 @@ void HTMLInputElement::DoneCreatingElement() {
   // Restore state as needed.  Note that disabled state applies to all control
   // types.
   //
-  bool restoredCheckedState = !mInhibitRestoration &&
-                              NS_SUCCEEDED(GenerateStateKey()) &&
-                              RestoreFormControlState();
+  GenerateStateKey();
+  bool restoredCheckedState = !mInhibitRestoration && RestoreFormControlState();
 
   //
   // If restore does not occur, we initialize .checked using the CHECKED
@@ -5957,8 +5957,8 @@ bool HTMLInputElement::AllowDrop() {
 void HTMLInputElement::AddedToRadioGroup() {
   // If the element is neither in a form nor a document, there is no group so we
   // should just stop here.
-  if (!mForm &&
-      (!GetUncomposedDocOrConnectedShadowRoot() || IsInAnonymousSubtree())) {
+  if (!mForm && (!GetUncomposedDocOrConnectedShadowRoot() ||
+                 IsInNativeAnonymousSubtree())) {
     return;
   }
 

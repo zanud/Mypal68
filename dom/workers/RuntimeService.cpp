@@ -22,7 +22,9 @@
 #include "jsfriendapi.h"
 #include "js/friend/ErrorMessages.h"  // js::GetErrorMessage, JSMSG_*
 #include "js/ContextOptions.h"
+#include "js/Initialization.h"
 #include "js/LocaleSensitive.h"
+#include "js/WasmFeatures.h"
 #include "mozilla/AntiTrackingCommon.h"
 #include "mozilla/ArrayUtils.h"
 #include "mozilla/Atomics.h"
@@ -61,6 +63,7 @@
 #include "nsXPCOMPrivate.h"
 #include "OSFileConstants.h"
 #include "xpcpublic.h"
+#include "XPCSelfHostedShmem.h"
 
 #if defined(XP_MACOSX)
 #  include "nsMacUtilsImpl.h"
@@ -75,6 +78,10 @@
 #include "WorkerScope.h"
 #include "WorkerThread.h"
 #include "prsystem.h"
+
+#ifdef DEBUG
+#  include "nsICookieSettings.h"
+#endif
 
 #define WORKERS_SHUTDOWN_TOPIC "web-workers-shutdown"
 
@@ -238,9 +245,9 @@ void LoadContextOptions(const char* aPrefName, void* /* aClosure */) {
   // another callback that will handle this change.
   if (StringBeginsWith(
           prefName,
-          NS_LITERAL_CSTRING(PREF_JS_OPTIONS_PREFIX PREF_MEM_OPTIONS_PREFIX)) ||
+          nsLiteralCString(PREF_JS_OPTIONS_PREFIX PREF_MEM_OPTIONS_PREFIX)) ||
       StringBeginsWith(
-          prefName, NS_LITERAL_CSTRING(
+          prefName, nsLiteralCString(
                         PREF_WORKERS_OPTIONS_PREFIX PREF_MEM_OPTIONS_PREFIX))) {
     return;
   }
@@ -254,50 +261,54 @@ void LoadContextOptions(const char* aPrefName, void* /* aClosure */) {
 
   // Context options.
   JS::ContextOptions contextOptions;
-  contextOptions.setAsmJS(GetWorkerPref<bool>(NS_LITERAL_CSTRING("asmjs")))
+  contextOptions
+      .setAsmJS(GetWorkerPref<bool>("asmjs"_ns))
 #ifdef FUZZING
-      .setFuzzing(GetWorkerPref<bool>(NS_LITERAL_CSTRING("fuzzing.enabled")))
+      .setFuzzing(GetWorkerPref<bool>("fuzzing.enabled"_ns))
 #endif
-      .setWasm(GetWorkerPref<bool>(NS_LITERAL_CSTRING("wasm")))
+      .setWasm(GetWorkerPref<bool>("wasm"_ns))
       .setWasmForTrustedPrinciples(
-          GetWorkerPref<bool>(NS_LITERAL_CSTRING("wasm_trustedprincipals")))
-      .setWasmBaseline(
-          GetWorkerPref<bool>(NS_LITERAL_CSTRING("wasm_baselinejit")))
+          GetWorkerPref<bool>("wasm_trustedprincipals"_ns))
+      .setWasmBaseline(GetWorkerPref<bool>("wasm_baselinejit"_ns))
 #ifdef ENABLE_WASM_CRANELIFT
-      .setWasmCranelift(
-          GetWorkerPref<bool>(NS_LITERAL_CSTRING("wasm_optimizingjit")))
+      .setWasmCranelift(GetWorkerPref<bool>("wasm_optimizingjit"_ns))
 #else
-      .setWasmIon(
-          GetWorkerPref<bool>(NS_LITERAL_CSTRING("wasm_optimizingjit")))
+      .setWasmIon(GetWorkerPref<bool>("wasm_optimizingjit"_ns))
 #endif
-#ifdef ENABLE_WASM_MULTI_VALUE
-      .setWasmMultiValue(
-          GetWorkerPref<bool>(NS_LITERAL_CSTRING("wasm_multi_value")))
-#endif
+      .setWasmBaseline(GetWorkerPref<bool>("wasm_baselinejit"_ns))
+      .setWasmVerbose(GetWorkerPref<bool>("wasm_verbose"_ns))
+#define WASM_FEATURE(NAME, LOWER_NAME, COMPILE_PRED, COMPILER_PRED, FLAG_PRED, \
+                     SHELL, PREF)                                              \
+  .setWasm##NAME(GetWorkerPref<bool>("wasm_" PREF ""_ns))
 #ifdef ENABLE_WASM_SIMD
-      .setWasmSimd(GetWorkerPref<bool>(NS_LITERAL_CSTRING("wasm_simd")))
+          JS_FOR_WASM_FEATURES(WASM_FEATURE, WASM_FEATURE)
+#else
+          JS_FOR_WASM_FEATURES(WASM_FEATURE)
 #endif
-#ifdef ENABLE_WASM_FUNCTION_REFERENCES
-      .setWasmFunctionReferences(GetWorkerPref<bool>(
-          NS_LITERAL_CSTRING("wasm_function_references")))
+#undef WASM_FEATURE
+#undef WASM_FEATURE
+#ifdef ENABLE_WASM_SIMD_WORMHOLE
+#  ifdef EARLY_BETA_OR_EARLIER
+      .setWasmSimdWormhole(GetWorkerPref<bool>("wasm_simd_wormhole"_ns))
+#  else
+      .setWasmSimdWormhole(false)
+#  endif
 #endif
-#ifdef ENABLE_WASM_GC
-      .setWasmGc(GetWorkerPref<bool>(NS_LITERAL_CSTRING("wasm_gc")))
-#endif
-      .setWasmVerbose(GetWorkerPref<bool>(NS_LITERAL_CSTRING("wasm_verbose")))
-      .setThrowOnAsmJSValidationFailure(GetWorkerPref<bool>(
-          NS_LITERAL_CSTRING("throw_on_asmjs_validation_failure")))
-      .setSourcePragmas(
-          GetWorkerPref<bool>(NS_LITERAL_CSTRING("source_pragmas")))
-      .setAsyncStack(GetWorkerPref<bool>(NS_LITERAL_CSTRING("asyncstack")))
-      .setAsyncStackCaptureDebuggeeOnly(GetWorkerPref<bool>(
-          NS_LITERAL_CSTRING("asyncstack_capture_debuggee_only")))
-      .setPrivateClassFields(GetWorkerPref<bool>(
-          NS_LITERAL_CSTRING("experimental.private_fields")))
-      .setPrivateClassMethods(GetWorkerPref<bool>(
-          NS_LITERAL_CSTRING("experimental.private_methods")))
-      .setTopLevelAwait(GetWorkerPref<bool>(
-          NS_LITERAL_CSTRING("experimental.top_level_await")));
+      .setThrowOnAsmJSValidationFailure(
+          GetWorkerPref<bool>("throw_on_asmjs_validation_failure"_ns))
+      .setSourcePragmas(GetWorkerPref<bool>("source_pragmas"_ns))
+      .setAsyncStack(GetWorkerPref<bool>("asyncstack"_ns))
+      .setAsyncStackCaptureDebuggeeOnly(
+          GetWorkerPref<bool>("asyncstack_capture_debuggee_only"_ns))
+      .setPrivateClassFields(
+          GetWorkerPref<bool>("experimental.private_fields"_ns))
+      .setClassStaticBlocks(
+          GetWorkerPref<bool>("experimental.class_static_blocks"_ns))
+      .setPrivateClassMethods(
+          GetWorkerPref<bool>("experimental.private_methods"_ns))
+      .setErgnomicBrandChecks(
+          GetWorkerPref<bool>("experimental.ergonomic_brand_checks"_ns))
+      .setTopLevelAwait(GetWorkerPref<bool>("experimental.top_level_await"_ns));
 
   nsCOMPtr<nsIXULRuntime> xr = do_GetService("@mozilla.org/xre/runtime;1");
   if (xr) {
@@ -325,13 +336,12 @@ void LoadGCZealOptions(const char* /* aPrefName */, void* /* aClosure */) {
     return;
   }
 
-  int32_t gczeal = GetWorkerPref<int32_t>(NS_LITERAL_CSTRING(PREF_GCZEAL), -1);
+  int32_t gczeal = GetWorkerPref<int32_t>(nsLiteralCString(PREF_GCZEAL), -1);
   if (gczeal < 0) {
     gczeal = 0;
   }
 
-  int32_t frequency =
-      GetWorkerPref<int32_t>(NS_LITERAL_CSTRING("gcZeal.frequency"), -1);
+  int32_t frequency = GetWorkerPref<int32_t>("gcZeal.frequency"_ns, -1);
   if (frequency < 0) {
     frequency = JS_DEFAULT_ZEAL_FREQ;
   }
@@ -515,9 +525,8 @@ class LogViolationDetailsRunnable final : public WorkerMainThreadRunnable {
   LogViolationDetailsRunnable(WorkerPrivate* aWorker, const nsString& aFileName,
                               uint32_t aLineNum, uint32_t aColumnNum,
                               const nsAString& aScriptSample)
-      : WorkerMainThreadRunnable(
-            aWorker,
-            NS_LITERAL_CSTRING("RuntimeService :: LogViolationDetails")),
+      : WorkerMainThreadRunnable(aWorker,
+                                 "RuntimeService :: LogViolationDetails"_ns),
         mFileName(aFileName),
         mLineNum(aLineNum),
         mColumnNum(aColumnNum),
@@ -733,7 +742,12 @@ bool InitJSContextForWorker(WorkerPrivate* aWorkerPrivate,
   JS::InitConsumeStreamCallback(aWorkerCx, ConsumeStream,
                                 FetchUtil::ReportJSStreamError);
 
-  if (!JS::InitSelfHostedCode(aWorkerCx)) {
+  // When available, set the self-hosted shared memory to be read, so that we
+  // can decode the self-hosted content instead of parsing it.
+  auto& shm = xpc::SelfHostedShmem::GetSingleton();
+  JS::SelfHostedCache selfHostedContent = shm.Content();
+
+  if (!JS::InitSelfHostedCode(aWorkerCx, selfHostedContent)) {
     NS_WARNING("Could not init self-hosted code!");
     return false;
   }
@@ -2159,8 +2173,8 @@ bool LogViolationDetailsRunnable::MainThreadRun() {
       csp->LogViolationDetails(nsIContentSecurityPolicy::VIOLATION_TYPE_EVAL,
                                nullptr,  // triggering element
                                mWorkerPrivate->CSPEventListener(), mFileName,
-                               mScriptSample, mLineNum, mColumnNum,
-                               EmptyString(), EmptyString());
+                               mScriptSample, mLineNum, mColumnNum, u""_ns,
+                               u""_ns);
     }
   }
 

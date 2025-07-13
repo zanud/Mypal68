@@ -5,6 +5,7 @@
 #include "ClientNavigateOpChild.h"
 
 #include "ClientState.h"
+#include "mozilla/dom/Document.h"
 #include "mozilla/Unused.h"
 #include "nsIDocShell.h"
 #include "nsDocShellLoadState.h"

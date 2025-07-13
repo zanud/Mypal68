@@ -6,6 +6,7 @@
 
 #include "ClientInfo.h"
 #include "ClientState.h"
+#include "mozilla/dom/ScriptSettings.h" //MY
 #include "mozilla/SystemGroup.h"
 #include "nsContentUtils.h"
 #include "nsFocusManager.h"

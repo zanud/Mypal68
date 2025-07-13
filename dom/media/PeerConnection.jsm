@@ -18,10 +18,8 @@ const PC_ICE_CONTRACT = "@mozilla.org/dom/rtcicecandidate;1";
 const PC_SESSION_CONTRACT = "@mozilla.org/dom/rtcsessiondescription;1";
 const PC_STATIC_CONTRACT = "@mozilla.org/dom/peerconnectionstatic;1";
 const PC_SENDER_CONTRACT = "@mozilla.org/dom/rtpsender;1";
-const PC_RECEIVER_CONTRACT = "@mozilla.org/dom/rtpreceiver;1";
 const PC_TRANSCEIVER_CONTRACT = "@mozilla.org/dom/rtptransceiver;1";
 const PC_COREQUEST_CONTRACT = "@mozilla.org/dom/createofferrequest;1";
-const PC_DTMF_SENDER_CONTRACT = "@mozilla.org/dom/rtcdtmfsender;1";
 
 const PC_CID = Components.ID("{bdc2e533-b308-4708-ac8e-a8bfade6d851}");
 const PC_OBS_CID = Components.ID("{d1748d4c-7f6a-4dc5-add6-d55b7678537e}");
@@ -30,15 +28,11 @@ const PC_SESSION_CID = Components.ID("{1775081b-b62d-4954-8ffe-a067bbf508a7}");
 const PC_MANAGER_CID = Components.ID("{7293e901-2be3-4c02-b4bd-cbef6fc24f78}");
 const PC_STATIC_CID = Components.ID("{0fb47c47-a205-4583-a9fc-cbadf8c95880}");
 const PC_SENDER_CID = Components.ID("{4fff5d46-d827-4cd4-a970-8fd53977440e}");
-const PC_RECEIVER_CID = Components.ID("{d974b814-8fde-411c-8c45-b86791b81030}");
 const PC_TRANSCEIVER_CID = Components.ID(
   "{09475754-103a-41f5-a2d0-e1f27eb0b537}"
 );
 const PC_COREQUEST_CID = Components.ID(
   "{74b2122d-65a8-4824-aa9e-3d664cb75dc2}"
-);
-const PC_DTMF_SENDER_CID = Components.ID(
-  "{3610C242-654E-11E6-8EC0-6D1BE389A607}"
 );
 
 function logMsg(msg, file, line, flag, winID) {
@@ -263,6 +257,11 @@ class RTCSessionDescription {
   }
 
   __init({ type, sdp }) {
+    if (!type) {
+      throw new this._win.TypeError(
+        "Missing required 'type' member of RTCSessionDescriptionInit"
+      );
+    }
     Object.assign(this, { _type: type, _sdp: sdp });
   }
 
@@ -310,34 +309,12 @@ setupPrototype(RTCSessionDescription, {
   QueryInterface: ChromeUtils.generateQI([Ci.nsIDOMGlobalPropertyInitializer]),
 });
 
-// Cache for RTPSourceEntries
-// Note: each cache is only valid for one JS event loop execution
-class RTCRtpSourceCache {
-  constructor() {
-    // The time in RTP source time (ms)
-    this.tsNowInRtpSourceTime = null;
-    // The time in JS
-    this.jsTimestamp = null;
-    // Time difference between JS time and RTP source time
-    this.timestampOffset = null;
-    // RTPSourceEntries cached by track id
-    this.rtpSourcesByTrackId = new Map();
-    // Has a cache wipe already been scheduled
-    this.scheduledClear = null;
-  }
-}
-
 class RTCPeerConnection {
   constructor() {
-    this._receiveStreams = new Map();
-    // Used to fire onaddstream, remove when we don't do that anymore.
-    this._newStreams = [];
     this._transceivers = [];
 
     this._pc = null;
     this._closed = false;
-    this._currentRole = null;
-    this._pendingRole = null;
 
     // http://rtcweb-wg.github.io/jsep/#rfc.section.4.1.9
     // canTrickle == null means unknown; when a remote description is received it
@@ -350,10 +327,6 @@ class RTCPeerConnection {
 
     this._hasStunServer = this._hasTurnServer = false;
     this._iceGatheredRelayCandidates = false;
-    // Stored webrtc timing information
-    this._storedRtpSourceReferenceTime = null;
-    // Stores cached RTP sources state
-    this._rtpSourceCache = new RTCRtpSourceCache();
   }
 
   init(win) {
@@ -413,7 +386,8 @@ class RTCPeerConnection {
     if (certificates.some(c => c.expires <= Date.now())) {
       throw new this._win.DOMException(
         "Unable to create RTCPeerConnection with an expired certificate",
-        "InvalidAccessError");
+        "InvalidAccessError"
+      );
     }
 
     // TODO(bug 1531875): Check origin of certs
@@ -425,11 +399,11 @@ class RTCPeerConnection {
     } else if (certificates.length) {
       throw new this._win.DOMException(
         "RTCPeerConnection does not currently support multiple certificates",
-        "NotSupportedError");
+        "NotSupportedError"
+      );
     }
 
-    var principal = Cu.getWebIDLCallerPrincipal();
-    this._isChrome = principal.isSystemPrincipal;
+    this._documentPrincipal = Cu.getWebIDLCallerPrincipal();
 
     if (_globalPCList._networkdown) {
       throw new this._win.DOMException(
@@ -459,7 +433,7 @@ class RTCPeerConnection {
     this.makeGetterSetterEH("onidpvalidationerror");
 
     this._pc = new this._win.PeerConnectionImpl();
-    this._operationsChain = this._win.Promise.resolve();
+    this._operations = [];
 
     this.__DOM_IMPL__._innerObject = this;
     const observer = new this._win.PeerConnectionObserver(this.__DOM_IMPL__);
@@ -525,21 +499,28 @@ class RTCPeerConnection {
 
   // Add a function to the internal operations chain.
 
-  async _chain(func) {
-    let p = (async () => {
-      await this._operationsChain;
-      // Don't _checkClosed() inside the chain, because it throws, and spec
-      // behavior is to NOT reject outstanding promises on close. This is what
-      // happens most of the time anyways, as the c++ code stops calling us once
-      // closed, hanging the chain. However, c++ may already have queued tasks
-      // on us, so if we're one of those then sit back.
-      if (this._closed) {
-        return null;
-      }
-      return func();
-    })();
-    // don't propagate errors in the operations chain (this is a fork of p).
-    this._operationsChain = p.catch(() => {});
+  _chain(operation) {
+    let resolveP, rejectP;
+    const p = new Promise((r, e) => {
+      resolveP = r;
+      rejectP = e;
+    });
+    this._operations.push(() => {
+      operation().then(resolveP, rejectP);
+      const doNextOperation = () => {
+        if (this._closed) {
+          return;
+        }
+        this._operations.shift();
+        if (this._operations.length) {
+          this._operations[0]();
+        }
+      };
+      p.then(doNextOperation, doNextOperation);
+    });
+    if (this._operations.length == 1) {
+      this._operations[0]();
+    }
     return p;
   }
 
@@ -823,9 +804,6 @@ class RTCPeerConnection {
     } else {
       options = optionsOrOnSucc;
     }
-    if (this._localUfragsToReplace.size > 0) {
-      options.iceRestart = true;
-    }
     // This entry-point handles both new and legacy call sig. Decipher which one
     if (onSuccess) {
       return this._legacy(onSuccess, onErr, () => this._createOffer(options));
@@ -877,29 +855,43 @@ class RTCPeerConnection {
       });
   }
 
-  async _createOffer(options) {
+  _createOffer(options) {
     this._checkClosed();
     this._ensureTransceiversForOfferToReceive(options);
     this._syncTransceivers();
-    let origin = Cu.getWebIDLCallerPrincipal().origin;
-    return this._chain(async () => {
-      let haveAssertion;
-      if (this._localIdp.enabled) {
-        haveAssertion = this._getIdentityAssertion(origin);
-      }
-      await this._getPermission();
-      await this._certificateReady;
-      let sdp = await new Promise((resolve, reject) => {
-        this._onCreateOfferSuccess = resolve;
-        this._onCreateOfferFailure = reject;
-        this._impl.createOffer(options);
-      });
-      if (haveAssertion) {
-        await haveAssertion;
-        sdp = this._localIdp.addIdentityAttribute(sdp);
-      }
-      return Cu.cloneInto({ type: "offer", sdp }, this._win);
+    return this._chain(() => this._createAnOffer(options));
+  }
+
+  async _createAnOffer(options = {}) {
+    switch (this.signalingState) {
+      case "stable":
+      case "have-local-offer":
+        break;
+      default:
+        throw new this._win.DOMException(
+          `Cannot create offer in ${this.signalingState}`,
+          "InvalidStateError"
+        );
+    }
+    if (this._localUfragsToReplace.size > 0) {
+      options.iceRestart = true;
+    }
+    let haveAssertion;
+    if (this._localIdp.enabled) {
+      haveAssertion = this._getIdentityAssertion();
+    }
+    await this._getPermission();
+    await this._certificateReady;
+    let sdp = await new Promise((resolve, reject) => {
+      this._onCreateOfferSuccess = resolve;
+      this._onCreateOfferFailure = reject;
+      this._impl.createOffer(options);
     });
+    if (haveAssertion) {
+      await haveAssertion;
+      sdp = this._localIdp.addIdentityAttribute(sdp);
+    }
+    return Cu.cloneInto({ type: "offer", sdp }, this._win);
   }
 
   createAnswer(optionsOrOnSucc, onErr) {
@@ -910,49 +902,41 @@ class RTCPeerConnection {
     return this._async(() => this._createAnswer(optionsOrOnSucc));
   }
 
-  async _createAnswer(options) {
+  _createAnswer(options) {
     this._checkClosed();
     this._syncTransceivers();
-    let origin = Cu.getWebIDLCallerPrincipal().origin;
-    return this._chain(async () => {
-      // We give up line-numbers in errors by doing this here, but do all
-      // state-checks inside the chain, to support the legacy feature that
-      // callers don't have to wait for setRemoteDescription to finish.
-      if (!this.remoteDescription) {
-        throw new this._win.DOMException(
-          "setRemoteDescription not called",
-          "InvalidStateError"
-        );
-      }
-      if (this.remoteDescription.type != "offer") {
-        throw new this._win.DOMException(
-          "No outstanding offer",
-          "InvalidStateError"
-        );
-      }
-      let haveAssertion;
-      if (this._localIdp.enabled) {
-        haveAssertion = this._getIdentityAssertion(origin);
-      }
-      await this._getPermission();
-      await this._certificateReady;
-      let sdp = await new Promise((resolve, reject) => {
-        this._onCreateAnswerSuccess = resolve;
-        this._onCreateAnswerFailure = reject;
-        this._impl.createAnswer();
-      });
-      if (haveAssertion) {
-        await haveAssertion;
-        sdp = this._localIdp.addIdentityAttribute(sdp);
-      }
-      return Cu.cloneInto({ type: "answer", sdp }, this._win);
+    return this._chain(() => this._createAnAnswer());
+  }
+
+  async _createAnAnswer() {
+    if (this.signalingState != "have-remote-offer") {
+      throw new this._win.DOMException(
+        `Cannot create answer in ${this.signalingState}`,
+        "InvalidStateError"
+      );
+    }
+    let haveAssertion;
+    if (this._localIdp.enabled) {
+      haveAssertion = this._getIdentityAssertion();
+    }
+    await this._getPermission();
+    await this._certificateReady;
+    let sdp = await new Promise((resolve, reject) => {
+      this._onCreateAnswerSuccess = resolve;
+      this._onCreateAnswerFailure = reject;
+      this._impl.createAnswer();
     });
+    if (haveAssertion) {
+      await haveAssertion;
+      sdp = this._localIdp.addIdentityAttribute(sdp);
+    }
+    return Cu.cloneInto({ type: "answer", sdp }, this._win);
   }
 
   async _getPermission() {
     if (!this._havePermission) {
-      let privileged =
-        this._isChrome ||
+      const privileged =
+        this._documentPrincipal.isSystemPrincipal ||
         Services.prefs.getBoolPref("media.navigator.permission.disabled");
 
       if (privileged) {
@@ -976,20 +960,7 @@ class RTCPeerConnection {
     return this._havePermission;
   }
 
-  _sanityCheckSdp(action, type, sdp) {
-    if (action === undefined) {
-      throw new this._win.DOMException(
-        "Invalid type " + type + " provided to setLocalDescription",
-        "InvalidParameterError"
-      );
-    }
-    if (action == Ci.IPeerConnection.kActionPRAnswer) {
-      throw new this._win.DOMException(
-        "pranswer not yet implemented",
-        "NotSupportedError"
-      );
-    }
-
+  _sanityCheckSdp(sdp) {
     // The fippo butter finger filter AKA non-ASCII chars
     // Note: SDP allows non-ASCII character in the subject (who cares?)
     // eslint-disable-next-line no-control-regex
@@ -1006,32 +977,56 @@ class RTCPeerConnection {
     return this._auto(onSucc, onErr, () => this._setLocalDescription(desc));
   }
 
-  async _setLocalDescription({ type, sdp }) {
+  _setLocalDescription({ type, sdp }) {
+    if (type == "pranswer") {
+      throw new this._win.DOMException(
+        "pranswer not yet implemented",
+        "NotSupportedError"
+      );
+    }
     this._checkClosed();
-
-    let action = this._actions[type];
-
-    this._sanityCheckSdp(action, type, sdp);
-
     return this._chain(async () => {
-      await this._getPermission();
+      // Avoid Promise.all ahead of synchronous part of spec algorithm, since it
+      // defers. NOTE: The spec says to return an already-rejected promise in
+      // some cases, which is difficult to achieve in practice from JS (would
+      // require avoiding await and then() entirely), but we want to come as
+      // close as we reasonably can.
+      const p = this._getPermission();
+      if (!type) {
+        switch (this.signalingState) {
+          case "stable":
+          case "have-local-offer":
+          case "have-remote-pranswer":
+            type = "offer";
+            break;
+          default:
+            type = "answer";
+            break;
+        }
+      }
+      if (!sdp) {
+        if (type == "offer") {
+          await this._createAnOffer();
+        } else if (type == "answer") {
+          await this._createAnAnswer();
+        }
+      } else {
+        this._sanityCheckSdp(sdp);
+      }
       await new Promise((resolve, reject) => {
-        this._onSetLocalDescriptionSuccess = resolve;
-        this._onSetLocalDescriptionFailure = reject;
-        this._impl.setLocalDescription(action, sdp);
+        this._onSetDescriptionSuccess = resolve;
+        this._onSetDescriptionFailure = reject;
+        this._impl.setLocalDescription(this._actions[type], sdp);
       });
+      await p;
       this._negotiationNeeded = false;
       if (type == "answer") {
-        this._currentRole = "answerer";
-        this._pendingRole = null;
         if (this._localUfragsToReplace.size > 0) {
           const ufrags = new Set(this._getUfragsWithPwds(sdp));
           if (![...this._localUfragsToReplace].some(uf => ufrags.has(uf))) {
             this._localUfragsToReplace.clear();
           }
         }
-      } else {
-        this._pendingRole = "offerer";
       }
       this.updateNegotiationNeeded();
     });
@@ -1098,46 +1093,52 @@ class RTCPeerConnection {
     return this._auto(onSucc, onErr, () => this._setRemoteDescription(desc));
   }
 
-  async _setRemoteDescription({ type, sdp }) {
+  _setRemoteDescription({ type, sdp }) {
+    if (!type) {
+      throw new this._win.TypeError(
+        "Missing required 'type' member of RTCSessionDescriptionInit"
+      );
+    }
+    if (type == "pranswer") {
+      throw new this._win.DOMException(
+        "pranswer not yet implemented",
+        "NotSupportedError"
+      );
+    }
     this._checkClosed();
-
-    let action = this._actions[type];
-
-    this._sanityCheckSdp(action, type, sdp);
-
-    // Get caller's origin before hitting the promise chain
-    let origin = Cu.getWebIDLCallerPrincipal().origin;
-
     return this._chain(async () => {
       const haveSetRemote = (async () => {
-        await this._getPermission();
         if (type == "offer" && this.signalingState == "have-local-offer") {
           await new Promise((resolve, reject) => {
-            this._onSetLocalDescriptionSuccess = resolve;
-            this._onSetLocalDescriptionFailure = reject;
+            this._onSetDescriptionSuccess = resolve;
+            this._onSetDescriptionFailure = reject;
             this._impl.setLocalDescription(
               Ci.IPeerConnection.kActionRollback,
               ""
             );
           });
+          this._transceivers = this._transceivers.filter(t => !t.shouldRemove);
+          this._updateCanTrickle();
         }
+        this._sanityCheckSdp(sdp);
+        const p = this._getPermission();
         await new Promise((resolve, reject) => {
-          this._onSetRemoteDescriptionSuccess = resolve;
-          this._onSetRemoteDescriptionFailure = reject;
-          this._impl.setRemoteDescription(action, sdp);
+          this._onSetDescriptionSuccess = resolve;
+          this._onSetDescriptionFailure = reject;
+          this._impl.setRemoteDescription(this._actions[type], sdp);
         });
+        await p;
+        this._transceivers = this._transceivers.filter(t => !t.shouldRemove);
         this._updateCanTrickle();
       })();
 
-      if (action != Ci.IPeerConnection.kActionRollback) {
+      if (type != "rollback") {
         // Do setRemoteDescription and identity validation in parallel
-        await this._validateIdentity(sdp, origin);
+        await this._validateIdentity(sdp);
       }
       await haveSetRemote;
       this._negotiationNeeded = false;
       if (type == "answer") {
-        this._currentRole = "offerer";
-        this._pendingRole = null;
         if (this._localUfragsToReplace.size > 0) {
           const ufrags = new Set(
             this._getUfragsWithPwds(this._impl.currentLocalDescription)
@@ -1146,8 +1147,6 @@ class RTCPeerConnection {
             this._localUfragsToReplace.clear();
           }
         }
-      } else {
-        this._pendingRole = "answerer";
       }
       this.updateNegotiationNeeded();
     });
@@ -1164,16 +1163,18 @@ class RTCPeerConnection {
     );
   }
 
-  async _getIdentityAssertion(origin) {
+  async _getIdentityAssertion() {
     await this._certificateReady;
-    return this._localIdp.getIdentityAssertion(this._impl.fingerprint, origin);
+    return this._localIdp.getIdentityAssertion(
+      this._impl.fingerprint,
+      this._documentPrincipal.origin
+    );
   }
 
   getIdentityAssertion() {
     this._checkClosed();
-    let origin = Cu.getWebIDLCallerPrincipal().origin;
     return this._win.Promise.resolve(
-      this._chain(() => this._getIdentityAssertion(origin))
+      this._chain(() => this._getIdentityAssertion())
     );
   }
 
@@ -1378,48 +1379,6 @@ class RTCPeerConnection {
     this._transceivers.push(transceiver);
   }
 
-  /* Returns a dictionary with three keys:
-   * sources: a list of contributing and synchronization sources
-   * sourceClockOffset: an offset to apply to the source timestamp to get a
-   * very close approximation of the sample time with respect to the local
-   * clock.
-   * jsTimestamp: the current JS time
-   * Note: because the two clocks can drift with respect to each other, once
-   *  a timestamp offset has been calculated it should not be recalculated
-   *  until the timestamp changes, this way it will not appear as if a new
-   *  audio level sample has arrived.
-   */
-  _getRtpSources(receiver) {
-    let cache = this._rtpSourceCache;
-    // Schedule cache invalidation
-    if (!cache.scheduledClear) {
-      cache.scheduledClear = true;
-      Promise.resolve().then(() => {
-        this._rtpSourceCache = new RTCRtpSourceCache();
-      });
-    }
-    // Fetch the RTP source local time, store it for reuse, calculate
-    // the local offset, likewise store it for reuse.
-    if (cache.tsNowInRtpSourceTime !== undefined) {
-      cache.tsNowInRtpSourceTime = this._impl.getNowInRtpSourceReferenceTime();
-      cache.jsTimestamp =
-        this._win.performance.now() + this._win.performance.timeOrigin;
-      cache.timestampOffset = cache.jsTimestamp - cache.tsNowInRtpSourceTime;
-    }
-    let id = receiver.track.id;
-    if (cache.rtpSourcesByTrackId[id] === undefined) {
-      cache.rtpSourcesByTrackId[id] = this._impl.getRtpSources(
-        receiver.track,
-        cache.tsNowInRtpSourceTime
-      );
-    }
-    return {
-      sources: cache.rtpSourcesByTrackId[id],
-      sourceClockOffset: cache.timestampOffset,
-      jsTimestamp: cache.jsTimestamp,
-    };
-  }
-
   addTransceiver(sendTrackOrKind, init) {
     this._checkClosed();
     let transceiver = this._addTransceiverNoEvents(sendTrackOrKind, init);
@@ -1432,115 +1391,28 @@ class RTCPeerConnection {
   }
 
   updateNegotiationNeeded() {
-    if (this._closed || this.signalingState != "stable") {
-      return;
-    }
-
-    let negotiationNeeded =
-      this._impl.checkNegotiationNeeded() ||
-      this._localUfragsToReplace.size > 0;
-    if (!negotiationNeeded) {
-      this._negotiationNeeded = false;
-      return;
-    }
-
-    if (this._negotiationNeeded) {
-      return;
-    }
-
-    this._negotiationNeeded = true;
-
     this._queueTaskWithClosedCheck(() => {
-      if (this._negotiationNeeded) {
+      this._chain(async () => {
+        if (this._closed || this.signalingState != "stable") {
+          return;
+        }
+
+        let negotiationNeeded =
+          this._impl.checkNegotiationNeeded() ||
+          this._localUfragsToReplace.size > 0;
+        if (!negotiationNeeded) {
+          this._negotiationNeeded = false;
+          return;
+        }
+
+        if (this._negotiationNeeded) {
+          return;
+        }
+
+        this._negotiationNeeded = true;
         this.dispatchEvent(new this._win.Event("negotiationneeded"));
-      }
-    });
-  }
-
-  _processTrackAdditionsAndRemovals() {
-    const removeList = [];
-    const addList = [];
-    const muteTransceiverReceiveTracks = [];
-    const trackEventInits = [];
-
-    for (const transceiver of this._transceivers) {
-      transceiver.receiver.processTrackAdditionsAndRemovals(transceiver, {
-        removeList,
-        addList,
-        muteTransceiverReceiveTracks,
-        trackEventInits,
       });
-    }
-
-    muteTransceiverReceiveTracks.forEach(transceiver => {
-      // Check this as late as possible, in case JS has messed with this state.
-      transceiver.setReceiveTrackMuted(true);
     });
-
-    for (const { stream, track } of removeList) {
-      // Check this as late as possible, in case JS messes with the track lists.
-      if (stream.getTracks().includes(track)) {
-        stream.removeTrack(track);
-        // Removing tracks from JS does not result in the stream getting a
-        // removetrack event, so we need to do that here.
-        stream.dispatchEvent(
-          new this._win.MediaStreamTrackEvent("removetrack", { track })
-        );
-      }
-    }
-
-    for (const { stream, track } of addList) {
-      // Check this as late as possible, in case JS messes with the track lists.
-      if (!stream.getTracks().includes(track)) {
-        stream.addTrack(track);
-        // Adding tracks from JS does not result in the stream getting an
-        // addtrack event, so we need to do that here.
-        stream.dispatchEvent(
-          new this._win.MediaStreamTrackEvent("addtrack", { track })
-        );
-      }
-    }
-
-    trackEventInits.forEach(init => {
-      this.dispatchEvent(new this._win.RTCTrackEvent("track", init));
-      // Fire legacy event as well for a little bit.
-      this.dispatchEvent(
-        new this._win.MediaStreamTrackEvent("addtrack", { track: init.track })
-      );
-    });
-  }
-
-  // TODO(Bug 1241291): Legacy event, remove eventually
-  _fireLegacyAddStreamEvents() {
-    for (let stream of this._newStreams) {
-      let ev = new this._win.MediaStreamEvent("addstream", { stream });
-      this.dispatchEvent(ev);
-    }
-    this._newStreams = [];
-  }
-
-  _getOrCreateStream(id) {
-    if (!this._receiveStreams.has(id)) {
-      let stream = new this._win.MediaStream();
-      stream.assignId(id);
-      this._newStreams.push(stream);
-      this._receiveStreams.set(id, stream);
-    }
-
-    return this._receiveStreams.get(id);
-  }
-
-  _insertDTMF(transceiverImpl, tones, duration, interToneGap) {
-    return this._impl.insertDTMF(
-      transceiverImpl,
-      tones,
-      duration,
-      interToneGap
-    );
-  }
-
-  _getDTMFToneBuffer(sender) {
-    return this._impl.getDTMFToneBuffer(sender.__DOM_IMPL__);
   }
 
   _replaceTrackNoRenegotiation(transceiverImpl, withTrack) {
@@ -1580,7 +1452,7 @@ class RTCPeerConnection {
 
   getRemoteStreams() {
     this._checkClosed();
-    return [...this._receiveStreams.values()];
+    return this._impl.getRemoteStreams();
   }
 
   getSenders() {
@@ -1593,38 +1465,6 @@ class RTCPeerConnection {
     return this.getTransceivers()
       .filter(transceiver => !transceiver.stopped)
       .map(transceiver => transceiver.receiver);
-  }
-
-  // test-only: get the current time using the webrtc clock
-  mozGetNowInRtpSourceReferenceTime() {
-    return this._impl.getNowInRtpSourceReferenceTime();
-  }
-
-  // test-only: insert a contributing source entry for a track
-  mozInsertAudioLevelForContributingSource(
-    receiver,
-    source,
-    timestamp,
-    rtpTimestamp,
-    hasLevel,
-    level
-  ) {
-    this._impl.insertAudioLevelForContributingSource(
-      receiver.track,
-      source,
-      timestamp,
-      rtpTimestamp,
-      hasLevel,
-      level
-    );
-  }
-
-  mozAddRIDExtension(receiver, extensionId) {
-    this._impl.addRIDExtension(receiver.track, extensionId);
-  }
-
-  mozAddRIDFilter(receiver, rid) {
-    this._impl.addRIDFilter(receiver.track, rid);
   }
 
   mozSetPacketCallback(callback) {
@@ -1649,21 +1489,21 @@ class RTCPeerConnection {
 
   get currentLocalDescription() {
     this._checkClosed();
-    let sdp = this._impl.currentLocalDescription;
+    const sdp = this._impl.currentLocalDescription;
     if (sdp.length == 0) {
       return null;
     }
-    const type = this._currentRole == "answerer" ? "answer" : "offer";
+    const type = this._impl.currentOfferer ? "offer" : "answer";
     return new this._win.RTCSessionDescription({ type, sdp });
   }
 
   get pendingLocalDescription() {
     this._checkClosed();
-    let sdp = this._impl.pendingLocalDescription;
+    const sdp = this._impl.pendingLocalDescription;
     if (sdp.length == 0) {
       return null;
     }
-    const type = this._pendingRole == "answerer" ? "answer" : "offer";
+    const type = this._impl.pendingOfferer ? "offer" : "answer";
     return new this._win.RTCSessionDescription({ type, sdp });
   }
 
@@ -1673,21 +1513,21 @@ class RTCPeerConnection {
 
   get currentRemoteDescription() {
     this._checkClosed();
-    let sdp = this._impl.currentRemoteDescription;
+    const sdp = this._impl.currentRemoteDescription;
     if (sdp.length == 0) {
       return null;
     }
-    const type = this._currentRole == "offerer" ? "answer" : "offer";
+    const type = this._impl.currentOfferer ? "answer" : "offer";
     return new this._win.RTCSessionDescription({ type, sdp });
   }
 
   get pendingRemoteDescription() {
     this._checkClosed();
-    let sdp = this._impl.pendingRemoteDescription;
+    const sdp = this._impl.pendingRemoteDescription;
     if (sdp.length == 0) {
       return null;
     }
-    const type = this._pendingRole == "offerer" ? "answer" : "offer";
+    const type = this._impl.pendingOfferer ? "answer" : "offer";
     return new this._win.RTCSessionDescription({ type, sdp });
   }
 
@@ -1894,25 +1734,12 @@ class PeerConnectionObserver {
     this._dompc._onCreateAnswerFailure(this.newError(error));
   }
 
-  onSetLocalDescriptionSuccess() {
-    this._dompc._onSetLocalDescriptionSuccess();
+  onSetDescriptionSuccess() {
+    this._dompc._onSetDescriptionSuccess();
   }
 
-  onSetRemoteDescriptionSuccess() {
-    this._dompc._processTrackAdditionsAndRemovals();
-    this._dompc._fireLegacyAddStreamEvents();
-    this._dompc._transceivers = this._dompc._transceivers.filter(
-      t => !t.shouldRemove
-    );
-    this._dompc._onSetRemoteDescriptionSuccess();
-  }
-
-  onSetLocalDescriptionError(error) {
-    this._dompc._onSetLocalDescriptionFailure(this.newError(error));
-  }
-
-  onSetRemoteDescriptionError(error) {
-    this._dompc._onSetRemoteDescriptionFailure(this.newError(error));
+  onSetDescriptionError(error) {
+    this._dompc._onSetDescriptionFailure(this.newError(error));
   }
 
   onAddIceCandidateSuccess() {
@@ -2035,12 +1862,30 @@ class PeerConnectionObserver {
     );
   }
 
-  onDTMFToneChange(track, tone) {
-    var pc = this._dompc;
-    var sender = pc.getSenders().find(sender => sender.track == track);
-    sender.dtmf.dispatchEvent(
-      new pc._win.RTCDTMFToneChangeEvent("tonechange", { tone })
+  fireTrackEvent(receiver, streams) {
+    const pc = this._dompc;
+    const transceiver = pc.getTransceivers().find(t => t.receiver == receiver);
+    if (!transceiver) {
+      return;
+    }
+    const track = receiver.track;
+    this.dispatchEvent(
+      new this._win.RTCTrackEvent("track", {
+        transceiver,
+        receiver,
+        track,
+        streams,
+      })
     );
+    // Fire legacy event as well for a little bit.
+    this.dispatchEvent(
+      new this._win.MediaStreamTrackEvent("addtrack", { track })
+    );
+  }
+
+  fireStreamEvent(stream) {
+    const ev = new this._win.MediaStreamEvent("addstream", { stream });
+    this.dispatchEvent(ev);
   }
 
   onPacket(level, type, sending, packet) {
@@ -2075,39 +1920,11 @@ setupPrototype(RTCPeerConnectionStatic, {
   QueryInterface: ChromeUtils.generateQI([Ci.nsIDOMGlobalPropertyInitializer]),
 });
 
-class RTCDTMFSender {
-  constructor(sender) {
-    this._sender = sender;
-  }
-
-  get toneBuffer() {
-    return this._sender._pc._getDTMFToneBuffer(this._sender);
-  }
-
-  get ontonechange() {
-    return this.__DOM_IMPL__.getEventHandler("ontonechange");
-  }
-
-  set ontonechange(handler) {
-    this.__DOM_IMPL__.setEventHandler("ontonechange", handler);
-  }
-
-  insertDTMF(tones, duration, interToneGap) {
-    this._sender._pc._checkClosed();
-    this._sender._transceiver.insertDTMF(tones, duration, interToneGap);
-  }
-}
-setupPrototype(RTCDTMFSender, {
-  classID: PC_DTMF_SENDER_CID,
-  contractID: PC_DTMF_SENDER_CONTRACT,
-  QueryInterface: ChromeUtils.generateQI([]),
-});
-
 class RTCRtpSender {
   constructor(pc, transceiverImpl, transceiver, track, kind, streams) {
     let dtmf = null;
     if (kind == "audio") {
-      dtmf = pc._win.RTCDTMFSender._create(pc._win, new RTCDTMFSender(this));
+      dtmf = transceiverImpl.dtmf;
     }
 
     Object.assign(this, {
@@ -2250,162 +2067,9 @@ setupPrototype(RTCRtpSender, {
   QueryInterface: ChromeUtils.generateQI([]),
 });
 
-class RTCRtpReceiver {
-  constructor(pc, transceiverImpl) {
-    Object.assign(this, {
-      _pc: pc,
-      _transceiverImpl: transceiverImpl,
-      track: transceiverImpl.getReceiveTrack(),
-      _recvBit: false,
-      _oldRecvBit: false,
-      _streams: [],
-      _oldstreams: [],
-      // Sync and contributing sources must be kept cached so that timestamps
-      // remain stable, as the timestamp offset can vary
-      // note key = entry.source + entry.sourceType
-      _rtpSources: new Map(),
-      _rtpSourcesJsTimestamp: null,
-    });
-  }
-
-  // TODO(bug 1401983): Create a getStats binding on TransceiverImpl, and use
-  // that here.
-  getStats() {
-    return this._pc._async(async () => this._pc.getStats(this.track));
-  }
-
-  _getRtpSource(source, type) {
-    this._fetchRtpSources();
-    return this._rtpSources.get(type + source).entry;
-  }
-
-  /* Fetch all of the RTP Contributing and Sync sources for the receiver
-   * and store them so they are available when asked for.
-   */
-  _fetchRtpSources() {
-    if (this._rtpSourcesJsTimestamp !== null) {
-      return;
-    }
-    // Queue microtask to mark the cache as stale after this task completes
-    Promise.resolve().then(() => (this._rtpSourcesJsTimestamp = null));
-    let { sources, sourceClockOffset, jsTimestamp } = this._pc._getRtpSources(
-      this
-    );
-    this._rtpSourcesJsTimestamp = jsTimestamp;
-    for (let entry of sources) {
-      // Set the clock offset for calculating the 10-second window
-      entry.sourceClockOffset = sourceClockOffset;
-      // Store the new entries or update existing entries
-      let key = entry.source + entry.sourceType;
-      let cached = this._rtpSources.get(key);
-      if (cached === undefined) {
-        this._rtpSources.set(key, entry);
-      } else if (cached.timestamp != entry.timestamp) {
-        // Only update if the timestamp has changed
-        // This also prevents the sourceClockOffset from changing unecessarily
-        // which could cause a value to flutter at the edge of the 10 second
-        // window.
-        this._rtpSources.set(key, entry);
-      }
-    }
-    // Clear old entries
-    let cutoffTime = this._rtpSourcesJsTimestamp - 10 * 1000;
-    let removeKeys = [];
-    for (let entry of this._rtpSources.values()) {
-      if (entry.timestamp + entry.sourceClockOffset < cutoffTime) {
-        removeKeys.push(entry.source + entry.sourceType);
-      }
-    }
-    for (let delKey of removeKeys) {
-      this._rtpSources.delete(delKey);
-    }
-  }
-
-  _getRtpSourcesByType(type) {
-    this._fetchRtpSources();
-    // Only return the values from within the last 10 seconds as per the spec
-    const cutoffTime = this._rtpSourcesJsTimestamp - 10 * 1000;
-    return [...this._rtpSources.values()]
-      .filter(entry => {
-        return (
-          entry.sourceType == type &&
-          entry.timestamp + entry.sourceClockOffset >= cutoffTime
-        );
-      })
-      .map(e => {
-        const newEntry = {
-          source: e.source,
-          timestamp: e.timestamp + e.sourceClockOffset,
-          rtpTimestamp: e.rtpTimestamp,
-          audioLevel: e.audioLevel,
-        };
-        if (e.voiceActivityFlag !== undefined) {
-          Object.assign(newEntry, { voiceActivityFlag: e.voiceActivityFlag });
-        }
-        return newEntry;
-      })
-      .sort((a, b) => b.timestamp - a.timestamp);
-  }
-
-  getContributingSources() {
-    return this._getRtpSourcesByType("contributing");
-  }
-
-  getSynchronizationSources() {
-    return this._getRtpSourcesByType("synchronization");
-  }
-
-  setStreamIds(streamIds) {
-    this._streams = streamIds.map(id => this._pc._getOrCreateStream(id));
-  }
-
-  setRecvBit(recvBit) {
-    this._recvBit = recvBit;
-  }
-
-  processTrackAdditionsAndRemovals(
-    transceiver,
-    { removeList, addList, muteTransceiverReceiveTracks, trackEventInits }
-  ) {
-    const receiver = this.__DOM_IMPL__;
-    const track = this.track;
-    const streams = this._streams;
-    const streamsAdded = streams.filter(s => !this._oldstreams.includes(s));
-    const streamsRemoved = this._oldstreams.filter(s => !streams.includes(s));
-
-    addList.push(...streamsAdded.map(stream => ({ stream, track })));
-    removeList.push(...streamsRemoved.map(stream => ({ stream, track })));
-    this._oldstreams = this._streams;
-
-    let needsTrackEvent = streamsAdded.length != 0;
-
-    if (this._recvBit != this._oldRecvBit) {
-      this._oldRecvBit = this._recvBit;
-      if (this._recvBit) {
-        // New track, set in case streamsAdded is empty
-        needsTrackEvent = true;
-      } else {
-        muteTransceiverReceiveTracks.push(this._transceiverImpl);
-      }
-    }
-
-    if (needsTrackEvent) {
-      trackEventInits.push({ track, streams, receiver, transceiver });
-    }
-  }
-}
-setupPrototype(RTCRtpReceiver, {
-  classID: PC_RECEIVER_CID,
-  contractID: PC_RECEIVER_CONTRACT,
-  QueryInterface: ChromeUtils.generateQI([]),
-});
-
 class RTCRtpTransceiver {
   constructor(pc, transceiverImpl, init, kind, sendTrack) {
-    let receiver = pc._win.RTCRtpReceiver._create(
-      pc._win,
-      new RTCRtpReceiver(pc, transceiverImpl)
-    );
+    let receiver = transceiverImpl.receiver;
     let streams = (init && init.streams) || [];
     let sender = pc._win.RTCRtpSender._create(
       pc._win,
@@ -2521,40 +2185,6 @@ class RTCRtpTransceiver {
   unsetMid() {
     this.mid = null;
   }
-
-  insertDTMF(tones, duration, interToneGap) {
-    if (this.stopped) {
-      throw new this._pc._win.DOMException(
-        "Transceiver is stopped!",
-        "InvalidStateError"
-      );
-    }
-
-    if (!this.sender.track) {
-      throw new this._pc._win.DOMException(
-        "RTCRtpSender has no track",
-        "InvalidStateError"
-      );
-    }
-
-    duration = Math.max(40, Math.min(duration, 6000));
-    if (interToneGap < 30) {
-      interToneGap = 30;
-    }
-
-    tones = tones.toUpperCase();
-
-    if (tones.match(/[^0-9A-D#*,]/)) {
-      throw new this._pc._win.DOMException(
-        "Invalid DTMF characters",
-        "InvalidCharacterError"
-      );
-    }
-
-    // TODO (bug 1401983): Move this API to TransceiverImpl so we don't need the
-    // extra hops through RTCPeerConnection and PeerConnectionImpl
-    this._pc._insertDTMF(this._transceiverImpl, tones, duration, interToneGap);
-  }
 }
 
 setupPrototype(RTCRtpTransceiver, {
@@ -2576,12 +2206,10 @@ setupPrototype(CreateOfferRequest, {
 
 var EXPORTED_SYMBOLS = [
   "GlobalPCList",
-  "RTCDTMFSender",
   "RTCIceCandidate",
   "RTCSessionDescription",
   "RTCPeerConnection",
   "RTCPeerConnectionStatic",
-  "RTCRtpReceiver",
   "RTCRtpSender",
   "RTCRtpTransceiver",
   "PeerConnectionObserver",

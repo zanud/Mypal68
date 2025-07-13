@@ -27,6 +27,7 @@
 #include "UnitTransforms.h"
 #include "ipc/nsGUIEventIPC.h"
 #include "js/JSON.h"
+#include "mozilla/AsyncEventDispatcher.h"
 #include "mozilla/BrowserElementParent.h"
 #include "mozilla/ClearOnShutdown.h"
 #include "mozilla/EventForwards.h"
@@ -503,8 +504,6 @@ nsresult BrowserChild::Init(mozIDOMWindowProxy* aParent) {
   loadContext->SetPrivateBrowsing(OriginAttributesRef().mPrivateBrowsingId > 0);
   loadContext->SetRemoteTabs(mChromeFlags &
                              nsIWebBrowserChrome::CHROME_REMOTE_WINDOW);
-  loadContext->SetRemoteSubframes(mChromeFlags &
-                                  nsIWebBrowserChrome::CHROME_FISSION_WINDOW);
 
   // Few lines before, baseWindow->Create() will end up creating a new
   // window root in nsGlobalWindow::SetDocShell.
@@ -1158,6 +1157,19 @@ mozilla::ipc::IPCResult BrowserChild::RecvUpdateDimensions(
   mPuppetWidget->Resize(screenRect.x + mClientOffset.x + mChromeOffset.x,
                         screenRect.y + mClientOffset.y + mChromeOffset.y,
                         screenSize.width, screenSize.height, true);
+
+  // For our devtools Responsive Design Mode, we need to send a special
+  // event to indicate that we've finished processing a frame size change.
+  // This is used by RDM to respond correctly to changes to full zoom,
+  // which also change the window size.
+  RefPtr<Document> doc = GetTopLevelDocument();
+  BrowsingContext* bc = doc ? doc->GetBrowsingContext() : nullptr;
+  if (bc && bc->InRDMPane()) {
+    RefPtr<AsyncEventDispatcher> dispatcher = new AsyncEventDispatcher(
+        doc, NS_LITERAL_STRING("mozupdatedremoteframedimensions"),
+        CanBubble::eYes, ChromeOnlyDispatch::eYes);
+    dispatcher->PostDOMEvent();
+  }
 
   return IPC_OK();
 }

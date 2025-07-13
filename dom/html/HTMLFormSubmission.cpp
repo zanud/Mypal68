@@ -24,6 +24,7 @@
 #include "nsLinebreakConverter.h"
 #include "nsEscape.h"
 #include "nsUnicharUtils.h"
+#include "nsIMultiplexInputStream.h"
 #include "nsIMIMEInputStream.h"
 #include "nsIScriptError.h"
 #include "nsCExternalHandlerService.h"
@@ -705,6 +706,17 @@ nsresult FSTextPlain::GetEncodedSubmission(nsIURI* aURI,
 }  // anonymous namespace
 
 // --------------------------------------------------------------------------
+
+HTMLFormSubmission::HTMLFormSubmission(
+    nsIURI* aActionURL, const nsAString& aTarget,
+    mozilla::NotNull<const mozilla::Encoding*> aEncoding, Element* aSubmitter)
+    : mActionURL(aActionURL),
+      mTarget(aTarget),
+      mEncoding(aEncoding),
+      mSubmitter(aSubmitter),
+      mInitiatedFromUserInput(UserActivation::IsHandlingUserInput()) {
+  MOZ_COUNT_CTOR(HTMLFormSubmission);
+}
 
 EncodingFormSubmission::EncodingFormSubmission(
     nsIURI* aActionURL, const nsAString& aTarget,

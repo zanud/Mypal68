@@ -6,105 +6,110 @@
 
 #include "nsContentUtils.h"
 
-#include <algorithm>
-#include <math.h>
-
-#include "DecoderTraits.h"
-#include "harfbuzz/hb.h"
-#include "imgICache.h"
-#include "imgIContainer.h"
-#include "imgINotificationObserver.h"
-#include "imgLoader.h"
-#include "imgRequestProxy.h"
-#include "jsapi.h"
-#include "jsfriendapi.h"
-#include "js/Array.h"  // JS::NewArrayObject
-#include "js/BuildId.h"
-#include "js/ArrayBuffer.h"  // JS::{GetArrayBufferData,IsArrayBufferObject,NewArrayBuffer}
-#include "js/JSON.h"
-#include "js/RegExp.h"  // JS::ExecuteRegExpNoStatics, JS::NewUCRegExpObject, JS::RegExpFlags
-#include "js/Value.h"
-#include "Layers.h"
-#include "nsAppRunner.h"
 // nsNPAPIPluginInstance must be included before mozilla/dom/Document.h, which
 // is included in mozAutoDocUpdate.h.
 #include "nsNPAPIPluginInstance.h"
-#include "gfxDrawable.h"
+
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <functional>
+#include <new>
+#include <utility>
+#include "BrowserChild.h"
+#include "DecoderTraits.h"
+#include "ErrorList.h"
 #include "ImageOps.h"
+#include "InProcessBrowserChildMessageManager.h"
+#include "Layers.h"
+#include "MainThreadUtils.h"
+#include "PLDHashTable.h"
+#include "ReferrerInfo.h"
+#include "ThirdPartyUtil.h"
+#include "Units.h"
+#include "chrome/common/ipc_message.h"
+#include "gfxDrawable.h"
+#include "harfbuzz/hb.h"
+#include "imgICache.h"
+#include "imgIContainer.h"
+#include "imgILoader.h"
+#include "imgIRequest.h"
+#include "imgLoader.h"
+#include "js/Array.h"
+#include "js/ArrayBuffer.h"
+#include "js/BuildId.h"
+#include "js/GCAPI.h"
+#include "js/Id.h"
+#include "js/JSON.h"
+#include "js/PropertyAndElement.h"  // JS_DefineElement, JS_GetProperty
+#include "js/PropertyDescriptor.h"
+#include "js/Realm.h"
+#include "js/RegExp.h"
+#include "js/RegExpFlags.h"
+#include "js/RootingAPI.h"
+#include "js/TypeDecls.h"
+#include "js/Value.h"
+#include "js/Wrapper.h"
+#include "jsapi.h"
+#include "jsfriendapi.h"
 #include "mozAutoDocUpdate.h"
+#include "mozIDOMWindow.h"
+#include "mozilla/AlreadyAddRefed.h"
 #include "mozilla/AntiTrackingCommon.h"
+#include "mozilla/ArrayIterator.h"
 #include "mozilla/ArrayUtils.h"
+#include "mozilla/AsyncEventDispatcher.h"
+#include "mozilla/AtomArray.h"
+#include "mozilla/Atomics.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/AutoRestore.h"
 #include "mozilla/AutoTimelineMarker.h"
 #include "mozilla/BackgroundHangMonitor.h"
 #include "mozilla/Base64.h"
 #include "mozilla/BasePrincipal.h"
+#include "mozilla/BasicEvents.h"
+#include "mozilla/BloomFilter.h"
+#include "mozilla/CORSMode.h"
 #include "mozilla/CheckedInt.h"
 #include "mozilla/Components.h"
+#include "mozilla/CycleCollectedJSContext.h"
+#include "mozilla/DOMEventTargetHelper.h"
 #include "mozilla/DebugOnly.h"
-#include "mozilla/LoadInfo.h"
-#include "mozilla/dom/AncestorIterator.h"
-#include "mozilla/dom/BlobURLProtocolHandler.h"
-#include "mozilla/dom/ContentParent.h"
-#include "mozilla/dom/ContentChild.h"
-#include "mozilla/dom/CustomElementRegistry.h"
-#include "mozilla/dom/Document.h"
-#include "mozilla/dom/DocumentInlines.h"
-#include "mozilla/dom/MessageBroadcaster.h"
-#include "mozilla/dom/MessagePort.h"
-#include "mozilla/dom/DocumentFragment.h"
-#include "mozilla/dom/DOMException.h"
-#include "mozilla/dom/DOMExceptionBinding.h"
-#include "mozilla/dom/DOMSecurityMonitor.h"
-#include "mozilla/dom/DOMTypes.h"
-#include "mozilla/dom/Element.h"
-#include "mozilla/dom/ElementBinding.h"
-#include "mozilla/dom/ElementInlines.h"
-#include "mozilla/dom/Event.h"
-#include "mozilla/dom/FileSystemSecurity.h"
-#include "mozilla/dom/FileBlobImpl.h"
-#include "mozilla/dom/FontTableURIProtocolHandler.h"
-#include "mozilla/dom/HTMLInputElement.h"
-#include "mozilla/dom/HTMLSlotElement.h"
-#include "mozilla/dom/HTMLTemplateElement.h"
-#include "mozilla/dom/HTMLTextAreaElement.h"
-#include "mozilla/dom/IDTracker.h"
-#include "mozilla/dom/MouseEventBinding.h"
-#include "mozilla/dom/KeyboardEventBinding.h"
-#include "mozilla/dom/IPCBlobUtils.h"
-#include "mozilla/dom/NodeBinding.h"
-#include "mozilla/dom/Promise.h"
-#include "mozilla/dom/BrowserBridgeChild.h"
-#include "mozilla/dom/ScriptSettings.h"
-#include "mozilla/dom/BrowserParent.h"
-#include "mozilla/dom/Text.h"
-#include "mozilla/dom/TouchEvent.h"
-#include "mozilla/dom/ShadowRoot.h"
-#include "mozilla/dom/XULCommandEvent.h"
-#include "mozilla/dom/UserActivation.h"
-#include "mozilla/dom/WorkerCommon.h"
-#include "mozilla/dom/WorkerPrivate.h"
-#include "mozilla/extensions/WebExtensionPolicy.h"
-#include "mozilla/net/CookieSettings.h"
+#include "mozilla/ErrorResult.h"
 #include "mozilla/EventDispatcher.h"
 #include "mozilla/EventListenerManager.h"
+#include "mozilla/EventQueue.h"
 #include "mozilla/EventStateManager.h"
-#include "mozilla/gfx/DataSurfaceHelpers.h"
+#include "mozilla/FlushType.h"
 #include "mozilla/HTMLEditor.h"
+#include "mozilla/HangAnnotations.h"
 #include "mozilla/IMEStateManager.h"
 #include "mozilla/InputEventOptions.h"
 #include "mozilla/InternalMutationEvent.h"
+#include "mozilla/Latin1.h"
 #include "mozilla/Likely.h"
+#include "mozilla/LoadInfo.h"
+#include "mozilla/Logging.h"
+#include "mozilla/MacroForEach.h"
 #include "mozilla/ManualNAC.h"
+#include "mozilla/Maybe.h"
 #include "mozilla/MouseEvents.h"
+#include "mozilla/NotNull.h"
+#include "mozilla/NullPrincipal.h"
+#include "mozilla/OriginAttributes.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/PresShell.h"
+#include "mozilla/RangeBoundary.h"
+#include "mozilla/RefPtr.h"
+#include "mozilla/Result.h"
 #include "mozilla/ResultExtensions.h"
-#include "mozilla/dom/Selection.h"
+#include "mozilla/ScrollbarPreferences.h"
 #include "mozilla/Services.h"
+#include "mozilla/Span.h"
+#include "mozilla/StaticAnalysisFunctions.h"
 #include "mozilla/StaticPrefs_dom.h"
-#include "mozilla/StaticPrefs_full_screen_api.h"
 #ifdef FUZZING
 #  include "mozilla/StaticPrefs_fuzzing.h"
 #endif
@@ -112,78 +117,190 @@
 #include "mozilla/StaticPrefs_privacy.h"
 #include "mozilla/StaticPrefs_test.h"
 #include "mozilla/StaticPrefs_ui.h"
+#include "mozilla/StaticPtr.h"
+#include "mozilla/TaskCategory.h"
 #include "mozilla/TextControlState.h"
 #include "mozilla/TextEditor.h"
 #include "mozilla/TextEvents.h"
+#include "mozilla/UniquePtr.h"
+#include "mozilla/Unused.h"
+#include "mozilla/Variant.h"
 #include "mozilla/ViewportUtils.h"
+#include "mozilla/dom/AncestorIterator.h"
+#include "mozilla/dom/AutoEntryScript.h"
+#include "mozilla/dom/AutocompleteInfoBinding.h"
+//#include "mozilla/dom/AutoSuppressEventHandlingAndSuspend.h"
+#include "mozilla/dom/BindingDeclarations.h"
+#include "mozilla/dom/BindingUtils.h"
+#include "mozilla/dom/BlobImpl.h"
+#include "mozilla/dom/BlobURLProtocolHandler.h"
+#include "mozilla/dom/BorrowedAttrInfo.h"
+#include "mozilla/dom/BrowserBridgeChild.h" // MY
+#include "mozilla/dom/BrowserBridgeParent.h"
+#include "mozilla/dom/BrowserParent.h"
+#include "mozilla/dom/CallbackFunction.h"
+#include "mozilla/dom/CallbackObject.h"
+#include "mozilla/dom/ChromeMessageBroadcaster.h"
+#include "mozilla/dom/ContentChild.h"
+#include "mozilla/dom/ContentFrameMessageManager.h"
+#include "mozilla/dom/ContentParent.h"
+#include "mozilla/dom/CustomElementRegistry.h"
+#include "mozilla/dom/CustomElementRegistryBinding.h"
+#include "mozilla/dom/DOMArena.h"
+#include "mozilla/dom/DOMException.h"
+#include "mozilla/dom/DOMExceptionBinding.h"
+#include "mozilla/dom/DOMSecurityMonitor.h"
+#include "mozilla/dom/DOMTypes.h"
+#include "mozilla/dom/DataTransfer.h"
+#include "mozilla/dom/DocGroup.h"
+#include "mozilla/dom/Document.h"
+#include "mozilla/dom/DocumentFragment.h"
+#include "mozilla/dom/DocumentInlines.h"
+#include "mozilla/dom/Element.h"
+#include "mozilla/dom/ElementBinding.h"
+#include "mozilla/dom/ElementInlines.h"
+#include "mozilla/dom/Event.h"
+#include "mozilla/dom/EventTarget.h"
+#include "mozilla/dom/FileBlobImpl.h"
+#include "mozilla/dom/FileSystemSecurity.h"
+#include "mozilla/dom/FilteredNodeIterator.h"
+#include "mozilla/dom/FontTableURIProtocolHandler.h"
+#include "mozilla/dom/FragmentOrElement.h"
+#include "mozilla/dom/FromParser.h"
+#include "mozilla/dom/HTMLFormElement.h"
+#include "mozilla/dom/HTMLInputElement.h"
+#include "mozilla/dom/HTMLTextAreaElement.h"
+#include "mozilla/dom/IPCBlob.h"
+#include "mozilla/dom/IPCBlobUtils.h"
+#include "mozilla/dom/MessageBroadcaster.h"
+#include "mozilla/dom/MessagePort.h"
+#include "mozilla/dom/MessageListenerManager.h"
+#include "mozilla/dom/MouseEventBinding.h"
+#include "mozilla/dom/NameSpaceConstants.h"
+#include "mozilla/dom/NodeBinding.h"
+#include "mozilla/dom/NodeInfo.h"
+#include "mozilla/dom/PBrowser.h"
+#include "mozilla/dom/PContentChild.h"
+#include "mozilla/dom/PrototypeList.h"
+#include "mozilla/dom/ReferrerPolicyBinding.h"
+#include "mozilla/dom/ScriptSettings.h"
+#include "mozilla/dom/Selection.h"
+#include "mozilla/dom/ShadowRoot.h"
+#include "mozilla/dom/TabGroup.h"
+#include "mozilla/dom/Text.h"
+#include "mozilla/dom/UserActivation.h"
+#include "mozilla/dom/WorkerCommon.h"
+#include "mozilla/dom/WorkerPrivate.h"
+#include "mozilla/dom/XULCommandEvent.h"
+#include "mozilla/fallible.h"
+#include "mozilla/gfx/2D.h"
+#include "mozilla/gfx/BaseMargin.h"
+#include "mozilla/gfx/BasePoint.h"
+#include "mozilla/gfx/BaseSize.h"
+#include "mozilla/gfx/DataSurfaceHelpers.h"
+#include "mozilla/gfx/Point.h"
+#include "mozilla/gfx/Rect.h"
+#include "mozilla/gfx/Types.h"
+#include "mozilla/intl/LineBreaker.h"
+#include "mozilla/intl/WordBreaker.h"
+#include "mozilla/ipc/ProtocolUtils.h"
+#include "mozilla/ipc/SharedMemory.h"
+#include "mozilla/ipc/Shmem.h"
+#include "mozilla/net/UrlClassifierCommon.h"
+#include "mozilla/widget/IMEData.h"
+#include "nsAboutProtocolUtils.h"
+#include "nsAlgorithm.h"
 #include "nsArrayUtils.h"
-#include "nsAString.h"
+#include "nsAtom.h"
 #include "nsAttrName.h"
 #include "nsAttrValue.h"
 #include "nsAttrValueInlines.h"
-#include "nsCanvasFrame.h"
-#include "nsCaret.h"
+#include "nsBaseHashtable.h"
 #include "nsCCUncollectableMarker.h"
-#include "nsCharSeparatedTokenizer.h"
 #include "nsCOMPtr.h"
+#include "nsCRT.h"
+#include "nsCRTGlue.h"
+#include "nsCanvasFrame.h"
+#include "nsCaseTreatment.h"
+#include "nsCharSeparatedTokenizer.h"
+#include "nsCharTraits.h"
+#include "nsCompatibility.h"
+#include "nsComponentManagerUtils.h"
+#include "nsContainerFrame.h"
 #include "nsContentCreatorFunctions.h"
 #include "nsContentDLF.h"
 #include "nsContentList.h"
+#include "nsContentListDeclarations.h"
 #include "nsContentPolicyUtils.h"
-#include "nsContentSecurityManager.h"
-#include "nsCRT.h"
-#include "nsCycleCollectionParticipant.h"
-#include "nsCycleCollector.h"
-#include "nsDataHashtable.h"
-#include "nsDocShellCID.h"
-#include "nsDOMCID.h"
-#include "mozilla/dom/DataTransfer.h"
-#include "nsDOMJSUtils.h"
+#include "nsCoord.h"
+#include "nsCycleCollectionNoteChild.h"
 #include "nsDOMMutationObserver.h"
+#include "nsDOMString.h"
+#include "nsDataHashtable.h"
+#include "nsDebug.h"
+#include "nsDocShell.h"
+#include "nsDocShellCID.h"
 #include "nsError.h"
 #include "nsFocusManager.h"
+#include "nsFrameList.h"
+#include "nsFrameLoader.h"
 #include "nsFrameLoaderOwner.h"
 #include "nsGenericHTMLElement.h"
-#include "nsGenericHTMLFrameElement.h"
 #include "nsGkAtoms.h"
-#include "nsHtml5Module.h"
-#include "nsHtml5StringParser.h"
+#include "nsGlobalWindowInner.h"
+#include "nsGlobalWindowOuter.h"
 #include "nsHTMLDocument.h"
 #include "nsHTMLTags.h"
+#include "nsHashKeys.h"
+#include "nsHtml5StringParser.h"
+#include "nsIAboutModule.h"
 #include "nsIAnonymousContentCreator.h"
+#include "nsIArray.h"
 #include "nsIAsyncVerifyRedirectCallback.h"
+#include "nsIBidiKeyboard.h"
+#include "nsIBrowser.h"
 #include "nsICategoryManager.h"
+#include "nsIChannel.h"
 #include "nsIChannelEventSink.h"
+#include "nsIClassifiedChannel.h"
 #include "nsICharsetDetectionObserver.h"
 #include "nsIConsoleService.h"
 #include "nsIContent.h"
 #include "nsIContentInlines.h"
+#include "nsIContentPolicy.h"
 #include "nsIContentSecurityPolicy.h"
 #include "nsIContentSink.h"
 #include "nsIContentViewer.h"
-#include "nsIDocShell.h"
-#include "nsIDocShellTreeOwner.h"
-#include "mozilla/dom/Document.h"
-#include "nsIDocumentEncoder.h"
+#include "nsID.h"
 #include "nsIDOMWindowUtils.h"
+#include "nsIDocShell.h"
+#include "nsIDocShellTreeItem.h"
+#include "nsIDocShellTreeOwner.h" //MY
+#include "nsIDocumentEncoder.h"
+#include "nsIDocumentLoaderFactory.h"
 #include "nsIDragService.h"
+#include "nsIDragSession.h"
+#include "nsIFile.h"
+#include "nsIFocusManager.h"
 #include "nsIFormControl.h"
-#include "nsIForm.h"
 #include "nsIFragmentContentSink.h"
-#include "nsContainerFrame.h"
+#include "nsIFrame.h"
+#include "nsIGlobalObject.h"
+#include "nsIHttpChannel.h"
 #include "nsIHttpChannelInternal.h"
 #include "nsIIdleService.h"
+#include "nsIIOService.h"
 #include "nsIImageLoadingContent.h"
+#include "nsIInputStream.h"
 #include "nsIInterfaceRequestor.h"
 #include "nsIInterfaceRequestorUtils.h"
-#include "nsIIOService.h"
 #include "nsILoadContext.h"
 #include "nsILoadGroup.h"
-#include "nsIMemoryReporter.h"
+#include "nsILoadInfo.h"
 #include "nsIMIMEService.h"
+#include "nsIMemoryReporter.h"
+#include "nsINetUtil.h"
 #include "nsINode.h"
-#include "mozilla/dom/NodeInfo.h"
-#include "mozilla/NullPrincipal.h"
 #include "nsIObjectLoadingContent.h"
 #include "nsIObserver.h"
 #include "nsIObserverService.h"
@@ -191,72 +308,92 @@
 #include "nsIParser.h"
 #include "nsIParserUtils.h"
 #include "nsIPermissionManager.h"
+#include "nsIPluginTag.h"
+#include "nsIPrincipal.h"
+#include "nsIProperties.h"
+#include "nsIProtocolHandler.h"
 #include "nsIRequest.h"
 #include "nsIRunnable.h"
-#include "nsIScriptContext.h"
+#include "nsIScreen.h"
 #include "nsIScriptError.h"
 #include "nsIScriptGlobalObject.h"
 #include "nsIScriptObjectPrincipal.h"
 #include "nsIScriptSecurityManager.h"
+#include "nsISerialEventTarget.h"
 #include "nsIStreamConverter.h"
 #include "nsIStreamConverterService.h"
 #include "nsIStringBundle.h"
+#include "nsISupports.h"
+#include "nsISupportsPrimitives.h"
+#include "nsISupportsUtils.h"
+#include "nsITransferable.h"
 #include "nsIURI.h"
 #include "nsIURIMutator.h"
-#include "nsIURIWithSpecialOrigin.h"
 #include "nsIUUIDGenerator.h"
+#include "nsIWeakReferenceUtils.h"
 #include "nsIWebNavigation.h"
+#include "nsIWebNavigationInfo.h"
 #include "nsIWidget.h"
 #include "nsIWindowMediator.h"
+#include "nsIWindowProvider.h"
 #include "nsIXPConnect.h"
+#include "nsJSPrincipals.h"
 #include "nsJSUtils.h"
 #include "nsLayoutUtils.h"
+#include "nsLiteralString.h"
 #include "nsMappedAttributes.h"
+#include "nsMargin.h"
+#include "nsMimeTypes.h"
+#include "nsNPAPIPluginInstance.h"
+#include "nsNameSpaceManager.h"
 #include "nsNetCID.h"
 #include "nsNetUtil.h"
 #include "nsNodeInfoManager.h"
+#include "nsPIDOMWindow.h"
+#include "nsPIDOMWindowInlines.h"
 #include "nsParserCIID.h"
 #include "nsParserConstants.h"
-#include "nsPIDOMWindow.h"
+#include "nsPluginHost.h"
+#include "nsPoint.h"
+#include "nsPointerHashKeys.h"
 #include "nsPresContext.h"
-#include "nsPrintfCString.h"
+#include "nsQueryFrame.h"
 #include "nsQueryObject.h"
+#include "nsRFPService.h"
+#include "nsRange.h"
+#include "nsRefPtrHashtable.h"
 #include "nsSandboxFlags.h"
 #include "nsScriptSecurityManager.h"
-#include "nsSerializationHelper.h"
+#include "nsServiceManagerUtils.h"
 #include "nsStreamUtils.h"
+#include "nsString.h"
+#include "nsStringBuffer.h"
+#include "nsStringFlags.h"
+#include "nsStringFwd.h"
+#include "nsStringIterator.h"
+#include "nsTArray.h"
+#include "nsTLiteralString.h"
+#include "nsTPromiseFlatString.h"
+#include "nsTStringRepr.h"
 #include "nsTextFragment.h"
 #include "nsTextNode.h"
+#include "nsThreadManager.h"
 #include "nsThreadUtils.h"
 #include "nsTreeSanitizer.h"
-#include "nsUnicodeProperties.h"
+#include "nsUGenCategory.h"
 #include "nsURLHelper.h"
+#include "nsUnicodeProperties.h"
+#include "nsView.h"
 #include "nsViewManager.h"
-#include "nsViewportInfo.h"
-#include "nsWidgetsCID.h"
-#include "nsIWindowProvider.h"
-#include "nsWrapperCacheInlines.h"
-#include "nsXULPopupManager.h"
-#include "xpcprivate.h"  // nsXPConnect
-#include "HTMLSplitOnSpacesTokenizer.h"
-#include "InProcessBrowserChildMessageManager.h"
-#include "nsContentTypeParser.h"
-#include "ThirdPartyUtil.h"
-#include "mozilla/EnumSet.h"
-#include "mozilla/BloomFilter.h"
-#include "BrowserChild.h"
-#include "mozilla/dom/DocGroup.h"
-#include "mozilla/dom/TabGroup.h"
-#include "nsIWebNavigationInfo.h"
-#include "nsPluginHost.h"
-#include "nsIBrowser.h"
-#include "mozilla/HangAnnotations.h"
-#include "mozilla/Encoding.h"
+#include "nsXPCOM.h"
+#include "nsXPCOMCID.h"
+#include "nsXULAppAPI.h"
 #include "nsXULElement.h"
-#include "nsThreadManager.h"
-#include "nsIBidiKeyboard.h"
-#include "ReferrerInfo.h"
-#include "nsAboutProtocolUtils.h"
+#include "nsXULPopupManager.h"
+#include "nscore.h"
+#include "prinrval.h"
+#include "xpcprivate.h"
+#include "xpcpublic.h"
 
 #if defined(XP_WIN)
 // Undefine LoadImage to prevent naming conflict with Windows.
@@ -267,9 +404,6 @@ extern "C" int MOZ_XMLTranslateEntity(const char* ptr, const char* end,
                                       const char** next, char16_t* result);
 extern "C" int MOZ_XMLCheckQName(const char* ptr, const char* end, int ns_aware,
                                  const char** colon);
-
-class imgLoader;
-class nsAtom;
 
 using namespace mozilla::dom;
 using namespace mozilla::ipc;
@@ -2086,24 +2220,6 @@ bool nsContentUtils::ThreadsafeIsCallerChrome() {
                            : IsCurrentThreadRunningChromeWorker();
 }
 
-bool nsContentUtils::IsCallerContentXBL() {
-  JSContext* cx = GetCurrentJSContext();
-  if (!cx) return false;
-
-  JS::Realm* realm = JS::GetCurrentRealmOrNull(cx);
-  if (!realm) return false;
-
-  // For remote XUL, we run XBL in the XUL scope. Given that we care about
-  // compat and not security for remote XUL, just always claim to be XBL.
-  if (!xpc::AllowContentXBLScope(realm)) {
-    MOZ_ASSERT(
-        nsContentUtils::AllowXULXBLForPrincipal(xpc::GetRealmPrincipal(realm)));
-    return true;
-  }
-
-  return false;
-}
-
 bool nsContentUtils::IsCallerUAWidget() {
   JSContext* cx = GetCurrentJSContext();
   if (!cx) {
@@ -2668,23 +2784,21 @@ static inline bool IsAutocompleteOff(const nsIContent* aContent) {
 }
 
 /*static*/
-nsresult nsContentUtils::GenerateStateKey(nsIContent* aContent,
-                                          Document* aDocument,
-                                          nsACString& aKey) {
+void nsContentUtils::GenerateStateKey(nsIContent* aContent, Document* aDocument,
+                                      nsACString& aKey) {
+  MOZ_ASSERT(aContent);
+
   aKey.Truncate();
 
   uint32_t partID = aDocument ? aDocument->GetPartID() : 0;
 
-  // We must have content if we're not using a special state id
-  NS_ENSURE_TRUE(aContent, NS_ERROR_FAILURE);
-
   // Don't capture state for anonymous content
-  if (aContent->IsInAnonymousSubtree()) {
-    return NS_OK;
+  if (aContent->IsInNativeAnonymousSubtree()) {
+    return;
   }
 
   if (IsAutocompleteOff(aContent)) {
-    return NS_OK;
+    return;
   }
 
   RefPtr<Document> doc = aContent->GetUncomposedDoc();
@@ -2694,10 +2808,6 @@ nsresult nsContentUtils::GenerateStateKey(nsIContent* aContent,
 
   if (doc && doc->IsHTMLOrXHTML()) {
     nsHTMLDocument* htmlDoc = doc->AsHTMLDocument();
-    RefPtr<nsContentList> htmlForms;
-    RefPtr<nsContentList> htmlFormControls;
-    htmlDoc->GetFormsAndFormControls(getter_AddRefs(htmlForms),
-                                     getter_AddRefs(htmlFormControls));
 
     // If we have a form control and can calculate form information, use that
     // as the key - it is more reliable than just recording position in the
@@ -2705,47 +2815,84 @@ nsresult nsContentUtils::GenerateStateKey(nsIContent* aContent,
     // XXXbz Is it, really?  We have bugs on this, I think...
     // Important to have a unique key, and tag/type/name may not be.
     //
-    // If the control has a form, the format of the key is:
-    // f>type>IndOfFormInDoc>IndOfControlInForm>FormName>name
-    // else:
-    // d>type>IndOfControlInDoc>name
+    // The format of the key depends on whether the control has a form,
+    // and whether the element was parser inserted:
+    //
+    // [Has Form, Parser Inserted]:
+    //   fp>type>FormNum>IndOfControlInForm>FormName>name
+    //
+    // [No Form, Parser Inserted]:
+    //   dp>type>ControlNum>name
+    //
+    // [Has Form, Not Parser Inserted]:
+    //   fn>type>IndOfFormInDoc>IndOfControlInForm>FormName>name
+    //
+    // [No Form, Not Parser Inserted]:
+    //   dn>type>IndOfControlInDoc>name
     //
     // XXX We don't need to use index if name is there
     // XXXbz We don't?  Why not?  I don't follow.
     //
     nsCOMPtr<nsIFormControl> control(do_QueryInterface(aContent));
     if (control) {
+      // Get the control number if this was a parser inserted element from the
+      // network.
+      int32_t controlNumber =
+          control->GetParserInsertedControlNumberForStateKey();
+      bool parserInserted = controlNumber != -1;
+
+      RefPtr<nsContentList> htmlForms;
+      RefPtr<nsContentList> htmlFormControls;
+      if (!parserInserted) {
+        // Getting these lists is expensive, as we need to keep them up to date
+        // as the document loads, so we avoid it if we don't need them.
+        htmlDoc->GetFormsAndFormControls(getter_AddRefs(htmlForms),
+                                         getter_AddRefs(htmlFormControls));
+      }
+
       // Append the control type
       KeyAppendInt(control->ControlType(), aKey);
 
       // If in a form, add form name / index of form / index in form
-      Element* formElement = control->GetFormElement();
+      HTMLFormElement* formElement = control->GetFormElement();
       if (formElement) {
         if (IsAutocompleteOff(formElement)) {
           aKey.Truncate();
-          return NS_OK;
+          return;
         }
 
-        KeyAppendString("f"_ns, aKey);
-
-        // Append the index of the form in the document
-        int32_t index = htmlForms->IndexOf(formElement, false);
-        if (index <= -1) {
-          //
-          // XXX HACK this uses some state that was dumped into the document
-          // specifically to fix bug 138892.  What we are trying to do is
-          // *guess* which form this control's state is found in, with the
-          // highly likely guess that the highest form parsed so far is the one.
-          // This code should not be on trunk, only branch.
-          //
-          index = htmlDoc->GetNumFormsSynchronous() - 1;
+        // Append the form number, if this is a parser inserted control, or
+        // the index of the form in the document otherwise.
+        bool appendedForm = false;
+        if (parserInserted) {
+          MOZ_ASSERT(formElement->GetFormNumberForStateKey() != -1,
+                     "when generating a state key for a parser inserted form "
+                     "control we should have a parser inserted <form> element");
+         KeyAppendString("fp"_ns, aKey);
+          KeyAppendInt(formElement->GetFormNumberForStateKey(), aKey);
+          appendedForm = true;
+        } else {
+          KeyAppendString("fn"_ns, aKey);
+          int32_t index = htmlForms->IndexOf(formElement, false);
+          if (index <= -1) {
+            //
+            // XXX HACK this uses some state that was dumped into the document
+            // specifically to fix bug 138892.  What we are trying to do is
+            // *guess* which form this control's state is found in, with the
+            // highly likely guess that the highest form parsed so far is the
+            // one. This code should not be on trunk, only branch.
+            //
+            index = htmlDoc->GetNumFormsSynchronous() - 1;
+          }
+          if (index > -1) {
+            KeyAppendInt(index, aKey);
+            appendedForm = true;
+          }
         }
-        if (index > -1) {
-          KeyAppendInt(index, aKey);
 
+        if (appendedForm) {
           // Append the index of the control in the form
-          nsCOMPtr<nsIForm> form(do_QueryInterface(formElement));
-          index = form->IndexOfControl(control);
+          int32_t index = formElement->IndexOfControl(control);
 
           if (index > -1) {
             KeyAppendInt(index, aKey);
@@ -2757,29 +2904,30 @@ nsresult nsContentUtils::GenerateStateKey(nsIContent* aContent,
         nsAutoString formName;
         formElement->GetAttr(kNameSpaceID_None, nsGkAtoms::name, formName);
         KeyAppendString(formName, aKey);
-
       } else {
-        KeyAppendString("d"_ns, aKey);
-
-        // If not in a form, add index of control in document
-        // Less desirable than indexing by form info.
-
-        // Hash by index of control in doc (we are not in a form)
-        // These are important as they are unique, and type/name may not be.
-
-        // We have to flush sink notifications at this point to make
-        // sure that htmlFormControls is up to date.
-        int32_t index = htmlFormControls->IndexOf(aContent, true);
-        if (index > -1) {
-          KeyAppendInt(index, aKey);
+        // Not in a form.  Append the control number, if this is a parser
+        // inserted control, or the index of the control in the document
+        // otherwise.
+        if (parserInserted) {
+          KeyAppendString("dp"_ns, aKey);
+          KeyAppendInt(control->GetParserInsertedControlNumberForStateKey(),
+                       aKey);
           generatedUniqueKey = true;
+        } else {
+          KeyAppendString("dn"_ns, aKey);
+          int32_t index = htmlFormControls->IndexOf(aContent, true);
+          if (index > -1) {
+            KeyAppendInt(index, aKey);
+            generatedUniqueKey = true;
+          }
         }
-      }
 
-      // Append the control name
-      nsAutoString name;
-      aContent->AsElement()->GetAttr(kNameSpaceID_None, nsGkAtoms::name, name);
-      KeyAppendString(name, aKey);
+        // Append the control name
+        nsAutoString name;
+        aContent->AsElement()->GetAttr(kNameSpaceID_None, nsGkAtoms::name,
+                                       name);
+        KeyAppendString(name, aKey);
+      }
     }
   }
 
@@ -2807,8 +2955,6 @@ nsresult nsContentUtils::GenerateStateKey(nsIContent* aContent,
       parent = content->GetParentNode();
     }
   }
-
-  return NS_OK;
 }
 
 // static
@@ -3162,7 +3308,8 @@ bool nsContentUtils::CanLoadImage(nsIURI* aURI, nsINode* aNode,
     // from anywhere.  This allows editor to insert images from file://
     // into documents that are being edited.
     rv = sSecurityManager->CheckLoadURIWithPrincipal(
-        aLoadingPrincipal, aURI, nsIScriptSecurityManager::ALLOW_CHROME);
+        aLoadingPrincipal, aURI, nsIScriptSecurityManager::ALLOW_CHROME,
+        aLoadingDocument->InnerWindowID());
     if (NS_FAILED(rv)) {
       return false;
     }
@@ -3181,44 +3328,6 @@ bool nsContentUtils::CanLoadImage(nsIURI* aURI, nsINode* aNode,
                                  &decision, GetContentPolicy());
 
   return NS_SUCCEEDED(rv) && NS_CP_ACCEPTED(decision);
-}
-
-// static
-mozilla::OriginAttributes nsContentUtils::GetOriginAttributes(
-    Document* aDocument) {
-  if (!aDocument) {
-    return mozilla::OriginAttributes();
-  }
-
-  nsCOMPtr<nsILoadGroup> loadGroup = aDocument->GetDocumentLoadGroup();
-  if (loadGroup) {
-    return GetOriginAttributes(loadGroup);
-  }
-
-  mozilla::OriginAttributes attrs;
-  nsCOMPtr<nsIChannel> channel = aDocument->GetChannel();
-  if (channel) {
-    NS_GetOriginAttributes(channel, attrs);
-  }
-  return attrs;
-}
-
-// static
-mozilla::OriginAttributes nsContentUtils::GetOriginAttributes(
-    nsILoadGroup* aLoadGroup) {
-  if (!aLoadGroup) {
-    return mozilla::OriginAttributes();
-  }
-  mozilla::OriginAttributes attrs;
-  nsCOMPtr<nsIInterfaceRequestor> callbacks;
-  aLoadGroup->GetNotificationCallbacks(getter_AddRefs(callbacks));
-  if (callbacks) {
-    nsCOMPtr<nsILoadContext> loadContext = do_GetInterface(callbacks);
-    if (loadContext) {
-      loadContext->GetOriginAttributes(attrs);
-    }
-  }
-  return attrs;
 }
 
 // static
@@ -3795,6 +3904,10 @@ void nsContentUtils::LogMessageToConsole(const char* aMsg) {
   sConsoleService->LogStringMessage(NS_ConvertUTF8toUTF16(aMsg).get());
 }
 
+bool nsContentUtils::IsChromeDoc(const Document* aDocument) {
+  return aDocument && aDocument->NodePrincipal() == sSystemPrincipal;
+}
+
 bool nsContentUtils::IsChildOfSameType(Document* aDoc) {
   nsCOMPtr<nsIDocShellTreeItem> docShellAsItem(aDoc->GetDocShell());
   nsCOMPtr<nsIDocShellTreeItem> sameTypeParent;
@@ -3826,6 +3939,10 @@ bool nsContentUtils::IsUtf8OnlyPlainTextType(const nsACString& aContentType) {
          aContentType.EqualsLiteral(APPLICATION_JSON) ||
          aContentType.EqualsLiteral(TEXT_JSON) ||
          aContentType.EqualsLiteral(TEXT_VTT);
+}
+
+bool nsContentUtils::IsInChromeDocshell(const Document* aDocument) {
+  return aDocument && aDocument->IsInChromeDocShell();
 }
 
 // static
@@ -4282,9 +4399,10 @@ void nsContentUtils::RequestFrameFocus(Element& aFrameElement, bool aCanRaise) {
 
 nsresult nsContentUtils::DispatchEventOnlyToChrome(
     Document* aDoc, nsISupports* aTarget, const nsAString& aEventName,
-    CanBubble aCanBubble, Cancelable aCancelable, bool* aDefaultAction) {
+    CanBubble aCanBubble, Cancelable aCancelable, Composed aComposed,
+    bool* aDefaultAction) {
   return DispatchEvent(aDoc, aTarget, aEventName, aCanBubble, aCancelable,
-                       Composed::eDefault, Trusted::eYes, aDefaultAction,
+                       aComposed, Trusted::eYes, aDefaultAction,
                        ChromeOnlyDispatch::eYes);
 }
 
@@ -4957,21 +5075,8 @@ nsresult nsContentUtils::ConvertToPlainText(const nsAString& aSourceBuffer,
   return encoder->EncodeToString(aResultBuffer);
 }
 
-/* static */
-already_AddRefed<Document> nsContentUtils::CreateInertXMLDocument(
-    const Document* aTemplate) {
-  return nsContentUtils::CreateInertDocument(aTemplate, DocumentFlavorXML);
-}
-
-/* static */
-already_AddRefed<Document> nsContentUtils::CreateInertHTMLDocument(
-    const Document* aTemplate) {
-  return nsContentUtils::CreateInertDocument(aTemplate, DocumentFlavorHTML);
-}
-
-/* static */
-already_AddRefed<Document> nsContentUtils::CreateInertDocument(
-    const Document* aTemplate, DocumentFlavor aFlavor) {
+static already_AddRefed<Document> CreateInertDocument(const Document* aTemplate,
+                                                      DocumentFlavor aFlavor) {
   if (aTemplate) {
     bool hasHad = true;
     nsIScriptGlobalObject* sgo = aTemplate->GetScriptHandlingObject(hasHad);
@@ -5007,6 +5112,18 @@ already_AddRefed<Document> nsContentUtils::CreateInertDocument(
     return nullptr;
   }
   return doc.forget();
+}
+
+/* static */
+already_AddRefed<Document> nsContentUtils::CreateInertXMLDocument(
+    const Document* aTemplate) {
+  return CreateInertDocument(aTemplate, DocumentFlavorXML);
+}
+
+/* static */
+already_AddRefed<Document> nsContentUtils::CreateInertHTMLDocument(
+    const Document* aTemplate) {
+  return CreateInertDocument(aTemplate, DocumentFlavorHTML);
 }
 
 /* static */
@@ -5206,6 +5323,11 @@ bool nsContentUtils::IsExpandedPrincipal(nsIPrincipal* aPrincipal) {
   return !!ep;
 }
 
+bool nsContentUtils::IsSystemOrExpandedPrincipal(nsIPrincipal* aPrincipal) {
+  return (aPrincipal && aPrincipal->IsSystemPrincipal()) ||
+         IsExpandedPrincipal(aPrincipal);
+}
+
 nsIPrincipal* nsContentUtils::GetSystemPrincipal() {
   MOZ_ASSERT(IsInitialized());
   return sSystemPrincipal;
@@ -5259,7 +5381,8 @@ void nsContentUtils::TriggerLink(nsIContent* aContent, nsIURI* aLinkURI,
   if (sSecurityManager) {
     uint32_t flag = static_cast<uint32_t>(nsIScriptSecurityManager::STANDARD);
     proceed = sSecurityManager->CheckLoadURIWithPrincipal(
-        aContent->NodePrincipal(), aLinkURI, flag);
+        aContent->NodePrincipal(), aLinkURI, flag,
+        aContent->OwnerDoc()->InnerWindowID());
   }
 
   // Only pass off the click event if the script security manager says it's ok.
@@ -5276,8 +5399,7 @@ void nsContentUtils::TriggerLink(nsIContent* aContent, nsIURI* aLinkURI,
          !aContent->IsSVGElement(nsGkAtoms::a)) ||
         !aContent->AsElement()->GetAttr(kNameSpaceID_None, nsGkAtoms::download,
                                         fileName) ||
-        NS_FAILED(
-            aContent->NodePrincipal()->CheckMayLoad(aLinkURI, false, true))) {
+        NS_FAILED(aContent->NodePrincipal()->CheckMayLoad(aLinkURI, true))) {
       fileName.SetIsVoid(true);  // No actionable download attribute was found.
     }
 
@@ -5447,6 +5569,12 @@ void nsContentUtils::AddScriptRunner(already_AddRefed<nsIRunnable> aRunnable) {
 void nsContentUtils::AddScriptRunner(nsIRunnable* aRunnable) {
   nsCOMPtr<nsIRunnable> runnable = aRunnable;
   AddScriptRunner(runnable.forget());
+}
+
+/* static */ bool nsContentUtils::IsSafeToRunScript() {
+  MOZ_ASSERT(NS_IsMainThread(),
+             "This static variable only makes sense on the main thread!");
+  return sScriptBlockerCount == 0;
 }
 
 /* static */
@@ -5759,6 +5887,22 @@ void nsContentUtils::ASCIIToUpper(const nsACString& aSource,
 }
 
 /* static */
+bool nsContentUtils::EqualsIgnoreASCIICase(nsAtom* aAtom1, nsAtom* aAtom2) {
+  if (aAtom1 == aAtom2) {
+    return true;
+  }
+
+  // If both are ascii lowercase already, we know that the slow comparison
+  // below is going to return false.
+  if (aAtom1->IsAsciiLowercase() && aAtom2->IsAsciiLowercase()) {
+    return false;
+  }
+
+  return EqualsIgnoreASCIICase(nsDependentAtomString(aAtom1),
+                               nsDependentAtomString(aAtom2));
+}
+
+/* static */
 bool nsContentUtils::EqualsIgnoreASCIICase(const nsAString& aStr1,
                                            const nsAString& aStr2) {
   uint32_t len = aStr1.Length();
@@ -5834,9 +5978,9 @@ nsresult nsContentUtils::CheckSameOrigin(nsIChannel* aOldChannel,
 
   NS_ENSURE_STATE(oldPrincipal && newURI && newOriginalURI);
 
-  nsresult rv = oldPrincipal->CheckMayLoad(newURI, false, false);
+  nsresult rv = oldPrincipal->CheckMayLoad(newURI, false);
   if (NS_SUCCEEDED(rv) && newOriginalURI != newURI) {
-    rv = oldPrincipal->CheckMayLoad(newOriginalURI, false, false);
+    rv = oldPrincipal->CheckMayLoad(newOriginalURI, false);
   }
 
   return rv;
@@ -5965,12 +6109,12 @@ bool nsContentUtils::CheckMayLoad(nsIPrincipal* aPrincipal,
   NS_ENSURE_SUCCESS(rv, false);
 
   return NS_SUCCEEDED(
-      aPrincipal->CheckMayLoad(channelURI, false, aAllowIfInheritsPrincipal));
+      aPrincipal->CheckMayLoad(channelURI, aAllowIfInheritsPrincipal));
 }
 
 /* static */
 bool nsContentUtils::CanAccessNativeAnon() {
-  return LegacyIsCallerChromeOrNativeCode() || IsCallerContentXBL();
+  return LegacyIsCallerChromeOrNativeCode();
 }
 
 /* static */
@@ -6260,6 +6404,15 @@ void nsContentUtils::PopulateStringFromStringBuffer(nsStringBuffer* aBuf,
   stringLen = std::min(stringLen, allocStringLen);
 
   aBuf->ToString(stringLen, aResultString);
+}
+
+already_AddRefed<nsContentList> nsContentUtils::GetElementsByClassName(
+    nsINode* aRootNode, const nsAString& aClasses) {
+  MOZ_ASSERT(aRootNode, "Must have root node");
+
+  return GetFuncStringContentList<nsCacheableFuncStringHTMLCollection>(
+      aRootNode, MatchClassNames, DestroyClassNameArray, AllocClassMatchingInfo,
+      aClasses);
 }
 
 PresShell* nsContentUtils::FindPresShellForDocument(const Document* aDocument) {
@@ -6560,7 +6713,7 @@ bool nsContentUtils::ChannelShouldInheritPrincipal(
         // based on its own codebase later.
         //
         (URIIsLocalFile(aURI) &&
-         NS_SUCCEEDED(aLoadingPrincipal->CheckMayLoad(aURI, false, false)) &&
+         NS_SUCCEEDED(aLoadingPrincipal->CheckMayLoad(aURI, false)) &&
          // One more check here.  CheckMayLoad will always return true for the
          // system principal, but we do NOT want to inherit in that case.
          !aLoadingPrincipal->IsSystemPrincipal());
@@ -8121,24 +8274,6 @@ bool nsContentUtils::IsThirdPartyWindowOrChannel(nsPIDOMWindowInner* aWindow,
 }
 
 // static public
-bool nsContentUtils::IsTrackingResourceWindow(nsPIDOMWindowInner* aWindow) {
-  MOZ_ASSERT(aWindow);
-
-  Document* document = aWindow->GetExtantDoc();
-  if (!document) {
-    return false;
-  }
-
-  nsCOMPtr<nsIHttpChannel> httpChannel =
-      do_QueryInterface(document->GetChannel());
-  if (!httpChannel) {
-    return false;
-  }
-
-  return httpChannel->IsTrackingResource();
-}
-
-// static public
 bool nsContentUtils::IsThirdPartyTrackingResourceWindow(
     nsPIDOMWindowInner* aWindow) {
   MOZ_ASSERT(aWindow);
@@ -8148,13 +8283,36 @@ bool nsContentUtils::IsThirdPartyTrackingResourceWindow(
     return false;
   }
 
-  nsCOMPtr<nsIHttpChannel> httpChannel =
+  nsCOMPtr<nsIClassifiedChannel> classifiedChannel =
       do_QueryInterface(document->GetChannel());
-  if (!httpChannel) {
+  if (!classifiedChannel) {
     return false;
   }
 
-  return httpChannel->IsThirdPartyTrackingResource();
+  return classifiedChannel->IsThirdPartyTrackingResource();
+}
+
+// static public
+bool nsContentUtils::IsFirstPartyTrackingResourceWindow(
+    nsPIDOMWindowInner* aWindow) {
+  MOZ_ASSERT(aWindow);
+
+  Document* document = aWindow->GetExtantDoc();
+  if (!document) {
+    return false;
+  }
+
+  nsCOMPtr<nsIClassifiedChannel> classifiedChannel =
+      do_QueryInterface(document->GetChannel());
+  if (!classifiedChannel) {
+    return false;
+  }
+
+  uint32_t classificationFlags =
+      classifiedChannel->GetFirstPartyClassificationFlags();
+
+  return mozilla::net::UrlClassifierCommon::IsTrackingClassificationFlag(
+      classificationFlags);
 }
 
 namespace {
@@ -8977,9 +9135,7 @@ bool nsContentUtils::HttpsStateIsModern(Document* aDocument) {
 
   MOZ_ASSERT(principal->GetIsCodebasePrincipal());
 
-  bool isTrustworthyOrigin = false;
-  principal->GetIsOriginPotentiallyTrustworthy(&isTrustworthyOrigin);
-  return isTrustworthyOrigin;
+  return principal->GetIsOriginPotentiallyTrustworthy();
 }
 
 /* static */
@@ -9144,6 +9300,7 @@ nsresult nsContentUtils::NewXULOrHTMLElement(
       return NS_ERROR_FAILURE;
     }
 
+    AutoAllowLegacyScriptExecution exemption;
     AutoEntryScript aes(global, "create custom elements");
     JSContext* cx = aes.cx();
     ErrorResult rv;
@@ -9317,7 +9474,7 @@ void nsContentUtils::EnqueueUpgradeReaction(
 
 /* static */
 void nsContentUtils::EnqueueLifecycleCallback(
-    Document::ElementCallbackType aType, Element* aCustomElement,
+    ElementCallbackType aType, Element* aCustomElement,
     LifecycleCallbackArgs* aArgs,
     LifecycleAdoptedCallbackArgs* aAdoptedCallbackArgs,
     CustomElementDefinition* aDefinition) {
@@ -10190,6 +10347,38 @@ bool nsContentUtils::
          topLevel->GetPresShell()->GetPresContext() &&
          !topLevel->GetPresShell()->GetPresContext()->HadContentfulPaint() &&
          nsThreadManager::MainThreadHasPendingHighPriorityEvents();
+}
+
+/* static */
+nsGlobalWindowInner* nsContentUtils::CallerInnerWindow() {
+  nsIGlobalObject* global = GetIncumbentGlobal();
+  NS_ENSURE_TRUE(global, nullptr);
+
+  if (auto* window = global->AsInnerWindow()) {
+    return nsGlobalWindowInner::Cast(window);
+  }
+
+  // When Extensions run content scripts inside a sandbox, it uses
+  // sandboxPrototype to make them appear as though they're running in the
+  // scope of the page. So when a content script invokes postMessage, it expects
+  // the |source| of the received message to be the window set as the
+  // sandboxPrototype. This used to work incidentally for unrelated reasons, but
+  // now we need to do some special handling to support it.
+  JS::Rooted<JSObject*> scope(RootingCx(), global->GetGlobalJSObject());
+  NS_ENSURE_TRUE(scope, nullptr);
+
+  if (xpc::IsSandbox(scope)) {
+    AutoJSAPI jsapi;
+    MOZ_ALWAYS_TRUE(jsapi.Init(scope));
+    JSContext* cx = jsapi.cx();
+    // Our current Realm on aCx is the sandbox.  Using that for unwrapping
+    // makes sense: if the sandbox can unwrap the window, we can use it.
+    return xpc::SandboxWindowOrNull(scope, cx);
+  }
+
+  // The calling window must be holding a reference, so we can return a weak
+  // pointer.
+  return nsGlobalWindowInner::Cast(global->AsInnerWindow());
 }
 
 /* static */

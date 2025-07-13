@@ -6,6 +6,7 @@
 #define mozilla_dom_PresentationAvailability_h
 
 #include "mozilla/DOMEventTargetHelper.h"
+#include "mozilla/WeakPtr.h"
 #include "nsIPresentationListener.h"
 #include "nsTArray.h"
 

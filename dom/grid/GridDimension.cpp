@@ -10,8 +10,7 @@
 #include "mozilla/dom/GridBinding.h"
 #include "nsGridContainerFrame.h"
 
-namespace mozilla {
-namespace dom {
+namespace mozilla::dom {
 
 NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE(GridDimension, mParent, mLines, mTracks)
 NS_IMPL_CYCLE_COLLECTING_ADDREF(GridDimension)
@@ -50,5 +49,4 @@ void GridDimension::SetLineInfo(const ComputedGridTrackInfo* aTrackInfo,
   mLines->SetLineInfo(aTrackInfo, aLineInfo, aAreas, aIsRow);
 }
 
-}  // namespace dom
-}  // namespace mozilla
+}  // namespace mozilla::dom

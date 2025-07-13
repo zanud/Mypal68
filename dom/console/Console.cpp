@@ -7,14 +7,17 @@
 #include "mozilla/dom/ConsoleBinding.h"
 #include "ConsoleCommon.h"
 
-#include "js/Array.h"  // JS::GetArrayLength, JS::NewArrayObject
+#include "js/Array.h"               // JS::GetArrayLength, JS::NewArrayObject
+#include "js/PropertyAndElement.h"  // JS_DefineElement, JS_DefineProperty, JS_GetElement
 #include "mozilla/dom/BlobBinding.h"
+#include "mozilla/dom/BlobImpl.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/Exceptions.h"
 #include "mozilla/dom/File.h"
 #include "mozilla/dom/FunctionBinding.h"
 #include "mozilla/dom/Performance.h"
 #include "mozilla/dom/PromiseBinding.h"
+#include "mozilla/dom/RootedDictionary.h" //MY
 #include "mozilla/dom/ScriptSettings.h"
 #include "mozilla/dom/StructuredCloneHolder.h"
 #include "mozilla/dom/ToJSValue.h"
@@ -25,8 +28,11 @@
 #include "mozilla/dom/WorkletImpl.h"
 #include "mozilla/dom/WorkletThread.h"
 #include "mozilla/BasePrincipal.h"
+#include "mozilla/HoldDropJSObjects.h"
+#include "mozilla/JSObjectHolder.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/StaticPrefs_devtools.h"
+#include "mozilla/StaticPrefs_dom.h"
 #include "nsCycleCollectionParticipant.h"
 #include "nsDOMNavigationTiming.h"
 #include "nsGlobalWindow.h"
@@ -36,6 +42,7 @@
 #include "nsContentUtils.h"
 #include "nsDocShell.h"
 #include "nsProxyRelease.h"
+#include "nsReadableUtils.h"
 #include "mozilla/ConsoleTimelineMarker.h"
 #include "mozilla/TimestampTimelineMarker.h"
 
@@ -1727,9 +1734,8 @@ bool Console::PopulateConsoleNotificationInTheTargetScope(
       js::SetFunctionNativeReserved(funObj, SLOT_RAW_STACK,
                                     JS::PrivateValue(aData->mStack.get()));
 
-      if (NS_WARN_IF(!JS_DefineProperty(
-              aCx, eventObj, "stacktrace", funObj, nullptr,
-              JSPROP_ENUMERATE | JSPROP_GETTER | JSPROP_SETTER))) {
+      if (NS_WARN_IF(!JS_DefineProperty(aCx, eventObj, "stacktrace", funObj,
+                                        nullptr, JSPROP_ENUMERATE))) {
         return false;
       }
     }
@@ -2041,24 +2047,21 @@ static void ComposeAndStoreGroupName(JSContext* aCx,
                                      const Sequence<JS::Value>& aData,
                                      nsAString& aName,
                                      nsTArray<nsString>* aGroupStack) {
-  for (uint32_t i = 0; i < aData.Length(); ++i) {
-    if (i != 0) {
-      aName.AppendLiteral(" ");
-    }
+  StringJoinAppend(
+      aName, u" "_ns, aData, [aCx](nsAString& dest, const JS::Value& valueRef) {
+        JS::Rooted<JS::Value> value(aCx, valueRef);
+        JS::Rooted<JSString*> jsString(aCx, JS::ToString(aCx, value));
+        if (!jsString) {
+          return;
+        }
 
-    JS::Rooted<JS::Value> value(aCx, aData[i]);
-    JS::Rooted<JSString*> jsString(aCx, JS::ToString(aCx, value));
-    if (!jsString) {
-      return;
-    }
+        nsAutoJSString string;
+        if (!string.init(aCx, jsString)) {
+          return;
+        }
 
-    nsAutoJSString string;
-    if (!string.init(aCx, jsString)) {
-      return;
-    }
-
-    aName.Append(string);
-  }
+        dest.Append(string);
+      });
 
   aGroupStack->AppendElement(aName);
 }

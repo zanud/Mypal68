@@ -3,6 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "BlobURLChannel.h"
+#include "mozilla/ErrorResult.h" //MY
 #include "mozilla/dom/BlobImpl.h"
 
 using namespace mozilla::dom;

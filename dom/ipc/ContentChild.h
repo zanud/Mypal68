@@ -5,20 +5,18 @@
 #ifndef mozilla_dom_ContentChild_h
 #define mozilla_dom_ContentChild_h
 
-#include "base/shared_memory.h"
 #include "mozilla/Atomics.h"
-#include "mozilla/Attributes.h"
-#include "mozilla/UniquePtr.h"
-#include "mozilla/dom/PBrowserOrId.h"
 #include "mozilla/dom/PContentChild.h"
+#include "mozilla/ipc/ProtocolUtils.h"
 #include "mozilla/StaticPtr.h"
-#include "mozilla/ipc/Shmem.h"
+#include "mozilla/UniquePtr.h"
+#include "nsClassHashtable.h"
+#include "nscore.h"
 #include "nsHashKeys.h"
-#include "nsIObserver.h"
-#include "nsTHashtable.h"
-#include "nsStringFwd.h"
-#include "nsTArrayForwardDeclare.h"
 #include "nsRefPtrHashtable.h"
+#include "nsString.h"
+#include "nsTArrayForwardDeclare.h"
+#include "nsTHashtable.h"
 
 #include "nsIWindowProvider.h"
 
@@ -39,6 +37,10 @@ namespace mozilla {
 class RemoteSpellcheckEngineChild;
 class ChildProfilerController;
 
+namespace loader {
+class PScriptCacheChild;
+}
+
 using mozilla::loader::PScriptCacheChild;
 
 #if !defined(XP_WIN)
@@ -49,10 +51,6 @@ using mozilla::loader::PScriptCacheChild;
 // use symlinks.
 bool IsDevelopmentBuild();
 #endif /* !XP_WIN */
-
-namespace ipc {
-class URIParams;
-}  // namespace ipc
 
 namespace dom {
 
@@ -73,7 +71,6 @@ class ContentChild final : public PContentChild,
   typedef mozilla::dom::ClonedMessageData ClonedMessageData;
   typedef mozilla::ipc::FileDescriptor FileDescriptor;
   typedef mozilla::ipc::PFileDescriptorSetChild PFileDescriptorSetChild;
-  typedef mozilla::ipc::URIParams URIParams;
 
   friend class PContentChild;
 
@@ -300,7 +297,7 @@ class ContentChild final : public PContentChild,
   mozilla::ipc::IPCResult RecvBidiKeyboardNotify(const bool& isLangRTL,
                                                  const bool& haveBidiKeyboards);
 
-  mozilla::ipc::IPCResult RecvNotifyVisited(nsTArray<URIParams>&& aURIs);
+  mozilla::ipc::IPCResult RecvNotifyVisited(nsTArray<VisitedQueryResult>&&);
 
   // auto remove when alertfinished is received.
   nsresult AddRemoteAlertObserver(const nsString& aData,
@@ -395,10 +392,10 @@ class ContentChild final : public PContentChild,
 
   mozilla::ipc::IPCResult RecvMinimizeMemoryUsage();
 
-  mozilla::ipc::IPCResult RecvLoadAndRegisterSheet(const URIParams& aURI,
+  mozilla::ipc::IPCResult RecvLoadAndRegisterSheet(nsIURI* aURI,
                                                    const uint32_t& aType);
 
-  mozilla::ipc::IPCResult RecvUnregisterSheet(const URIParams& aURI,
+  mozilla::ipc::IPCResult RecvUnregisterSheet(nsIURI* aURI,
                                               const uint32_t& aType);
 
   void AddIdleObserver(nsIObserver* aObserver, uint32_t aIdleTimeInS);
@@ -413,7 +410,7 @@ class ContentChild final : public PContentChild,
 
   mozilla::ipc::IPCResult RecvDomainSetChanged(const uint32_t& aSetType,
                                                const uint32_t& aChangeType,
-                                               const Maybe<URIParams>& aDomain);
+                                               nsIURI* aDomain);
 
   mozilla::ipc::IPCResult RecvShutdown();
 
@@ -575,8 +572,7 @@ class ContentChild final : public PContentChild,
 
   // PURLClassifierLocalChild
   PURLClassifierLocalChild* AllocPURLClassifierLocalChild(
-      const URIParams& aUri,
-      const nsTArray<IPCURLClassifierFeature>& aFeatures);
+      nsIURI* aUri, const nsTArray<IPCURLClassifierFeature>& aFeatures);
   bool DeallocPURLClassifierLocalChild(PURLClassifierLocalChild* aActor);
 
   PSessionStorageObserverChild* AllocPSessionStorageObserverChild();

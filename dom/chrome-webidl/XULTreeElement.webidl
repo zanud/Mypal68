@@ -11,7 +11,7 @@ dictionary TreeCellInfo {
     DOMString childElt = "";
 };
 
-[Func="IsChromeOrXBL",
+[ChromeOnly,
  Exposed=Window]
 interface XULTreeElement : XULElement
 {

@@ -10,12 +10,15 @@
 #include "nsGkAtoms.h"
 #include "nsSize.h"
 #include "nsError.h"
+#include "nsIHttpChannel.h"
 #include "nsNodeInfoManager.h"
 #include "plbase64.h"
 #include "prlock.h"
+#include "nsRFPService.h"
 #include "nsThreadUtils.h"
 #include "ImageContainer.h"
 #include "VideoFrameContainer.h"
+#include "VideoOutput.h"
 
 #include "FrameStatistics.h"
 #include "MediaError.h"
@@ -48,6 +51,35 @@ nsGenericHTMLElement* NS_NewHTMLVideoElement(
 namespace mozilla {
 namespace dom {
 
+class HTMLVideoElement::SecondaryVideoOutput : public VideoOutput {
+  // Main thread only.
+  WeakPtr<HTMLMediaElement> mElement;
+
+ public:
+  SecondaryVideoOutput(HTMLMediaElement* aElement,
+                       VideoFrameContainer* aContainer,
+                       AbstractThread* aMainThread)
+      : VideoOutput(aContainer, aMainThread), mElement(aElement) {}
+
+  void Forget() {
+    MOZ_ASSERT(NS_IsMainThread());
+    mElement = nullptr;
+  }
+
+  void NotifyDirectListenerInstalled(InstallationResult aResult) override {
+    if (aResult == InstallationResult::SUCCESS) {
+      mMainThread->Dispatch(NS_NewRunnableFunction(
+          "HTMLMediaElement::OnSecondaryVideoContainerInstalled",
+          [self = RefPtr<SecondaryVideoOutput>(this), this] {
+            if (mElement) {
+              mElement->OnSecondaryVideoContainerInstalled(
+                  mVideoFrameContainer);
+            }
+          }));
+    }
+  }
+};
+
 nsresult HTMLVideoElement::Clone(mozilla::dom::NodeInfo* aNodeInfo,
                                  nsINode** aResult) const {
   *aResult = nullptr;
@@ -68,18 +100,23 @@ NS_IMPL_ISUPPORTS_CYCLE_COLLECTION_INHERITED_0(HTMLVideoElement,
 
 NS_IMPL_CYCLE_COLLECTION_CLASS(HTMLVideoElement)
 
-NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN_INHERITED(HTMLVideoElement,
-                                                HTMLMediaElement)
-  if (tmp->mVisualCloneTarget) {
-    tmp->EndCloningVisually();
-  }
+NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(HTMLVideoElement)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mVisualCloneTarget)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mVisualCloneTargetPromise)
+  if (tmp->mSecondaryVideoOutput) {
+    MOZ_DIAGNOSTIC_ASSERT(tmp->mSelectedVideoStreamTrack);
+    tmp->mSelectedVideoStreamTrack->RemoveVideoOutput(
+        tmp->mSecondaryVideoOutput);
+    tmp->mSecondaryVideoOutput->Forget();
+    tmp->mSecondaryVideoOutput = nullptr;
+  }
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mVisualCloneSource)
-NS_IMPL_CYCLE_COLLECTION_UNLINK_END
+NS_IMPL_CYCLE_COLLECTION_UNLINK_END_INHERITED(HTMLMediaElement)
 
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(HTMLVideoElement,
                                                   HTMLMediaElement)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mVisualCloneTarget)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mVisualCloneTargetPromise)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mVisualCloneSource)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
@@ -386,7 +423,8 @@ void HTMLVideoElement::ReleaseVideoWakeLockIfExists() {
 }
 
 bool HTMLVideoElement::SetVisualCloneTarget(
-    HTMLVideoElement* aVisualCloneTarget) {
+    RefPtr<HTMLVideoElement> aVisualCloneTarget,
+    RefPtr<Promise> aVisualCloneTargetPromise) {
   MOZ_DIAGNOSTIC_ASSERT(
       !aVisualCloneTarget || aVisualCloneTarget->IsInComposedDoc(),
       "Can't set the clone target to a disconnected video "
@@ -395,14 +433,15 @@ bool HTMLVideoElement::SetVisualCloneTarget(
                         "Can't clone a video element that is already a clone.");
   if (!aVisualCloneTarget ||
       (aVisualCloneTarget->IsInComposedDoc() && !mVisualCloneSource)) {
-    mVisualCloneTarget = aVisualCloneTarget;
+    mVisualCloneTarget = std::move(aVisualCloneTarget);
+    mVisualCloneTargetPromise = std::move(aVisualCloneTargetPromise);
     return true;
   }
   return false;
 }
 
 bool HTMLVideoElement::SetVisualCloneSource(
-    HTMLVideoElement* aVisualCloneSource) {
+    RefPtr<HTMLVideoElement> aVisualCloneSource) {
   MOZ_DIAGNOSTIC_ASSERT(
       !aVisualCloneSource || aVisualCloneSource->IsInComposedDoc(),
       "Can't set the clone source to a disconnected video "
@@ -412,7 +451,7 @@ bool HTMLVideoElement::SetVisualCloneSource(
                         "clone.");
   if (!aVisualCloneSource ||
       (aVisualCloneSource->IsInComposedDoc() && !mVisualCloneTarget)) {
-    mVisualCloneSource = aVisualCloneSource;
+    mVisualCloneSource = std::move(aVisualCloneSource);
     return true;
   }
   return false;
@@ -446,15 +485,26 @@ double HTMLVideoElement::TotalPlayTime() const {
   return total;
 }
 
-void HTMLVideoElement::CloneElementVisually(HTMLVideoElement& aTargetVideo,
-                                            ErrorResult& rv) {
+already_AddRefed<Promise> HTMLVideoElement::CloneElementVisually(
+    HTMLVideoElement& aTargetVideo, ErrorResult& aRv) {
   MOZ_ASSERT(IsInComposedDoc(),
              "Can't clone a video that's not bound to a DOM tree.");
   MOZ_ASSERT(aTargetVideo.IsInComposedDoc(),
              "Can't clone to a video that's not bound to a DOM tree.");
   if (!IsInComposedDoc() || !aTargetVideo.IsInComposedDoc()) {
-    rv.Throw(NS_ERROR_UNEXPECTED);
-    return;
+    aRv.Throw(NS_ERROR_UNEXPECTED);
+    return nullptr;
+  }
+
+  nsPIDOMWindowInner* win = OwnerDoc()->GetInnerWindow();
+  if (!win) {
+    aRv.Throw(NS_ERROR_UNEXPECTED);
+    return nullptr;
+  }
+
+  RefPtr<Promise> promise = Promise::Create(win->AsGlobal(), aRv);
+  if (aRv.Failed()) {
+    return nullptr;
   }
 
   // Do we already have a visual clone target? If so, shut it down.
@@ -464,20 +514,20 @@ void HTMLVideoElement::CloneElementVisually(HTMLVideoElement& aTargetVideo,
 
   // If there's a poster set on the target video, clear it, otherwise
   // it'll display over top of the cloned frames.
-  aTargetVideo.UnsetHTMLAttr(nsGkAtoms::poster, rv);
-  if (rv.Failed()) {
-    return;
+  aTargetVideo.UnsetHTMLAttr(nsGkAtoms::poster, aRv);
+  if (aRv.Failed()) {
+    return nullptr;
   }
 
-  if (!SetVisualCloneTarget(&aTargetVideo)) {
-    rv.Throw(NS_ERROR_FAILURE);
-    return;
+  if (!SetVisualCloneTarget(&aTargetVideo, promise)) {
+    aRv.Throw(NS_ERROR_FAILURE);
+    return nullptr;
   }
 
   if (!aTargetVideo.SetVisualCloneSource(this)) {
     mVisualCloneTarget = nullptr;
-    rv.Throw(NS_ERROR_FAILURE);
-    return;
+    aRv.Throw(NS_ERROR_FAILURE);
+    return nullptr;
   }
 
   aTargetVideo.SetMediaInfo(mMediaInfo);
@@ -487,6 +537,8 @@ void HTMLVideoElement::CloneElementVisually(HTMLVideoElement& aTargetVideo,
   }
 
   MaybeBeginCloningVisually();
+
+  return promise.forget();
 }
 
 void HTMLVideoElement::StopCloningElementVisually() {
@@ -510,7 +562,10 @@ void HTMLVideoElement::MaybeBeginCloningVisually() {
     VideoFrameContainer* container =
         mVisualCloneTarget->GetVideoFrameContainer();
     if (container && mSelectedVideoStreamTrack) {
-      mSelectedVideoStreamTrack->AddVideoOutput(container);
+      MOZ_DIAGNOSTIC_ASSERT(!mSecondaryVideoOutput);
+      mSecondaryVideoOutput = MakeRefPtr<SecondaryVideoOutput>(
+          this, container, mAbstractMainThread);
+      mSelectedVideoStreamTrack->AddVideoOutput(mSecondaryVideoOutput);
     }
   }
 }
@@ -521,11 +576,12 @@ void HTMLVideoElement::EndCloningVisually() {
   if (mDecoder) {
     mDecoder->SetSecondaryVideoContainer(nullptr);
   } else if (mSrcStream) {
-    VideoFrameContainer* container =
-        mVisualCloneTarget->GetVideoFrameContainer();
-    if (container && mVisualCloneTarget->mSelectedVideoStreamTrack) {
+    if (mSecondaryVideoOutput &&
+        mVisualCloneTarget->mSelectedVideoStreamTrack) {
       mVisualCloneTarget->mSelectedVideoStreamTrack->RemoveVideoOutput(
-          container);
+          mSecondaryVideoOutput);
+      mSecondaryVideoOutput->Forget();
+      mSecondaryVideoOutput = nullptr;
     }
   }
 
@@ -535,6 +591,27 @@ void HTMLVideoElement::EndCloningVisually() {
   if (IsInComposedDoc() && !StaticPrefs::media_cloneElementVisually_testing()) {
     NotifyUAWidgetSetupOrChange();
   }
+}
+
+void HTMLVideoElement::OnSecondaryVideoContainerInstalled(
+    const RefPtr<VideoFrameContainer>& aSecondaryContainer) {
+  MOZ_ASSERT(NS_IsMainThread());
+  MOZ_DIAGNOSTIC_ASSERT_IF(mVisualCloneTargetPromise, mVisualCloneTarget);
+  if (!mVisualCloneTargetPromise) {
+    // Clone target was unset.
+    return;
+  }
+
+  VideoFrameContainer* container = mVisualCloneTarget->GetVideoFrameContainer();
+  if (NS_WARN_IF(container != aSecondaryContainer)) {
+    // Not the right container.
+    return;
+  }
+
+  mMainThreadEventTarget->Dispatch(NewRunnableMethod(
+      "Promise::MaybeResolveWithUndefined", mVisualCloneTargetPromise,
+      &Promise::MaybeResolveWithUndefined));
+  mVisualCloneTargetPromise = nullptr;
 }
 
 }  // namespace dom

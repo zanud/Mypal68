@@ -11,6 +11,7 @@
 #include "mozilla/dom/SafeRefPtr.h"
 #include "mozilla/LoadTainting.h"
 
+#include "nsIChannelEventSink.h"
 #include "nsIInputStream.h"
 #include "nsISupportsImpl.h"
 #ifdef DEBUG

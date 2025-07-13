@@ -6,6 +6,7 @@
 #define mozilla_dom_serviceworkercontainer_h__
 
 #include "mozilla/DOMEventTargetHelper.h"
+#include "mozilla/ErrorResult.h"
 #include "mozilla/dom/ServiceWorkerUtils.h"
 
 class nsIGlobalWindow;

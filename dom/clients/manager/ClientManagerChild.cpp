@@ -9,10 +9,10 @@
 #include "ClientNavigateOpChild.h"
 #include "ClientSourceChild.h"
 
+#include "mozilla/dom/WorkerCommon.h"
 #include "mozilla/dom/WorkerRef.h"
 
-namespace mozilla {
-namespace dom {
+namespace mozilla::dom {
 
 void ClientManagerChild::ActorDestroy(ActorDestroyReason aReason) {
   mIPCWorkerRef = nullptr;
@@ -132,5 +132,4 @@ WorkerPrivate* ClientManagerChild::GetWorkerPrivate() const {
   return mIPCWorkerRef->Private();
 }
 
-}  // namespace dom
-}  // namespace mozilla
+}  // namespace mozilla::dom

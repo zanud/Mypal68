@@ -5,10 +5,6 @@
 #ifndef mozilla_dom_Blob_h
 #define mozilla_dom_Blob_h
 
-#include "mozilla/Attributes.h"
-#include "mozilla/ErrorResult.h"
-#include "mozilla/dom/BindingDeclarations.h"
-#include "mozilla/dom/BlobImpl.h"
 #include "mozilla/dom/BodyConsumer.h"
 #include "nsCycleCollectionParticipant.h"
 #include "nsCOMPtr.h"
@@ -19,10 +15,14 @@ class nsIGlobalObject;
 class nsIInputStream;
 
 namespace mozilla {
+class ErrorResult;
+
 namespace dom {
 
 struct BlobPropertyBag;
+class BlobImpl;
 class File;
+class GlobalObject;
 class OwningArrayBufferViewOrArrayBufferOrBlobOrUSVString;
 class Promise;
 

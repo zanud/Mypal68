@@ -136,6 +136,10 @@ class nsCSPContext : public nsIContentSecurityPolicy {
         0);
   }
 
+  void AddIPCPolicy(const mozilla::ipc::ContentSecurityPolicy& aPolicy);
+  void SerializePolicies(
+      nsTArray<mozilla::ipc::ContentSecurityPolicy>& aPolicies);
+
  private:
   void EnsureIPCPoliciesRead();
 
@@ -143,13 +147,13 @@ class nsCSPContext : public nsIContentSecurityPolicy {
                        mozilla::dom::Element* aTriggeringElement,
                        nsICSPEventListener* aCSPEventListener,
                        nsIURI* aContentLocation, nsIURI* aOriginalURIIfRedirect,
-                       const nsAString& aNonce, bool aIsPreload, bool aSpecific,
+                       const nsAString& aNonce, bool aSpecific,
                        bool aSendViolationReports,
                        bool aSendContentLocationInViolationReports,
                        bool aParserCreated);
 
   // helper to report inline script/style violations
-  void reportInlineViolation(nsContentPolicyType aContentType,
+  void reportInlineViolation(CSPDirective aDirective,
                              mozilla::dom::Element* aTriggeringElement,
                              nsICSPEventListener* aCSPEventListener,
                              const nsAString& aNonce, const nsAString& aContent,

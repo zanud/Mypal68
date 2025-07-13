@@ -5,11 +5,16 @@
 #ifndef mozilla_dom_StorageEvent_h
 #define mozilla_dom_StorageEvent_h
 
-#include "mozilla/Attributes.h"
-#include "mozilla/ErrorResult.h"
-#include "mozilla/dom/BindingUtils.h"
+#include "js/RootingAPI.h"
+#include "mozilla/AlreadyAddRefed.h"
+#include "mozilla/Assertions.h"
+#include "mozilla/RefPtr.h"
 #include "mozilla/dom/Event.h"
-#include "mozilla/dom/StorageEventBinding.h"
+#include "nsCOMPtr.h"
+#include "nsCycleCollectionParticipant.h"
+#include "nsIPrincipal.h"
+#include "nsISupports.h"
+#include "nsStringFwd.h"
 
 class nsIPrincipal;
 
@@ -17,6 +22,7 @@ namespace mozilla {
 namespace dom {
 
 class Storage;
+struct StorageEventInit;
 
 class StorageEvent : public Event {
  public:

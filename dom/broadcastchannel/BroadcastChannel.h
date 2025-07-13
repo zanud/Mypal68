@@ -7,7 +7,6 @@
 
 #include "mozilla/Attributes.h"
 #include "mozilla/DOMEventTargetHelper.h"
-#include "nsAutoPtr.h"
 #include "nsTArray.h"
 #include "mozilla/RefPtr.h"
 

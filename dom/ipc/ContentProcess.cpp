@@ -82,6 +82,8 @@ bool ContentProcess::Init(int aArgc, char* aArgv[]) {
   char* prefMapHandle = nullptr;
   char* prefsLen = nullptr;
   char* prefMapSize = nullptr;
+  char* jsInitHandle = nullptr;
+  char* jsInitLen = nullptr;
 #if defined(XP_MACOSX) && defined(MOZ_SANDBOX)
   nsCOMPtr<nsIFile> profileDir;
 #endif
@@ -137,6 +139,19 @@ bool ContentProcess::Init(int aArgc, char* aArgv[]) {
         return false;
       }
       prefMapSize = aArgv[i];
+
+    } else if (strcmp(aArgv[i], "-jsInit") == 0) {
+      // command line: -jsInit [handle] length
+#ifdef XP_WIN
+      if (++i == aArgc) {
+        return false;
+      }
+      jsInitHandle = aArgv[i];
+#endif
+      if (++i == aArgc) {
+        return false;
+      }
+      jsInitLen = aArgv[i];
     } else if (strcmp(aArgv[i], "-safeMode") == 0) {
       gSafeMode = true;
 
@@ -170,6 +185,10 @@ bool ContentProcess::Init(int aArgc, char* aArgv[]) {
   SharedPreferenceDeserializer deserializer;
   if (!deserializer.DeserializeFromSharedMemory(prefsHandle, prefMapHandle,
                                                 prefsLen, prefMapSize)) {
+    return false;
+  }
+
+  if (!::mozilla::ipc::ImportSharedJSInit(jsInitHandle, jsInitLen)) {
     return false;
   }
 

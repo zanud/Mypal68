@@ -7,6 +7,8 @@
  * handling of loads in it, recursion-checking).
  */
 
+#include "nsFrameLoader.h"
+
 #include "base/basictypes.h"
 
 #include "prenv.h"
@@ -27,7 +29,6 @@
 #include "nsUnicharUtils.h"
 #include "nsIScriptGlobalObject.h"
 #include "nsIScriptSecurityManager.h"
-#include "nsFrameLoader.h"
 #include "nsFrameLoaderOwner.h"
 #include "nsIFrame.h"
 #include "nsIScrollableFrame.h"
@@ -65,7 +66,7 @@
 #include "mozilla/AsyncEventDispatcher.h"
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/ExpandedPrincipal.h"
-#include "mozilla/GuardObjects.h"
+#include "mozilla/FlushType.h"
 #include "mozilla/HTMLEditor.h"
 #include "mozilla/NullPrincipal.h"
 #include "mozilla/Preferences.h"
@@ -682,7 +683,8 @@ nsresult nsFrameLoader::CheckURILoad(nsIURI* aURI,
 
   // Check if we are allowed to load absURL
   nsresult rv = secMan->CheckLoadURIWithPrincipal(
-      principal, aURI, nsIScriptSecurityManager::STANDARD);
+      principal, aURI, nsIScriptSecurityManager::STANDARD,
+      mOwnerContent->OwnerDoc()->InnerWindowID());
   if (NS_FAILED(rv)) {
     return rv;  // We're not
   }
@@ -803,23 +805,6 @@ static bool AllDescendantsOfType(nsIDocShellTreeItem* aParentItem,
   return true;
 }
 
-/**
- * A class that automatically sets mInShow to false when it goes
- * out of scope.
- */
-class MOZ_RAII AutoResetInShow {
- private:
-  nsFrameLoader* mFrameLoader;
-  MOZ_DECL_USE_GUARD_OBJECT_NOTIFIER
- public:
-  explicit AutoResetInShow(
-      nsFrameLoader* aFrameLoader MOZ_GUARD_OBJECT_NOTIFIER_PARAM)
-      : mFrameLoader(aFrameLoader) {
-    MOZ_GUARD_OBJECT_NOTIFIER_INIT;
-  }
-  ~AutoResetInShow() { mFrameLoader->mInShow = false; }
-};
-
 static bool ParentWindowIsActive(Document* aDoc) {
   nsCOMPtr<nsPIWindowRoot> root = nsContentUtils::GetWindowRoot(aDoc);
   if (root) {
@@ -868,9 +853,9 @@ bool nsFrameLoader::Show(nsSubDocumentFrame* frame) {
   if (mInShow) {
     return false;
   }
-  // Reset mInShow if we exit early.
-  AutoResetInShow resetInShow(this);
   mInShow = true;
+
+  auto resetInShow = mozilla::MakeScopeExit([&] { mInShow = false; });
 
   ScreenIntSize size = frame->GetSubdocumentSize();
   if (IsRemoteFrame()) {
@@ -1199,6 +1184,7 @@ nsresult nsFrameLoader::SwapWithOtherRemoteLoader(
   }
   mInSwap = aOther->mInSwap = true;
 
+  // NOTE(emilio): This doesn't have to flush because the caller does already.
   nsIFrame* ourFrame = ourContent->GetPrimaryFrame();
   nsIFrame* otherFrame = otherContent->GetPrimaryFrame();
   if (!ourFrame || !otherFrame) {
@@ -1320,19 +1306,17 @@ nsresult nsFrameLoader::SwapWithOtherRemoteLoader(
 
 class MOZ_RAII AutoResetInFrameSwap final {
  public:
-  AutoResetInFrameSwap(
-      nsFrameLoader* aThisFrameLoader, nsFrameLoader* aOtherFrameLoader,
-      nsDocShell* aThisDocShell, nsDocShell* aOtherDocShell,
-      EventTarget* aThisEventTarget,
-      EventTarget* aOtherEventTarget MOZ_GUARD_OBJECT_NOTIFIER_PARAM)
+  AutoResetInFrameSwap(nsFrameLoader* aThisFrameLoader,
+                       nsFrameLoader* aOtherFrameLoader,
+                       nsDocShell* aThisDocShell, nsDocShell* aOtherDocShell,
+                       EventTarget* aThisEventTarget,
+                       EventTarget* aOtherEventTarget)
       : mThisFrameLoader(aThisFrameLoader),
         mOtherFrameLoader(aOtherFrameLoader),
         mThisDocShell(aThisDocShell),
         mOtherDocShell(aOtherDocShell),
         mThisEventTarget(aThisEventTarget),
         mOtherEventTarget(aOtherEventTarget) {
-    MOZ_GUARD_OBJECT_NOTIFIER_INIT;
-
     mThisFrameLoader->mInSwap = true;
     mOtherFrameLoader->mInSwap = true;
     mThisDocShell->SetInFrameSwap(true);
@@ -1379,7 +1363,6 @@ class MOZ_RAII AutoResetInFrameSwap final {
   RefPtr<nsDocShell> mOtherDocShell;
   nsCOMPtr<EventTarget> mThisEventTarget;
   nsCOMPtr<EventTarget> mOtherEventTarget;
-  MOZ_DECL_USE_GUARD_OBJECT_NOTIFIER
 };
 
 nsresult nsFrameLoader::SwapWithOtherLoader(nsFrameLoader* aOther,
@@ -1400,11 +1383,21 @@ nsresult nsFrameLoader::SwapWithOtherLoader(nsFrameLoader* aOther,
     return NS_ERROR_NOT_IMPLEMENTED;
   }
 
-  Element* ourContent = mOwnerContent;
-  Element* otherContent = aOther->mOwnerContent;
-
+  RefPtr<Element> ourContent = mOwnerContent;
+  RefPtr<Element> otherContent = aOther->mOwnerContent;
   if (!ourContent || !otherContent) {
     // Can't handle this
+    return NS_ERROR_NOT_IMPLEMENTED;
+  }
+
+  nsIFrame* ourFrame = ourContent->GetPrimaryFrame(FlushType::Frames);
+  nsIFrame* otherFrame = otherContent->GetPrimaryFrame(FlushType::Frames);
+  if (!ourFrame || !otherFrame) {
+    return NS_ERROR_NOT_IMPLEMENTED;
+  }
+
+  // Ensure the flushes above haven't changed all the world.
+  if (ourContent != mOwnerContent || otherContent != aOther->mOwnerContent) {
     return NS_ERROR_NOT_IMPLEMENTED;
   }
 
@@ -1596,12 +1589,6 @@ nsresult nsFrameLoader::SwapWithOtherLoader(nsFrameLoader* aOther,
   AutoResetInFrameSwap autoFrameSwap(this, aOther, ourDocshell, otherDocshell,
                                      ourEventTarget, otherEventTarget);
 
-  nsIFrame* ourFrame = ourContent->GetPrimaryFrame();
-  nsIFrame* otherFrame = otherContent->GetPrimaryFrame();
-  if (!ourFrame || !otherFrame) {
-    return NS_ERROR_NOT_IMPLEMENTED;
-  }
-
   nsSubDocumentFrame* ourFrameFrame = do_QueryFrame(ourFrame);
   if (!ourFrameFrame) {
     return NS_ERROR_NOT_IMPLEMENTED;
@@ -1718,8 +1705,8 @@ nsresult nsFrameLoader::SwapWithOtherLoader(nsFrameLoader* aOther,
   // hi-dpi and low-dpi screens), it will have style data that is based on
   // the wrong appUnitsPerDevPixel value. So we tell the PresShells that their
   // backing scale factor may have changed. (Bug 822266)
-  ourPresShell->BackingScaleFactorChanged();
-  otherPresShell->BackingScaleFactorChanged();
+  ourFrame->PresShell()->BackingScaleFactorChanged();
+  otherFrame->PresShell()->BackingScaleFactorChanged();
 
   // Initialize browser API if needed now that owner content has changed
   InitializeBrowserAPI();
@@ -1984,6 +1971,8 @@ bool nsFrameLoader::OwnerIsMozBrowserFrame() {
   nsCOMPtr<nsIMozBrowserFrame> browserFrame = do_QueryInterface(mOwnerContent);
   return browserFrame ? browserFrame->GetReallyIsBrowser() : false;
 }
+
+nsIContent* nsFrameLoader::GetParentObject() const { return mOwnerContent; }
 
 bool nsFrameLoader::ShouldUseRemoteProcess() {
   if (PR_GetEnv("MOZ_DISABLE_OOP_TABS") ||
@@ -2580,29 +2569,29 @@ bool nsFrameLoader::TryRemoteBrowser() {
   // out of process iframes also get to skip this check.
   if (!OwnerIsMozBrowserFrame() && !XRE_IsContentProcess()) {
     if (parentDocShell->ItemType() != nsIDocShellTreeItem::typeChrome) {
-      // Allow about:addon an exception to this rule so it can load remote
-      // extension options pages.
+      // Allow two exceptions to this rule :
+      // - about:addon so it can load remote extension options pages
+      // - DevTools webext panels if DevTools is loaded in a content frame
       //
       // Note that the new frame's message manager will not be a child of the
       // chrome window message manager, and, the values of window.top and
       // window.parent will be different than they would be for a non-remote
       // frame.
-      nsCOMPtr<nsIWebNavigation> parentWebNav;
-      nsCOMPtr<nsIURI> aboutAddons;
-      nsCOMPtr<nsIURI> parentURI;
-      bool equals;
-      if (!((parentWebNav = do_GetInterface(parentDocShell)) &&
-            NS_SUCCEEDED(
-                parentWebNav->GetCurrentURI(getter_AddRefs(parentURI))) &&
-            ((NS_SUCCEEDED(
-                  NS_NewURI(getter_AddRefs(aboutAddons), "about:addons")) &&
-              NS_SUCCEEDED(parentURI->EqualsExceptRef(aboutAddons, &equals)) &&
-              equals) ||
-             (NS_SUCCEEDED(NS_NewURI(
-                  getter_AddRefs(aboutAddons),
-                  "chrome://mozapps/content/extensions/aboutaddons.html")) &&
-              NS_SUCCEEDED(parentURI->EqualsExceptRef(aboutAddons, &equals)) &&
-              equals)))) {
+      nsIURI* parentURI = parentWin->GetDocumentURI();
+      if (!parentURI) {
+        return false;
+      }
+
+      nsAutoCString specIgnoringRef;
+      if (NS_FAILED(parentURI->GetSpecIgnoringRef(specIgnoringRef))) {
+        return false;
+      }
+
+      if (!(specIgnoringRef.EqualsLiteral("about:addons") ||
+            specIgnoringRef.EqualsLiteral(
+                "chrome://mozapps/content/extensions/aboutaddons.html") ||
+            specIgnoringRef.EqualsLiteral(
+                "chrome://browser/content/webext-panels.xhtml"))) {
         return false;
       }
     }
@@ -2721,6 +2710,14 @@ bool nsFrameLoader::TryRemoteBrowser() {
   InitializeBrowserAPI();
 
   return true;
+}
+
+nsIFrame* nsFrameLoader::GetPrimaryFrameOfOwningContent() const {
+  return mOwnerContent ? mOwnerContent->GetPrimaryFrame() : nullptr;
+}
+
+Document* nsFrameLoader::GetOwnerDoc() const {
+  return mOwnerContent ? mOwnerContent->OwnerDoc() : nullptr;
 }
 
 bool nsFrameLoader::IsRemoteFrame() {

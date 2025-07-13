@@ -4,7 +4,6 @@
 
 #include "WorkerPrivate.h"
 #include "ChromeWorkerScope.h"
-#include "RuntimeService.h"
 
 #include "jsapi.h"
 #include "mozilla/dom/DebuggerNotificationObserverBinding.h"

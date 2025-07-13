@@ -1007,13 +1007,16 @@ class MediaTrackGraph {
   };
   static const uint32_t AUDIO_CALLBACK_DRIVER_SHUTDOWN_TIMEOUT = 20 * 1000;
   static const TrackRate REQUEST_DEFAULT_SAMPLE_RATE = 0;
+  constexpr static const CubebUtils::AudioDeviceID DEFAULT_OUTPUT_DEVICE =
+      nullptr;
 
   // Main thread only
-  static MediaTrackGraph* GetInstanceIfExists(nsPIDOMWindowInner* aWindow,
-                                              TrackRate aSampleRate);
-  static MediaTrackGraph* GetInstance(GraphDriverType aGraphDriverRequested,
-                                      nsPIDOMWindowInner* aWindow,
-                                      TrackRate aSampleRate);
+  static MediaTrackGraph* GetInstanceIfExists(
+      nsPIDOMWindowInner* aWindow, TrackRate aSampleRate,
+      CubebUtils::AudioDeviceID aOutputDeviceID);
+  static MediaTrackGraph* GetInstance(
+      GraphDriverType aGraphDriverRequested, nsPIDOMWindowInner* aWindow,
+      TrackRate aSampleRate, CubebUtils::AudioDeviceID aOutputDeviceID);
   static MediaTrackGraph* CreateNonRealtimeInstance(
       TrackRate aSampleRate, nsPIDOMWindowInner* aWindowId);
 
@@ -1059,11 +1062,17 @@ class MediaTrackGraph {
 
   /* From the main thread, ask the MTG to tell us when the graph
    * thread is running, and audio is being processed, by resolving the returned
-   * promise. The promise is rejected with NS_ERROR_NOT_AVAILABLE if aNodeTrack
+   * promise. The promise is rejected with NS_ERROR_NOT_AVAILABLE if aTrack
    * is destroyed, or NS_ERROR_ILLEGAL_DURING_SHUTDOWN if the graph is shut
    * down, before the promise could be resolved. */
   using GraphStartedPromise = GenericPromise;
-  RefPtr<GraphStartedPromise> NotifyWhenGraphStarted(AudioNodeTrack* aTrack);
+  RefPtr<GraphStartedPromise> NotifyWhenGraphStarted(MediaTrack* aTrack);
+  /* Same as above but the promise is resolved when the devices has started.
+   * Audio is initially processed in the FallbackDriver's thread during the
+   * device is start up. In a newly created graph, the promise from this method
+   * will be resolved later than the promise of the method above.*/
+  RefPtr<GraphStartedPromise> NotifyWhenDeviceStarted(MediaTrack* aTrack);
+
   /* From the main thread, suspend, resume or close an AudioContext.
    * aTracks are the tracks of all the AudioNodes of the AudioContext that
    * need to be suspended or resumed. This can be empty if this is a second

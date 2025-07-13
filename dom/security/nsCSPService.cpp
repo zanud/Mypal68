@@ -55,7 +55,7 @@ bool subjectToCSP(nsIURI* aURI, nsContentPolicyType aContentType) {
     return true;
   }
 
-  // Finally we have to whitelist "about:" which does not fall into
+  // Finally we have to allowlist "about:" which does not fall into
   // the category underneath and also "javascript:" which is not
   // subject to CSP content loading rules.
   if (aURI->SchemeIs("about") || aURI->SchemeIs("javascript")) {
@@ -63,7 +63,7 @@ bool subjectToCSP(nsIURI* aURI, nsContentPolicyType aContentType) {
   }
 
   // Please note that it should be possible for websites to
-  // whitelist their own protocol handlers with respect to CSP,
+  // allowlist their own protocol handlers with respect to CSP,
   // hence we use protocol flags to accomplish that, but we also
   // want resource:, chrome: and moz-icon to be subject to CSP
   // (which also use URI_IS_LOCAL_RESOURCE).
@@ -76,7 +76,7 @@ bool subjectToCSP(nsIURI* aURI, nsContentPolicyType aContentType) {
     nsAutoCString uriSpec;
     aURI->GetSpec(uriSpec);
     // Exempt pdf.js from being subject to a page's CSP.
-    if (StringBeginsWith(uriSpec, NS_LITERAL_CSTRING("resource://pdf.js/"))) {
+    if (StringBeginsWith(uriSpec, "resource://pdf.js/"_ns)) {
       return false;
     }
     if (!isImgOrStyleOrDTD) {
@@ -109,11 +109,6 @@ bool subjectToCSP(nsIURI* aURI, nsContentPolicyType aContentType) {
 
   uint32_t contentType = aLoadInfo->InternalContentPolicyType();
   nsCOMPtr<nsISupports> requestContext = aLoadInfo->GetLoadingContext();
-  nsCOMPtr<nsIURI> requestOrigin;
-  nsCOMPtr<nsIPrincipal> loadingPrincipal = aLoadInfo->GetLoadingPrincipal();
-  if (loadingPrincipal) {
-    loadingPrincipal->GetURI(getter_AddRefs(requestOrigin));
-  }
 
   nsCOMPtr<nsICSPEventListener> cspEventListener;
   nsresult rv =
@@ -133,7 +128,7 @@ bool subjectToCSP(nsIURI* aURI, nsContentPolicyType aContentType) {
   // or type is *not* subject to CSP.
   // Please note, the correct way to opt-out of CSP using a custom
   // protocolHandler is to set one of the nsIProtocolHandler flags
-  // that are whitelistet in subjectToCSP()
+  // that are allowlistet in subjectToCSP()
   if (!StaticPrefs::security_csp_enable() ||
       !subjectToCSP(aContentLocation, contentType)) {
     return NS_OK;
@@ -151,10 +146,9 @@ bool subjectToCSP(nsIURI* aURI, nsContentPolicyType aContentType) {
     if (preloadCsp) {
       // obtain the enforcement decision
       rv = preloadCsp->ShouldLoad(
-          contentType, cspEventListener, aContentLocation, requestOrigin,
-          requestContext, aMimeTypeGuess,
+          contentType, cspEventListener, aContentLocation, requestContext,
           nullptr,  // no redirect, aOriginal URL is null.
-          aLoadInfo->GetSendCSPViolationEvents(), cspNonce, aDecision);
+          false, cspNonce, aDecision);
       NS_ENSURE_SUCCESS(rv, rv);
 
       // if the preload policy already denied the load, then there
@@ -177,10 +171,10 @@ bool subjectToCSP(nsIURI* aURI, nsContentPolicyType aContentType) {
   if (csp) {
     // obtain the enforcement decision
     rv = csp->ShouldLoad(contentType, cspEventListener, aContentLocation,
-                         requestOrigin, requestContext, aMimeTypeGuess,
+                         requestContext,
                          nullptr,  // no redirect, aOriginal URL is null.
-                         aLoadInfo->GetSendCSPViolationEvents(), cspNonce,
-                         aDecision);
+                         !isPreload && aLoadInfo->GetSendCSPViolationEvents(),
+                         cspNonce, aDecision);
 
     if (NS_CP_REJECTED(*aDecision)) {
       NS_SetRequestBlockingReason(
@@ -290,14 +284,13 @@ CSPService::AsyncOnChannelRedirect(nsIChannel* oldChannel,
   bool isPreload = nsContentUtils::IsPreloadType(policyType);
 
   /* On redirect, if the content policy is a preload type, rejecting the
-   * preload results in the load silently failing, so we convert preloads to
-   * the actual type. See Bug 1219453.
+   * preload results in the load silently failing, so we pass true to
+   * the aSendViolationReports parameter. See Bug 1219453.
    */
-  policyType =
-      nsContentUtils::InternalContentPolicyTypeToExternalOrWorker(policyType);
 
   int16_t aDecision = nsIContentPolicy::ACCEPT;
   nsCOMPtr<nsISupports> requestContext = loadInfo->GetLoadingContext();
+
   // 1) Apply speculative CSP for preloads
   if (isPreload) {
     nsCOMPtr<nsIContentSecurityPolicy> preloadCsp = loadInfo->GetPreloadCsp();
@@ -307,9 +300,7 @@ CSPService::AsyncOnChannelRedirect(nsIChannel* oldChannel,
           policyType,  // load type per nsIContentPolicy (uint32_t)
           cspEventListener,
           newUri,          // nsIURI
-          nullptr,         // nsIURI
           requestContext,  // nsISupports
-          EmptyCString(),  // ACString - MIME guess
           originalUri,     // Original nsIURI
           true,            // aSendViolationReports
           cspNonce,        // nonce
@@ -332,9 +323,7 @@ CSPService::AsyncOnChannelRedirect(nsIChannel* oldChannel,
     csp->ShouldLoad(policyType,  // load type per nsIContentPolicy (uint32_t)
                     cspEventListener,
                     newUri,          // nsIURI
-                    nullptr,         // nsIURI
                     requestContext,  // nsISupports
-                    EmptyCString(),  // ACString - MIME guess
                     originalUri,     // Original nsIURI
                     true,            // aSendViolationReports
                     cspNonce,        // nonce

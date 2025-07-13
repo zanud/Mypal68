@@ -72,19 +72,19 @@ NS_IMETHODIMP
 SessionStorageManager::GetSessionStorageCache(
     nsIPrincipal* aPrincipal, nsIPrincipal* aStoragePrincipal,
     RefPtr<SessionStorageCache>* aRetVal) {
-  return GetSessionStorageCacheHelper(aPrincipal, aStoragePrincipal, true,
-                                      nullptr, aRetVal);
+  return GetSessionStorageCacheHelper(aStoragePrincipal, true, nullptr,
+                                      aRetVal);
 }
 
 nsresult SessionStorageManager::GetSessionStorageCacheHelper(
-    nsIPrincipal* aPrincipal, nsIPrincipal* aStoragePrincipal,
-    bool aMakeIfNeeded, SessionStorageCache* aCloneFrom,
-    RefPtr<SessionStorageCache>* aRetVal) {
+    nsIPrincipal* aPrincipal, bool aMakeIfNeeded,
+    SessionStorageCache* aCloneFrom, RefPtr<SessionStorageCache>* aRetVal) {
   *aRetVal = nullptr;
 
   nsAutoCString originKey;
   nsAutoCString originAttributes;
-  nsresult rv = GenerateOriginKey(aPrincipal, originAttributes, originKey);
+  nsresult rv = aPrincipal->GetStorageOriginKey(originKey);
+  aPrincipal->OriginAttributesRef().CreateSuffix(originAttributes);
   if (NS_FAILED(rv)) {
     return NS_ERROR_NOT_AVAILABLE;
   }
@@ -132,9 +132,9 @@ SessionStorageManager::CreateStorage(mozIDOMWindow* aWindow,
 
   nsCOMPtr<nsPIDOMWindowInner> inner = nsPIDOMWindowInner::From(aWindow);
 
-  // No StoragePrincipal for sessionStorage.
-  RefPtr<SessionStorage> storage = new SessionStorage(
-      inner, aPrincipal, cache, this, aDocumentURI, aPrivate);
+  RefPtr<SessionStorage> storage =
+      new SessionStorage(inner, aPrincipal, aStoragePrincipal, cache, this,
+                         aDocumentURI, aPrivate);
 
   storage.forget(aRetval);
   return NS_OK;
@@ -148,8 +148,8 @@ SessionStorageManager::GetStorage(mozIDOMWindow* aWindow,
   *aRetval = nullptr;
 
   RefPtr<SessionStorageCache> cache;
-  nsresult rv = GetSessionStorageCacheHelper(aPrincipal, aStoragePrincipal,
-                                             false, nullptr, &cache);
+  nsresult rv =
+      GetSessionStorageCacheHelper(aStoragePrincipal, false, nullptr, &cache);
   if (NS_FAILED(rv) || !cache) {
     return rv;
   }
@@ -157,7 +157,7 @@ SessionStorageManager::GetStorage(mozIDOMWindow* aWindow,
   nsCOMPtr<nsPIDOMWindowInner> inner = nsPIDOMWindowInner::From(aWindow);
 
   RefPtr<SessionStorage> storage = new SessionStorage(
-      inner, aPrincipal, cache, this, EmptyString(), aPrivate);
+      inner, aPrincipal, aStoragePrincipal, cache, this, u""_ns, aPrivate);
 
   storage.forget(aRetval);
   return NS_OK;
@@ -175,7 +175,7 @@ SessionStorageManager::CloneStorage(Storage* aStorage) {
 
   RefPtr<SessionStorageCache> cache;
   return GetSessionStorageCacheHelper(
-      aStorage->Principal(), aStorage->StoragePrincipal(), true,
+      aStorage->StoragePrincipal(), true,
       static_cast<SessionStorage*>(aStorage)->Cache(), &cache);
 }
 
@@ -193,8 +193,8 @@ SessionStorageManager::CheckStorage(nsIPrincipal* aPrincipal, Storage* aStorage,
   *aRetval = false;
 
   RefPtr<SessionStorageCache> cache;
-  nsresult rv = GetSessionStorageCacheHelper(
-      aPrincipal, aStorage->StoragePrincipal(), false, nullptr, &cache);
+  nsresult rv =
+      GetSessionStorageCacheHelper(aPrincipal, false, nullptr, &cache);
   if (NS_FAILED(rv) || !cache) {
     return rv;
   }
@@ -209,7 +209,8 @@ SessionStorageManager::CheckStorage(nsIPrincipal* aPrincipal, Storage* aStorage,
     return NS_OK;
   }
 
-  if (!StorageUtils::PrincipalsEqual(aStorage->Principal(), aPrincipal)) {
+  if (!StorageUtils::PrincipalsEqual(aStorage->StoragePrincipal(),
+                                     aPrincipal)) {
     return NS_OK;
   }
 
@@ -256,7 +257,7 @@ nsresult SessionStorageManager::Observe(
 
   // Clear everything, caches + database
   if (!strcmp(aTopic, "cookie-cleared")) {
-    ClearStorages(eAll, pattern, EmptyCString());
+    ClearStorages(eAll, pattern, ""_ns);
     return NS_OK;
   }
 
@@ -276,7 +277,7 @@ nsresult SessionStorageManager::Observe(
 
   if (!strcmp(aTopic, "profile-change")) {
     // For case caches are still referenced - clear them completely
-    ClearStorages(eAll, pattern, EmptyCString());
+    ClearStorages(eAll, pattern, ""_ns);
     mOATable.Clear();
     return NS_OK;
   }

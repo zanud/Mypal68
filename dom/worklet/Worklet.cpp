@@ -5,9 +5,11 @@
 #include "Worklet.h"
 #include "WorkletThread.h"
 
+#include "mozilla/dom/AutoEntryScript.h"
 #include "mozilla/dom/WorkletBinding.h"
 #include "mozilla/dom/WorkletGlobalScope.h"
 #include "mozilla/dom/BlobBinding.h"
+#include "mozilla/dom/Document.h"
 #include "mozilla/dom/Fetch.h"
 #include "mozilla/dom/PromiseNativeHandler.h"
 #include "mozilla/dom/Request.h"
@@ -223,9 +225,9 @@ class WorkletFetchHandler final : public PromiseNativeHandler,
 
     JS::UniqueTwoByteChars scriptTextBuf;
     size_t scriptTextLength;
-    nsresult rv = ScriptLoader::ConvertToUTF16(
-        nullptr, aString, aStringLen, NS_LITERAL_STRING("UTF-8"), nullptr,
-        scriptTextBuf, scriptTextLength);
+    nsresult rv =
+        ScriptLoader::ConvertToUTF16(nullptr, aString, aStringLen, u"UTF-8"_ns,
+                                     nullptr, scriptTextBuf, scriptTextLength);
     if (NS_WARN_IF(NS_FAILED(rv))) {
       RejectPromises(rv);
       return NS_OK;
@@ -381,7 +383,10 @@ void ExecutionRunnable::RunOnWorkletThread() {
   WorkletThread::EnsureCycleCollectedJSContext(mParentRuntime);
 
   WorkletGlobalScope* globalScope = mWorkletImpl->GetGlobalScope();
-  MOZ_ASSERT(globalScope);
+  if (!globalScope) {
+    mResult = NS_ERROR_DOM_UNKNOWN_ERR;
+    return;
+  }
 
   AutoEntryScript aes(globalScope, "Worklet");
   JSContext* cx = aes.cx();
@@ -397,8 +402,20 @@ void ExecutionRunnable::RunOnWorkletThread() {
   // https://html.spec.whatwg.org/multipage/webappapis.html#run-a-module-script
   // without /rethrow errors/ and so unhandled exceptions do not cause the
   // promise to be rejected.
-  JS::Rooted<JS::Value> ignored(cx);
-  JS::ModuleEvaluate(cx, module, &ignored);
+  JS::Rooted<JS::Value> rval(cx);
+  JS::ModuleEvaluate(cx, module, &rval);
+  // With top-level await, we need to unwrap the module promise, or we end up
+  // with less helpfull error messages. A modules return value can either be a
+  // promise or undefined. If the value is defined, we have an async module and
+  // can unwrap it.
+  if (!rval.isUndefined() && rval.isObject()) {
+    JS::Rooted<JSObject*> aEvaluationPromise(cx);
+    aEvaluationPromise.set(&rval.toObject());
+    if (!JS::ThrowOnModuleEvaluationFailure(cx, aEvaluationPromise)) {
+      mResult = NS_ERROR_DOM_ABORT_ERR;
+      return;
+    }
+  }
 
   // All done.
   mResult = NS_OK;

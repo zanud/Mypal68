@@ -36,6 +36,7 @@
 #include "nsMimeTypes.h"
 #include "nsHtml5SVGLoadDispatcher.h"
 #include "nsTextNode.h"
+#include "mozilla/dom/AutoEntryScript.h"
 #include "mozilla/dom/CDATASection.h"
 #include "mozilla/dom/Comment.h"
 #include "mozilla/dom/DocumentType.h"
@@ -591,7 +592,7 @@ nsresult PrototypeDocumentContentSink::ResumeWalkInternal() {
   return MaybeDoneWalking();
 }
 
-void PrototypeDocumentContentSink::InitialDocumentTranslationCompleted() {
+void PrototypeDocumentContentSink::InitialTranslationCompleted() {
   MaybeDoneWalking();
 }
 
@@ -601,7 +602,7 @@ nsresult PrototypeDocumentContentSink::MaybeDoneWalking() {
   }
 
   if (mDocument->HasPendingInitialTranslation()) {
-    mDocument->TriggerInitialDocumentTranslation();
+    mDocument->OnParsingCompleted();
     return NS_OK;
   }
 
@@ -619,7 +620,7 @@ nsresult PrototypeDocumentContentSink::DoneWalking() {
     mDocument->SetReadyStateInternal(Document::READYSTATE_INTERACTIVE);
     mDocument->NotifyPossibleTitleChange(false);
 
-    nsContentUtils::DispatchTrustedEvent(
+    nsContentUtils::DispatchEventOnlyToChrome(
         mDocument, ToSupports(mDocument),
         NS_LITERAL_STRING("MozBeforeInitialXULLayout"), CanBubble::eYes,
         Cancelable::eNo);

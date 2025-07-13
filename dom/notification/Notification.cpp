@@ -4,22 +4,23 @@
 
 #include "mozilla/dom/Notification.h"
 
+#include <utility>
+
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/Components.h"
 #include "mozilla/Encoding.h"
 #include "mozilla/EventStateManager.h"
 #include "mozilla/JSONWriter.h"
-#include <utility>
 #include "mozilla/OwningNonNull.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/Services.h"
 #include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/Telemetry.h"
 #include "mozilla/Unused.h"
-
 #include "mozilla/dom/AppNotificationServiceOptionsBinding.h"
 #include "mozilla/dom/BindingUtils.h"
 #include "mozilla/dom/ContentChild.h"
+#include "mozilla/dom/Document.h"
 #include "mozilla/dom/NotificationEvent.h"
 #include "mozilla/dom/PermissionMessageUtils.h"
 #include "mozilla/dom/Promise.h"
@@ -29,22 +30,20 @@
 #include "mozilla/dom/WorkerPrivate.h"
 #include "mozilla/dom/WorkerRunnable.h"
 #include "mozilla/dom/WorkerScope.h"
-
 #include "nsAlertsUtils.h"
+#include "nsCRTGlue.h"
 #include "nsComponentManagerUtils.h"
 #include "nsContentPermissionHelper.h"
 #include "nsContentUtils.h"
-#include "nsCRTGlue.h"
 #include "nsDOMJSUtils.h"
 #include "nsFocusManager.h"
 #include "nsGlobalWindow.h"
 #include "nsIAlertsService.h"
 #include "nsIContentPermissionPrompt.h"
-#include "mozilla/dom/Document.h"
 #include "nsILoadContext.h"
 #include "nsINotificationStorage.h"
-#include "nsIPermissionManager.h"
 #include "nsIPermission.h"
+#include "nsIPermissionManager.h"
 #include "nsIPushService.h"
 #include "nsIScriptError.h"
 #include "nsIServiceWorkerManager.h"
@@ -292,7 +291,8 @@ class FocusWindowRunnable final : public Runnable {
   }
 };
 
-nsresult CheckScope(nsIPrincipal* aPrincipal, const nsACString& aScope) {
+nsresult CheckScope(nsIPrincipal* aPrincipal, const nsACString& aScope,
+                    uint64_t aWindowID) {
   AssertIsOnMainThread();
   MOZ_ASSERT(aPrincipal);
 
@@ -302,8 +302,9 @@ nsresult CheckScope(nsIPrincipal* aPrincipal, const nsACString& aScope) {
     return rv;
   }
 
-  return aPrincipal->CheckMayLoad(scopeURI, /* report = */ true,
-                                  /* allowIfInheritsPrincipal = */ false);
+  return aPrincipal->CheckMayLoadWithReporting(
+      scopeURI,
+      /* allowIfInheritsPrincipal = */ false, aWindowID);
 }
 }  // anonymous namespace
 
@@ -2068,7 +2069,7 @@ class CheckLoadRunnable final : public WorkerMainThreadRunnable {
 
   bool MainThreadRun() override {
     nsIPrincipal* principal = mWorkerPrivate->GetPrincipal();
-    mRv = CheckScope(principal, mScope);
+    mRv = CheckScope(principal, mScope, mWorkerPrivate->WindowID());
 
     if (NS_FAILED(mRv)) {
       return true;
@@ -2113,7 +2114,13 @@ already_AddRefed<Promise> Notification::ShowPersistentNotification(
       return nullptr;
     }
 
-    aRv = CheckScope(principal, NS_ConvertUTF16toUTF8(aScope));
+    uint64_t windowID = 0;
+    nsCOMPtr<nsPIDOMWindowInner> win = do_QueryInterface(aGlobal);
+    if (win) {
+      windowID = win->WindowID();
+    }
+
+    aRv = CheckScope(principal, NS_ConvertUTF16toUTF8(aScope), windowID);
     if (NS_WARN_IF(aRv.Failed())) {
       aRv.Throw(NS_ERROR_DOM_SECURITY_ERR);
       return nullptr;

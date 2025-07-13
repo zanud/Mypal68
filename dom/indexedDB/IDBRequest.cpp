@@ -4,6 +4,8 @@
 
 #include "IDBRequest.h"
 
+#include <utility>
+
 #include "BackgroundChildImpl.h"
 #include "IDBCursor.h"
 #include "IDBDatabase.h"
@@ -13,11 +15,11 @@
 #include "IDBObjectStore.h"
 #include "IDBTransaction.h"
 #include "IndexedDatabaseManager.h"
+#include "ReportInternalError.h"
 #include "mozilla/ContentEvents.h"
 #include "mozilla/ErrorResult.h"
 #include "mozilla/EventDispatcher.h"
 #include "mozilla/HoldDropJSObjects.h"
-#include "mozilla/Move.h"
 #include "mozilla/dom/DOMException.h"
 #include "mozilla/dom/ErrorEventBinding.h"
 #include "mozilla/dom/IDBOpenDBRequestBinding.h"
@@ -26,11 +28,10 @@
 #include "mozilla/dom/WorkerRef.h"
 #include "nsCOMPtr.h"
 #include "nsContentUtils.h"
+#include "nsIGlobalObject.h"
 #include "nsIScriptContext.h"
 #include "nsJSUtils.h"
-#include "nsIGlobalObject.h"
 #include "nsString.h"
-#include "ReportInternalError.h"
 
 // Include this last to avoid path problems on Windows.
 #include "ActorsChild.h"
@@ -259,60 +260,6 @@ void IDBRequest::GetResult(JS::MutableHandle<JS::Value> aResult,
   }
 
   aResult.set(mResultVal);
-}
-
-// XXX This function should be renamed, it doesn't set the callback, but uses
-// the callback to set the result. In addition, the ResultCallback class can be
-// removed, a functor can just be passed instead. The same should be done for
-// IDBFileRequest::SetResultCallback.
-void IDBRequest::SetResultCallback(ResultCallback* aCallback) {
-  AssertIsOnOwningThread();
-  MOZ_ASSERT(aCallback);
-  MOZ_ASSERT(!mHaveResultOrErrorCode);
-  MOZ_ASSERT(mResultVal.isUndefined());
-  MOZ_ASSERT(!mError);
-
-  // Already disconnected from the owner.
-  if (!GetOwnerGlobal()) {
-    SetError(NS_ERROR_DOM_INDEXEDDB_UNKNOWN_ERR);
-    return;
-  }
-
-  // See this global is still valid.
-  if (NS_WARN_IF(NS_FAILED(CheckCurrentGlobalCorrectness()))) {
-    SetError(NS_ERROR_DOM_INDEXEDDB_UNKNOWN_ERR);
-    return;
-  }
-
-  AutoJSAPI autoJS;
-  if (!autoJS.Init(GetOwnerGlobal())) {
-    IDB_WARNING("Failed to initialize AutoJSAPI!");
-    SetError(NS_ERROR_DOM_INDEXEDDB_UNKNOWN_ERR);
-    return;
-  }
-
-  JSContext* cx = autoJS.cx();
-
-  JS::Rooted<JS::Value> result(cx);
-  nsresult rv = aCallback->GetResult(cx, &result);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    // This can only fail if the structured clone contains a mutable file
-    // and the child is not in the main thread and main process.
-    // In that case CreateAndWrapMutableFile() returns false which shows up
-    // as NS_ERROR_DOM_DATA_CLONE_ERR here.
-    MOZ_ASSERT(rv == NS_ERROR_DOM_DATA_CLONE_ERR);
-
-    // We are not setting a result or an error object here since we want to
-    // throw an exception when the 'result' property is being touched.
-    return;
-  }
-
-  mError = nullptr;
-
-  mResultVal = result;
-  mozilla::HoldJSObjects(this);
-
-  mHaveResultOrErrorCode = true;
 }
 
 DOMException* IDBRequest::GetError(ErrorResult& aRv) {

@@ -17,6 +17,7 @@
 
 namespace mozilla {
 class DeclarationBlock;
+struct MutationClosureData;
 }  // namespace mozilla
 
 // IID for nsStyledElement interface

@@ -11,6 +11,7 @@
 #include "mozilla/dom/BindingUtils.h"
 #include "nsContentUtils.h"
 #include "mozilla/dom/Document.h"
+#include "nsIScriptContext.h" //MY
 #include "nsIURIMutator.h"
 #include "nsNetUtil.h"
 

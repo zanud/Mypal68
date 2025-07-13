@@ -61,7 +61,6 @@ class VideoSink : public MediaSink {
   void Shutdown() override;
 
   void SetSecondaryVideoContainer(VideoFrameContainer* aSecondary) override;
-  void ClearSecondaryVideoContainer() override;
 
   nsCString GetDebugInfo() override;
 

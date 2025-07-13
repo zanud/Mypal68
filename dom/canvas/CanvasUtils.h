@@ -9,7 +9,8 @@
 #include "mozilla/CheckedInt.h"
 #include "mozilla/dom/ToJSValue.h"
 #include "jsapi.h"
-#include "js/Array.h"  // JS::GetArrayLength
+#include "js/Array.h"               // JS::GetArrayLength
+#include "js/PropertyAndElement.h"  // JS_GetElement
 #include "mozilla/FloatingPoint.h"
 
 class nsIPrincipal;
@@ -17,6 +18,7 @@ class nsIPrincipal;
 namespace mozilla {
 
 namespace dom {
+class Document;
 class HTMLCanvasElement;
 }  // namespace dom
 

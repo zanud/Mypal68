@@ -4,12 +4,19 @@
 
 #include "ConsoleUtils.h"
 #include "ConsoleCommon.h"
+#include "nsContentUtils.h"
+#include "nsIConsoleAPIStorage.h"
+#include "nsIXPConnect.h"
+#include "nsServiceManagerUtils.h"
 
 #include "mozilla/ClearOnShutdown.h"
 #include "mozilla/NullPrincipal.h"
+#include "mozilla/dom/ConsoleBinding.h"
+#include "mozilla/dom/RootedDictionary.h"
+#include "mozilla/dom/ScriptSettings.h"
+#include "js/PropertyAndElement.h"  // JS_DefineProperty
 
-namespace mozilla {
-namespace dom {
+namespace mozilla::dom {
 
 namespace {
 
@@ -154,5 +161,4 @@ JSObject* ConsoleUtils::GetOrCreateSandbox(JSContext* aCx) {
   return mSandbox->GetJSObject();
 }
 
-}  // namespace dom
-}  // namespace mozilla
+}  // namespace mozilla::dom

@@ -3,11 +3,11 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "mozilla/dom/BaseBlobImpl.h"
+#include "mozilla/dom/BindingDeclarations.h"
 #include "nsRFPService.h"
 #include "prtime.h"
 
-namespace mozilla {
-namespace dom {
+namespace mozilla::dom {
 
 void BaseBlobImpl::GetName(nsAString& aName) const {
   MOZ_ASSERT(mIsFile, "Should only be called on files");
@@ -102,5 +102,4 @@ uint64_t BaseBlobImpl::NextSerialNumber() {
   return nextSerialNumber++;
 }
 
-}  // namespace dom
-}  // namespace mozilla
+}  // namespace mozilla::dom

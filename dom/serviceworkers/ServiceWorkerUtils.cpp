@@ -114,15 +114,17 @@ void ServiceWorkerScopeAndScriptAreValid(const ClientInfo& aClientInfo,
     return;
   }
 
-  nsresult rv = principal->CheckMayLoad(aScopeURI, true /* report */,
-                               false /* allowIfInheritsPrincipal */);
+  // Unfortunately we don't seem to have an obvious window id here; in
+  // particular ClientInfo does not have one.
+  nsresult rv = principal->CheckMayLoadWithReporting(
+      aScopeURI, false /* allowIfInheritsPrincipal */, 0 /* innerWindowID */);
   if (NS_WARN_IF(NS_FAILED(rv))) {
     aRv.ThrowSecurityError("Scope URL is not same-origin with Client");
     return;
   }
 
-  rv = principal->CheckMayLoad(aScriptURI, true /* report */,
-                               false /* allowIfInheritsPrincipal */);
+  rv = principal->CheckMayLoadWithReporting(
+      aScriptURI, false /* allowIfInheritsPrincipal */, 0 /* innerWindowID */);
   if (NS_WARN_IF(NS_FAILED(rv))) {
     aRv.ThrowSecurityError("Script URL is not same-origin with Client");
     return;

@@ -4,10 +4,12 @@
 
 #include "StorageManager.h"
 
+#include "mozilla/dom/Document.h" //MY
 #include "mozilla/dom/PromiseWorkerProxy.h"
 #include "mozilla/dom/quota/QuotaManagerService.h"
 #include "mozilla/dom/StorageManagerBinding.h"
 #include "mozilla/dom/WorkerPrivate.h"
+#include "mozilla/dom/WorkerRunnable.h" //MY
 #include "mozilla/ErrorResult.h"
 #include "mozilla/EventStateManager.h"
 #include "mozilla/Telemetry.h"

@@ -5,6 +5,7 @@
 #include "WebGL2Context.h"
 #include "GLContext.h"
 #include "WebGLQuery.h"
+#include "mozilla/dom/BindingUtils.h" //MY
 #include "nsRefreshDriver.h"
 #include "nsThreadUtils.h"
 

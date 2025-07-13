@@ -3,14 +3,16 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "mozilla/dom/DocGroup.h"
+
+#include "mozilla/AbstractThread.h"
+#include "mozilla/PerformanceUtils.h"
+#include "mozilla/StaticPrefs_dom.h"
+#include "mozilla/Telemetry.h"
+#include "mozilla/ThrottledEventQueue.h"
+#include "mozilla/dom/CustomElementRegistry.h"
 #include "mozilla/dom/DOMTypes.h"
 #include "mozilla/dom/JSExecutionManager.h"
 #include "mozilla/dom/TabGroup.h"
-#include "mozilla/AbstractThread.h"
-#include "mozilla/PerformanceUtils.h"
-#include "mozilla/ThrottledEventQueue.h"
-#include "mozilla/StaticPrefs_dom.h"
-#include "mozilla/Telemetry.h"
 #include "nsDOMMutationObserver.h"
 #include "nsProxyRelease.h"
 #if defined(XP_WIN)
@@ -43,6 +45,16 @@ nsresult DocGroup::GetKey(nsIPrincipal* aPrincipal, nsACString& aKey) {
 
 void DocGroup::SetExecutionManager(JSExecutionManager* aManager) {
   mExecutionManager = aManager;
+}
+
+mozilla::dom::CustomElementReactionsStack*
+DocGroup::CustomElementReactionsStack() {
+  MOZ_ASSERT(NS_IsMainThread());
+  if (!mReactionsStack) {
+    mReactionsStack = new mozilla::dom::CustomElementReactionsStack();
+  }
+
+  return mReactionsStack;
 }
 
 void DocGroup::RemoveDocument(Document* aDocument) {

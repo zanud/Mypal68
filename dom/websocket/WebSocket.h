@@ -29,7 +29,7 @@ namespace mozilla {
 namespace dom {
 
 class Blob;
-
+class StringOrStringSequence;
 class WebSocketImpl;
 
 class WebSocket final : public DOMEventTargetHelper {
@@ -56,27 +56,15 @@ class WebSocket final : public DOMEventTargetHelper {
   virtual JSObject* WrapObject(JSContext* cx,
                                JS::Handle<JSObject*> aGivenProto) override;
 
-  // DOMEventTargetHelper
-  void BindToOwner(nsIGlobalObject* aNew) override;
-
  public:  // static helpers:
   // Determine if preferences allow WebSocket
   static bool PrefEnabled();
 
  public:  // WebIDL interface:
   // Constructor:
-  static already_AddRefed<WebSocket> Constructor(const GlobalObject& aGlobal,
-                                                 const nsAString& aUrl,
-                                                 ErrorResult& rv);
-
-  static already_AddRefed<WebSocket> Constructor(const GlobalObject& aGlobal,
-                                                 const nsAString& aUrl,
-                                                 const nsAString& aProtocol,
-                                                 ErrorResult& rv);
-
   static already_AddRefed<WebSocket> Constructor(
       const GlobalObject& aGlobal, const nsAString& aUrl,
-      const Sequence<nsString>& aProtocols, ErrorResult& rv);
+      const StringOrStringSequence& aProtocols, ErrorResult& rv);
 
   static already_AddRefed<WebSocket> CreateServerWebSocket(
       const GlobalObject& aGlobal, const nsAString& aUrl,

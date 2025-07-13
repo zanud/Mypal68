@@ -5,6 +5,7 @@
 #ifndef mozilla_dom_BaseBlobImpl_h
 #define mozilla_dom_BaseBlobImpl_h
 
+#include "mozilla/ErrorResult.h" //MY
 #include "mozilla/dom/BlobImpl.h"
 
 namespace mozilla {
@@ -145,7 +146,7 @@ class BaseBlobImpl : public BlobImpl {
   }
 
  protected:
-  virtual ~BaseBlobImpl() {}
+  virtual ~BaseBlobImpl() = default;
 
   /**
    * Returns a new, effectively-unique serial number. This should be used

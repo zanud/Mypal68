@@ -4,6 +4,7 @@
 
 #include "MediaTrackGraphImpl.h"
 #include "MediaTrackListener.h"
+#include "mozilla/ErrorResult.h" //MY
 #include "mozilla/MathAlgorithms.h"
 #include "mozilla/Unused.h"
 

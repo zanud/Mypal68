@@ -32,6 +32,7 @@
 
 #include "mozilla/Components.h"
 #include "mozilla/Preferences.h"
+#include "mozilla/StaticPrefs_network.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -42,7 +43,6 @@ static bool sInitialized = false;
 static nsIDNSService* sDNSService = nullptr;
 static nsHTMLDNSPrefetch::nsDeferrals* sPrefetches = nullptr;
 static nsHTMLDNSPrefetch::nsListener* sDNSListener = nullptr;
-bool sEsniEnabled;
 
 nsresult nsHTMLDNSPrefetch::Initialize() {
   if (sInitialized) {
@@ -57,10 +57,6 @@ nsresult nsHTMLDNSPrefetch::Initialize() {
   NS_ADDREF(sDNSListener);
 
   sPrefetches->Activate();
-
-  Preferences::AddBoolVarCache(&sEsniEnabled, "network.security.esni.enabled");
-
-  sEsniEnabled = Preferences::GetBool("network.security.esni.enabled", false);
 
   NS_IF_RELEASE(sDNSService);
   nsresult rv;
@@ -139,7 +135,7 @@ nsresult nsHTMLDNSPrefetch::Prefetch(const nsAString& hostname, bool isHttps,
   }
 
   // Fetch ESNI keys if needed.
-  if (isHttps && sEsniEnabled) {
+  if (isHttps && StaticPrefs::network_security_esni_enabled()) {
     nsAutoCString esniHost;
     esniHost.Append("_esni.");
     esniHost.Append(NS_ConvertUTF16toUTF8(hostname));
@@ -221,7 +217,7 @@ nsresult nsHTMLDNSPrefetch::CancelPrefetch(
       NS_ConvertUTF16toUTF8(hostname), flags | nsIDNSService::RESOLVE_SPECULATE,
       sDNSListener, aReason, aOriginAttributes);
   // Cancel fetching ESNI keys if needed.
-  if (sEsniEnabled && isHttps) {
+  if (StaticPrefs::network_security_esni_enabled() && isHttps) {
     nsAutoCString esniHost;
     esniHost.Append("_esni.");
     esniHost.Append(NS_ConvertUTF16toUTF8(hostname));
@@ -371,7 +367,8 @@ void nsHTMLDNSPrefetch::nsDeferrals::SubmitQueue() {
                 element->NodePrincipal()->OriginAttributesRef(),
                 getter_AddRefs(tmpOutstanding));
             // Fetch ESNI keys if needed.
-            if (NS_SUCCEEDED(rv) && sEsniEnabled && isHttps) {
+            if (NS_SUCCEEDED(rv) &&
+                StaticPrefs::network_security_esni_enabled() && isHttps) {
               nsAutoCString esniHost;
               esniHost.Append("_esni.");
               esniHost.Append(hostName);

@@ -6,7 +6,6 @@
 #define mozilla_dom_PendingAnimationTracker_h
 
 #include "mozilla/dom/Animation.h"
-#include "mozilla/dom/Document.h"
 #include "mozilla/TypedEnumBits.h"
 #include "nsCycleCollectionParticipant.h"
 #include "nsTHashtable.h"
@@ -21,8 +20,7 @@ class Document;
 
 class PendingAnimationTracker final {
  public:
-  explicit PendingAnimationTracker(dom::Document* aDocument)
-      : mDocument(aDocument) {}
+  explicit PendingAnimationTracker(dom::Document* aDocument);
 
   NS_INLINE_DECL_CYCLE_COLLECTING_NATIVE_REFCOUNTING(PendingAnimationTracker)
   NS_DECL_CYCLE_COLLECTION_NATIVE_CLASS(PendingAnimationTracker)

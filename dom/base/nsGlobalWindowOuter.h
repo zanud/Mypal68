@@ -38,11 +38,9 @@
 #include "mozilla/dom/StorageEvent.h"
 #include "mozilla/dom/StorageEventBinding.h"
 #include "mozilla/dom/UnionTypes.h"
-#include "mozilla/ErrorResult.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/LinkedList.h"
 #include "nsWrapperCacheInlines.h"
-#include "mozilla/dom/Document.h"
 #include "mozilla/dom/EventTarget.h"
 #include "mozilla/dom/WindowBinding.h"
 #include "Units.h"
@@ -83,6 +81,7 @@ class nsWindowSizes;
 namespace mozilla {
 class AbstractThread;
 class DOMEventTargetHelper;
+class ErrorResult;
 class ThrottledEventQueue;
 namespace dom {
 class BarProp;
@@ -91,6 +90,7 @@ class Console;
 class Crypto;
 class CustomElementRegistry;
 class DocGroup;
+class Document;
 class External;
 class Function;
 class Gamepad;
@@ -247,6 +247,8 @@ class nsGlobalWindowOuter final : public mozilla::dom::EventTarget,
 
   virtual nsIPrincipal* GetEffectiveStoragePrincipal() override;
 
+  virtual nsIPrincipal* IntrinsicStoragePrincipal() override;
+
   // nsIDOMWindow
   NS_DECL_NSIDOMWINDOW
 
@@ -330,7 +332,9 @@ class nsGlobalWindowOuter final : public mozilla::dom::EventTarget,
   virtual void ForceClose() override;
 
   // Outer windows only.
-  virtual bool DispatchCustomEvent(const nsAString& aEventName) override;
+  virtual bool DispatchCustomEvent(
+      const nsAString& aEventName,
+      mozilla::ChromeOnlyDispatch aChromeOnlyDispatch) override;
   bool DispatchResizeEvent(const mozilla::CSSIntSize& aSize);
 
   // For accessing protected field mFullscreen
@@ -667,9 +671,7 @@ class nsGlobalWindowOuter final : public mozilla::dom::EventTarget,
     return !!mOpenerForInitialContentBrowser;
   }
 
-  virtual bool IsInSyncOperation() override {
-    return GetExtantDoc() && GetExtantDoc()->IsInSyncOperation();
-  }
+  virtual bool IsInSyncOperation() override;
 
   void ParentWindowChanged() {
     // Reset our storage access flag when we get reparented.
@@ -726,9 +728,6 @@ class nsGlobalWindowOuter final : public mozilla::dom::EventTarget,
   void FinalClose();
 
   inline void MaybeClearInnerWindow(nsGlobalWindowInner* aExpectedInner);
-
-  // We need a JSContext to get prototypes inside CallerInnerWindow.
-  static nsGlobalWindowInner* CallerInnerWindow(JSContext* aCx);
 
   // Get the parent, returns null if this is a toplevel window
   nsPIDOMWindowOuter* GetInProcessParentInternal();
@@ -869,7 +868,7 @@ class nsGlobalWindowOuter final : public mozilla::dom::EventTarget,
                     mozilla::dom::CallerType aCallerType,
                     mozilla::ErrorResult& aError);
   nsRect GetInnerScreenRect();
-  static Maybe<mozilla::CSSIntSize> GetRDMDeviceSize(const Document& aDocument);
+  static mozilla::Maybe<mozilla::CSSIntSize> GetRDMDeviceSize(const Document& aDocument);
 
   bool IsFrame();
 
@@ -1110,6 +1109,7 @@ class nsGlobalWindowOuter final : public mozilla::dom::EventTarget,
 
   nsCOMPtr<nsIPrincipal> mDocumentPrincipal;
   nsCOMPtr<nsIPrincipal> mDocumentStoragePrincipal;
+  nsCOMPtr<nsIPrincipal> mDocumentIntrinsicStoragePrincipal;
 
 #ifdef DEBUG
   uint32_t mSerial;

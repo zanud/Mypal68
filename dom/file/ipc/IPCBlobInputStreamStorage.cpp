@@ -7,6 +7,7 @@
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/StaticMutex.h"
 #include "mozilla/StaticPtr.h"
+#include "nsIObserverService.h" //MY
 #include "nsIPropertyBag2.h"
 #include "nsStreamUtils.h"
 
@@ -29,9 +30,9 @@ NS_INTERFACE_MAP_END
 NS_IMPL_ADDREF(IPCBlobInputStreamStorage)
 NS_IMPL_RELEASE(IPCBlobInputStreamStorage)
 
-IPCBlobInputStreamStorage::IPCBlobInputStreamStorage() {}
+IPCBlobInputStreamStorage::IPCBlobInputStreamStorage() = default;
 
-IPCBlobInputStreamStorage::~IPCBlobInputStreamStorage() {}
+IPCBlobInputStreamStorage::~IPCBlobInputStreamStorage() = default;
 
 /* static */
 Result<RefPtr<IPCBlobInputStreamStorage>, nsresult>

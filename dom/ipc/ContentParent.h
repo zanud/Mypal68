@@ -7,6 +7,7 @@
 
 #include "mozilla/dom/PContentParent.h"
 #include "mozilla/dom/ipc/IdType.h"
+#include "mozilla/dom/MessageManagerCallback.h"
 #include "mozilla/gfx/gfxVarReceiver.h"
 #include "mozilla/gfx/GPUProcessListener.h"
 #include "mozilla/ipc/BackgroundUtils.h"
@@ -21,12 +22,11 @@
 #include "mozilla/MozPromise.h"
 #include "mozilla/StaticPtr.h"
 #include "mozilla/TimeStamp.h"
-#include "mozilla/Variant.h"
 #include "mozilla/UniquePtr.h"
 
+#include "nsClassHashtable.h"
 #include "nsDataHashtable.h"
 #include "nsPluginTags.h"
-#include "nsFrameMessageManager.h"
 #include "nsHashKeys.h"
 #include "nsIInterfaceRequestor.h"
 #include "nsIObserver.h"
@@ -81,7 +81,6 @@ class PrintingParent;
 namespace ipc {
 class CrashReporterHost;
 class PFileDescriptorSetParent;
-class URIParams;
 class TestShellParent;
 #ifdef FUZZING
 class ProtocolFuzzerHelper;
@@ -125,7 +124,6 @@ class ContentParent final : public PContentParent,
   typedef mozilla::ipc::GeckoChildProcessHost GeckoChildProcessHost;
   typedef mozilla::ipc::PFileDescriptorSetParent PFileDescriptorSetParent;
   typedef mozilla::ipc::TestShellParent TestShellParent;
-  typedef mozilla::ipc::URIParams URIParams;
   typedef mozilla::ipc::PrincipalInfo PrincipalInfo;
   typedef mozilla::dom::ClonedMessageData ClonedMessageData;
   typedef mozilla::dom::BrowsingContextGroup BrowsingContextGroup;
@@ -447,13 +445,13 @@ class ContentParent final : public PContentParent,
                                                   const ContentParentId& aCpId);
 
   already_AddRefed<POfflineCacheUpdateParent> AllocPOfflineCacheUpdateParent(
-      const URIParams& aManifestURI, const URIParams& aDocumentURI,
+      nsIURI* aManifestURI, nsIURI* aDocumentURI,
       const PrincipalInfo& aLoadingPrincipalInfo, const bool& aStickDocument,
       const CookieSettingsArgs& aCookieSettingsArgs);
 
   virtual mozilla::ipc::IPCResult RecvPOfflineCacheUpdateConstructor(
-      POfflineCacheUpdateParent* aActor, const URIParams& aManifestURI,
-      const URIParams& aDocumentURI, const PrincipalInfo& aLoadingPrincipal,
+      POfflineCacheUpdateParent* aActor, nsIURI* aManifestURI,
+      nsIURI* aDocumentURI, const PrincipalInfo& aLoadingPrincipal,
       const bool& stickDocument,
       const CookieSettingsArgs& aCookieSettingsArgs) override;
 
@@ -482,7 +480,7 @@ class ContentParent final : public PContentParent,
       PBrowserParent* aThisBrowserParent, PBrowserParent* aNewTab,
       const uint32_t& aChromeFlags, const bool& aCalledFromJS,
       const bool& aPositionSpecified, const bool& aSizeSpecified,
-      const Maybe<URIParams>& aURIToLoad, const nsCString& aFeatures,
+      nsIURI* aURIToLoad, const nsCString& aFeatures,
       const float& aFullZoom, const IPC::Principal& aTriggeringPrincipal,
       nsIContentSecurityPolicy* aCsp, nsIReferrerInfo* aReferrerInfo,
       CreateWindowResolver&& aResolve);
@@ -490,7 +488,7 @@ class ContentParent final : public PContentParent,
   mozilla::ipc::IPCResult RecvCreateWindowInDifferentProcess(
       PBrowserParent* aThisTab, const uint32_t& aChromeFlags,
       const bool& aCalledFromJS, const bool& aPositionSpecified,
-      const bool& aSizeSpecified, const Maybe<URIParams>& aURIToLoad,
+      const bool& aSizeSpecified, nsIURI* aURIToLoad,
       const nsCString& aFeatures, const float& aFullZoom, const nsString& aName,
       const IPC::Principal& aTriggeringPrincipal,
       nsIContentSecurityPolicy* aCsp, nsIReferrerInfo* aReferrerInfo);
@@ -524,11 +522,10 @@ class ContentParent final : public PContentParent,
 
   // PURLClassifierLocalParent.
   PURLClassifierLocalParent* AllocPURLClassifierLocalParent(
-      const URIParams& aURI,
-      const nsTArray<IPCURLClassifierFeature>& aFeatures);
+      nsIURI* aURI, const nsTArray<IPCURLClassifierFeature>& aFeatures);
 
   virtual mozilla::ipc::IPCResult RecvPURLClassifierLocalConstructor(
-      PURLClassifierLocalParent* aActor, const URIParams& aURI,
+      PURLClassifierLocalParent* aActor, nsIURI* aURI,
       nsTArray<IPCURLClassifierFeature>&& aFeatures) override;
 
   PSessionStorageObserverParent* AllocPSessionStorageObserverParent();
@@ -779,11 +776,11 @@ class ContentParent final : public PContentParent,
       const uint32_t& chromeFlags);
 
   mozilla::ipc::IPCResult RecvIsSecureURI(
-      const uint32_t& aType, const URIParams& aURI, const uint32_t& aFlags,
+      const uint32_t& aType, nsIURI* aURI, const uint32_t& aFlags,
       const OriginAttributes& aOriginAttributes, bool* aIsSecureURI);
 
   mozilla::ipc::IPCResult RecvAccumulateMixedContentHSTS(
-      const URIParams& aURI, const bool& aActive,
+      nsIURI* aURI, const bool& aActive,
       const OriginAttributes& aOriginAttributes);
 
   bool DeallocPHalParent(PHalParent*);
@@ -815,22 +812,21 @@ class ContentParent final : public PContentParent,
       PPSMContentDownloaderParent* aDownloader);
 
   already_AddRefed<PExternalHelperAppParent> AllocPExternalHelperAppParent(
-      const Maybe<URIParams>& aUri,
-      const Maybe<mozilla::net::LoadInfoArgs>& aLoadInfoArgs,
+      nsIURI* aUri, const Maybe<mozilla::net::LoadInfoArgs>& aLoadInfoArgs,
       const nsCString& aMimeContentType, const nsCString& aContentDisposition,
       const uint32_t& aContentDispositionHint,
       const nsString& aContentDispositionFilename, const bool& aForceSave,
       const int64_t& aContentLength, const bool& aWasFileChannel,
-      const Maybe<URIParams>& aReferrer, PBrowserParent* aBrowser);
+      nsIURI* aReferrer, PBrowserParent* aBrowser);
 
   mozilla::ipc::IPCResult RecvPExternalHelperAppConstructor(
-      PExternalHelperAppParent* actor, const Maybe<URIParams>& uri,
+      PExternalHelperAppParent* actor, nsIURI* uri,
       const Maybe<LoadInfoArgs>& loadInfoArgs,
       const nsCString& aMimeContentType, const nsCString& aContentDisposition,
       const uint32_t& aContentDispositionHint,
       const nsString& aContentDispositionFilename, const bool& aForceSave,
       const int64_t& aContentLength, const bool& aWasFileChannel,
-      const Maybe<URIParams>& aReferrer, PBrowserParent* aBrowser) override;
+      nsIURI* aReferrer, PBrowserParent* aBrowser) override;
 
   already_AddRefed<PHandlerServiceParent> AllocPHandlerServiceParent();
 
@@ -882,7 +878,7 @@ class ContentParent final : public PContentParent,
       const int32_t& aWhichClipboard, const bool& aPlainTextOnly,
       nsTArray<nsCString>* aTypes);
 
-  mozilla::ipc::IPCResult RecvPlaySound(const URIParams& aURI);
+  mozilla::ipc::IPCResult RecvPlaySound(nsIURI* aURI);
   mozilla::ipc::IPCResult RecvBeep();
   mozilla::ipc::IPCResult RecvPlayEventSound(const uint32_t& aEventId);
 
@@ -892,10 +888,10 @@ class ContentParent final : public PContentParent,
 
   mozilla::ipc::IPCResult RecvGetShowPasswordSetting(bool* showPassword);
 
-  mozilla::ipc::IPCResult RecvStartVisitedQuery(const URIParams& uri);
+  mozilla::ipc::IPCResult RecvStartVisitedQueries(
+      const nsTArray<RefPtr<nsIURI>>&);
 
-  mozilla::ipc::IPCResult RecvSetURITitle(const URIParams& uri,
-                                          const nsString& title);
+  mozilla::ipc::IPCResult RecvSetURITitle(nsIURI* uri, const nsString& title);
 
   bool HasNotificationPermission(const IPC::Principal& aPrincipal);
 
@@ -913,7 +909,7 @@ class ContentParent final : public PContentParent,
   mozilla::ipc::IPCResult RecvNotificationEvent(
       const nsString& aType, const NotificationEventData& aData);
 
-  mozilla::ipc::IPCResult RecvLoadURIExternal(const URIParams& uri,
+  mozilla::ipc::IPCResult RecvLoadURIExternal(nsIURI* uri,
                                               PBrowserParent* windowContext);
   mozilla::ipc::IPCResult RecvExtProtocolChannelConnectParent(
       const uint32_t& registrarId);
@@ -976,14 +972,14 @@ class ContentParent final : public PContentParent,
   mozilla::ipc::IPCResult RecvKeywordToURI(const nsCString& aKeyword,
                                            nsString* aProviderName,
                                            RefPtr<nsIInputStream>* aPostData,
-                                           Maybe<URIParams>* aURI);
+                                           RefPtr<nsIURI>* aURI);
 
   mozilla::ipc::IPCResult RecvNotifyKeywordSearchLoading(
       const nsString& aProvider, const nsString& aKeyword);
 
   mozilla::ipc::IPCResult RecvCopyFavicon(
-      const URIParams& aOldURI, const URIParams& aNewURI,
-      const IPC::Principal& aLoadingPrincipal, const bool& aInPrivateBrowsing);
+      nsIURI* aOldURI, nsIURI* aNewURI, const IPC::Principal& aLoadingPrincipal,
+      const bool& aInPrivateBrowsing);
 
   virtual void ProcessingError(Result aCode, const char* aMsgName) override;
 
@@ -1043,6 +1039,10 @@ class ContentParent final : public PContentParent,
   mozilla::ipc::IPCResult RecvSetupFamilyCharMap(
       const uint32_t& aGeneration,
       const mozilla::fontlist::Pointer& aFamilyPtr);
+
+  mozilla::ipc::IPCResult RecvGetHyphDict(
+      nsIURI* aURIParams, mozilla::ipc::SharedMemoryBasic::Handle* aOutHandle,
+      uint32_t* aOutSize);
 
   mozilla::ipc::IPCResult RecvNotifyBenchmarkResult(const nsString& aCodecName,
                                                     const uint32_t& aDecodeFPS);

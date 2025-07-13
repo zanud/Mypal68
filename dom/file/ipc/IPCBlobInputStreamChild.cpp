@@ -147,7 +147,7 @@ IPCBlobInputStreamChild::IPCBlobInputStreamChild(const nsID& aID,
   }
 }
 
-IPCBlobInputStreamChild::~IPCBlobInputStreamChild() {}
+IPCBlobInputStreamChild::~IPCBlobInputStreamChild() = default;
 
 void IPCBlobInputStreamChild::Shutdown() {
   MutexAutoLock lock(mMutex);

@@ -38,7 +38,8 @@ RefPtr<IDBFileRequest> GenerateFileRequest(IDBFileHandle* aFileHandle) {
 }  // namespace
 
 IDBFileHandle::IDBFileHandle(IDBMutableFile* aMutableFile, FileMode aMode)
-    : mMutableFile(aMutableFile),
+    : DOMEventTargetHelper(aMutableFile),
+      mMutableFile(aMutableFile),
       mBackgroundActor(nullptr),
       mLocation(0),
       mPendingRequestCount(0),
@@ -80,8 +81,6 @@ RefPtr<IDBFileHandle> IDBFileHandle::Create(IDBMutableFile* aMutableFile,
   MOZ_ASSERT(aMode == FileMode::Readonly || aMode == FileMode::Readwrite);
 
   RefPtr<IDBFileHandle> fileHandle = new IDBFileHandle(aMutableFile, aMode);
-
-  fileHandle->BindToOwner(aMutableFile);
 
   // XXX Fix!
   MOZ_ASSERT(NS_IsMainThread(), "This won't work on non-main threads!");

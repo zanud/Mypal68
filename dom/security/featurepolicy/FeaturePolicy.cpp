@@ -6,6 +6,7 @@
 #include "mozilla/dom/FeaturePolicyBinding.h"
 #include "mozilla/dom/FeaturePolicyParser.h"
 #include "mozilla/dom/FeaturePolicyUtils.h"
+#include "mozilla/StaticPrefs_dom.h"
 #include "nsContentUtils.h"
 #include "nsNetUtil.h"
 
@@ -178,7 +179,7 @@ void FeaturePolicy::GetAllowlistForFeature(const nsAString& aFeatureName,
   for (const Feature& feature : mFeatures) {
     if (feature.Name().Equals(aFeatureName)) {
       if (feature.AllowsAll()) {
-        aList.AppendElement(NS_LITERAL_STRING("*"));
+        aList.AppendElement(u"*"_ns);
         return;
       }
 
@@ -200,7 +201,7 @@ void FeaturePolicy::GetAllowlistForFeature(const nsAString& aFeatureName,
 
   switch (FeaturePolicyUtils::DefaultAllowListFeature(aFeatureName)) {
     case FeaturePolicyUtils::FeaturePolicyValue::eAll:
-      aList.AppendElement(NS_LITERAL_STRING("*"));
+      aList.AppendElement(u"*"_ns);
       return;
 
     case FeaturePolicyUtils::FeaturePolicyValue::eSelf: {

@@ -30,6 +30,7 @@
 
 #include "nsPIDOMWindow.h"
 #include "nsGlobalWindow.h"
+#include "mozilla/dom/AutoEntryScript.h"
 #include "mozilla/dom/Document.h"
 #include "nsIContent.h"
 #include "nsIIDNService.h"
@@ -986,9 +987,9 @@ bool _evaluate(NPP npp, NPObject* npobj, NPString* script, NPVariant* result) {
   MOZ_ASSERT(obj);
   nsresult rv = NS_OK;
   {
-    JSExecutionContext exec(cx, obj);
+    JSExecutionContext exec(cx, obj, options);
     exec.SetScopeChain(scopeChain);
-    exec.Compile(options, utf16script);
+    exec.Compile(utf16script);
     rv = exec.ExecScript(&rval);
   }
 

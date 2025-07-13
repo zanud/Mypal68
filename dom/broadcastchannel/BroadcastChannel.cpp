@@ -24,6 +24,7 @@
 #include "nsContentUtils.h"
 
 #include "nsIBFCacheEntry.h"
+#include "nsICookieSettings.h"
 #include "mozilla/dom/Document.h"
 
 #ifdef XP_WIN

@@ -12,7 +12,6 @@
 
 #include "mozilla/dom/TabGroup.h"
 #include "mozilla/RefPtr.h"
-#include "mozilla/dom/CustomElementRegistry.h"
 #include "mozilla/dom/HTMLSlotElement.h"
 #include "mozilla/PerformanceCounter.h"
 #include "mozilla/PerformanceTypes.h"
@@ -20,6 +19,9 @@
 namespace mozilla {
 class AbstractThread;
 namespace dom {
+
+class CustomElementReactionsStack;
+class JSExecutionManager;
 
 // Two browsing contexts are considered "related" if they are reachable from one
 // another through window.opener, window.parent, or window.frames. This is the
@@ -62,14 +64,8 @@ class DocGroup final {
 
   mozilla::dom::DOMArena* ArenaAllocator() { return mArena; }
 
-  mozilla::dom::CustomElementReactionsStack* CustomElementReactionsStack() {
-    MOZ_ASSERT(NS_IsMainThread());
-    if (!mReactionsStack) {
-      mReactionsStack = new mozilla::dom::CustomElementReactionsStack();
-    }
+  mozilla::dom::CustomElementReactionsStack* CustomElementReactionsStack();
 
-    return mReactionsStack;
-  }
   void RemoveDocument(Document* aWindow);
 
   // Iterators for iterating over every document within the DocGroup

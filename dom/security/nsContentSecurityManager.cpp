@@ -70,12 +70,12 @@ bool nsContentSecurityManager::AllowTopLevelNavigationToDataURI(
   rv = nsDataHandler::ParseURI(spec, contentType, nullptr, base64, nullptr);
   NS_ENSURE_SUCCESS(rv, true);
 
-  // Whitelist data: images as long as they are not SVGs
-  if (StringBeginsWith(contentType, NS_LITERAL_CSTRING("image/")) &&
+  // Allow data: images as long as they are not SVGs
+  if (StringBeginsWith(contentType, "image/"_ns) &&
       !contentType.EqualsLiteral("image/svg+xml")) {
     return true;
   }
-  // Whitelist all plain text types as well as data: PDFs.
+  // Allow all plain text types as well as data: PDFs.
   if (nsContentUtils::IsPlainTextType(contentType) ||
       contentType.EqualsLiteral("application/pdf")) {
     return true;
@@ -103,7 +103,7 @@ bool nsContentSecurityManager::AllowTopLevelNavigationToDataURI(
   AutoTArray<nsString, 1> params;
   CopyUTF8toUTF16(NS_UnescapeURL(dataSpec), *params.AppendElement());
   nsContentUtils::ReportToConsole(nsIScriptError::warningFlag,
-                                  NS_LITERAL_CSTRING("DATA_URI_BLOCKED"), doc,
+                                  "DATA_URI_BLOCKED"_ns, doc,
                                   nsContentUtils::eSECURITY_PROPERTIES,
                                   "BlockTopLevelDataURINavigation", params);
   return false;
@@ -148,7 +148,7 @@ bool nsContentSecurityManager::AllowInsecureRedirectToDataURI(
   AutoTArray<nsString, 1> params;
   CopyUTF8toUTF16(NS_UnescapeURL(dataSpec), *params.AppendElement());
   nsContentUtils::ReportToConsole(nsIScriptError::warningFlag,
-                                  NS_LITERAL_CSTRING("DATA_URI_BLOCKED"), doc,
+                                  "DATA_URI_BLOCKED"_ns, doc,
                                   nsContentUtils::eSECURITY_PROPERTIES,
                                   "BlockSubresourceRedirectToData", params);
   return false;
@@ -211,7 +211,7 @@ nsresult nsContentSecurityManager::CheckFTPSubresourceLoad(
   CopyUTF8toUTF16(NS_UnescapeURL(spec), *params.AppendElement());
 
   nsContentUtils::ReportToConsole(
-      nsIScriptError::warningFlag, NS_LITERAL_CSTRING("FTP_URI_BLOCKED"), doc,
+      nsIScriptError::warningFlag, "FTP_URI_BLOCKED"_ns, doc,
       nsContentUtils::eSECURITY_PROPERTIES, "BlockSubresourceFTP", params);
 
   return NS_ERROR_CONTENT_BLOCKED;
@@ -302,19 +302,12 @@ static nsresult DoCheckLoadURIChecks(nsIURI* aURI, nsILoadInfo* aLoadInfo) {
     return NS_OK;
   }
 
-  uint32_t flags = nsIScriptSecurityManager::STANDARD;
-  if (aLoadInfo->GetAllowChrome()) {
-    flags |= nsIScriptSecurityManager::ALLOW_CHROME;
-  }
-  if (aLoadInfo->GetDisallowScript()) {
-    flags |= nsIScriptSecurityManager::DISALLOW_SCRIPT;
-  }
-
   // Only call CheckLoadURIWithPrincipal() using the TriggeringPrincipal and not
   // the LoadingPrincipal when SEC_ALLOW_CROSS_ORIGIN_* security flags are set,
   // to allow, e.g. user stylesheets to load chrome:// URIs.
   return nsContentUtils::GetSecurityManager()->CheckLoadURIWithPrincipal(
-      aLoadInfo->TriggeringPrincipal(), aURI, flags);
+      aLoadInfo->TriggeringPrincipal(), aURI, aLoadInfo->CheckLoadURIFlags(),
+      aLoadInfo->GetInnerWindowID());
 }
 
 static bool URIHasFlags(nsIURI* aURI, uint32_t aURIFlags) {
@@ -384,37 +377,37 @@ static nsresult DoContentSecurityChecks(nsIChannel* aChannel,
 
   switch (contentPolicyType) {
     case nsIContentPolicy::TYPE_OTHER: {
-      mimeTypeGuess = EmptyCString();
+      mimeTypeGuess.Truncate();
       break;
     }
 
     case nsIContentPolicy::TYPE_SCRIPT: {
-      mimeTypeGuess = NS_LITERAL_CSTRING("application/javascript");
+      mimeTypeGuess = "application/javascript"_ns;
       break;
     }
 
     case nsIContentPolicy::TYPE_IMAGE: {
-      mimeTypeGuess = EmptyCString();
+      mimeTypeGuess.Truncate();
       break;
     }
 
     case nsIContentPolicy::TYPE_STYLESHEET: {
-      mimeTypeGuess = NS_LITERAL_CSTRING("text/css");
+      mimeTypeGuess = "text/css"_ns;
       break;
     }
 
     case nsIContentPolicy::TYPE_OBJECT: {
-      mimeTypeGuess = EmptyCString();
+      mimeTypeGuess.Truncate();
       break;
     }
 
     case nsIContentPolicy::TYPE_DOCUMENT: {
-      mimeTypeGuess = EmptyCString();
+      mimeTypeGuess.Truncate();
       break;
     }
 
     case nsIContentPolicy::TYPE_SUBDOCUMENT: {
-      mimeTypeGuess = NS_LITERAL_CSTRING("text/html");
+      mimeTypeGuess = "text/html"_ns;
       break;
     }
 
@@ -424,7 +417,7 @@ static nsresult DoContentSecurityChecks(nsIChannel* aChannel,
     }
 
     case nsIContentPolicy::TYPE_PING: {
-      mimeTypeGuess = EmptyCString();
+      mimeTypeGuess.Truncate();
       break;
     }
 
@@ -442,18 +435,18 @@ static nsresult DoContentSecurityChecks(nsIChannel* aChannel,
       if (internalContentPolicyType ==
               nsIContentPolicy::TYPE_INTERNAL_XMLHTTPREQUEST ||
           internalContentPolicyType == nsIContentPolicy::TYPE_XMLHTTPREQUEST) {
-        mimeTypeGuess = EmptyCString();
+        mimeTypeGuess.Truncate();
       } else {
         MOZ_ASSERT(internalContentPolicyType ==
                        nsIContentPolicy::TYPE_INTERNAL_EVENTSOURCE,
                    "can not set mime type guess for unexpected internal type");
-        mimeTypeGuess = NS_LITERAL_CSTRING(TEXT_EVENT_STREAM);
+        mimeTypeGuess = nsLiteralCString(TEXT_EVENT_STREAM);
       }
       break;
     }
 
     case nsIContentPolicy::TYPE_OBJECT_SUBREQUEST: {
-      mimeTypeGuess = EmptyCString();
+      mimeTypeGuess.Truncate();
 #ifdef DEBUG
       {
         nsCOMPtr<nsINode> node = aLoadInfo->LoadingNode();
@@ -466,7 +459,7 @@ static nsresult DoContentSecurityChecks(nsIChannel* aChannel,
     }
 
     case nsIContentPolicy::TYPE_DTD: {
-      mimeTypeGuess = EmptyCString();
+      mimeTypeGuess.Truncate();
 #ifdef DEBUG
       {
         nsCOMPtr<nsINode> node = aLoadInfo->LoadingNode();
@@ -478,15 +471,15 @@ static nsresult DoContentSecurityChecks(nsIChannel* aChannel,
     }
 
     case nsIContentPolicy::TYPE_FONT: {
-      mimeTypeGuess = EmptyCString();
+      mimeTypeGuess.Truncate();
       break;
     }
 
     case nsIContentPolicy::TYPE_MEDIA: {
       if (internalContentPolicyType == nsIContentPolicy::TYPE_INTERNAL_TRACK) {
-        mimeTypeGuess = NS_LITERAL_CSTRING("text/vtt");
+        mimeTypeGuess = "text/vtt"_ns;
       } else {
-        mimeTypeGuess = EmptyCString();
+        mimeTypeGuess.Truncate();
       }
 #ifdef DEBUG
       {
@@ -508,17 +501,17 @@ static nsresult DoContentSecurityChecks(nsIChannel* aChannel,
         rv = httpChannelInternal->GetProxyURI(getter_AddRefs(uri));
         MOZ_ASSERT(NS_SUCCEEDED(rv));
       }
-      mimeTypeGuess = EmptyCString();
+      mimeTypeGuess.Truncate();
       break;
     }
 
     case nsIContentPolicy::TYPE_CSP_REPORT: {
-      mimeTypeGuess = EmptyCString();
+      mimeTypeGuess.Truncate();
       break;
     }
 
     case nsIContentPolicy::TYPE_XSLT: {
-      mimeTypeGuess = NS_LITERAL_CSTRING("application/xml");
+      mimeTypeGuess = "application/xml"_ns;
 #ifdef DEBUG
       {
         nsCOMPtr<nsINode> node = aLoadInfo->LoadingNode();
@@ -530,7 +523,7 @@ static nsresult DoContentSecurityChecks(nsIChannel* aChannel,
     }
 
     case nsIContentPolicy::TYPE_BEACON: {
-      mimeTypeGuess = EmptyCString();
+      mimeTypeGuess.Truncate();
 #ifdef DEBUG
       {
         nsCOMPtr<nsINode> node = aLoadInfo->LoadingNode();
@@ -542,27 +535,27 @@ static nsresult DoContentSecurityChecks(nsIChannel* aChannel,
     }
 
     case nsIContentPolicy::TYPE_FETCH: {
-      mimeTypeGuess = EmptyCString();
+      mimeTypeGuess.Truncate();
       break;
     }
 
     case nsIContentPolicy::TYPE_IMAGESET: {
-      mimeTypeGuess = EmptyCString();
+      mimeTypeGuess.Truncate();
       break;
     }
 
     case nsIContentPolicy::TYPE_WEB_MANIFEST: {
-      mimeTypeGuess = NS_LITERAL_CSTRING("application/manifest+json");
+      mimeTypeGuess = "application/manifest+json"_ns;
       break;
     }
 
     case nsIContentPolicy::TYPE_SAVEAS_DOWNLOAD: {
-      mimeTypeGuess = EmptyCString();
+      mimeTypeGuess.Truncate();
       break;
     }
 
     case nsIContentPolicy::TYPE_SPECULATIVE: {
-      mimeTypeGuess = EmptyCString();
+      mimeTypeGuess.Truncate();
       break;
     }
 
@@ -708,11 +701,9 @@ static void DebugDoContentSecurityCheck(nsIChannel* aChannel,
 
     // Log Principals
     nsCOMPtr<nsIPrincipal> requestPrincipal = aLoadInfo->TriggeringPrincipal();
-    LogPrincipal(aLoadInfo->GetLoadingPrincipal(),
-                 NS_LITERAL_STRING("loadingPrincipal"));
-    LogPrincipal(requestPrincipal, NS_LITERAL_STRING("triggeringPrincipal"));
-    LogPrincipal(aLoadInfo->PrincipalToInherit(),
-                 NS_LITERAL_STRING("principalToInherit"));
+    LogPrincipal(aLoadInfo->GetLoadingPrincipal(), u"loadingPrincipal"_ns);
+    LogPrincipal(requestPrincipal, u"triggeringPrincipal"_ns);
+    LogPrincipal(aLoadInfo->PrincipalToInherit(), u"principalToInherit"_ns);
 
     // Log Redirect Chain
     MOZ_LOG(sCSMLog, LogLevel::Verbose, ("  RedirectChain:\n"));
@@ -720,7 +711,7 @@ static void DebugDoContentSecurityCheck(nsIChannel* aChannel,
          aLoadInfo->RedirectChain()) {
       nsCOMPtr<nsIPrincipal> principal;
       redirectHistoryEntry->GetPrincipal(getter_AddRefs(principal));
-      LogPrincipal(principal, NS_LITERAL_STRING("->"));
+      LogPrincipal(principal, u"->"_ns);
     }
 
     MOZ_LOG(sCSMLog, LogLevel::Verbose,
@@ -937,7 +928,7 @@ nsContentSecurityManager::AsyncOnChannelRedirect(
       nsIScriptSecurityManager::LOAD_IS_AUTOMATIC_DOCUMENT_REPLACEMENT |
       nsIScriptSecurityManager::DISALLOW_SCRIPT;
   rv = nsContentUtils::GetSecurityManager()->CheckLoadURIWithPrincipal(
-      oldPrincipal, newURI, flags);
+      oldPrincipal, newURI, flags, loadInfo->GetInnerWindowID());
   NS_ENSURE_SUCCESS(rv, rv);
 
   aCb->OnRedirectVerifyCallback(NS_OK);
@@ -969,9 +960,9 @@ nsresult nsContentSecurityManager::CheckChannel(nsIChannel* aChannel) {
                nsIContentPolicy::TYPE_DOCUMENT);
     nsIPrincipal* loadingPrincipal = loadInfo->GetLoadingPrincipal();
 
-    // It doesn't matter what we pass for the third, data-inherits, argument.
+    // It doesn't matter what we pass for the second, data-inherits, argument.
     // Any protocol which inherits won't pay attention to cookies anyway.
-    rv = loadingPrincipal->CheckMayLoad(uri, false, false);
+    rv = loadingPrincipal->CheckMayLoad(uri, false);
     if (NS_FAILED(rv)) {
       AddLoadFlags(aChannel, nsIRequest::LOAD_ANONYMOUS);
     }

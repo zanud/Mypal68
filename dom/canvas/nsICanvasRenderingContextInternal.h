@@ -62,12 +62,7 @@ class nsICanvasRenderingContextInternal : public nsISupports,
     AddPostRefreshObserverIfNecessary();
   }
 
-  virtual mozilla::PresShell* GetPresShell() {
-    if (mCanvasElement) {
-      return mCanvasElement->OwnerDoc()->GetPresShell();
-    }
-    return nullptr;
-  }
+  virtual mozilla::PresShell* GetPresShell();
 
   void RemovePostRefreshObserver();
 

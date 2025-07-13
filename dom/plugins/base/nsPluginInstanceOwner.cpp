@@ -110,7 +110,7 @@ class AsyncPaintWaitEvent : public Runnable {
         mFinished(aFinished) {}
 
   NS_IMETHOD Run() override {
-    nsContentUtils::DispatchTrustedEvent(
+    nsContentUtils::DispatchEventOnlyToChrome(
         mContent->OwnerDoc(), mContent,
         mFinished ? NS_LITERAL_STRING("MozPaintWaitFinished")
                   : NS_LITERAL_STRING("MozPaintWait"),
@@ -1929,7 +1929,7 @@ void nsPluginInstanceOwner::PerformDelayedBlurs() {
   nsCOMPtr<nsIContent> content = do_QueryReferent(mContent);
   nsCOMPtr<EventTarget> windowRoot =
       content->OwnerDoc()->GetWindow()->GetTopWindowRoot();
-  nsContentUtils::DispatchTrustedEvent(
+  nsContentUtils::DispatchEventOnlyToChrome(
       content->OwnerDoc(), windowRoot,
       NS_LITERAL_STRING("MozPerformDelayedBlur"), CanBubble::eNo,
       Cancelable::eNo, nullptr);

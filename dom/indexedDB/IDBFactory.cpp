@@ -364,7 +364,7 @@ RefPtr<IDBOpenDBRequest> IDBFactory::Open(JSContext* aCx,
     nsCOMPtr<nsPIDOMWindowInner> window = do_QueryInterface(mGlobal);
     if (window && window->GetExtantDoc()) {
       window->GetExtantDoc()->WarnOnceAbout(
-          Document::eIDBOpenDBOptions_StorageType);
+          DeprecatedOperations::eIDBOpenDBOptions_StorageType);
     } else if (!NS_IsMainThread()) {
       // The method below reports on the main thread too, so we need to make
       // sure we're on a worker. Workers don't have a WarnOnceAbout mechanism,
@@ -391,19 +391,17 @@ RefPtr<IDBOpenDBRequest> IDBFactory::DeleteDatabase(
 int16_t IDBFactory::Cmp(JSContext* aCx, JS::Handle<JS::Value> aFirst,
                         JS::Handle<JS::Value> aSecond, ErrorResult& aRv) {
   Key first, second;
-  auto result = first.SetFromJSVal(aCx, aFirst, aRv);
-  if (!result.Is(Ok, aRv)) {
-    if (result.Is(Invalid, aRv)) {
-      aRv.Throw(NS_ERROR_DOM_INDEXEDDB_DATA_ERR);
-    }
+  auto result = first.SetFromJSVal(aCx, aFirst);
+  if (!result.Is(Ok)) {
+    aRv = result.ExtractErrorResult(
+        InvalidMapsTo<NS_ERROR_DOM_INDEXEDDB_DATA_ERR>);
     return 0;
   }
 
-  result = second.SetFromJSVal(aCx, aSecond, aRv);
-  if (!result.Is(Ok, aRv)) {
-    if (result.Is(Invalid, aRv)) {
-      aRv.Throw(NS_ERROR_DOM_INDEXEDDB_DATA_ERR);
-    }
+  result = second.SetFromJSVal(aCx, aSecond);
+  if (!result.Is(Ok)) {
+    aRv = result.ExtractErrorResult(
+        InvalidMapsTo<NS_ERROR_DOM_INDEXEDDB_DATA_ERR>);
     return 0;
   }
 

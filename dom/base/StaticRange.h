@@ -5,7 +5,6 @@
 #ifndef mozilla_dom_StaticRange_h
 #define mozilla_dom_StaticRange_h
 
-#include "mozilla/ErrorResult.h"
 #include "mozilla/RangeBoundary.h"
 #include "mozilla/dom/AbstractRange.h"
 #include "mozilla/dom/StaticRangeBinding.h"
@@ -13,6 +12,8 @@
 #include "nsWrapperCache.h"
 
 namespace mozilla {
+class ErrorResult;
+
 namespace dom {
 
 class StaticRange final : public AbstractRange {

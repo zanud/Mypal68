@@ -33,6 +33,7 @@
 #include "mozilla/WebBrowserPersistDocumentChild.h"
 #include "mozilla/devtools/HeapSnapshotTempFileHelperChild.h"
 #include "mozilla/docshell/OfflineCacheUpdateChild.h"
+#include "mozilla/dom/BlobImpl.h"
 #include "mozilla/dom/BrowsingContext.h"
 #include "mozilla/dom/BrowsingContextGroup.h"
 #include "mozilla/dom/ChildProcessMessageManager.h"
@@ -373,18 +374,6 @@ class AlertObserver {
 
   ~AlertObserver() = default;
 
-  bool ShouldRemoveFrom(nsIObserver* aObserver, const nsString& aData) const {
-    return (mObserver == aObserver && mData == aData);
-  }
-
-  bool Observes(const nsString& aData) const { return mData.Equals(aData); }
-
-  bool Notify(const nsCString& aType) const {
-    mObserver->Observe(nullptr, aType.get(), mData.get());
-    return true;
-  }
-
- private:
   nsCOMPtr<nsIObserver> mObserver;
   nsString mData;
 };
@@ -868,9 +857,6 @@ nsresult ContentChild::ProvideWindowCommon(
       return rv;
     }
 
-    Maybe<URIParams> uriToLoad;
-    SerializeURI(aURI, uriToLoad);
-
     if (name.LowerCaseEqualsLiteral("_blank")) {
       name = EmptyString();
     }
@@ -879,7 +865,7 @@ nsresult ContentChild::ProvideWindowCommon(
 
     Unused << SendCreateWindowInDifferentProcess(
         aTabOpener, aChromeFlags, aCalledFromJS, aPositionSpecified,
-        aSizeSpecified, uriToLoad, features, fullZoom, name,
+        aSizeSpecified, aURI, features, fullZoom, name,
         Principal(triggeringPrincipal), csp, referrerInfo);
 
     // We return NS_ERROR_ABORT, so that the caller knows that we've abandoned
@@ -1075,13 +1061,8 @@ nsresult ContentChild::ProvideWindowCommon(
     return rv;
   }
 
-  Maybe<URIParams> uriToLoad;
-  if (aURI) {
-    SerializeURI(aURI, uriToLoad);
-  }
-
   SendCreateWindow(aTabOpener, newChild, aChromeFlags, aCalledFromJS,
-                   aPositionSpecified, aSizeSpecified, uriToLoad, features,
+                   aPositionSpecified, aSizeSpecified, aURI, features,
                    fullZoom, Principal(triggeringPrincipal), csp,
                    referrerInfo, std::move(resolve), std::move(reject));
 
@@ -1265,7 +1246,7 @@ void ContentChild::InitXPCOM(
   }
 
   // The stylesheet cache is not ready yet. Store this URL for future use.
-  nsCOMPtr<nsIURI> ucsURL = DeserializeURI(aXPCOMInit.userContentSheetURL());
+  nsCOMPtr<nsIURI> ucsURL = aXPCOMInit.userContentSheetURL();
   GlobalStyleSheetCache::SetUserContentCSSURL(ucsURL);
 
   GfxInfoBase::SetFeatureStatus(aXPCOMInit.gfxFeatureStatus());
@@ -2245,35 +2226,42 @@ mozilla::ipc::IPCResult ContentChild::RecvDataStorageClear(
 
 mozilla::ipc::IPCResult ContentChild::RecvNotifyAlertsObserver(
     const nsCString& aType, const nsString& aData) {
-  for (uint32_t i = 0; i < mAlertObservers.Length();
-       /*we mutate the array during the loop; ++i iff no mutation*/) {
-    const auto& observer = mAlertObservers[i];
-    if (observer->Observes(aData) && observer->Notify(aType)) {
-      // if aType == alertfinished, this alert is done.  we can
-      // remove the observer.
-      if (aType.Equals(nsDependentCString("alertfinished"))) {
-        mAlertObservers.RemoveElementAt(i);
-        continue;
-      }
+  nsTArray<nsCOMPtr<nsIObserver>> observersToNotify;
+
+  mAlertObservers.RemoveElementsBy([&](UniquePtr<AlertObserver>& observer) {
+    if (!observer->mData.Equals(aData)) {
+      return false;
     }
-    ++i;
+
+    // aType == alertfinished, this alert is done and we can remove the
+    // observer.
+    observersToNotify.AppendElement(observer->mObserver);
+    return aType.EqualsLiteral("alertfinished");
+  });
+
+  for (auto& observer : observersToNotify) {
+    observer->Observe(nullptr, aType.get(), aData.get());
   }
+
   return IPC_OK();
 }
 
 // NOTE: This method is being run in the SystemGroup, and thus cannot directly
 // touch pages. See GetSpecificMessageEventTarget.
 mozilla::ipc::IPCResult ContentChild::RecvNotifyVisited(
-    nsTArray<URIParams>&& aURIs) {
-  for (const URIParams& uri : aURIs) {
-    nsCOMPtr<nsIURI> newURI = DeserializeURI(uri);
+    nsTArray<VisitedQueryResult>&& aURIs) {
+  nsCOMPtr<IHistory> history = services::GetHistoryService();
+  if (!history) {
+    return IPC_OK();
+  }
+  for (const VisitedQueryResult& result : aURIs) {
+    nsCOMPtr<nsIURI> newURI = result.uri();
     if (!newURI) {
       return IPC_FAIL_NO_REASON(this);
     }
-    nsCOMPtr<IHistory> history = services::GetHistoryService();
-    if (history) {
-      history->NotifyVisited(newURI);
-    }
+    auto status = result.visited() ? IHistory::VisitedStatus::Visited
+                                   : IHistory::VisitedStatus::Unvisited;
+    history->NotifyVisited(newURI, status);
   }
   return IPC_OK();
 }
@@ -2643,38 +2631,35 @@ mozilla::ipc::IPCResult ContentChild::RecvNotifyIdleObserver(
 }
 
 mozilla::ipc::IPCResult ContentChild::RecvLoadAndRegisterSheet(
-    const URIParams& aURI, const uint32_t& aType) {
-  nsCOMPtr<nsIURI> uri = DeserializeURI(aURI);
-  if (!uri) {
+    nsIURI* aURI, const uint32_t& aType) {
+  if (!aURI) {
     return IPC_OK();
   }
 
   nsStyleSheetService* sheetService = nsStyleSheetService::GetInstance();
   if (sheetService) {
-    sheetService->LoadAndRegisterSheet(uri, aType);
+    sheetService->LoadAndRegisterSheet(aURI, aType);
   }
 
   return IPC_OK();
 }
 
 mozilla::ipc::IPCResult ContentChild::RecvUnregisterSheet(
-    const URIParams& aURI, const uint32_t& aType) {
-  nsCOMPtr<nsIURI> uri = DeserializeURI(aURI);
-  if (!uri) {
+    nsIURI* aURI, const uint32_t& aType) {
+  if (!aURI) {
     return IPC_OK();
   }
 
   nsStyleSheetService* sheetService = nsStyleSheetService::GetInstance();
   if (sheetService) {
-    sheetService->UnregisterSheet(uri, aType);
+    sheetService->UnregisterSheet(aURI, aType);
   }
 
   return IPC_OK();
 }
 
 mozilla::ipc::IPCResult ContentChild::RecvDomainSetChanged(
-    const uint32_t& aSetType, const uint32_t& aChangeType,
-    const Maybe<URIParams>& aDomain) {
+    const uint32_t& aSetType, const uint32_t& aChangeType, nsIURI* aDomain) {
   if (aChangeType == ACTIVATE_POLICY) {
     if (mPolicy) {
       return IPC_OK();
@@ -2723,16 +2708,14 @@ mozilla::ipc::IPCResult ContentChild::RecvDomainSetChanged(
 
   MOZ_ASSERT(set);
 
-  nsCOMPtr<nsIURI> uri = DeserializeURI(aDomain);
-
   switch (aChangeType) {
     case ADD_DOMAIN:
-      NS_ENSURE_TRUE(uri, IPC_FAIL_NO_REASON(this));
-      set->Add(uri);
+      NS_ENSURE_TRUE(aDomain, IPC_FAIL_NO_REASON(this));
+      set->Add(aDomain);
       break;
     case REMOVE_DOMAIN:
-      NS_ENSURE_TRUE(uri, IPC_FAIL_NO_REASON(this));
-      set->Remove(uri);
+      NS_ENSURE_TRUE(aDomain, IPC_FAIL_NO_REASON(this));
+      set->Remove(aDomain);
       break;
     case CLEAR_DOMAINS:
       set->Clear();
@@ -3206,7 +3189,7 @@ bool ContentChild::DeallocPURLClassifierChild(PURLClassifierChild* aActor) {
 }
 
 PURLClassifierLocalChild* ContentChild::AllocPURLClassifierLocalChild(
-    const URIParams& aUri, const nsTArray<IPCURLClassifierFeature>& aFeatures) {
+    nsIURI* aUri, const nsTArray<IPCURLClassifierFeature>& aFeatures) {
   return new URLClassifierLocalChild();
 }
 

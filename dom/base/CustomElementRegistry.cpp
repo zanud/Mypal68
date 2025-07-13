@@ -6,6 +6,7 @@
 
 #include "mozilla/AsyncEventDispatcher.h"
 #include "mozilla/CycleCollectedJSContext.h"
+#include "mozilla/dom/AutoEntryScript.h"
 #include "mozilla/dom/CustomElementRegistryBinding.h"
 #include "mozilla/dom/ElementBinding.h"
 #include "mozilla/dom/HTMLElementBinding.h"
@@ -22,12 +23,12 @@
 #include "mozilla/StaticPrefs_dom.h"
 #include "nsHTMLTags.h"
 #include "jsapi.h"
-#include "js/ForOfIterator.h"  // JS::ForOfIterator
+#include "js/ForOfIterator.h"       // JS::ForOfIterator
+#include "js/PropertyAndElement.h"  // JS_GetProperty, JS_GetUCProperty
 #include "xpcprivate.h"
 #include "nsGlobalWindow.h"
 
-namespace mozilla {
-namespace dom {
+namespace mozilla::dom {
 
 //-----------------------------------------------------
 // CustomElementUpgradeReaction
@@ -104,25 +105,25 @@ size_t LifecycleCallbackArgs::SizeOfExcludingThis(
 
 void CustomElementCallback::Call() {
   switch (mType) {
-    case Document::eConnected:
+    case ElementCallbackType::eConnected:
       static_cast<LifecycleConnectedCallback*>(mCallback.get())
           ->Call(mThisObject);
       break;
-    case Document::eDisconnected:
+    case ElementCallbackType::eDisconnected:
       static_cast<LifecycleDisconnectedCallback*>(mCallback.get())
           ->Call(mThisObject);
       break;
-    case Document::eAdopted:
+    case ElementCallbackType::eAdopted:
       static_cast<LifecycleAdoptedCallback*>(mCallback.get())
           ->Call(mThisObject, mAdoptedCallbackArgs.mOldDocument,
                  mAdoptedCallbackArgs.mNewDocument);
       break;
-    case Document::eAttributeChanged:
+    case ElementCallbackType::eAttributeChanged:
       static_cast<LifecycleAttributeChangedCallback*>(mCallback.get())
           ->Call(mThisObject, mArgs.name, mArgs.oldValue, mArgs.newValue,
                  mArgs.namespaceURI);
       break;
-    case Document::eGetCustomInterface:
+    case ElementCallbackType::eGetCustomInterface:
       MOZ_ASSERT_UNREACHABLE("Don't call GetCustomInterface through callback");
       break;
   }
@@ -155,7 +156,7 @@ size_t CustomElementCallback::SizeOfIncludingThis(
 }
 
 CustomElementCallback::CustomElementCallback(
-    Element* aThisObject, Document::ElementCallbackType aCallbackType,
+    Element* aThisObject, ElementCallbackType aCallbackType,
     mozilla::dom::CallbackFunction* aCallback)
     : mThisObject(aThisObject), mCallback(aCallback), mType(aCallbackType) {}
 
@@ -440,7 +441,7 @@ void CustomElementRegistry::UnregisterUnresolvedElement(Element* aElement,
 /* static */
 UniquePtr<CustomElementCallback>
 CustomElementRegistry::CreateCustomElementCallback(
-    Document::ElementCallbackType aType, Element* aCustomElement,
+    ElementCallbackType aType, Element* aCustomElement,
     LifecycleCallbackArgs* aArgs,
     LifecycleAdoptedCallbackArgs* aAdoptedCallbackArgs,
     CustomElementDefinition* aDefinition) {
@@ -451,31 +452,31 @@ CustomElementRegistry::CreateCustomElementCallback(
   // Let CALLBACK be the callback associated with the key NAME in CALLBACKS.
   CallbackFunction* func = nullptr;
   switch (aType) {
-    case Document::eConnected:
+    case ElementCallbackType::eConnected:
       if (aDefinition->mCallbacks->mConnectedCallback.WasPassed()) {
         func = aDefinition->mCallbacks->mConnectedCallback.Value();
       }
       break;
 
-    case Document::eDisconnected:
+    case ElementCallbackType::eDisconnected:
       if (aDefinition->mCallbacks->mDisconnectedCallback.WasPassed()) {
         func = aDefinition->mCallbacks->mDisconnectedCallback.Value();
       }
       break;
 
-    case Document::eAdopted:
+    case ElementCallbackType::eAdopted:
       if (aDefinition->mCallbacks->mAdoptedCallback.WasPassed()) {
         func = aDefinition->mCallbacks->mAdoptedCallback.Value();
       }
       break;
 
-    case Document::eAttributeChanged:
+    case ElementCallbackType::eAttributeChanged:
       if (aDefinition->mCallbacks->mAttributeChangedCallback.WasPassed()) {
         func = aDefinition->mCallbacks->mAttributeChangedCallback.Value();
       }
       break;
 
-    case Document::eGetCustomInterface:
+    case ElementCallbackType::eGetCustomInterface:
       MOZ_ASSERT_UNREACHABLE("Don't call GetCustomInterface through callback");
       break;
   }
@@ -502,7 +503,7 @@ CustomElementRegistry::CreateCustomElementCallback(
 // https://html.spec.whatwg.org/commit-snapshots/65f39c6fc0efa92b0b2b23b93197016af6ac0de6/#enqueue-a-custom-element-callback-reaction
 /* static */
 void CustomElementRegistry::EnqueueLifecycleCallback(
-    Document::ElementCallbackType aType, Element* aCustomElement,
+    ElementCallbackType aType, Element* aCustomElement,
     LifecycleCallbackArgs* aArgs,
     LifecycleAdoptedCallbackArgs* aAdoptedCallbackArgs,
     CustomElementDefinition* aDefinition) {
@@ -531,7 +532,7 @@ void CustomElementRegistry::EnqueueLifecycleCallback(
     return;
   }
 
-  if (aType == Document::eAttributeChanged) {
+  if (aType == ElementCallbackType::eAttributeChanged) {
     RefPtr<nsAtom> attrName = NS_Atomize(aArgs->name);
     if (definition->mObservedAttributes.IsEmpty() ||
         !definition->mObservedAttributes.Contains(attrName)) {
@@ -1188,15 +1189,17 @@ void CustomElementRegistry::Upgrade(Element* aElement,
             nsDependentAtomString(attrName), VoidString(), attrValue,
             (namespaceURI.IsEmpty() ? VoidString() : namespaceURI)};
         nsContentUtils::EnqueueLifecycleCallback(
-            Document::eAttributeChanged, aElement, &args, nullptr, aDefinition);
+            ElementCallbackType::eAttributeChanged, aElement, &args, nullptr,
+            aDefinition);
       }
     }
   }
 
   // Step 5.
   if (aElement->IsInComposedDoc()) {
-    nsContentUtils::EnqueueLifecycleCallback(Document::eConnected, aElement,
-                                             nullptr, nullptr, aDefinition);
+    nsContentUtils::EnqueueLifecycleCallback(ElementCallbackType::eConnected,
+                                             aElement, nullptr, nullptr,
+                                             aDefinition);
   }
 
   // Step 6.
@@ -1495,5 +1498,4 @@ CustomElementDefinition::CustomElementDefinition(
       mDisableInternals(aDisableInternals),
       mDisableShadow(aDisableShadow) {}
 
-}  // namespace dom
-}  // namespace mozilla
+}  // namespace mozilla::dom

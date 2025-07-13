@@ -27,7 +27,6 @@
 #include "mozilla/StyleAnimationValue.h"
 #include "mozilla/dom/AnimationEffect.h"
 #include "mozilla/dom/BindingDeclarations.h"
-#include "mozilla/dom/Element.h"
 
 struct JSContext;
 class JSObject;
@@ -45,6 +44,7 @@ class ComputedStyle;
 class PresShell;
 
 namespace dom {
+class Element;
 class GlobalObject;
 class UnrestrictedDoubleOrKeyframeAnimationOptions;
 class UnrestrictedDoubleOrKeyframeEffectOptions;
@@ -137,10 +137,7 @@ class KeyframeEffect : public AnimationEffect {
       const UnrestrictedDoubleOrKeyframeAnimationOptions& aOptions,
       ErrorResult& aRv);
 
-  already_AddRefed<Element> GetTarget() const {
-    RefPtr<Element> ret = mTarget.mElement;
-    return ret.forget();
-  }
+  already_AddRefed<Element> GetTarget() const;
   NonOwningAnimationTarget GetAnimationTarget() const {
     return NonOwningAnimationTarget(mTarget.mElement, mTarget.mPseudoType);
   }

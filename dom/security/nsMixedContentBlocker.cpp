@@ -285,7 +285,7 @@ nsMixedContentBlocker::AsyncOnChannelRedirect(
 
   int16_t decision = REJECT_REQUEST;
   rv = ShouldLoad(newUri, loadInfo,
-                  EmptyCString(),  // aMimeGuess
+                  ""_ns,  // aMimeGuess
                   &decision);
   if (NS_FAILED(rv)) {
     autoCallback.DontCallback();
@@ -377,7 +377,7 @@ bool nsMixedContentBlocker::IsPotentiallyTrustworthyLoopbackURL(nsIURI* aURL) {
   return IsPotentiallyTrustworthyLoopbackHost(asciiHost);
 }
 
-/* Maybe we have a .onion URL. Treat it as whitelisted as well if
+/* Maybe we have a .onion URL. Treat it as trustworthy as well if
  * `dom.securecontext.whitelist_onions` is `true`.
  */
 bool nsMixedContentBlocker::IsPotentiallyTrustworthyOnion(nsIURI* aURL) {
@@ -388,7 +388,7 @@ bool nsMixedContentBlocker::IsPotentiallyTrustworthyOnion(nsIURI* aURL) {
   nsAutoCString host;
   nsresult rv = aURL->GetHost(host);
   NS_ENSURE_SUCCESS(rv, false);
-  return StringEndsWith(host, NS_LITERAL_CSTRING(".onion"));
+  return StringEndsWith(host, ".onion"_ns);
 }
 
 bool nsMixedContentBlocker::IsPotentiallyTrustworthyOrigin(nsIURI* aURI) {
@@ -609,7 +609,7 @@ nsresult nsMixedContentBlocker::ShouldLoad(
     case TYPE_SPECULATIVE:
       break;
 
-    // This content policy works as a whitelist.
+    // This content policy works as a allowlist.
     default:
       MOZ_ASSERT(false, "Mixed content of unknown type");
   }
@@ -814,11 +814,11 @@ nsresult nsMixedContentBlocker::ShouldLoad(
 
     CSP_LogLocalizedStr(
         "blockAllMixedContent", params,
-        EmptyString(),  // aSourceFile
-        EmptyString(),  // aScriptSample
-        0,              // aLineNumber
-        0,              // aColumnNumber
-        nsIScriptError::errorFlag, NS_LITERAL_CSTRING("blockAllMixedContent"),
+        u""_ns,  // aSourceFile
+        u""_ns,  // aScriptSample
+        0,       // aLineNumber
+        0,       // aColumnNumber
+        nsIScriptError::errorFlag, "blockAllMixedContent"_ns,
         document->InnerWindowID(),
         !!document->NodePrincipal()->OriginAttributesRef().mPrivateBrowsingId);
     *aDecision = REJECT_REQUEST;
@@ -940,9 +940,8 @@ nsresult nsMixedContentBlocker::ShouldLoad(
       mozilla::dom::ContentChild* cc =
           mozilla::dom::ContentChild::GetSingleton();
       if (cc) {
-        mozilla::ipc::URIParams uri;
-        SerializeURI(innerContentLocation, uri);
-        cc->SendAccumulateMixedContentHSTS(uri, active, originAttributes);
+        cc->SendAccumulateMixedContentHSTS(innerContentLocation, active,
+                                           originAttributes);
       }
     }
   }
@@ -950,7 +949,7 @@ nsresult nsMixedContentBlocker::ShouldLoad(
   // set hasMixedContentObjectSubrequest on this object if necessary
   if (aContentType == TYPE_OBJECT_SUBREQUEST) {
     if (!StaticPrefs::security_mixed_content_block_object_subrequest()) {
-      rootDoc->WarnOnceAbout(Document::eMixedDisplayObjectSubrequest);
+      rootDoc->WarnOnceAbout(DeprecatedOperations::eMixedDisplayObjectSubrequest);
     }
   }
 

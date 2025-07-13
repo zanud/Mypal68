@@ -34,8 +34,7 @@
 using namespace mozilla::ipc;
 using namespace mozilla::dom::ipc;
 
-namespace mozilla {
-namespace dom {
+namespace mozilla::dom {
 
 typedef nsRefPtrHashtable<nsUint64HashKey, WindowGlobalParent> WGPByIdMap;
 static StaticAutoPtr<WGPByIdMap> gWindowGlobalParentsById;
@@ -383,5 +382,4 @@ NS_INTERFACE_MAP_END_INHERITING(WindowGlobalActor)
 NS_IMPL_ADDREF_INHERITED(WindowGlobalParent, WindowGlobalActor)
 NS_IMPL_RELEASE_INHERITED(WindowGlobalParent, WindowGlobalActor)
 
-}  // namespace dom
-}  // namespace mozilla
+}  // namespace mozilla::dom

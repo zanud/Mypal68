@@ -9,14 +9,13 @@
 #include "mozilla/ErrorResult.h"
 #include "mozilla/dom/BrowsingContext.h"
 #include "nsCycleCollectionParticipant.h"
-#include "nsIWeakReferenceUtils.h"
-#include "nsPIDOMWindow.h"
 #include "nsString.h"
 #include "nsWrapperCache.h"
 
 class nsIDocShell;
+class nsIPrincipal;
 class nsIURI;
-class nsDocShellLoadState;
+class nsPIDOMWindowInner;
 
 namespace mozilla {
 namespace dom {

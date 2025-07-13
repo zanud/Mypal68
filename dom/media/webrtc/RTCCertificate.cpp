@@ -4,22 +4,54 @@
 
 #include "mozilla/dom/RTCCertificate.h"
 
-#include <cmath>
+#include <cstdio>
+#include <cstring>
+#include <memory>
+#include <new>
+#include <utility>
+#include "ErrorList.h"
+#include "MainThreadUtils.h"
 #include "cert.h"
-#include "jsapi.h"
+#include "cryptohi.h"
+#include "js/StructuredClone.h"
+#include "js/TypeDecls.h"
+#include "js/Value.h"
+#include "keyhi.h"
+#include "mozilla/ErrorResult.h"
+#include "mozilla/MacroForEach.h"
+#include "mozilla/OwningNonNull.h"
+#include "mozilla/UniquePtr.h"
+#include "mozilla/dom/BindingDeclarations.h"
+#include "mozilla/dom/CryptoBuffer.h"
 #include "mozilla/dom/CryptoKey.h"
+#include "mozilla/dom/KeyAlgorithmBinding.h"
+#include "mozilla/dom/KeyAlgorithmProxy.h"
+#include "mozilla/dom/Promise.h"
 #include "mozilla/dom/RTCCertificateBinding.h"
 #include "mozilla/dom/StructuredCloneHolder.h"
+#include "mozilla/dom/SubtleCryptoBinding.h"
+#include "mozilla/dom/UnionTypes.h"
 #include "mozilla/dom/WebCryptoCommon.h"
 #include "mozilla/dom/WebCryptoTask.h"
-#include "mozilla/Move.h"
-#include "mozilla/Sprintf.h"
+#include "mozilla/fallible.h"
+#include "nsDebug.h"
+#include "nsError.h"
+#include "nsLiteralString.h"
+#include "nsStringFlags.h"
+#include "nsStringFwd.h"
+#include "nsTLiteralString.h"
+#include "pk11pub.h"
+#include "plarena.h"
+#include "secasn1.h"
+#include "secasn1t.h"
+#include "seccomon.h"
+#include "secmodt.h"
+#include "secoid.h"
+#include "secoidt.h"
 #include "mtransport/dtlsidentity.h"
+#include "xpcpublic.h"
 
-#include <cstdio>
-
-namespace mozilla {
-namespace dom {
+namespace mozilla::dom {
 
 #define RTCCERTIFICATE_SC_VERSION 0x00000001
 
@@ -391,5 +423,4 @@ already_AddRefed<RTCCertificate> RTCCertificate::ReadStructuredClone(
   return cert.forget();
 }
 
-}  // namespace dom
-}  // namespace mozilla
+}  // namespace mozilla::dom

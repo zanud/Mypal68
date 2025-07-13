@@ -5,7 +5,7 @@
 #ifndef mozilla_dom_workers_chromeworkerscope_h__
 #define mozilla_dom_workers_chromeworkerscope_h__
 
-#include "WorkerCommon.h"
+#include "js/TypeDecls.h"
 
 namespace mozilla {
 namespace dom {

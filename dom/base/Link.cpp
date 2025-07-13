@@ -8,6 +8,8 @@
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/IHistory.h"
+#include "mozilla/StaticPrefs_layout.h"
+#include "nsLayoutUtils.h"
 #include "nsIURL.h"
 #include "nsIURIMutator.h"
 #include "nsISizeOf.h"
@@ -80,15 +82,21 @@ void Link::CancelDNSPrefetch(nsWrapperCache::FlagsType aDeferredFlag,
   }
 }
 
-void Link::SetLinkState(nsLinkState aState) {
+void Link::VisitedQueryFinished(bool aVisited) {
   MOZ_ASSERT(mRegistered, "Setting the link state of an unregistered Link!");
-  MOZ_ASSERT(mLinkState != aState, "Setting state to the currently set state!");
+  MOZ_ASSERT(mLinkState == eLinkState_Unvisited,
+             "Why would we want to know our visited state otherwise?");
+
+  auto newState = aVisited ? eLinkState_Visited : eLinkState_Unvisited;
 
   // Set our current state as appropriate.
-  mLinkState = aState;
+  mLinkState = newState;
 
-  // Per IHistory interface documentation, we are no longer registered.
-  mRegistered = false;
+  // We will be no longer registered if we're visited, as it'd be pointless, we
+  // never transition from visited -> unvisited.
+  if (aVisited) {
+    mRegistered = false;
+  }
 
   MOZ_ASSERT(LinkState() == NS_EVENT_STATE_VISITED ||
                  LinkState() == NS_EVENT_STATE_UNVISITED,
@@ -96,6 +104,13 @@ void Link::SetLinkState(nsLinkState aState) {
 
   // Tell the element to update its visited state
   mElement->UpdateState(true);
+
+  if (StaticPrefs::layout_css_always_repaint_on_unvisited()) {
+    // Even if the state didn't actually change, we need to repaint in order for
+    // the visited state not to be observable.
+    nsLayoutUtils::PostRestyleEvent(GetElement(), RestyleHint::RestyleSubtree(),
+                                    nsChangeHint_RepaintFrame);
+  }
 }
 
 EventStates Link::LinkState() const {
@@ -538,12 +553,8 @@ void Link::UnregisterFromHistory() {
   // And tell History to stop tracking us.
   if (mHistory && mCachedURI) {
     if (nsCOMPtr<IHistory> history = services::GetHistoryService()) {
-      nsresult rv = history->UnregisterVisitedCallback(mCachedURI, this);
-      NS_ASSERTION(NS_SUCCEEDED(rv),
-                   "This should only fail if we misuse the API!");
-      if (NS_SUCCEEDED(rv)) {
-        mRegistered = false;
-      }
+      history->UnregisterVisitedCallback(mCachedURI, this);
+      mRegistered = false;
     }
   }
 }

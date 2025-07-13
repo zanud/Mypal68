@@ -5,16 +5,16 @@
 #include "RemoteObjectProxy.h"
 #include "AccessCheck.h"
 #include "jsfriendapi.h"
+#include "js/Object.h"  // JS::GetClass
 #include "xpcprivate.h"
 
-namespace mozilla {
-namespace dom {
+namespace mozilla::dom {
 
 bool RemoteObjectProxyBase::getOwnPropertyDescriptor(
     JSContext* aCx, JS::Handle<JSObject*> aProxy, JS::Handle<jsid> aId,
-    JS::MutableHandle<JS::PropertyDescriptor> aDesc) const {
+    JS::MutableHandle<Maybe<JS::PropertyDescriptor>> aDesc) const {
   bool ok = CrossOriginGetOwnPropertyHelper(aCx, aProxy, aId, aDesc);
-  if (!ok || aDesc.object()) {
+  if (!ok || aDesc.isSome()) {
     return ok;
   }
 
@@ -161,5 +161,4 @@ void RemoteObjectProxyBase::GetOrCreateProxyObject(
 
 const char RemoteObjectProxyBase::sCrossOriginProxyFamily = 0;
 
-}  // namespace dom
-}  // namespace mozilla
+}  // namespace mozilla::dom

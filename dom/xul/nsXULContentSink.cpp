@@ -47,6 +47,8 @@
 
 static mozilla::LazyLogModule gContentSinkLog("nsXULContentSink");
 
+using namespace mozilla;
+using namespace mozilla::dom;
 //----------------------------------------------------------------------
 
 XULContentSinkImpl::ContextStack::ContextStack() : mTop(nullptr), mDepth(0) {}
@@ -756,7 +758,7 @@ nsresult XULContentSinkImpl::OpenScript(const char16_t** aAttributes,
         if (NS_SUCCEEDED(rv)) {
           rv = mSecMan->CheckLoadURIWithPrincipal(
               doc->NodePrincipal(), script->mSrcURI,
-              nsIScriptSecurityManager::ALLOW_CHROME);
+              nsIScriptSecurityManager::ALLOW_CHROME, doc->InnerWindowID());
         }
       }
     }

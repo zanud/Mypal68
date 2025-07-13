@@ -19,6 +19,7 @@
 #include "mozilla/ServoBindingTypes.h"
 #include "mozilla/ServoUtils.h"
 #include "mozilla/ShadowParts.h"
+#include "mozilla/SVGAttrValueWrapper.h"
 #include "mozilla/DeclarationBlock.h"
 #include "mozilla/dom/CSSRuleBinding.h"
 #include "nsContentUtils.h"

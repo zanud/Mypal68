@@ -43,6 +43,7 @@
 #include "VideoStreamTrack.h"
 #include "base/basictypes.h"
 #include "jsapi.h"
+#include "js/PropertyAndElement.h"  // JS_DefineProperty
 #include "mozilla/ArrayUtils.h"
 #include "mozilla/AsyncEventDispatcher.h"
 #include "mozilla/EventDispatcher.h"
@@ -3767,7 +3768,8 @@ already_AddRefed<DOMMediaStream> HTMLMediaElement::MozCaptureStream(
   }
 
   MediaTrackGraph* graph = MediaTrackGraph::GetInstance(
-      graphDriverType, window, MediaTrackGraph::REQUEST_DEFAULT_SAMPLE_RATE);
+      graphDriverType, window, MediaTrackGraph::REQUEST_DEFAULT_SAMPLE_RATE,
+      MediaTrackGraph::DEFAULT_OUTPUT_DEVICE);
 
   RefPtr<DOMMediaStream> stream =
       CaptureStreamInternal(StreamCaptureBehavior::CONTINUE_WHEN_ENDED,
@@ -3798,7 +3800,8 @@ already_AddRefed<DOMMediaStream> HTMLMediaElement::MozCaptureStreamUntilEnded(
   }
 
   MediaTrackGraph* graph = MediaTrackGraph::GetInstance(
-      graphDriverType, window, MediaTrackGraph::REQUEST_DEFAULT_SAMPLE_RATE);
+      graphDriverType, window, MediaTrackGraph::REQUEST_DEFAULT_SAMPLE_RATE,
+      MediaTrackGraph::DEFAULT_OUTPUT_DEVICE);
 
   RefPtr<DOMMediaStream> stream =
       CaptureStreamInternal(StreamCaptureBehavior::FINISH_WHEN_ENDED,
@@ -6917,7 +6920,8 @@ void HTMLMediaElement::AudioCaptureTrackChange(bool aCapture) {
 
     MediaTrackGraph* mtg = MediaTrackGraph::GetInstance(
         MediaTrackGraph::AUDIO_THREAD_DRIVER, window,
-        MediaTrackGraph::REQUEST_DEFAULT_SAMPLE_RATE);
+        MediaTrackGraph::REQUEST_DEFAULT_SAMPLE_RATE,
+        MediaTrackGraph::DEFAULT_OUTPUT_DEVICE);
     RefPtr<DOMMediaStream> stream =
         CaptureStreamInternal(StreamCaptureBehavior::CONTINUE_WHEN_ENDED,
                               StreamCaptureType::CAPTURE_AUDIO, mtg);

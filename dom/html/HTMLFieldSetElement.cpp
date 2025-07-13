@@ -5,6 +5,7 @@
 #include "mozilla/BasicEvents.h"
 #include "mozilla/EventDispatcher.h"
 #include "mozilla/EventStates.h"
+#include "mozilla/dom/AutocompleteInfoBinding.h" //MY
 #include "mozilla/dom/HTMLFieldSetElement.h"
 #include "mozilla/dom/HTMLFieldSetElementBinding.h"
 #include "nsContentList.h"
@@ -12,8 +13,7 @@
 
 NS_IMPL_NS_NEW_HTML_ELEMENT(FieldSet)
 
-namespace mozilla {
-namespace dom {
+namespace mozilla::dom {
 
 HTMLFieldSetElement::HTMLFieldSetElement(
     already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo)
@@ -311,5 +311,4 @@ JSObject* HTMLFieldSetElement::WrapNode(JSContext* aCx,
   return HTMLFieldSetElement_Binding::Wrap(aCx, this, aGivenProto);
 }
 
-}  // namespace dom
-}  // namespace mozilla
+}  // namespace mozilla::dom

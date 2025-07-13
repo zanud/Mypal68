@@ -15,7 +15,7 @@ interface FeaturePolicy {
   sequence<DOMString> getAllowlistForFeature(DOMString feature);
 };
 
-[Pref="dom.reporting.featurePolicy.enabled",
+/*[Pref="dom.reporting.featurePolicy.enabled",
  Exposed=Window]
 interface FeaturePolicyViolationReportBody : ReportBody {
   readonly attribute DOMString featureId;
@@ -23,4 +23,4 @@ interface FeaturePolicyViolationReportBody : ReportBody {
   readonly attribute long? lineNumber;
   readonly attribute long? columnNumber;
   readonly attribute DOMString disposition;
-};
+};*/

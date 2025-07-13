@@ -5,7 +5,6 @@
 #include "SRIMetadata.h"
 
 #include "hasht.h"
-#include "mozilla/dom/URLSearchParams.h"
 #include "mozilla/Logging.h"
 #include "nsICryptoHash.h"
 

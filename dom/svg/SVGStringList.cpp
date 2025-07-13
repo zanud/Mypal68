@@ -6,6 +6,7 @@
 #include "nsError.h"
 #include "nsCharSeparatedTokenizer.h"
 #include "nsContentUtils.h"
+#include "nsReadableUtils.h"
 #include "nsString.h"
 #include "nsWhitespaceTokenizer.h"
 #include "SVGContentUtils.h"
@@ -21,17 +22,7 @@ nsresult SVGStringList::CopyFrom(const SVGStringList& rhs) {
 }
 
 void SVGStringList::GetValue(nsAString& aValue) const {
-  aValue.Truncate();
-  uint32_t last = mStrings.Length() - 1;
-  for (uint32_t i = 0; i < mStrings.Length(); ++i) {
-    aValue.Append(mStrings[i]);
-    if (i != last) {
-      if (mIsCommaSeparated) {
-        aValue.Append(',');
-      }
-      aValue.Append(' ');
-    }
-  }
+  aValue = StringJoin(mIsCommaSeparated ? u", "_ns : u" "_ns, mStrings);
 }
 
 nsresult SVGStringList::SetValue(const nsAString& aValue) {

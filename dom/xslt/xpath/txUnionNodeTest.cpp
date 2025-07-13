@@ -8,6 +8,10 @@
 #include "txExprResult.h"
 #include "txSingleNodeContext.h"
 
+#ifdef TX_TO_STRING
+#  include "nsReadableUtils.h"
+#endif
+
 nsresult txUnionNodeTest::matches(const txXPathNode& aNode,
                                   txIMatchContext* aContext, bool& aMatched) {
   uint32_t i, len = mNodeTests.Length();
@@ -43,12 +47,11 @@ bool txUnionNodeTest::isSensitiveTo(Expr::ContextSensitivity aContext) {
 #ifdef TX_TO_STRING
 void txUnionNodeTest::toString(nsAString& aDest) {
   aDest.Append('(');
-  for (uint32_t i = 0; i < mNodeTests.Length(); ++i) {
-    if (i != 0) {
-      aDest.AppendLiteral(" | ");
-    }
-    mNodeTests[i]->toString(aDest);
-  }
+
+  StringJoinAppend(
+      aDest, u" | "_ns, mNodeTests,
+      [](nsAString& dest, txNodeTest* nodeTest) { nodeTest->toString(dest); });
+
   aDest.Append(')');
 }
 #endif

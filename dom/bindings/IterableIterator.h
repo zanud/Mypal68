@@ -25,13 +25,12 @@
 #ifndef mozilla_dom_IterableIterator_h
 #define mozilla_dom_IterableIterator_h
 
+#include "js/TypeDecls.h"
+#include "js/Value.h"
 #include "nsISupports.h"
-#include "nsWrapperCache.h"
-#include "nsPIDOMWindow.h"
-#include "nsCOMPtr.h"
-#include "mozilla/dom/ToJSValue.h"
-#include "js/Wrapper.h"
 #include "mozilla/dom/IterableIteratorBinding.h"
+#include "mozilla/dom/RootedDictionary.h"
+#include "mozilla/dom/ToJSValue.h"
 
 namespace mozilla {
 namespace dom {

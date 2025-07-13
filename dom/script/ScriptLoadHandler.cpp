@@ -3,20 +3,39 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "ScriptLoadHandler.h"
+
+#include <stdlib.h>
+#include <utility>
 #include "ScriptLoader.h"
 #include "ScriptTrace.h"
-
+#include "mozilla/Assertions.h"
+#include "mozilla/CheckedInt.h"
+#include "mozilla/DebugOnly.h"
+#include "mozilla/Encoding.h"
+#include "mozilla/Logging.h"
+#include "mozilla/NotNull.h"
+#include "mozilla/ScopeExit.h"
+#include "mozilla/StaticPrefs_dom.h"
+#include "mozilla/Tuple.h"
+#include "mozilla/Utf8.h"
+#include "mozilla/Vector.h"
+#include "mozilla/dom/Document.h"
+#include "mozilla/dom/SRICheck.h"
+#include "mozilla/dom/ScriptDecoding.h"
+#include "mozilla/dom/ScriptLoadRequest.h"
+#include "nsCOMPtr.h"
 #include "nsContentUtils.h"
+#include "nsDebug.h"
 #include "nsICacheInfoChannel.h"
-#include "nsIEncodedChannel.h"
+#include "nsIChannel.h"
 #include "nsIHttpChannel.h"
+#include "nsIRequest.h"
+#include "nsIScriptElement.h"
+#include "nsIURI.h"
 #include "nsJSUtils.h"
 #include "nsMimeTypes.h"
-
-#include "mozilla/dom/Document.h"
-#include "mozilla/dom/ScriptDecoding.h"  // mozilla::dom::ScriptDecoding
-#include "mozilla/Telemetry.h"
-#include "mozilla/StaticPrefs_dom.h"
+#include "nsString.h"
+#include "nsTArray.h"
 
 namespace mozilla {
 namespace dom {
@@ -129,18 +148,6 @@ ScriptLoadHandler::OnIncrementalData(nsIIncrementalStreamLoader* aLoader,
     // bytes.
     rv = DecodeRawData(aData, aDataLength, /* aEndOfStream = */ false);
     NS_ENSURE_SUCCESS(rv, rv);
-
-    // If SRI is required for this load, appending new bytes to the hash.
-    if (mSRIDataVerifier && NS_SUCCEEDED(mSRIStatus)) {
-      mSRIStatus = mSRIDataVerifier->Update(aDataLength, aData);
-    }
-  } else if (mRequest->IsBinASTSource()) {
-    if (!mRequest->ScriptBinASTData().append(aData, aDataLength)) {
-      return NS_ERROR_OUT_OF_MEMORY;
-    }
-
-    // Below we will/shall consume entire data chunk.
-    *aConsumedLength = aDataLength;
 
     // If SRI is required for this load, appending new bytes to the hash.
     if (mSRIDataVerifier && NS_SUCCEEDED(mSRIStatus)) {
@@ -305,28 +312,6 @@ nsresult ScriptLoadHandler::EnsureKnownDataType(
     MOZ_ASSERT(altDataType.IsEmpty());
   }
 
-  if (nsJSUtils::BinASTEncodingEnabled()) {
-    nsCOMPtr<nsIHttpChannel> httpChannel = do_QueryInterface(req);
-    if (httpChannel) {
-      nsAutoCString mimeType;
-      httpChannel->GetContentType(mimeType);
-      if (mimeType.LowerCaseEqualsASCII(APPLICATION_JAVASCRIPT_BINAST)) {
-        if (mRequest->ShouldAcceptBinASTEncoding()) {
-          mRequest->SetBinASTSource();
-          TRACE_FOR_TEST(mRequest->GetScriptElement(),
-                         "scriptloader_load_source");
-          return NS_OK;
-        }
-
-        // If the request isn't allowed to accept BinAST, fallback to text
-        // source.  The possibly binary source will be passed to normal
-        // JS parser and will throw error there.
-        mRequest->SetTextSource();
-        return NS_OK;
-      }
-    }
-  }
-
   mRequest->SetTextSource();
   TRACE_FOR_TEST(mRequest->GetScriptElement(), "scriptloader_load_source");
 
@@ -374,15 +359,6 @@ ScriptLoadHandler::OnStreamComplete(nsIIncrementalStreamLoader* aLoader,
 
       LOG(("ScriptLoadRequest (%p): Source length in code units = %u",
            mRequest.get(), unsigned(mRequest->ScriptTextLength())));
-
-      // If SRI is required for this load, appending new bytes to the hash.
-      if (mSRIDataVerifier && NS_SUCCEEDED(mSRIStatus)) {
-        mSRIStatus = mSRIDataVerifier->Update(aDataLength, aData);
-      }
-    } else if (mRequest->IsBinASTSource()) {
-      if (!mRequest->ScriptBinASTData().append(aData, aDataLength)) {
-        return NS_ERROR_OUT_OF_MEMORY;
-      }
 
       // If SRI is required for this load, appending new bytes to the hash.
       if (mSRIDataVerifier && NS_SUCCEEDED(mSRIStatus)) {

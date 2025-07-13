@@ -13,13 +13,13 @@
 #  include "nsSize.h"
 #  include "nsError.h"
 
-#  include "mozilla/dom/BindingDeclarations.h"
 #  include "mozilla/dom/CanvasRenderingContextHelper.h"
 #  include "mozilla/gfx/Rect.h"
 #  include "mozilla/layers/LayersTypes.h"
 
 class nsDisplayListBuilder;
 class nsICanvasRenderingContextInternal;
+class nsIInputStream;
 class nsITimerCallback;
 enum class gfxAlphaType;
 

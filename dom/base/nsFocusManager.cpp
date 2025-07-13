@@ -156,7 +156,7 @@ NS_IMPL_CYCLE_COLLECTION(nsFocusManager, mActiveWindow, mFocusedWindow,
                          mWindowBeingLowered, mDelayedBlurFocusEvents,
                          mMouseButtonEventHandlingDocument)
 
-nsFocusManager* nsFocusManager::sInstance = nullptr;
+StaticRefPtr<nsFocusManager> nsFocusManager::sInstance;
 bool nsFocusManager::sMouseFocusesFormControl = false;
 bool nsFocusManager::sTestMode = false;
 
@@ -179,9 +179,7 @@ nsFocusManager::~nsFocusManager() {
 
 // static
 nsresult nsFocusManager::Init() {
-  nsFocusManager* fm = new nsFocusManager();
-  NS_ADDREF(fm);
-  sInstance = fm;
+  sInstance = new nsFocusManager();
 
   nsIContent::sTabFocusModelAppliesToXUL =
       Preferences::GetBool("accessibility.tabfocus_applies_to_xul",
@@ -193,18 +191,18 @@ nsresult nsFocusManager::Init() {
   sTestMode = Preferences::GetBool("focusmanager.testmode", false);
 
   Preferences::RegisterCallbacks(nsFocusManager::PrefChanged, kObservedPrefs,
-                                 fm);
+                                 sInstance.get());
 
   nsCOMPtr<nsIObserverService> obs = mozilla::services::GetObserverService();
   if (obs) {
-    obs->AddObserver(fm, "xpcom-shutdown", true);
+    obs->AddObserver(sInstance, "xpcom-shutdown", true);
   }
 
   return NS_OK;
 }
 
 // static
-void nsFocusManager::Shutdown() { NS_IF_RELEASE(sInstance); }
+void nsFocusManager::Shutdown() { sInstance = nullptr; }
 
 // static
 void nsFocusManager::PrefChanged(const char* aPref, void* aSelf) {
@@ -355,21 +353,9 @@ nsFocusManager::GetActiveWindow(mozIDOMWindowProxy** aWindow) {
 }
 
 void nsFocusManager::FocusWindow(nsPIDOMWindowOuter* aWindow) {
-  if (RefPtr<nsFocusManager> fm = sInstance) {
-    fm->SetFocusedWindow(aWindow);
+  if (sInstance) {
+    sInstance->SetFocusedWindow(aWindow);
   }
-}
-
-NS_IMETHODIMP
-nsFocusManager::SetActiveWindow(mozIDOMWindowProxy* aWindow) {
-  NS_ENSURE_STATE(aWindow);
-
-  // only top-level windows can be made active
-  nsCOMPtr<nsPIDOMWindowOuter> piWindow = nsPIDOMWindowOuter::From(aWindow);
-  NS_ENSURE_TRUE(piWindow == piWindow->GetPrivateRoot(), NS_ERROR_INVALID_ARG);
-
-  RaiseWindow(piWindow);
-  return NS_OK;
 }
 
 NS_IMETHODIMP
@@ -2181,19 +2167,16 @@ void nsFocusManager::SendFocusOrBlurEvent(
   }
 
   if (aDocument && aDocument->EventHandlingSuppressed()) {
-    for (uint32_t i = mDelayedBlurFocusEvents.Length(); i > 0; --i) {
-      // if this event was already queued, remove it and append it to the end
-      if (mDelayedBlurFocusEvents[i - 1].mEventMessage == aEventMessage &&
-          mDelayedBlurFocusEvents[i - 1].mPresShell == aPresShell &&
-          mDelayedBlurFocusEvents[i - 1].mDocument == aDocument &&
-          mDelayedBlurFocusEvents[i - 1].mTarget == eventTarget &&
-          mDelayedBlurFocusEvents[i - 1].mRelatedTarget == aRelatedTarget) {
-        mDelayedBlurFocusEvents.RemoveElementAt(i - 1);
-      }
-    }
+    // if this event was already queued, remove it and append it to the end
+    mDelayedBlurFocusEvents.RemoveElementsBy([&](const auto& event) {
+      return event.mEventMessage == aEventMessage &&
+             event.mPresShell == aPresShell && event.mDocument == aDocument &&
+             event.mTarget == eventTarget &&
+             event.mRelatedTarget == aRelatedTarget;
+    });
 
-    mDelayedBlurFocusEvents.AppendElement(nsDelayedBlurOrFocusEvent(
-        aEventMessage, aPresShell, aDocument, eventTarget, aRelatedTarget));
+    mDelayedBlurFocusEvents.EmplaceBack(aEventMessage, aPresShell, aDocument,
+                                        eventTarget, aRelatedTarget);
     return;
   }
 

@@ -283,7 +283,7 @@ static bool DoesNotParticipateInAutoDirection(const nsIContent* aContent) {
            nodeInfo->Equals(nsGkAtoms::style) ||
            nodeInfo->Equals(nsGkAtoms::input) ||
            nodeInfo->Equals(nsGkAtoms::textarea) ||
-           aContent->IsInAnonymousSubtree())) &&
+           aContent->IsInNativeAnonymousSubtree())) &&
          !aContent->IsShadowRoot();
 }
 
@@ -318,7 +318,7 @@ inline static bool NodeAffectsDirAutoAncestor(nsIContent* aTextNode) {
   nsIContent* parent = GetParentOrHostOrSlot(aTextNode);
   return (parent && !DoesNotParticipateInAutoDirection(parent) &&
           parent->NodeOrAncestorHasDirAuto() &&
-          !aTextNode->IsInAnonymousSubtree());
+          !aTextNode->IsInNativeAnonymousSubtree());
 }
 
 Directionality GetDirectionFromText(const char16_t* aText,

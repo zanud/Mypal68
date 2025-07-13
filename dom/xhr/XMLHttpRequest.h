@@ -6,8 +6,11 @@
 #define mozilla_dom_XMLHttpRequest_h
 
 #include "mozilla/Attributes.h"
+#include "mozilla/ErrorResult.h"
 #include "mozilla/dom/XMLHttpRequestEventTarget.h"
 #include "mozilla/dom/XMLHttpRequestBinding.h"
+
+class nsIInputStream;
 
 namespace mozilla {
 namespace dom {
@@ -15,8 +18,10 @@ namespace dom {
 class Blob;
 class DOMString;
 class FormData;
+class XMLHttpRequestUpload;
 class URLSearchParams;
 class XMLHttpRequestUpload;
+struct OriginAttributesDictionary; //MY
 
 class XMLHttpRequest : public XMLHttpRequestEventTarget {
  public:
@@ -61,7 +66,6 @@ class XMLHttpRequest : public XMLHttpRequestEventTarget {
   virtual XMLHttpRequestUpload* GetUpload(ErrorResult& aRv) = 0;
 
   virtual void Send(
-      JSContext* aCx,
       const Nullable<
           DocumentOrBlobOrArrayBufferViewOrArrayBufferOrFormDataOrURLSearchParamsOrUSVString>&
           aData,
@@ -125,6 +129,10 @@ class XMLHttpRequest : public XMLHttpRequestEventTarget {
                                JS::Handle<JSObject*> aGivenProto) override {
     return mozilla::dom::XMLHttpRequest_Binding::Wrap(aCx, this, aGivenProto);
   }
+
+ protected:
+  explicit XMLHttpRequest(nsIGlobalObject* aGlobalObject)
+      : XMLHttpRequestEventTarget(aGlobalObject) {}
 };
 
 }  // namespace dom

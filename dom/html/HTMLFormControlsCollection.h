@@ -5,7 +5,6 @@
 #ifndef mozilla_dom_HTMLFormControlsCollection_h
 #define mozilla_dom_HTMLFormControlsCollection_h
 
-#include "mozilla/dom/Element.h"  // DOMProxyHandler::getOwnPropertyDescriptor
 #include "nsIHTMLCollection.h"
 #include "nsInterfaceHashtable.h"
 #include "nsTArray.h"
@@ -18,6 +17,7 @@ class RefPtr;
 
 namespace mozilla {
 namespace dom {
+class Element;
 class HTMLFormElement;
 class HTMLImageElement;
 class OwningRadioNodeListOrElement;

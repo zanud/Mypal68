@@ -5,19 +5,19 @@
 #include "AudioBuffer.h"
 #include "mozilla/dom/AudioBufferBinding.h"
 #include "jsfriendapi.h"
-#include "js/ArrayBuffer.h"  // JS::StealArrayBufferContents
+#include "js/ArrayBuffer.h"             // JS::StealArrayBufferContents
 #include "js/experimental/TypedData.h"  // JS_NewFloat32Array, JS_GetFloat32ArrayData, JS_GetTypedArrayLength, JS_GetArrayBufferViewBuffer
 #include "mozilla/ErrorResult.h"
 #include "AudioSegment.h"
 #include "AudioChannelFormat.h"
 #include "mozilla/PodOperations.h"
 #include "mozilla/CheckedInt.h"
+#include "mozilla/HoldDropJSObjects.h"
 #include "mozilla/MemoryReporting.h"
 #include "AudioNodeEngine.h"
 #include "nsPrintfCString.h"
 
-namespace mozilla {
-namespace dom {
+namespace mozilla::dom {
 
 NS_IMPL_CYCLE_COLLECTION_CLASS(AudioBuffer)
 
@@ -495,5 +495,4 @@ size_t AudioBuffer::SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const {
   return amount;
 }
 
-}  // namespace dom
-}  // namespace mozilla
+}  // namespace mozilla::dom

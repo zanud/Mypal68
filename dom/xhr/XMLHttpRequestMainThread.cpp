@@ -117,28 +117,19 @@ const int32_t XML_HTTP_REQUEST_MAX_CONTENT_LENGTH_PREALLOCATE =
 
 namespace {
 const nsLiteralString ProgressEventTypeStrings[] = {
-    NS_LITERAL_STRING("loadstart"), NS_LITERAL_STRING("progress"),
-    NS_LITERAL_STRING("error"),     NS_LITERAL_STRING("abort"),
-    NS_LITERAL_STRING("timeout"),   NS_LITERAL_STRING("load"),
-    NS_LITERAL_STRING("loadend")};
+    u"loadstart"_ns, u"progress"_ns, u"error"_ns,  u"abort"_ns,
+    u"timeout"_ns,   u"load"_ns,     u"loadend"_ns};
 static_assert(MOZ_ARRAY_LENGTH(ProgressEventTypeStrings) ==
                   size_t(XMLHttpRequestMainThread::ProgressEventType::ENUM_MAX),
               "Mismatched lengths for ProgressEventTypeStrings and "
               "ProgressEventType enums");
 
-const nsString kLiteralString_readystatechange =
-    NS_LITERAL_STRING("readystatechange");
-const nsString kLiteralString_xmlhttprequest =
-    NS_LITERAL_STRING("xmlhttprequest");
-const nsString kLiteralString_DOMContentLoaded =
-    NS_LITERAL_STRING("DOMContentLoaded");
-const nsCString kLiteralString_charset = NS_LITERAL_CSTRING("charset");
-const nsCString kLiteralString_UTF_8 = NS_LITERAL_CSTRING("UTF-8");
+const nsString kLiteralString_readystatechange = u"readystatechange"_ns;
+const nsString kLiteralString_xmlhttprequest = u"xmlhttprequest"_ns;
+const nsString kLiteralString_DOMContentLoaded = u"DOMContentLoaded"_ns;
+const nsCString kLiteralString_charset = "charset"_ns;
+const nsCString kLiteralString_UTF_8 = "UTF-8"_ns;
 }  // namespace
-
-// CIDs
-#define NS_BADCERTHANDLER_CONTRACTID \
-  "@mozilla.org/content/xmlhttprequest-bad-cert-handler;1"
 
 #define NS_PROGRESS_EVENT_INTERVAL 50
 #define MAX_SYNC_TIMEOUT_WHEN_UNLOADING 10000 /* 10 secs */
@@ -187,8 +178,10 @@ static void AddLoadFlags(nsIRequest* request, nsLoadFlags newFlags) {
 
 bool XMLHttpRequestMainThread::sDontWarnAboutSyncXHR = false;
 
-XMLHttpRequestMainThread::XMLHttpRequestMainThread()
-    : mResponseBodyDecodedPos(0),
+XMLHttpRequestMainThread::XMLHttpRequestMainThread(
+    nsIGlobalObject* aGlobalObject)
+    : XMLHttpRequest(aGlobalObject),
+      mResponseBodyDecodedPos(0),
       mResponseType(XMLHttpRequestResponseType::_empty),
       mRequestObserver(nullptr),
       mState(XMLHttpRequest_Binding::UNSENT),
@@ -256,6 +249,22 @@ XMLHttpRequestMainThread::~XMLHttpRequestMainThread() {
   mozilla::DropJSObjects(this);
 }
 
+void XMLHttpRequestMainThread::Construct(
+    nsIPrincipal* aPrincipal, nsICookieSettings* aCookieSettings,
+    bool aForWorker, nsIURI* aBaseURI /* = nullptr */,
+    nsILoadGroup* aLoadGroup /* = nullptr */,
+    PerformanceStorage* aPerformanceStorage /* = nullptr */,
+    nsICSPEventListener* aCSPEventListener /* = nullptr */) {
+  MOZ_ASSERT(aPrincipal);
+  mPrincipal = aPrincipal;
+  mBaseURI = aBaseURI;
+  mLoadGroup = aLoadGroup;
+  mCookieSettings = aCookieSettings;
+  mForWorker = aForWorker;
+  mPerformanceStorage = aPerformanceStorage;
+  mCSPEventListener = aCSPEventListener;
+}
+
 void XMLHttpRequestMainThread::InitParameters(bool aAnon, bool aSystem) {
   if (!aAnon && !aSystem) {
     return;
@@ -285,7 +294,7 @@ void XMLHttpRequestMainThread::InitParameters(bool aAnon, bool aSystem) {
 
     uint32_t permission;
     nsresult rv = permMgr->TestPermissionFromPrincipal(
-        principal, NS_LITERAL_CSTRING("systemXHR"), &permission);
+        principal, "systemXHR"_ns, &permission);
     if (NS_FAILED(rv) || permission != nsIPermissionManager::ALLOW_ACTION) {
       SetParameters(aAnon, false);
       return;
@@ -425,9 +434,9 @@ static void LogMessage(
   if (aWindow) {
     doc = aWindow->GetExtantDoc();
   }
-  nsContentUtils::ReportToConsole(
-      nsIScriptError::warningFlag, NS_LITERAL_CSTRING("DOM"), doc,
-      nsContentUtils::eDOM_PROPERTIES, aWarning, aParams);
+  nsContentUtils::ReportToConsole(nsIScriptError::warningFlag, "DOM"_ns, doc,
+                                  nsContentUtils::eDOM_PROPERTIES, aWarning,
+                                  aParams);
 }
 
 Document* XMLHttpRequestMainThread::GetResponseXML(ErrorResult& aRv) {
@@ -1067,8 +1076,8 @@ bool XMLHttpRequestMainThread::IsSafeHeader(
   nsAutoCString headerVal;
   // The "Access-Control-Expose-Headers" header contains a comma separated
   // list of method names.
-  Unused << aHttpChannel->GetResponseHeader(
-      NS_LITERAL_CSTRING("Access-Control-Expose-Headers"), headerVal);
+  Unused << aHttpChannel->GetResponseHeader("Access-Control-Expose-Headers"_ns,
+                                            headerVal);
   nsCCharSeparatedTokenizer exposeTokens(headerVal, ',');
   bool isSafe = false;
   while (exposeTokens.hasMoreTokens()) {
@@ -1384,7 +1393,8 @@ nsresult XMLHttpRequestMainThread::Open(const nsACString& aMethod,
   // Gecko-specific
   if (!aAsync && !DontWarnAboutSyncXHR() && GetOwner() &&
       GetOwner()->GetExtantDoc()) {
-    GetOwner()->GetExtantDoc()->WarnOnceAbout(Document::eSyncXMLHttpRequest);
+    GetOwner()->GetExtantDoc()->WarnOnceAbout(
+        DeprecatedOperations::eSyncXMLHttpRequest);
   }
 
   Telemetry::Accumulate(Telemetry::XMLHTTPREQUEST_ASYNC_OR_SYNC,
@@ -1872,7 +1882,7 @@ XMLHttpRequestMainThread::OnStartRequest(nsIRequest* request) {
   nsAutoCString type;
   channel->GetContentType(type);
   if (type.EqualsLiteral(UNKNOWN_CONTENT_TYPE)) {
-    channel->SetContentType(NS_LITERAL_CSTRING(APPLICATION_OCTET_STREAM));
+    channel->SetContentType(nsLiteralCString(APPLICATION_OCTET_STREAM));
   }
 
   DetectCharset();
@@ -1906,8 +1916,7 @@ XMLHttpRequestMainThread::OnStartRequest(nsIRequest* request) {
             if (NS_FAILED(rv)) {
               mIsMappedArrayBuffer = false;
             } else {
-              channel->SetContentType(
-                  NS_LITERAL_CSTRING("application/mem-mapped"));
+              channel->SetContentType("application/mem-mapped"_ns);
             }
           }
         }
@@ -2448,7 +2457,7 @@ nsresult XMLHttpRequestMainThread::CreateChannel() {
     // Set the initiator type
     nsCOMPtr<nsITimedChannel> timedChannel(do_QueryInterface(httpChannel));
     if (timedChannel) {
-      timedChannel->SetInitiatorType(NS_LITERAL_STRING("xmlhttprequest"));
+      timedChannel->SetInitiatorType(u"xmlhttprequest"_ns);
     }
   }
 
@@ -2537,7 +2546,7 @@ nsresult XMLHttpRequestMainThread::InitiateFetch(
   if (httpChannel) {
     // If the user hasn't overridden the Accept header, set it to */* per spec.
     if (!mAuthorRequestHeaders.Has("accept")) {
-      mAuthorRequestHeaders.Set("accept", NS_LITERAL_CSTRING("*/*"));
+      mAuthorRequestHeaders.Set("accept", "*/*"_ns);
     }
 
     mAuthorRequestHeaders.ApplyToChannel(httpChannel, false);
@@ -2763,7 +2772,7 @@ void XMLHttpRequestMainThread::EnsureChannelContentType() {
   if (NS_FAILED(mChannel->GetContentType(contentType)) ||
       contentType.IsEmpty() ||
       contentType.EqualsLiteral(UNKNOWN_CONTENT_TYPE)) {
-    mChannel->SetContentType(NS_LITERAL_CSTRING("text/xml"));
+    mChannel->SetContentType("text/xml"_ns);
   }
 }
 
@@ -2783,7 +2792,6 @@ void XMLHttpRequestMainThread::UnsuppressEventHandlingAndResume() {
 }
 
 void XMLHttpRequestMainThread::Send(
-    JSContext* aCx,
     const Nullable<
         DocumentOrBlobOrArrayBufferViewOrArrayBufferOrFormDataOrURLSearchParamsOrUSVString>&
         aData,
@@ -3411,42 +3419,33 @@ XMLHttpRequestMainThread::GetInterface(const nsIID& aIID, void** aResult) {
     }
   }
 
-  if (mFlagBackgroundRequest) {
-    nsCOMPtr<nsIInterfaceRequestor> badCertHandler(
-        do_CreateInstance(NS_BADCERTHANDLER_CONTRACTID, &rv));
-
-    // Ignore failure to get component, we may not have all its dependencies
-    // available
-    if (NS_SUCCEEDED(rv)) {
-      rv = badCertHandler->GetInterface(aIID, aResult);
-      if (NS_SUCCEEDED(rv)) return rv;
-    }
-  } else if (aIID.Equals(NS_GET_IID(nsIAuthPrompt)) ||
-             aIID.Equals(NS_GET_IID(nsIAuthPrompt2))) {
+  if (!mFlagBackgroundRequest && (aIID.Equals(NS_GET_IID(nsIAuthPrompt)) ||
+                                  aIID.Equals(NS_GET_IID(nsIAuthPrompt2)))) {
     nsCOMPtr<nsIPromptFactory> wwatch =
         do_GetService(NS_WINDOWWATCHER_CONTRACTID, &rv);
     NS_ENSURE_SUCCESS(rv, rv);
 
     // Get the an auth prompter for our window so that the parenting
     // of the dialogs works as it should when using tabs.
-
     nsCOMPtr<nsPIDOMWindowOuter> window;
     if (GetOwner()) {
       window = GetOwner()->GetOuterWindow();
     }
-
     return wwatch->GetPrompt(window, aIID, reinterpret_cast<void**>(aResult));
   }
+
   // Now check for the various XHR non-DOM interfaces, except
   // nsIProgressEventSink and nsIChannelEventSink which we already
   // handled above.
-  else if (aIID.Equals(NS_GET_IID(nsIStreamListener))) {
+  if (aIID.Equals(NS_GET_IID(nsIStreamListener))) {
     *aResult = static_cast<nsIStreamListener*>(EnsureXPCOMifier().take());
     return NS_OK;
-  } else if (aIID.Equals(NS_GET_IID(nsIRequestObserver))) {
+  }
+  if (aIID.Equals(NS_GET_IID(nsIRequestObserver))) {
     *aResult = static_cast<nsIRequestObserver*>(EnsureXPCOMifier().take());
     return NS_OK;
-  } else if (aIID.Equals(NS_GET_IID(nsITimerCallback))) {
+  }
+  if (aIID.Equals(NS_GET_IID(nsITimerCallback))) {
     *aResult = static_cast<nsITimerCallback*>(EnsureXPCOMifier().take());
     return NS_OK;
   }

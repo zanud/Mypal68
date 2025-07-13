@@ -255,6 +255,11 @@ class MediaDecoderStateMachine
     return mOnNextFrameStatus;
   }
 
+  MediaEventSourceExc<RefPtr<VideoFrameContainer>>&
+  OnSecondaryVideoContainerInstalled() {
+    return mOnSecondaryVideoContainerInstalled;
+  }
+
   size_t SizeOfVideoQueue() const;
 
   size_t SizeOfAudioQueue() const;
@@ -667,6 +672,9 @@ class MediaDecoderStateMachine
   MediaEventProducer<DecoderDoctorEvent> mOnDecoderDoctorEvent;
 
   MediaEventProducer<NextFrameStatus> mOnNextFrameStatus;
+
+  MediaEventProducerExc<RefPtr<VideoFrameContainer>>
+      mOnSecondaryVideoContainerInstalled;
 
   const bool mIsMSE;
 

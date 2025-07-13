@@ -140,7 +140,6 @@ class XMLHttpRequestWorker final : public XMLHttpRequest {
   virtual XMLHttpRequestUpload* GetUpload(ErrorResult& aRv) override;
 
   virtual void Send(
-      JSContext* aCx,
       const Nullable<
           DocumentOrBlobOrArrayBufferViewOrArrayBufferOrFormDataOrURLSearchParamsOrUSVString>&
           aData,
@@ -222,7 +221,8 @@ class XMLHttpRequestWorker final : public XMLHttpRequest {
   bool SendInProgress() const { return !!mWorkerRef; }
 
  private:
-  explicit XMLHttpRequestWorker(WorkerPrivate* aWorkerPrivate);
+  XMLHttpRequestWorker(WorkerPrivate* aWorkerPrivate,
+                       nsIGlobalObject* aGlobalObject);
   ~XMLHttpRequestWorker();
 
   enum ReleaseType { Default, XHRIsGoingAway, WorkerIsGoingAway };

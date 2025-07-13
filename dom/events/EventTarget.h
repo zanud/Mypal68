@@ -5,8 +5,6 @@
 #ifndef mozilla_dom_EventTarget_h_
 #define mozilla_dom_EventTarget_h_
 
-#include "mozilla/dom/BindingDeclarations.h"
-#include "mozilla/dom/DebuggerNotificationBinding.h"
 #include "mozilla/dom/Nullable.h"
 #include "nsISupports.h"
 #include "nsWrapperCache.h"
@@ -36,6 +34,8 @@ class GlobalObject;
 template <typename>
 struct Nullable;
 class WindowProxyHolder;
+enum class CallerType : uint32_t;
+enum class EventCallbackDebuggerNotificationType : uint8_t;
 
 // IID for the dom::EventTarget interface
 #define NS_EVENTTARGET_IID                           \

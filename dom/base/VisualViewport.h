@@ -10,6 +10,8 @@
 #include "mozilla/dom/VisualViewportBinding.h"
 #include "Units.h"
 
+class nsPresContext;
+
 namespace mozilla {
 
 class PresShell;

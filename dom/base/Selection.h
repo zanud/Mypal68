@@ -19,6 +19,7 @@
 #include "nsRange.h"
 #include "nsTArrayForwardDeclare.h"
 #include "nsThreadUtils.h"
+#include "nsWeakReference.h"
 #include "nsWrapperCache.h"
 
 struct CachedOffsetForFrame;
@@ -30,6 +31,9 @@ struct SelectionDetails;
 struct SelectionCustomColors;
 class nsCopySupport;
 class nsHTMLCopyEncoder;
+class nsPresContext;
+struct nsPoint;
+struct nsRect;
 
 namespace mozilla {
 class AccessibleCaretEventHub;

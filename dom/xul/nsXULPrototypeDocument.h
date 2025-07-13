@@ -13,7 +13,6 @@
 #include "nsISerializable.h"
 #include "nsCycleCollectionParticipant.h"
 #include <functional>
-#include "mozilla/dom/Element.h"
 
 class nsAtom;
 class nsIPrincipal;
@@ -21,6 +20,10 @@ class nsIURI;
 class nsNodeInfoManager;
 class nsXULPrototypeElement;
 class nsXULPrototypePI;
+
+namespace mozilla::dom {
+class Element;
+}
 
 /**
  * A "prototype" document that stores shared document information
@@ -96,7 +99,7 @@ class nsXULPrototypeDocument final : public nsISerializable {
 
   bool WasL10nCached() { return mWasL10nCached; };
 
-  void SetIsL10nCached();
+  void SetIsL10nCached(bool aIsCached);
   void RebuildPrototypeFromElement(nsXULPrototypeElement* aPrototype,
                                    mozilla::dom::Element* aElement, bool aDeep);
   void RebuildL10nPrototype(mozilla::dom::Element* aElement, bool aDeep);

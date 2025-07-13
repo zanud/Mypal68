@@ -9,6 +9,7 @@
 #include "mozilla/ipc/InProcessChild.h"
 #include "mozilla/dom/BrowsingContext.h"
 #include "mozilla/dom/ContentChild.h"
+#include "mozilla/dom/Document.h" //MY
 #include "mozilla/dom/MozFrameLoaderOwnerBinding.h"
 #include "mozilla/dom/BrowserChild.h"
 #include "mozilla/dom/BrowserBridgeChild.h"
@@ -29,11 +30,14 @@
 #include "mozilla/dom/JSWindowActorService.h"
 #include "nsIHttpChannelInternal.h"
 
+#ifdef MOZ_GECKO_PROFILER
+#  include "GeckoProfiler.h"
+#endif
+
 using namespace mozilla::ipc;
 using namespace mozilla::dom::ipc;
 
-namespace mozilla {
-namespace dom {
+namespace mozilla::dom {
 
 typedef nsRefPtrHashtable<nsUint64HashKey, WindowGlobalChild> WGCByIdMap;
 static StaticAutoPtr<WGCByIdMap> gWindowGlobalChildById;
@@ -370,5 +374,4 @@ NS_INTERFACE_MAP_END_INHERITING(WindowGlobalActor)
 NS_IMPL_ADDREF_INHERITED(WindowGlobalChild, WindowGlobalActor)
 NS_IMPL_RELEASE_INHERITED(WindowGlobalChild, WindowGlobalActor)
 
-}  // namespace dom
-}  // namespace mozilla
+}  // namespace mozilla::dom

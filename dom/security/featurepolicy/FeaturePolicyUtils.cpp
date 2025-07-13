@@ -5,10 +5,13 @@
 #include "FeaturePolicyUtils.h"
 #include "nsIOService.h"
 
+#ifdef THE_REPORTING
 #include "mozilla/dom/FeaturePolicyViolationReportBody.h"
 #include "mozilla/dom/ReportingUtils.h"
+#endif
 #include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/dom/Document.h"
+#include "nsJSUtils.h"
 
 namespace mozilla {
 namespace dom {
@@ -137,15 +140,14 @@ void FeaturePolicyUtils::ReportViolation(Document* aDocument,
   if (NS_WARN_IF(!window)) {
     return;
   }
-
+#ifdef THE_REPORTING
   RefPtr<FeaturePolicyViolationReportBody> body =
       new FeaturePolicyViolationReportBody(window, aFeatureName, fileName,
                                            lineNumber, columnNumber,
-                                           NS_LITERAL_STRING("enforce"));
-
+                                           u"enforce"_ns);
   ReportingUtils::Report(window, nsGkAtoms::featurePolicyViolation,
-                         NS_LITERAL_STRING("default"),
-                         NS_ConvertUTF8toUTF16(spec), body);
+                         u"default"_ns, NS_ConvertUTF8toUTF16(spec), body);
+#endif
 }
 
 }  // namespace dom

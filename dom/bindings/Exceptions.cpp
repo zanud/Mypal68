@@ -20,8 +20,7 @@
 #include "WorkerPrivate.h"
 #include "nsContentUtils.h"
 
-namespace mozilla {
-namespace dom {
+namespace mozilla::dom {
 
 // Throw the given exception value if it's safe.  If it's not safe, then
 // synthesize and throw a new exception value for NS_ERROR_UNEXPECTED.  The
@@ -749,5 +748,4 @@ already_AddRefed<nsIStackFrame> CreateStack(JSContext* aCx,
 }
 
 }  // namespace exceptions
-}  // namespace dom
-}  // namespace mozilla
+}  // namespace mozilla::dom

@@ -145,8 +145,8 @@ nsresult LocalStorageManager::GetStorageInternal(
   nsAutoCString originAttrSuffix;
   nsAutoCString originKey;
 
-  nsresult rv =
-      GenerateOriginKey(aStoragePrincipal, originAttrSuffix, originKey);
+  nsresult rv = aStoragePrincipal->GetStorageOriginKey(originKey);
+  aStoragePrincipal->OriginAttributesRef().CreateSuffix(originAttrSuffix);
   if (NS_FAILED(rv)) {
     return NS_ERROR_NOT_AVAILABLE;
   }
@@ -229,7 +229,7 @@ LocalStorageManager::PrecacheStorage(nsIPrincipal* aPrincipal,
                                      nsIPrincipal* aStoragePrincipal,
                                      Storage** aRetval) {
   return GetStorageInternal(CreateMode::CreateIfShouldPreload, nullptr,
-                            aPrincipal, aStoragePrincipal, EmptyString(), false,
+                            aPrincipal, aStoragePrincipal, u""_ns, false,
                             aRetval);
 }
 
@@ -249,8 +249,8 @@ LocalStorageManager::GetStorage(mozIDOMWindow* aWindow,
                                 nsIPrincipal* aStoragePrincipal, bool aPrivate,
                                 Storage** aRetval) {
   return GetStorageInternal(CreateMode::UseIfExistsNeverCreate, aWindow,
-                            aPrincipal, aStoragePrincipal, EmptyString(),
-                            aPrivate, aRetval);
+                            aPrincipal, aStoragePrincipal, u""_ns, aPrivate,
+                            aRetval);
 }
 
 NS_IMETHODIMP
@@ -336,7 +336,7 @@ nsresult LocalStorageManager::Observe(const char* aTopic,
 
   // Clear everything, caches + database
   if (!strcmp(aTopic, "cookie-cleared")) {
-    ClearCaches(LocalStorageCache::kUnloadComplete, pattern, EmptyCString());
+    ClearCaches(LocalStorageCache::kUnloadComplete, pattern, ""_ns);
     return NS_OK;
   }
 
@@ -360,19 +360,19 @@ nsresult LocalStorageManager::Observe(const char* aTopic,
 
   // Clear all private-browsing caches
   if (!strcmp(aTopic, "private-browsing-data-cleared")) {
-    ClearCaches(LocalStorageCache::kUnloadPrivate, pattern, EmptyCString());
+    ClearCaches(LocalStorageCache::kUnloadPrivate, pattern, ""_ns);
     return NS_OK;
   }
 
   // Clear localStorage data beloging to an origin pattern
   if (!strcmp(aTopic, "origin-attr-pattern-cleared")) {
-    ClearCaches(LocalStorageCache::kUnloadComplete, pattern, EmptyCString());
+    ClearCaches(LocalStorageCache::kUnloadComplete, pattern, ""_ns);
     return NS_OK;
   }
 
   if (!strcmp(aTopic, "profile-change")) {
     // For case caches are still referenced - clear them completely
-    ClearCaches(LocalStorageCache::kUnloadComplete, pattern, EmptyCString());
+    ClearCaches(LocalStorageCache::kUnloadComplete, pattern, ""_ns);
     mCaches.Clear();
     return NS_OK;
   }
@@ -380,7 +380,7 @@ nsresult LocalStorageManager::Observe(const char* aTopic,
 #ifdef DOM_STORAGE_TESTS
   if (!strcmp(aTopic, "test-reload")) {
     // This immediately completely reloads all caches from the database.
-    ClearCaches(LocalStorageCache::kTestReload, pattern, EmptyCString());
+    ClearCaches(LocalStorageCache::kTestReload, pattern, ""_ns);
     return NS_OK;
   }
 

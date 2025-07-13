@@ -10,10 +10,10 @@
 #include "mozilla/dom/Document.h"
 #include "nsIFocusManager.h"
 #include "nsIObserver.h"
-#include "nsIWidget.h"
 #include "nsWeakReference.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/RefPtr.h"
+#include "mozilla/StaticPtr.h"
 
 #define FOCUSMETHOD_MASK 0xF000
 #define FOCUSMETHODANDRING_MASK 0xF0F000
@@ -21,7 +21,6 @@
 #define FOCUSMANAGER_CONTRACTID "@mozilla.org/focus-manager;1"
 
 class nsIContent;
-class nsIDocShellTreeItem;
 class nsPIDOMWindowOuter;
 
 namespace mozilla {
@@ -734,7 +733,7 @@ class nsFocusManager final : public nsIFocusManager,
   static bool sTestMode;
 
   // the single focus manager
-  static nsFocusManager* sInstance;
+  static mozilla::StaticRefPtr<nsFocusManager> sInstance;
 };
 
 nsresult NS_NewFocusManager(nsIFocusManager** aResult);

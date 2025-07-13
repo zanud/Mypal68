@@ -5,6 +5,7 @@
 #include "IntlUtils.h"
 
 #include "mozilla/dom/ToJSValue.h"
+#include "mozilla/intl/LocaleService.h"
 #include "mozIMozIntl.h"
 #include "nsContentUtils.h"
 
@@ -32,7 +33,6 @@ void IntlUtils::GetDisplayNames(const Sequence<nsString>& aLocales,
                                 DisplayNameResult& aResult,
                                 ErrorResult& aError) {
   MOZ_ASSERT(nsContentUtils::IsCallerChrome() ||
-             nsContentUtils::IsCallerContentXBL() ||
              nsContentUtils::IsCallerUAWidget());
 
   nsCOMPtr<mozIMozIntl> mozIntl = do_GetService("@mozilla.org/mozintl;1");
@@ -87,7 +87,6 @@ void IntlUtils::GetDisplayNames(const Sequence<nsString>& aLocales,
 void IntlUtils::GetLocaleInfo(const Sequence<nsString>& aLocales,
                               LocaleInfo& aResult, ErrorResult& aError) {
   MOZ_ASSERT(nsContentUtils::IsCallerChrome() ||
-             nsContentUtils::IsCallerContentXBL() ||
              nsContentUtils::IsCallerUAWidget());
 
   nsCOMPtr<mozIMozIntl> mozIntl = do_GetService("@mozilla.org/mozintl;1");
@@ -127,6 +126,12 @@ void IntlUtils::GetLocaleInfo(const Sequence<nsString>& aLocales,
   if (!aResult.Init(cx, retVal)) {
     aError.Throw(NS_ERROR_FAILURE);
   }
+}
+
+bool IntlUtils::IsAppLocaleRTL() {
+  MOZ_ASSERT(nsContentUtils::IsCallerChrome() ||
+             nsContentUtils::IsCallerUAWidget());
+  return intl::LocaleService::GetInstance()->IsAppLocaleRTL();
 }
 
 }  // namespace mozilla::dom

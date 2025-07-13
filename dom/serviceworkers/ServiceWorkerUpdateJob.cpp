@@ -386,7 +386,7 @@ void ServiceWorkerUpdateJob::ComparisonResult(nsresult aStatus,
         message, nsContentUtils::eDOM_PROPERTIES,
         "ServiceWorkerScopePathMismatch", reportScope, reportMaxPrefix);
     NS_WARNING_ASSERTION(NS_SUCCEEDED(rv), "Failed to format localized string");
-    swm->ReportToAllClients(mScope, message, EmptyString(), EmptyString(), 0, 0,
+    swm->ReportToAllClients(mScope, message, u""_ns, u""_ns, 0, 0,
                             nsIScriptError::errorFlag);
     FailUpdateJob(NS_ERROR_DOM_SECURITY_ERR);
     return;
@@ -398,8 +398,6 @@ void ServiceWorkerUpdateJob::ComparisonResult(nsresult aStatus,
     Finish(NS_OK);
     return;
   }
-
-  Telemetry::Accumulate(Telemetry::SERVICE_WORKER_UPDATED, 1);
 
   // Begin step 7 of the Update algorithm to evaluate the new script.
   nsLoadFlags flags = aLoadFlags;
@@ -487,8 +485,7 @@ void ServiceWorkerUpdateJob::Install() {
   // Send the install event to the worker thread
   ServiceWorkerPrivate* workerPrivate =
       mRegistration->GetInstalling()->WorkerPrivate();
-  nsresult rv =
-      workerPrivate->SendLifeCycleEvent(NS_LITERAL_STRING("install"), callback);
+  nsresult rv = workerPrivate->SendLifeCycleEvent(u"install"_ns, callback);
   if (NS_WARN_IF(NS_FAILED(rv))) {
     ContinueAfterInstallEvent(false /* aSuccess */);
   }

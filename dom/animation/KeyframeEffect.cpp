@@ -37,6 +37,7 @@
 #include "nsIScrollableFrame.h"
 #include "nsPresContextInlines.h"
 #include "nsRefreshDriver.h"
+#include "js/PropertyAndElement.h"  // JS_DefineProperty
 
 namespace mozilla {
 
@@ -1048,6 +1049,11 @@ already_AddRefed<KeyframeEffect> KeyframeEffect::Constructor(
     effect->mBaseValues.Put(iter.Key(), RefPtr{iter.Data()});
   }
   return effect.forget();
+}
+
+already_AddRefed<Element> KeyframeEffect::GetTarget() const {
+  RefPtr<Element> ret = mTarget.mElement;
+  return ret.forget();
 }
 
 void KeyframeEffect::SetPseudoElement(const nsAString& aPseudoElement,

@@ -53,7 +53,7 @@ already_AddRefed<nsIFile> GetFile() {
     return nullptr;
   }
 
-  file->Append(NS_LITERAL_STRING(SERVICEWORKERREGISTRAR_FILE));
+  file->Append(nsLiteralString(SERVICEWORKERREGISTRAR_FILE));
   return file.forget();
 }
 
@@ -106,7 +106,7 @@ TEST(ServiceWorkerRegistrar, TestNoFile)
 
 TEST(ServiceWorkerRegistrar, TestEmptyFile)
 {
-  ASSERT_TRUE(CreateFile(EmptyCString()))
+  ASSERT_TRUE(CreateFile(""_ns))
   << "CreateFile should not fail";
 
   RefPtr<ServiceWorkerRegistrarTest> swr = new ServiceWorkerRegistrarTest;
@@ -121,8 +121,7 @@ TEST(ServiceWorkerRegistrar, TestEmptyFile)
 
 TEST(ServiceWorkerRegistrar, TestRightVersionFile)
 {
-  ASSERT_TRUE(
-      CreateFile(NS_LITERAL_CSTRING(SERVICEWORKERREGISTRAR_VERSION "\n")))
+  ASSERT_TRUE(CreateFile(nsLiteralCString(SERVICEWORKERREGISTRAR_VERSION "\n")))
   << "CreateFile should not fail";
 
   RefPtr<ServiceWorkerRegistrarTest> swr = new ServiceWorkerRegistrarTest;
@@ -139,7 +138,7 @@ TEST(ServiceWorkerRegistrar, TestRightVersionFile)
 TEST(ServiceWorkerRegistrar, TestWrongVersionFile)
 {
   ASSERT_TRUE(
-      CreateFile(NS_LITERAL_CSTRING(SERVICEWORKERREGISTRAR_VERSION "bla\n")))
+      CreateFile(nsLiteralCString(SERVICEWORKERREGISTRAR_VERSION "bla\n")))
   << "CreateFile should not fail";
 
   RefPtr<ServiceWorkerRegistrarTest> swr = new ServiceWorkerRegistrarTest;
@@ -241,7 +240,7 @@ TEST(ServiceWorkerRegistrar, TestReadData)
 
 TEST(ServiceWorkerRegistrar, TestDeleteData)
 {
-  ASSERT_TRUE(CreateFile(NS_LITERAL_CSTRING("Foobar")))
+  ASSERT_TRUE(CreateFile("Foobar"_ns))
   << "CreateFile should not fail";
 
   RefPtr<ServiceWorkerRegistrarTest> swr = new ServiceWorkerRegistrarTest;
@@ -874,7 +873,7 @@ TEST(ServiceWorkerRegistrar, TestDedupeWrite)
     for (int i = 0; i < 2; ++i) {
       ServiceWorkerRegistrationData reg;
 
-      reg.scope() = NS_LITERAL_CSTRING("https://scope_write.dedupe");
+      reg.scope() = "https://scope_write.dedupe"_ns;
       reg.currentWorkerURL() = nsPrintfCString("currentWorkerURL write %d", i);
       reg.currentWorkerHandlesFetch() = true;
       reg.cacheName() =

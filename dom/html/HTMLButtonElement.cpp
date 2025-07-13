@@ -51,7 +51,7 @@ static const nsAttrValue::EnumTable* kButtonDefaultType = &kButtonTypeTable[2];
 HTMLButtonElement::HTMLButtonElement(
     already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo,
     FromParser aFromParser)
-    : nsGenericHTMLFormElementWithState(std::move(aNodeInfo),
+    : nsGenericHTMLFormElementWithState(std::move(aNodeInfo), aFromParser,
                                         kButtonDefaultType->value),
       mDisabledChanged(false),
       mInInternalActivate(false),
@@ -335,11 +335,9 @@ HTMLButtonElement::SubmitNamesValues(HTMLFormSubmission* aFormSubmission) {
 }
 
 void HTMLButtonElement::DoneCreatingElement() {
+  GenerateStateKey();
   if (!mInhibitStateRestoration) {
-    nsresult rv = GenerateStateKey();
-    if (NS_SUCCEEDED(rv)) {
-      RestoreFormControlState();
-    }
+    RestoreFormControlState();
   }
 }
 

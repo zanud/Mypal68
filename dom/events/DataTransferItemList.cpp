@@ -444,7 +444,7 @@ void DataTransferItemList::GetTypes(nsTArray<nsString>& aTypes,
   }
 
   if (foundFile) {
-    aTypes.AppendElement(NS_LITERAL_STRING("Files"));
+    aTypes.AppendElement(u"Files"_ns);
   }
 }
 

@@ -10,7 +10,6 @@
 #define nsDOMAttributeMap_h
 
 #include "mozilla/MemoryReporting.h"
-#include "mozilla/ErrorResult.h"
 #include "nsCycleCollectionParticipant.h"
 #include "nsRefPtrHashtable.h"
 #include "nsString.h"
@@ -20,6 +19,8 @@ class nsAtom;
 class nsINode;
 
 namespace mozilla {
+class ErrorResult;
+
 namespace dom {
 class Attr;
 class DocGroup;
@@ -168,10 +169,5 @@ class nsDOMAttributeMap final : public nsISupports, public nsWrapperCache {
 
   Attr* GetAttribute(mozilla::dom::NodeInfo* aNodeInfo);
 };
-
-// XXX khuey yes this is strange.  The bindings code needs to see this include,
-// but if we pull it in at the top of the file we get a circular include
-// problem.
-#include "mozilla/dom/Element.h"
 
 #endif /* nsDOMAttributeMap_h */

@@ -8,8 +8,7 @@
 #include "nsPIDOMWindow.h"
 #include "mozilla/dom/BindingUtils.h"
 
-namespace mozilla {
-namespace dom {
+namespace mozilla::dom {
 
 NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE(TestInterfaceMaplikeObject, mParent)
 
@@ -72,5 +71,4 @@ bool TestInterfaceMaplikeObject::HasInternal(const nsAString& aKey) {
                                                                  rv);
 }
 
-}  // namespace dom
-}  // namespace mozilla
+}  // namespace mozilla::dom

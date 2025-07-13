@@ -5,12 +5,9 @@
 #ifndef WEBGL_CONTEXT_UTILS_H_
 #define WEBGL_CONTEXT_UTILS_H_
 
-#include "WebGLContext.h"
-
-#include "mozilla/Assertions.h"
-#include "mozilla/dom/BindingUtils.h"
-
+#include "mozilla/dom/BindingUtils.h" //MY
 #include "WebGLStrongTypes.h"
+#include "WebGLTypes.h"
 
 namespace mozilla {
 

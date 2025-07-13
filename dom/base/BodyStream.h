@@ -8,15 +8,20 @@
 #include "jsapi.h"
 #include "js/Stream.h"
 #include "nsIAsyncInputStream.h"
+#include "nsCycleCollectionParticipant.h"
 #include "nsIObserver.h"
 #include "nsISupportsImpl.h"
+#include "nsNetCID.h"
 #include "nsWeakReference.h"
+#include "mozilla/Mutex.h"
 
 class nsIGlobalObject;
 
 class nsIInputStream;
 
 namespace mozilla {
+class ErrorResult;
+
 namespace dom {
 
 class BodyStream;

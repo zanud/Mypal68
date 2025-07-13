@@ -5,9 +5,10 @@
 #include "BlobImpl.h"
 #include "File.h"
 #include "mozilla/CheckedInt.h"
+#include "mozilla/ErrorResult.h"
+#include "nsIInputStream.h"
 
-namespace mozilla {
-namespace dom {
+namespace mozilla::dom {
 
 // Makes sure that aStart and aEnd is less then or equal to aSize and greater
 // than 0
@@ -61,5 +62,4 @@ already_AddRefed<BlobImpl> BlobImpl::Slice(const Optional<int64_t>& aStart,
 
 NS_IMPL_ISUPPORTS(BlobImpl, BlobImpl)
 
-}  // namespace dom
-}  // namespace mozilla
+}  // namespace mozilla::dom

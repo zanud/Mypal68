@@ -5,13 +5,12 @@
 #include "nsContentUtils.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/Sprintf.h"
-#include "nsGlobalWindow.h"
 #include "mozilla/dom/Event.h"
-#include "mozilla/dom/ScriptSettings.h"
 #include "mozilla/DOMEventTargetHelper.h"
 #include "mozilla/EventDispatcher.h"
 #include "mozilla/EventListenerManager.h"
 #include "mozilla/Likely.h"
+#include "MainThreadUtils.h"
 
 namespace mozilla {
 
@@ -82,6 +81,42 @@ NS_IMPL_CYCLE_COLLECTING_ADDREF(DOMEventTargetHelper)
 NS_IMPL_CYCLE_COLLECTING_RELEASE_WITH_LAST_RELEASE(DOMEventTargetHelper,
                                                    LastRelease())
 
+DOMEventTargetHelper::DOMEventTargetHelper()
+    : mParentObject(nullptr),
+      mOwnerWindow(nullptr),
+      mHasOrHasHadOwnerWindow(false),
+      mIsKeptAlive(false) {}
+
+DOMEventTargetHelper::DOMEventTargetHelper(nsPIDOMWindowInner* aWindow)
+    : mParentObject(nullptr),
+      mOwnerWindow(nullptr),
+      mHasOrHasHadOwnerWindow(false),
+      mIsKeptAlive(false) {
+  nsIGlobalObject* global = aWindow ? aWindow->AsGlobal() : nullptr;
+  BindToOwner(global);
+}
+
+DOMEventTargetHelper::DOMEventTargetHelper(nsIGlobalObject* aGlobalObject)
+    : mParentObject(nullptr),
+      mOwnerWindow(nullptr),
+      mHasOrHasHadOwnerWindow(false),
+      mIsKeptAlive(false) {
+  BindToOwner(aGlobalObject);
+}
+
+DOMEventTargetHelper::DOMEventTargetHelper(DOMEventTargetHelper* aOther)
+    : mParentObject(nullptr),
+      mOwnerWindow(nullptr),
+      mHasOrHasHadOwnerWindow(false),
+      mIsKeptAlive(false) {
+  if (!aOther) {
+    BindToOwner(static_cast<nsIGlobalObject*>(nullptr));
+    return;
+  }
+  BindToOwner(aOther->GetParentObject());
+  mHasOrHasHadOwnerWindow = aOther->HasOrHasHadOwner();
+}
+
 DOMEventTargetHelper::~DOMEventTargetHelper() {
   if (mParentObject) {
     mParentObject->RemoveEventTargetObject(this);
@@ -90,30 +125,6 @@ DOMEventTargetHelper::~DOMEventTargetHelper() {
     mListenerManager->Disconnect();
   }
   ReleaseWrapper(this);
-}
-
-void DOMEventTargetHelper::BindToOwner(nsPIDOMWindowInner* aOwner) {
-  // Make sure to bind via BindToOwner(nsIGlobalObject*) so
-  // subclasses can override the method to perform additional
-  // actions.
-  nsIGlobalObject* global = aOwner ? aOwner->AsGlobal() : nullptr;
-  BindToOwner(global);
-}
-
-void DOMEventTargetHelper::BindToOwner(nsIGlobalObject* aOwner) {
-  BindToOwnerInternal(aOwner);
-}
-
-void DOMEventTargetHelper::BindToOwner(DOMEventTargetHelper* aOther) {
-  // Make sure to bind via BindToOwner(nsIGlobalObject*) so
-  // subclasses can override the method to perform additional
-  // actions.
-  if (!aOther) {
-    BindToOwner(static_cast<nsIGlobalObject*>(nullptr));
-    return;
-  }
-  BindToOwner(aOther->GetParentObject());
-  mHasOrHasHadOwnerWindow = aOther->HasOrHasHadOwner();
 }
 
 void DOMEventTargetHelper::DisconnectFromOwner() {
@@ -290,15 +301,9 @@ void DOMEventTargetHelper::MaybeDontKeepAlive() {
   }
 }
 
-void DOMEventTargetHelper::BindToOwnerInternal(nsIGlobalObject* aOwner) {
-  if (mParentObject) {
-    mParentObject->RemoveEventTargetObject(this);
-    if (mOwnerWindow) {
-      mOwnerWindow = nullptr;
-    }
-    mParentObject = nullptr;
-    mHasOrHasHadOwnerWindow = false;
-  }
+void DOMEventTargetHelper::BindToOwner(nsIGlobalObject* aOwner) {
+  MOZ_ASSERT(!mParentObject);
+
   if (aOwner) {
     mParentObject = aOwner;
     aOwner->AddEventTargetObject(this);
@@ -333,6 +338,14 @@ nsresult DOMEventTargetHelper::CheckCurrentGlobalCorrectness() const {
   }
 
   return NS_OK;
+}
+
+bool DOMEventTargetHelper::HasListenersFor(const nsAString& aType) const {
+  return mListenerManager && mListenerManager->HasListenersFor(aType);
+}
+
+bool DOMEventTargetHelper::HasListenersFor(nsAtom* aTypeWithOn) const {
+  return mListenerManager && mListenerManager->HasListenersFor(aTypeWithOn);
 }
 
 }  // namespace mozilla

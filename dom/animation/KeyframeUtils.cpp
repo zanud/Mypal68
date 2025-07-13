@@ -5,18 +5,19 @@
 #include "mozilla/KeyframeUtils.h"
 
 #include <algorithm>  // For std::stable_sort, std::min
+#include <utility>
 
-#include "js/ForOfIterator.h"  // For JS::ForOfIterator
 #include "jsapi.h"             // For most JSAPI
+#include "js/ForOfIterator.h"  // For JS::ForOfIterator
+#include "js/PropertyAndElement.h"  // JS_Enumerate, JS_GetProperty, JS_GetPropertyById
 #include "mozilla/ComputedStyle.h"
 #include "mozilla/ErrorResult.h"
-#include <utility>
 #include "mozilla/RangedArray.h"
-#include "mozilla/ServoBindings.h"
 #include "mozilla/ServoBindingTypes.h"
+#include "mozilla/ServoBindings.h"
 #include "mozilla/ServoCSSParser.h"
-#include "mozilla/StyleAnimationValue.h"
 #include "mozilla/StaticPrefs_dom.h"
+#include "mozilla/StyleAnimationValue.h"
 #include "mozilla/TimingParams.h"
 #include "mozilla/dom/BaseKeyframeTypesBinding.h"  // For FastBaseKeyframe etc.
 #include "mozilla/dom/BindingCallContext.h"

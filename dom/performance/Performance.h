@@ -9,6 +9,7 @@
 #include "mozilla/DOMEventTargetHelper.h"
 #include "nsCOMPtr.h"
 #include "nsDOMNavigationTiming.h"
+#include "nsTObserverArray.h"
 
 class nsITimedChannel;
 

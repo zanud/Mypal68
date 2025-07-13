@@ -326,7 +326,7 @@ nsresult ReferrerInfo::HandleUserXOriginSendingPolicy(nsIURI* aURI,
   // Send an empty referrer if xorigin and leaving a .onion domain.
   if (StaticPrefs::network_http_referer_hideOnionSource() &&
       !uriHost.Equals(referrerHost) &&
-      StringEndsWith(referrerHost, NS_LITERAL_CSTRING(".onion"))) {
+      StringEndsWith(referrerHost, ".onion"_ns)) {
     return NS_OK;
   }
 
@@ -404,7 +404,7 @@ bool ReferrerInfo::ShouldSetNullOriginHeader(net::HttpBaseChannel* aChannel,
   if (StaticPrefs::network_http_referer_hideOnionSource()) {
     nsAutoCString host;
     if (NS_SUCCEEDED(aOriginURI->GetAsciiHost(host)) &&
-        StringEndsWith(host, NS_LITERAL_CSTRING(".onion"))) {
+        StringEndsWith(host, ".onion"_ns)) {
       return ReferrerInfo::IsCrossOriginRequest(aChannel);
     }
   }
@@ -695,8 +695,7 @@ void ReferrerInfo::LogMessageToConsole(
   }
 
   rv = nsContentUtils::ReportToConsoleByWindowID(
-      localizedMsg, nsIScriptError::infoFlag, NS_LITERAL_CSTRING("Security"),
-      windowID, uri);
+      localizedMsg, nsIScriptError::infoFlag, "Security"_ns, windowID, uri);
   Unused << NS_WARN_IF(NS_FAILED(rv));
 }
 
@@ -933,7 +932,7 @@ HashNumber ReferrerInfo::Hash() const {
       static_cast<uint32_t>(mPolicy), mSendReferrer, mOverridePolicyByDefault,
       mozilla::HashString(originalReferrerSpec),
       mozilla::HashString(mComputedReferrer.isSome() ? mComputedReferrer.value()
-                                                     : EmptyCString()));
+                                                     : ""_ns));
 }
 
 NS_IMETHODIMP
@@ -1157,7 +1156,7 @@ nsresult ReferrerInfo::ComputeReferrer(nsIHttpChannel* aChannel) {
   // computed the referrer and the result referrer value is empty (not send
   // referrer). So any early return later than this line will use that empty
   // referrer.
-  mComputedReferrer.emplace(EmptyCString());
+  mComputedReferrer.emplace(""_ns);
 
   if (!mSendReferrer || !mOriginalReferrer ||
       mPolicy == ReferrerPolicy::No_referrer) {
@@ -1193,7 +1192,7 @@ nsresult ReferrerInfo::ComputeReferrer(nsIHttpChannel* aChannel) {
     return NS_OK;
   }
 
-  // Enforce Referrer whitelist, only http, https, ftp scheme are allowed
+  // Enforce Referrer allowlist, only http, https, ftp scheme are allowed
   if (!IsReferrerSchemeAllowed(mOriginalReferrer)) {
     return NS_OK;
   }

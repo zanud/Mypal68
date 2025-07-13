@@ -28,6 +28,7 @@
 #include "js/Class.h"
 #include "js/TypeDecls.h"
 #include "nsStringFwd.h"
+#include "mozilla/Maybe.h"
 
 namespace mozilla {
 namespace dom {
@@ -57,7 +58,7 @@ class MaybeCrossOriginObjectMixins {
    */
   bool CrossOriginGetOwnPropertyHelper(
       JSContext* cx, JS::Handle<JSObject*> obj, JS::Handle<jsid> id,
-      JS::MutableHandle<JS::PropertyDescriptor> desc) const;
+      JS::MutableHandle<Maybe<JS::PropertyDescriptor>> desc) const;
 
   /**
    * Implementation of
@@ -72,7 +73,7 @@ class MaybeCrossOriginObjectMixins {
    */
   static bool CrossOriginPropertyFallback(
       JSContext* cx, JS::Handle<JSObject*> obj, JS::Handle<jsid> id,
-      JS::MutableHandle<JS::PropertyDescriptor> desc);
+      JS::MutableHandle<Maybe<JS::PropertyDescriptor>> desc);
 
   /**
    * Implementation of
@@ -237,7 +238,7 @@ class MaybeCrossOriginObject : public Base,
    */
   bool getOwnPropertyDescriptor(
       JSContext* cx, JS::Handle<JSObject*> proxy, JS::Handle<jsid> id,
-      JS::MutableHandle<JS::PropertyDescriptor> desc) const override = 0;
+      JS::MutableHandle<Maybe<JS::PropertyDescriptor>> desc) const override = 0;
 
   /**
    * Implementation of [[DefineOwnProperty]] as defined in

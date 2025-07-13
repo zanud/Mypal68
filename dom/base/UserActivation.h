@@ -6,6 +6,7 @@
 #define mozilla_dom_UserAcitvation_h
 
 #include "mozilla/EventForwards.h"
+#include "mozilla/TimeStamp.h"
 
 namespace mozilla {
 namespace dom {

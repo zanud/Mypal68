@@ -5,6 +5,7 @@
 #include "Request.h"
 
 #include "nsIURI.h"
+#include "nsNetUtil.h"
 #include "nsPIDOMWindow.h"
 
 #include "mozilla/ErrorResult.h"
@@ -14,6 +15,7 @@
 #include "mozilla/dom/Promise.h"
 #include "mozilla/dom/URL.h"
 #include "mozilla/dom/WorkerPrivate.h"
+#include "mozilla/dom/WorkerRunnable.h"
 #include "mozilla/Unused.h"
 
 namespace mozilla {
@@ -240,7 +242,7 @@ class ReferrerSameOriginChecker final : public WorkerMainThreadRunnable {
     if (NS_SUCCEEDED(NS_NewURI(getter_AddRefs(uri), mReferrerURL))) {
       nsCOMPtr<nsIPrincipal> principal = mWorkerPrivate->GetPrincipal();
       if (principal) {
-        mResult = principal->CheckMayLoad(uri, /* report */ false,
+        mResult = principal->CheckMayLoad(uri,
                                           /* allowIfInheritsPrincipal */ false);
       }
     }
@@ -379,7 +381,7 @@ SafeRefPtr<Request> Request::Constructor(nsIGlobalObject* aGlobal,
           nsCOMPtr<nsIPrincipal> principal = aGlobal->PrincipalOrNull();
           if (principal) {
             nsresult rv =
-                principal->CheckMayLoad(uri, /* report */ false,
+                principal->CheckMayLoad(uri,
                                         /* allowIfInheritsPrincipal */ false);
             if (NS_FAILED(rv)) {
               referrerURL.AssignLiteral(kFETCH_CLIENT_REFERRER_STR);

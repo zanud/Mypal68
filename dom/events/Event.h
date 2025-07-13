@@ -5,24 +5,29 @@
 #ifndef mozilla_dom_Event_h_
 #define mozilla_dom_Event_h_
 
-#include "mozilla/Attributes.h"
-#include "mozilla/BasicEvents.h"
-#include "nsISupports.h"
-#include "nsCOMPtr.h"
-#include "nsPIDOMWindow.h"
-#include "nsPoint.h"
-#include "nsCycleCollectionParticipant.h"
-#include "mozilla/dom/BindingDeclarations.h"
-#include "mozilla/dom/EventBinding.h"
-#include "mozilla/dom/PopupBlocker.h"
-#include "nsIScriptGlobalObject.h"
+#include <cstdint>
 #include "Units.h"
 #include "js/TypeDecls.h"
-#include "nsIGlobalObject.h"
+#include "mozilla/AlreadyAddRefed.h"
+#include "mozilla/Assertions.h"
+#include "mozilla/Attributes.h"
+#include "mozilla/BasicEvents.h"
+#include "mozilla/RefPtr.h"
+#include "mozilla/dom/BindingDeclarations.h"
+#include "nsCOMPtr.h"
+#include "nsCycleCollectionParticipant.h"
+#include "nsID.h"
+#include "nsISupports.h"
+#include "nsStringFwd.h"
+#include "nsWrapperCache.h"
 
-class nsIContent;
-class nsPresContext;
 class PickleIterator;
+class nsCycleCollectionTraversalCallback;
+class nsIContent;
+class nsIGlobalObject;
+class nsIPrincipal;
+class nsPIDOMWindowInner;
+class nsPresContext;
 
 namespace IPC {
 class Message;
@@ -33,6 +38,7 @@ namespace dom {
 
 class BeforeUnloadEvent;
 class CustomEvent;
+class Document;
 class DragEvent;
 class EventTarget;
 class EventMessageAutoOverride;
@@ -45,6 +51,8 @@ class TimeEvent;
 class UIEvent;
 class WantsPopupControlCheck;
 class XULCommandEvent;
+struct EventInit;
+
 #define GENERATED_EVENT(EventClass_) class EventClass_;
 #include "mozilla/dom/GeneratedEventList.h"
 #undef GENERATED_EVENT

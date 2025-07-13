@@ -3,25 +3,47 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "ThirdPartyUtil.h"
-#include "nsDocShell.h"
-#include "nsGlobalWindowOuter.h"
-#include "nsNetCID.h"
-#include "nsNetUtil.h"
-#include "nsIChannel.h"
-#include "nsIHttpChannelInternal.h"
-#include "nsILoadContext.h"
-#include "nsIPrincipal.h"
-#include "nsIScriptObjectPrincipal.h"
-#include "nsIURI.h"
-#include "nsReadableUtils.h"
-#include "nsThreadUtils.h"
+
+#include <cstdint>
+#include "MainThreadUtils.h"
+#include "mozIDOMWindow.h"
+#include "mozilla/AlreadyAddRefed.h"
+#include "mozilla/AntiTrackingCommon.h" //MY
+#include "mozilla/Assertions.h"
+#include "mozilla/BasePrincipal.h"
 #include "mozilla/ClearOnShutdown.h"
-#include "mozilla/dom/Document.h"
 #include "mozilla/Logging.h"
+#include "mozilla/MacroForEach.h"
+#include "mozilla/Services.h"
 #include "mozilla/StaticPtr.h"
 #include "mozilla/TextUtils.h"
 #include "mozilla/Unused.h"
-#include "nsGlobalWindowOuter.h"
+#include "mozilla/dom/BrowsingContext.h"
+#include "mozilla/dom/CanonicalBrowsingContext.h"
+#include "mozilla/dom/Document.h"
+#include "mozilla/dom/WindowGlobalParent.h"
+#include "nsCOMPtr.h"
+#include "nsDebug.h"
+#include "nsEffectiveTLDService.h"
+#include "nsError.h"
+#include "nsGlobalWindowInner.h"
+#include "nsIChannel.h"
+#include "nsIClassifiedChannel.h"
+#include "nsIContentPolicy.h"
+#include "nsIHttpChannelInternal.h"
+#include "nsILoadContext.h"
+#include "nsILoadInfo.h"
+#include "nsIPrincipal.h"
+#include "nsIScriptObjectPrincipal.h"
+#include "nsIURI.h"
+#include "nsLiteralString.h"
+#include "nsNetUtil.h"
+#include "nsPIDOMWindow.h"
+#include "nsPIDOMWindowInlines.h"
+#include "nsServiceManagerUtils.h"
+#include "nsTLiteralString.h"
+
+using namespace mozilla;
 
 NS_IMPL_ISUPPORTS(ThirdPartyUtil, mozIThirdPartyUtil)
 
@@ -433,4 +455,60 @@ ThirdPartyUtil::GetBaseDomainFromSchemeHost(const nsACString& aScheme,
   }
 
   return NS_OK;
+}
+
+NS_IMETHODIMP_(ThirdPartyAnalysisResult)
+ThirdPartyUtil::AnalyzeChannel(nsIChannel* aChannel, bool aNotify, nsIURI* aURI,
+                               RequireThirdPartyCheck aRequireThirdPartyCheck,
+                               uint32_t* aRejectedReason) {
+  MOZ_ASSERT_IF(aNotify, aRejectedReason);
+
+  ThirdPartyAnalysisResult result;
+
+  nsCOMPtr<nsIURI> uri;
+  if (!aURI && aChannel) {
+    aChannel->GetURI(getter_AddRefs(uri));
+  }
+  nsCOMPtr<nsILoadInfo> loadInfo = aChannel ? aChannel->LoadInfo() : nullptr;
+
+  bool isForeign = true;
+  if (aChannel &&
+      (!aRequireThirdPartyCheck || aRequireThirdPartyCheck(loadInfo))) {
+    IsThirdPartyChannel(aChannel, aURI ? aURI : uri.get(), &isForeign);
+  }
+  if (isForeign) {
+    result += ThirdPartyAnalysis::IsForeign;
+  }
+
+  nsCOMPtr<nsIClassifiedChannel> classifiedChannel =
+      do_QueryInterface(aChannel);
+  if (classifiedChannel) {
+    if (classifiedChannel->IsThirdPartyTrackingResource()) {
+      result += ThirdPartyAnalysis::IsThirdPartyTrackingResource;
+    }
+
+    // Check first-party storage access even for non-tracking resources, since
+    // we will need the result when computing the access rights for the reject
+    // foreign cookie behavior mode.
+
+    // If the caller has requested third-party checks, we will only perform the
+    // storage access check once we know we're in the third-party context.
+    bool performStorageChecks =
+        aRequireThirdPartyCheck ? result.contains(ThirdPartyAnalysis::IsForeign)
+                                : true;
+    if (performStorageChecks &&
+        AntiTrackingCommon::IsFirstPartyStorageAccessGrantedFor(
+            aChannel, aURI ? aURI : uri.get(), aRejectedReason)) {
+      result += ThirdPartyAnalysis::IsFirstPartyStorageAccessGranted;
+    }
+
+    if (aNotify && !result.contains(
+                       ThirdPartyAnalysis::IsFirstPartyStorageAccessGranted)) {
+      AntiTrackingCommon::NotifyBlockingDecision(
+          aChannel, AntiTrackingCommon::BlockingDecision::eBlock,
+          *aRejectedReason);
+    }
+  }
+
+  return result;
 }

@@ -25,6 +25,7 @@
 #include "nsCycleCollectionNoteChild.h"
 #include "nsICanvasRenderingContextInternal.h"
 #include "nsTArray.h"
+#include "nsWeakReference.h" //MY
 #include "nsWrapperCache.h"
 #include "SurfaceTypes.h"
 #include "ScopedGLHelpers.h"

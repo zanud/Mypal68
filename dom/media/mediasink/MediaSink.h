@@ -115,7 +115,6 @@ class MediaSink {
   virtual void Shutdown() {}
 
   virtual void SetSecondaryVideoContainer(VideoFrameContainer* aSecondary) {}
-  virtual void ClearSecondaryVideoContainer() {}
 
   // Return a string containing debugging information.
   // Can be called in any phase.

@@ -3618,6 +3618,7 @@ void MediaDecoderStateMachine::UpdateSecondaryVideoContainer() {
   MOZ_ASSERT(OnTaskQueue());
   MOZ_DIAGNOSTIC_ASSERT(mMediaSink);
   mMediaSink->SetSecondaryVideoContainer(mSecondaryVideoContainer.Ref());
+  mOnSecondaryVideoContainerInstalled.Notify(mSecondaryVideoContainer.Ref());
 }
 
 TimeUnit MediaDecoderStateMachine::AudioEndTime() const {

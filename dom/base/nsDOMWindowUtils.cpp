@@ -40,6 +40,7 @@
 #include "nsCharsetSource.h"
 #include "nsJSEnvironment.h"
 #include "nsJSUtils.h"
+#include "js/experimental/PCCountProfiling.h"  // JS::{Start,Stop}PCCountProfiling, JS::PurgePCCounts, JS::GetPCCountScript{Count,Summary,Contents}
 #include "js/Object.h"  // JS::GetClass
 
 #include "mozilla/ChaosMode.h"
@@ -2212,7 +2213,7 @@ nsDOMWindowUtils::AudioDevices(uint16_t aSide, nsIArray** aDevices) {
     enumerator->EnumerateAudioOutputDevices(collection);
   }
 
-  for (auto device : collection) {
+  for (const auto& device : collection) {
     devices->AppendElement(device);
   }
 
@@ -2680,8 +2681,9 @@ static bool CheckLeafLayers(Layer* aLayer, const nsIntPoint& aOffset,
                             nsIntRegion* aCoveredRegion) {
   gfx::Matrix transform;
   if (!aLayer->GetTransform().Is2D(&transform) ||
-      transform.HasNonIntegerTranslation())
+      transform.HasNonIntegerTranslation()) {
     return false;
+  }
   transform.NudgeToIntegers();
   IntPoint offset = aOffset + IntPoint::Truncate(transform._31, transform._32);
 
@@ -2984,39 +2986,33 @@ nsDOMWindowUtils::FlushPendingFileDeletions() {
 }
 
 NS_IMETHODIMP
-nsDOMWindowUtils::IsIncrementalGCEnabled(JSContext* cx, bool* aResult) {
-  *aResult = JS::IsIncrementalGCEnabled(cx);
-  return NS_OK;
-}
-
-NS_IMETHODIMP
 nsDOMWindowUtils::StartPCCountProfiling(JSContext* cx) {
-  js::StartPCCountProfiling(cx);
+  JS::StartPCCountProfiling(cx);
   return NS_OK;
 }
 
 NS_IMETHODIMP
 nsDOMWindowUtils::StopPCCountProfiling(JSContext* cx) {
-  js::StopPCCountProfiling(cx);
+  JS::StopPCCountProfiling(cx);
   return NS_OK;
 }
 
 NS_IMETHODIMP
 nsDOMWindowUtils::PurgePCCounts(JSContext* cx) {
-  js::PurgePCCounts(cx);
+  JS::PurgePCCounts(cx);
   return NS_OK;
 }
 
 NS_IMETHODIMP
 nsDOMWindowUtils::GetPCCountScriptCount(JSContext* cx, int32_t* result) {
-  *result = js::GetPCCountScriptCount(cx);
+  *result = JS::GetPCCountScriptCount(cx);
   return NS_OK;
 }
 
 NS_IMETHODIMP
 nsDOMWindowUtils::GetPCCountScriptSummary(int32_t script, JSContext* cx,
                                           nsAString& result) {
-  JSString* text = js::GetPCCountScriptSummary(cx, script);
+  JSString* text = JS::GetPCCountScriptSummary(cx, script);
   if (!text) return NS_ERROR_FAILURE;
 
   if (!AssignJSString(cx, result, text)) return NS_ERROR_FAILURE;
@@ -3027,7 +3023,7 @@ nsDOMWindowUtils::GetPCCountScriptSummary(int32_t script, JSContext* cx,
 NS_IMETHODIMP
 nsDOMWindowUtils::GetPCCountScriptContents(int32_t script, JSContext* cx,
                                            nsAString& result) {
-  JSString* text = js::GetPCCountScriptContents(cx, script);
+  JSString* text = JS::GetPCCountScriptContents(cx, script);
   if (!text) return NS_ERROR_FAILURE;
 
   if (!AssignJSString(cx, result, text)) return NS_ERROR_FAILURE;
@@ -3282,7 +3278,7 @@ nsDOMWindowUtils::AddSheet(nsIPreloadedStyleSheet* aSheet,
   NS_ENSURE_TRUE(doc, NS_ERROR_FAILURE);
 
   StyleSheet* sheet = nullptr;
-  auto preloadedSheet = static_cast<PreloadedStyleSheet*>(aSheet);
+  auto* preloadedSheet = static_cast<PreloadedStyleSheet*>(aSheet);
   nsresult rv = preloadedSheet->GetSheet(&sheet);
   NS_ENSURE_SUCCESS(rv, rv);
   NS_ENSURE_TRUE(sheet, NS_ERROR_FAILURE);

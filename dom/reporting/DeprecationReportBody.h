@@ -5,7 +5,9 @@
 #ifndef mozilla_dom_DeprecationReportBody_h
 #define mozilla_dom_DeprecationReportBody_h
 
-#include "mozilla/dom/ReportBody.h"
+#include "mozilla/dom/Nullable.h" //MY
+#include "mozilla/dom/ReportBody.h" 
+#include "nsString.h" //MY
 
 namespace mozilla {
 namespace dom {

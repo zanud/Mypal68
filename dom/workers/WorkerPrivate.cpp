@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "js/CallAndConstruct.h"  // JS_CallFunctionValue
 #include "js/CompilationAndEvaluation.h"
 #include "js/ContextOptions.h"
 #include "js/Exception.h"
@@ -14,15 +15,22 @@
 #include "js/MemoryMetrics.h"
 #include "js/SourceText.h"
 #include "MessageEventRunnable.h"
+#include "mozilla/BasePrincipal.h"
+#include "mozilla/CycleCollectedJSContext.h"
+#include "mozilla/HoldDropJSObjects.h"
 #include "mozilla/Result.h"
 #include "mozilla/ScopeExit.h"
 #include "mozilla/StaticPrefs_dom.h"
+#include "mozilla/dom/BrowsingContextGroup.h"
 #include "mozilla/dom/CallbackDebuggerNotification.h"
 #include "mozilla/dom/ClientManager.h"
 #include "mozilla/dom/ClientState.h"
 #include "mozilla/dom/Console.h"
+#include "mozilla/dom/DocGroup.h"
+#include "mozilla/dom/Document.h"
 #include "mozilla/dom/DOMTypes.h"
 #include "mozilla/dom/Event.h"
+#include "mozilla/dom/Exceptions.h"
 #include "mozilla/dom/FunctionBinding.h"
 #include "mozilla/dom/IndexedDatabaseManager.h"
 #include "mozilla/dom/MessageEvent.h"
@@ -39,6 +47,7 @@
 #include "mozilla/dom/WorkerBinding.h"
 #include "mozilla/dom/JSExecutionManager.h"
 #include "mozilla/StorageAccess.h"
+#include "mozilla/StoragePrincipalHelper.h"
 #include "mozilla/ThreadEventQueue.h"
 #include "mozilla/ThrottledEventQueue.h"
 #include "mozilla/TimelineConsumers.h"
@@ -502,9 +511,9 @@ class ReportErrorToConsoleRunnable final : public WorkerRunnable {
     }
 
     // Log a warning to the console.
-    nsContentUtils::ReportToConsole(
-        nsIScriptError::warningFlag, NS_LITERAL_CSTRING("DOM"), nullptr,
-        nsContentUtils::eDOM_PROPERTIES, aMessage, aParams);
+    nsContentUtils::ReportToConsole(nsIScriptError::warningFlag, "DOM"_ns,
+                                    nullptr, nsContentUtils::eDOM_PROPERTIES,
+                                    aMessage, aParams);
   }
 
  private:
@@ -793,7 +802,7 @@ class MemoryPressureRunnable : public WorkerControlRunnable {
 
 #ifdef DEBUG
 static bool StartsWithExplicit(nsACString& s) {
-  return StringBeginsWith(s, NS_LITERAL_CSTRING("explicit/"));
+  return StringBeginsWith(s, "explicit/"_ns);
 }
 #endif
 
@@ -1001,7 +1010,7 @@ class WorkerJSContextStats final : public JS::RuntimeStats {
     extras->jsPathPrefix.Assign(mRtPath);
     extras->jsPathPrefix +=
         nsPrintfCString("zone(0x%p)/", (void*)js::GetRealmZone(aRealm));
-    extras->jsPathPrefix += NS_LITERAL_CSTRING("realm(web-worker)/");
+    extras->jsPathPrefix += "realm(web-worker)/"_ns;
 
     // This should never be used when reporting with workers (hence the "?!").
     extras->domPathPrefix.AssignLiteral("explicit/workers/?!/");
@@ -1219,20 +1228,18 @@ WorkerPrivate::MemoryReporter::FinishCollectRunnable::Run() {
       nsCString path = mCxStats.Path();
       path.AppendLiteral("dom/performance/user-entries");
       mHandleReport->Callback(
-          EmptyCString(), path, nsIMemoryReporter::KIND_HEAP,
+          ""_ns, path, nsIMemoryReporter::KIND_HEAP,
           nsIMemoryReporter::UNITS_BYTES, mPerformanceUserEntries,
-          NS_LITERAL_CSTRING("Memory used for performance user entries."),
-          mHandlerData);
+          "Memory used for performance user entries."_ns, mHandlerData);
     }
 
     if (mPerformanceResourceEntries) {
       nsCString path = mCxStats.Path();
       path.AppendLiteral("dom/performance/resource-entries");
       mHandleReport->Callback(
-          EmptyCString(), path, nsIMemoryReporter::KIND_HEAP,
+          ""_ns, path, nsIMemoryReporter::KIND_HEAP,
           nsIMemoryReporter::UNITS_BYTES, mPerformanceResourceEntries,
-          NS_LITERAL_CSTRING("Memory used for performance resource entries."),
-          mHandlerData);
+          "Memory used for performance resource entries."_ns, mHandlerData);
     }
   }
 
@@ -1302,14 +1309,19 @@ nsresult WorkerPrivate::SetCSPFromHeaderValues(
   // is a SystemPrincipal) then we fall back and use the
   // base URI as selfURI for CSP.
   nsCOMPtr<nsIURI> selfURI;
-  mLoadInfo.mPrincipal->GetURI(getter_AddRefs(selfURI));
+  // Its not recommended to use the BasePrincipal to get the URI
+  // but in this case we need to make an exception
+  auto* basePrin = BasePrincipal::Cast(mLoadInfo.mPrincipal);
+  if (basePrin) {
+    basePrin->GetURI(getter_AddRefs(selfURI));
+  }
   if (!selfURI) {
     selfURI = mLoadInfo.mBaseURI;
   }
   MOZ_ASSERT(selfURI, "need a self URI for CSP");
 
   rv = csp->SetRequestContextWithPrincipal(mLoadInfo.mPrincipal, selfURI,
-                                           EmptyString(), 0);
+                                           u""_ns, 0);
   NS_ENSURE_SUCCESS(rv, rv);
 
   csp->EnsureEventTarget(mMainThreadEventTarget);
@@ -2594,8 +2606,8 @@ nsresult WorkerPrivate::GetLoadInfo(JSContext* aCx, nsPIDOMWindowInner* aWindow,
       NS_ENSURE_SUCCESS(rv, rv);
 
       uint32_t perm;
-      rv = permMgr->TestPermissionFromPrincipal(
-          loadInfo.mLoadingPrincipal, NS_LITERAL_CSTRING("systemXHR"), &perm);
+      rv = permMgr->TestPermissionFromPrincipal(loadInfo.mLoadingPrincipal,
+                                                "systemXHR"_ns, &perm);
       NS_ENSURE_SUCCESS(rv, rv);
 
       loadInfo.mXHRParamsAllowed = perm == nsIPermissionManager::ALLOW_ACTION;
@@ -2611,8 +2623,8 @@ nsresult WorkerPrivate::GetLoadInfo(JSContext* aCx, nsPIDOMWindowInner* aWindow,
       loadInfo.mWindowID = globalWindow->WindowID();
       loadInfo.mStorageAccess = StorageAllowedForWindow(globalWindow);
       loadInfo.mCookieSettings = document->CookieSettings();
-      loadInfo.mOriginAttributes =
-          nsContentUtils::GetOriginAttributes(document);
+      StoragePrincipalHelper::GetRegularPrincipalOriginAttributes(
+          document, loadInfo.mOriginAttributes);
       loadInfo.mParentController = globalWindow->GetController();
       loadInfo.mSecureContext = loadInfo.mWindow->IsSecureContext()
                                     ? WorkerLoadInfo::eSecureContext
@@ -4592,7 +4604,7 @@ void WorkerPrivate::UpdateLanguagesInternal(
 
   RefPtr<Event> event = NS_NewDOMEvent(globalScope, nullptr, nullptr);
 
-  event->InitEvent(NS_LITERAL_STRING("languagechange"), false, false);
+  event->InitEvent(u"languagechange"_ns, false, false);
   event->SetTrusted(true);
 
   globalScope->DispatchEvent(*event);
@@ -4655,20 +4667,23 @@ void WorkerPrivate::GarbageCollectInternal(JSContext* aCx, bool aShrinking,
   if (aShrinking || aCollectChildren) {
     JS::PrepareForFullGC(aCx);
 
-    if (aShrinking) {
-      JS::NonIncrementalGC(aCx, GC_SHRINK, JS::GCReason::DOM_WORKER);
+    if (aShrinking && mSyncLoopStack.IsEmpty()) {
+      JS::NonIncrementalGC(aCx, JS::GCOptions::Shrink,
+                           JS::GCReason::DOM_WORKER);
 
       // Check whether the CC collected anything and if so GC again. This is
       // necessary to collect all garbage.
       if (data->mCCCollectedAnything) {
-        JS::NonIncrementalGC(aCx, GC_NORMAL, JS::GCReason::DOM_WORKER);
+        JS::NonIncrementalGC(aCx, JS::GCOptions::Normal,
+                             JS::GCReason::DOM_WORKER);
       }
 
       if (!aCollectChildren) {
         LOG(WorkerLog(), ("Worker %p collected idle garbage\n", this));
       }
     } else {
-      JS::NonIncrementalGC(aCx, GC_NORMAL, JS::GCReason::DOM_WORKER);
+      JS::NonIncrementalGC(aCx, JS::GCOptions::Normal,
+                           JS::GCReason::DOM_WORKER);
       LOG(WorkerLog(), ("Worker %p collected garbage\n", this));
     }
   } else {
@@ -4842,8 +4857,8 @@ bool WorkerPrivate::ConnectMessagePort(JSContext* aCx,
     return false;
   }
 
-  RefPtr<MessageEvent> event = MessageEvent::Constructor(
-      globalObject, NS_LITERAL_STRING("connect"), init);
+  RefPtr<MessageEvent> event =
+      MessageEvent::Constructor(globalObject, u"connect"_ns, init);
 
   event->SetTrusted(true);
 

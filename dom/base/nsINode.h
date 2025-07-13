@@ -1030,10 +1030,7 @@ class nsINode : public mozilla::dom::EventTarget {
   virtual mozilla::EventListenerManager* GetOrCreateListenerManager() override;
 
   mozilla::Maybe<mozilla::dom::EventCallbackDebuggerNotificationType>
-  GetDebuggerNotificationType() const override {
-    return mozilla::Some(
-        mozilla::dom::EventCallbackDebuggerNotificationType::Node);
-  }
+  GetDebuggerNotificationType() const override;
 
   bool ComputeDefaultWantsUntrusted(mozilla::ErrorResult& aRv) final;
 
@@ -1296,16 +1293,6 @@ class nsINode : public mozilla::dom::EventTarget {
   bool IsInNativeAnonymousSubtree() const {
     return HasFlag(NODE_IS_IN_NATIVE_ANONYMOUS_SUBTREE);
   }
-
-  /**
-   * Returns true if there is NOT a path through child lists
-   * from the top of this node's parent chain back to this node or
-   * if the node is in native anonymous subtree without a parent.
-   *
-   * TODO(emilio):: Remove this function, and use just
-   * IsInNativeAnonymousSubtree, or something?
-   */
-  bool IsInAnonymousSubtree() const { return IsInNativeAnonymousSubtree(); }
 
   /**
    * If |this| or any ancestor is native anonymous, return the root of the
@@ -1960,7 +1947,7 @@ class nsINode : public mozilla::dom::EventTarget {
     const nsString& nodeName = NodeName();
     aNodeName.SetKnownLiveString(nodeName);
   }
-  MOZ_MUST_USE nsresult GetBaseURI(nsAString& aBaseURI) const;
+  [[nodiscard]] nsresult GetBaseURI(nsAString& aBaseURI) const;
   // Return the base URI for the document.
   // The returned value may differ if the document is loaded via XHR, and
   // when accessed from chrome privileged script and

@@ -5,9 +5,9 @@
 #ifndef WebBrowserPersistLocalDocument_h__
 #define WebBrowserPersistLocalDocument_h__
 
+#include "mozilla/NotNull.h"
 #include "nsCOMPtr.h"
 #include "nsCycleCollectionParticipant.h"
-#include "mozilla/dom/Document.h"
 #include "nsIURI.h"
 #include "nsIWebBrowserPersistDocument.h"
 
@@ -15,6 +15,10 @@ class nsIDocumentEncoder;
 class nsISHEntry;
 
 namespace mozilla {
+
+namespace dom {
+class Document;
+}
 
 class WebBrowserPersistLocalDocument final
     : public nsIWebBrowserPersistDocument {

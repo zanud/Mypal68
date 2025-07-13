@@ -4,6 +4,7 @@
 
 #include "CaptureTask.h"
 #include "gfxUtils.h"
+#include "mozilla/dom/BlobImpl.h"
 #include "mozilla/dom/ImageCapture.h"
 #include "mozilla/dom/ImageCaptureError.h"
 #include "mozilla/dom/ImageEncoder.h"

@@ -5,20 +5,40 @@
 #include "IDTracker.h"
 
 #include "mozilla/Encoding.h"
+#include "mozilla/dom/Document.h"
+#include "mozilla/dom/DocumentOrShadowRoot.h"
+#include "mozilla/dom/ShadowRoot.h"
+#include "nsAtom.h"
 #include "nsContentUtils.h"
 #include "nsIURI.h"
 #include "nsIReferrerInfo.h"
 #include "nsEscape.h"
 #include "nsCycleCollectionParticipant.h"
+#include "nsStringFwd.h"
 
-namespace mozilla {
-namespace dom {
+namespace mozilla::dom {
 
-static DocumentOrShadowRoot* DocOrShadowFromContent(nsIContent& aContent) {
+static Element* LookupElement(DocumentOrShadowRoot& aDocOrShadow,
+                              const nsAString& aRef, bool aReferenceImage) {
+  if (aReferenceImage) {
+    return aDocOrShadow.LookupImageElement(aRef);
+  }
+  return aDocOrShadow.GetElementById(aRef);
+}
+
+static DocumentOrShadowRoot* FindTreeToWatch(nsIContent& aContent,
+                                             const nsAString& aID,
+                                             bool aReferenceImage) {
   ShadowRoot* shadow = aContent.GetContainingShadow();
 
-  // We never look in <svg:use> shadow trees, for backwards compat.
+  // We allow looking outside an <svg:use> shadow tree for backwards compat.
   while (shadow && shadow->Host()->IsSVGElement(nsGkAtoms::use)) {
+    // <svg:use> shadow trees are immutable, so we can just early-out if we find
+    // our relevant element instead of having to support watching multiple
+    // trees.
+    if (LookupElement(*shadow, aID, aReferenceImage)) {
+      return shadow;
+    }
     shadow = shadow->Host()->GetContainingShadow();
   }
 
@@ -28,6 +48,10 @@ static DocumentOrShadowRoot* DocOrShadowFromContent(nsIContent& aContent) {
 
   return aContent.OwnerDoc();
 }
+
+IDTracker::IDTracker() = default;
+
+IDTracker::~IDTracker() { Unlink(); }
 
 void IDTracker::ResetToURIFragmentID(nsIContent* aFromContent, nsIURI* aURI,
                                      nsIReferrerInfo* aReferrerInfo,
@@ -47,7 +71,6 @@ void IDTracker::ResetToURIFragmentID(nsIContent* aFromContent, nsIURI* aURI,
 
   // Get the thing to observe changes to.
   Document* doc = aFromContent->OwnerDoc();
-  DocumentOrShadowRoot* docOrShadow = DocOrShadowFromContent(*aFromContent);
   auto encoding = doc->GetDocumentCharacterSet();
 
   nsAutoString ref;
@@ -73,6 +96,7 @@ void IDTracker::ResetToURIFragmentID(nsIContent* aFromContent, nsIURI* aURI,
 
   bool isEqualExceptRef;
   rv = aURI->EqualsExceptRef(doc->GetDocumentURI(), &isEqualExceptRef);
+  DocumentOrShadowRoot* docOrShadow;
   if (NS_FAILED(rv) || !isEqualExceptRef) {
     RefPtr<Document::ExternalResourceLoad> load;
     doc = doc->RequestExternalResource(aURI, aReferrerInfo, aFromContent,
@@ -90,6 +114,8 @@ void IDTracker::ResetToURIFragmentID(nsIContent* aFromContent, nsIURI* aURI,
       load->AddObserver(observer);
       // Keep going so we set up our watching stuff a bit
     }
+  } else {
+    docOrShadow = FindTreeToWatch(*aFromContent, ref, aReferenceImage);
   }
 
   if (aWatch) {
@@ -109,8 +135,10 @@ void IDTracker::ResetWithID(Element& aFrom, nsAtom* aID, bool aWatch) {
 
   mReferencingImage = false;
 
-  DocumentOrShadowRoot* docOrShadow = DocOrShadowFromContent(aFrom);
-  HaveNewDocumentOrShadowRoot(docOrShadow, aWatch, nsDependentAtomString(aID));
+  nsDependentAtomString str(aID);
+  DocumentOrShadowRoot* docOrShadow =
+      FindTreeToWatch(aFrom, str, /* aReferenceImage = */ false);
+  HaveNewDocumentOrShadowRoot(docOrShadow, aWatch, str);
 }
 
 void IDTracker::HaveNewDocumentOrShadowRoot(DocumentOrShadowRoot* aDocOrShadow,
@@ -129,9 +157,7 @@ void IDTracker::HaveNewDocumentOrShadowRoot(DocumentOrShadowRoot* aDocOrShadow,
     return;
   }
 
-  Element* e = mReferencingImage ? aDocOrShadow->LookupImageElement(aRef)
-                                 : aDocOrShadow->GetElementById(aRef);
-  if (e) {
+  if (Element* e = LookupElement(*aDocOrShadow, aRef, mReferencingImage)) {
     mElement = e;
   }
 }
@@ -160,6 +186,8 @@ void IDTracker::Unlink() {
   mReferencingImage = false;
 }
 
+void IDTracker::ElementChanged(Element* aFrom, Element* aTo) { mElement = aTo; }
+
 bool IDTracker::Observe(Element* aOldElement, Element* aNewElement,
                         void* aData) {
   IDTracker* p = static_cast<IDTracker*>(aData);
@@ -180,6 +208,23 @@ bool IDTracker::Observe(Element* aOldElement, Element* aNewElement,
   return keepTracking;
 }
 
+IDTracker::ChangeNotification::ChangeNotification(IDTracker* aTarget,
+                                                  Element* aFrom, Element* aTo)
+    : mozilla::Runnable("IDTracker::ChangeNotification"),
+      Notification(aTarget),
+      mFrom(aFrom),
+      mTo(aTo) {}
+
+IDTracker::ChangeNotification::~ChangeNotification() = default;
+
+void IDTracker::ChangeNotification::SetTo(Element* aTo) { mTo = aTo; }
+
+void IDTracker::ChangeNotification::Clear() {
+  Notification::Clear();
+  mFrom = nullptr;
+  mTo = nullptr;
+}
+
 NS_IMPL_ISUPPORTS_INHERITED0(IDTracker::ChangeNotification, mozilla::Runnable)
 NS_IMPL_ISUPPORTS(IDTracker::DocumentLoadNotification, nsIObserver)
 
@@ -187,7 +232,7 @@ NS_IMETHODIMP
 IDTracker::DocumentLoadNotification::Observe(nsISupports* aSubject,
                                              const char* aTopic,
                                              const char16_t* aData) {
-  NS_ASSERTION(PL_strcmp(aTopic, "external-resource-document-created") == 0,
+  NS_ASSERTION(!strcmp(aTopic, "external-resource-document-created"),
                "Unexpected topic");
   if (mTarget) {
     nsCOMPtr<Document> doc = do_QueryInterface(aSubject);
@@ -201,5 +246,16 @@ IDTracker::DocumentLoadNotification::Observe(nsISupports* aSubject,
   return NS_OK;
 }
 
-}  // namespace dom
-}  // namespace mozilla
+DocumentOrShadowRoot* IDTracker::GetWatchDocOrShadowRoot() const {
+  if (!mWatchDocumentOrShadowRoot) {
+    return nullptr;
+  }
+  MOZ_ASSERT(mWatchDocumentOrShadowRoot->IsDocument() ||
+             mWatchDocumentOrShadowRoot->IsShadowRoot());
+  if (ShadowRoot* shadow = ShadowRoot::FromNode(*mWatchDocumentOrShadowRoot)) {
+    return shadow;
+  }
+  return mWatchDocumentOrShadowRoot->AsDocument();
+}
+
+}  // namespace mozilla::dom

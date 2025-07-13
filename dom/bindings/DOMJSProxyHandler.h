@@ -7,6 +7,7 @@
 
 #include "mozilla/Attributes.h"
 #include "mozilla/Likely.h"
+#include "mozilla/Maybe.h"
 #include "mozilla/TextUtils.h"
 
 #include "jsapi.h"
@@ -14,6 +15,10 @@
 #include "js/Proxy.h"
 #include "js/String.h"  // JS::AtomToLinearString, JS::GetLinearString{CharAt,Length}
 #include "nsString.h"
+
+// XXX Avoid including this (and maybe some of those above by moving inline
+// function bodies out)
+#include "jsfriendapi.h"
 
 namespace mozilla {
 namespace dom {
@@ -52,7 +57,7 @@ class BaseDOMProxyHandler : public js::BaseProxyHandler {
   // other lower-level methods.
   bool getOwnPropertyDescriptor(
       JSContext* cx, JS::Handle<JSObject*> proxy, JS::Handle<jsid> id,
-      JS::MutableHandle<JS::PropertyDescriptor> desc) const override;
+      JS::MutableHandle<Maybe<JS::PropertyDescriptor>> desc) const override;
   virtual bool ownPropertyKeys(
       JSContext* cx, JS::Handle<JSObject*> proxy,
       JS::MutableHandleVector<jsid> props) const override;
@@ -85,7 +90,7 @@ class BaseDOMProxyHandler : public js::BaseProxyHandler {
   virtual bool getOwnPropDescriptor(
       JSContext* cx, JS::Handle<JSObject*> proxy, JS::Handle<jsid> id,
       bool ignoreNamedProps,
-      JS::MutableHandle<JS::PropertyDescriptor> desc) const = 0;
+      JS::MutableHandle<Maybe<JS::PropertyDescriptor>> desc) const = 0;
 };
 
 class DOMProxyHandler : public BaseDOMProxyHandler {
@@ -179,17 +184,17 @@ inline uint32_t GetArrayIndexFromId(JS::Handle<jsid> id) {
   // really needed?  I guess it is because StringIsArrayIndex is out of line...
   // as of now, use id.get() instead of id otherwise operands mismatch error
   // occurs.
-  if (MOZ_LIKELY(JSID_IS_INT(id))) {
-    return JSID_TO_INT(id);
+  if (MOZ_LIKELY(id.isInt())) {
+    return id.toInt();
   }
   if (MOZ_LIKELY(id.get() == s_length_id)) {
     return UINT32_MAX;
   }
-  if (MOZ_UNLIKELY(!JSID_IS_ATOM(id))) {
+  if (MOZ_UNLIKELY(!id.isAtom())) {
     return UINT32_MAX;
   }
 
-  JSLinearString* str = JS::AtomToLinearString(JSID_TO_ATOM(id));
+  JSLinearString* str = JS::AtomToLinearString(id.toAtom());
   if (MOZ_UNLIKELY(JS::GetLinearStringLength(str) == 0)) {
     return UINT32_MAX;
   }
@@ -204,33 +209,6 @@ inline uint32_t GetArrayIndexFromId(JS::Handle<jsid> id) {
 }
 
 inline bool IsArrayIndex(uint32_t index) { return index < UINT32_MAX; }
-
-inline void FillPropertyDescriptor(
-    JS::MutableHandle<JS::PropertyDescriptor> desc, JSObject* obj,
-    bool readonly, bool enumerable = true) {
-  desc.object().set(obj);
-  desc.setAttributes((readonly ? JSPROP_READONLY : 0) |
-                     (enumerable ? JSPROP_ENUMERATE : 0));
-  desc.setGetter(nullptr);
-  desc.setSetter(nullptr);
-}
-
-inline void FillPropertyDescriptor(
-    JS::MutableHandle<JS::PropertyDescriptor> desc, JSObject* obj,
-    const JS::Value& v, bool readonly, bool enumerable = true) {
-  desc.value().set(v);
-  FillPropertyDescriptor(desc, obj, readonly, enumerable);
-}
-
-inline void FillPropertyDescriptor(
-    JS::MutableHandle<JS::PropertyDescriptor> desc, JSObject* obj,
-    unsigned attributes, const JS::Value& v) {
-  desc.object().set(obj);
-  desc.value().set(v);
-  desc.setAttributes(attributes);
-  desc.setGetter(nullptr);
-  desc.setSetter(nullptr);
-}
 
 }  // namespace dom
 }  // namespace mozilla

@@ -5,6 +5,7 @@
 #include "XMLHttpRequest.h"
 #include "XMLHttpRequestMainThread.h"
 #include "XMLHttpRequestWorker.h"
+#include "mozilla/dom/ChromeUtilsBinding.h" //MY
 #include "mozilla/net/CookieSettings.h"
 #include "nsGlobalWindowInner.h"
 
@@ -40,8 +41,8 @@ already_AddRefed<XMLHttpRequest> XMLHttpRequest::Constructor(
       cookieSettings = net::CookieSettings::Create();
     }
 
-    RefPtr<XMLHttpRequestMainThread> req = new XMLHttpRequestMainThread();
-    req->Construct(principal->GetPrincipal(), global, cookieSettings, false);
+    RefPtr<XMLHttpRequestMainThread> req = new XMLHttpRequestMainThread(global);
+    req->Construct(principal->GetPrincipal(), cookieSettings, false);
     req->InitParameters(aParams.mMozAnon, aParams.mMozSystem);
     return req.forget();
   }

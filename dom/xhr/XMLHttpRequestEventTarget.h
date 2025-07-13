@@ -15,7 +15,8 @@ class XMLHttpRequestEventTarget : public DOMEventTargetHelper {
   explicit XMLHttpRequestEventTarget(DOMEventTargetHelper* aOwner)
       : DOMEventTargetHelper(aOwner) {}
 
-  XMLHttpRequestEventTarget() = default;
+  explicit XMLHttpRequestEventTarget(nsIGlobalObject* aGlobalObject)
+      : DOMEventTargetHelper(aGlobalObject) {}
 
   virtual ~XMLHttpRequestEventTarget() = default;
 
@@ -25,9 +26,7 @@ class XMLHttpRequestEventTarget : public DOMEventTargetHelper {
                                            DOMEventTargetHelper)
 
   mozilla::Maybe<EventCallbackDebuggerNotificationType>
-  GetDebuggerNotificationType() const override {
-    return mozilla::Some(EventCallbackDebuggerNotificationType::Xhr);
-  }
+  GetDebuggerNotificationType() const override;
 
   IMPL_EVENT_HANDLER(loadstart)
   IMPL_EVENT_HANDLER(progress)

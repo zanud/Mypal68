@@ -6,11 +6,11 @@
 
 #include "GridArea.h"
 #include "GridDimension.h"
+#include "mozilla/dom/Element.h"
 #include "mozilla/dom/GridBinding.h"
 #include "nsGridContainerFrame.h"
 
-namespace mozilla {
-namespace dom {
+namespace mozilla::dom {
 
 NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE(Grid, mParent, mRows, mCols, mAreas)
 NS_IMPL_CYCLE_COLLECTING_ADDREF(Grid)
@@ -91,5 +91,4 @@ void Grid::GetAreas(nsTArray<RefPtr<GridArea>>& aAreas) const {
   aAreas = mAreas;
 }
 
-}  // namespace dom
-}  // namespace mozilla
+}  // namespace mozilla::dom

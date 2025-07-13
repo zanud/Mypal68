@@ -6,12 +6,18 @@
 #include "prthread.h"
 #include "nsContentUtils.h"
 #include "nsCycleCollector.h"
+#include "nsJSEnvironment.h"
 #include "mozilla/dom/AtomList.h"
+#include "mozilla/dom/WorkletGlobalScope.h"
+#include "mozilla/dom/WorkletPrincipals.h"
 #include "mozilla/ipc/BackgroundChild.h"
 #include "mozilla/Attributes.h"
+#include "mozilla/CycleCollectedJSRuntime.h"
 #include "mozilla/EventQueue.h"
 #include "mozilla/ThreadEventQueue.h"
 #include "js/Exception.h"
+#include "js/Initialization.h"
+#include "XPCSelfHostedShmem.h"
 
 namespace mozilla {
 namespace dom {
@@ -257,16 +263,13 @@ WorkletThread::WorkletThread(WorkletImpl* aWorkletImpl)
   nsContentUtils::RegisterShutdownObserver(this);
 }
 
-WorkletThread::~WorkletThread() {
-  // This should be set during the termination step.
-  MOZ_ASSERT(mExitLoop);
-}
+WorkletThread::~WorkletThread() = default;
 
 // static
 already_AddRefed<WorkletThread> WorkletThread::Create(
     WorkletImpl* aWorkletImpl) {
   RefPtr<WorkletThread> thread = new WorkletThread(aWorkletImpl);
-  if (NS_WARN_IF(NS_FAILED(thread->Init(NS_LITERAL_CSTRING("DOM Worklet"))))) {
+  if (NS_WARN_IF(NS_FAILED(thread->Init("DOM Worklet"_ns)))) {
     return nullptr;
   }
 
@@ -354,6 +357,8 @@ void WorkletThread::EnsureCycleCollectedJSContext(JSRuntime* aParentRuntime) {
     return;
   }
 
+  JS_SetGCParameter(context->Context(), JSGC_MAX_BYTES, uint32_t(-1));
+
   // FIXME: JS_SetDefaultLocale
   // FIXME: JSSettings
   // FIXME: JS_SetSecurityCallbacks
@@ -370,7 +375,12 @@ void WorkletThread::EnsureCycleCollectedJSContext(JSRuntime* aParentRuntime) {
   JS_SetNativeStackQuota(context->Context(),
                          WORKLET_CONTEXT_NATIVE_STACK_LIMIT);
 
-  if (!JS::InitSelfHostedCode(context->Context())) {
+  // When available, set the self-hosted shared memory to be read, so that we
+  // can decode the self-hosted content instead of parsing it.
+  auto& shm = xpc::SelfHostedShmem::GetSingleton();
+  JS::SelfHostedCache selfHostedContent = shm.Content();
+
+  if (!JS::InitSelfHostedCode(context->Context(), selfHostedContent)) {
     // TODO: error propagation
     return;
   }

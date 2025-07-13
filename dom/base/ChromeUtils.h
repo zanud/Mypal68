@@ -8,9 +8,11 @@
 #include "mozilla/AlreadyAddRefed.h"
 #include "mozilla/dom/BindingDeclarations.h"
 #include "mozilla/dom/ChromeUtilsBinding.h"
-#include "mozilla/ErrorResult.h"
+#include "mozilla/dom/Exceptions.h"
 
 namespace mozilla {
+
+class ErrorResult;
 
 namespace devtools {
 class HeapSnapshot;
@@ -36,6 +38,9 @@ class ChromeUtils {
                                      ErrorResult& rv);
 
  public:
+  // Implemented in devtools/shared/heapsnapshot/HeapSnapshot.cpp
+  static uint64_t GetObjectNodeId(GlobalObject& global, JS::HandleObject aVal);
+
   // Implemented in devtools/shared/heapsnapshot/HeapSnapshot.cpp
   static void SaveHeapSnapshot(GlobalObject& global,
                                const HeapSnapshotBoundaries& boundaries,
@@ -163,9 +168,11 @@ class ChromeUtils {
   static already_AddRefed<Promise> RequestIOActivity(GlobalObject& aGlobal,
                                                      ErrorResult& aRv);
 
+#ifdef THE_REPORTING
   static bool HasReportingHeaderForOrigin(GlobalObject& global,
                                           const nsAString& aOrigin,
                                           ErrorResult& aRv);
+#endif
 
   static PopupBlockerState GetPopupControlState(GlobalObject& aGlobal);
 

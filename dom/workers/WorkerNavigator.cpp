@@ -134,8 +134,7 @@ class GetUserAgentRunnable final : public WorkerMainThreadRunnable {
 
  public:
   GetUserAgentRunnable(WorkerPrivate* aWorkerPrivate, nsString& aUA)
-      : WorkerMainThreadRunnable(aWorkerPrivate,
-                                 NS_LITERAL_CSTRING("UserAgent getter")),
+      : WorkerMainThreadRunnable(aWorkerPrivate, "UserAgent getter"_ns),
         mUA(aUA) {
     MOZ_ASSERT(aWorkerPrivate);
     aWorkerPrivate->AssertIsOnWorkerThread();

@@ -67,7 +67,8 @@
 #include "js/Conversions.h"
 #include "js/experimental/TypedData.h"  // JS_NewUint8ClampedArray, JS_GetUint8ClampedArrayData
 #include "js/HeapAPI.h"
-#include "js/Warnings.h"  // JS::WarnASCII
+#include "js/PropertyAndElement.h"  // JS_GetElement
+#include "js/Warnings.h"            // JS::WarnASCII
 
 #include "mozilla/Alignment.h"
 #include "mozilla/Assertions.h"
@@ -1463,6 +1464,16 @@ bool CanvasRenderingContext2D::TryBasicTarget(
 
   aOutProvider = new PersistentBufferProviderBasic(aOutDT);
   return true;
+}
+
+PresShell* CanvasRenderingContext2D::GetPresShell() {
+  if (mCanvasElement) {
+    return mCanvasElement->OwnerDoc()->GetPresShell();
+  }
+  if (mDocShell) {
+    return mDocShell->GetPresShell();
+  }
+  return nullptr;
 }
 
 NS_IMETHODIMP

@@ -18,7 +18,6 @@
 #include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/StaticPtr.h"
 
-#include "nsAutoPtr.h"
 #include "nsContentUtils.h"
 #include "nsGlobalWindow.h"
 #include "nsIObserver.h"

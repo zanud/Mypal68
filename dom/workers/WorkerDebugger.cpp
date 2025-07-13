@@ -52,9 +52,8 @@ class DebuggerMessageEventRunnable : public WorkerDebuggerRunnable {
 
     RefPtr<MessageEvent> event =
         new MessageEvent(globalScope, nullptr, nullptr);
-    event->InitMessageEvent(nullptr, NS_LITERAL_STRING("message"),
-                            CanBubble::eNo, Cancelable::eYes, data,
-                            EmptyString(), EmptyString(), nullptr,
+    event->InitMessageEvent(nullptr, u"message"_ns, CanBubble::eNo,
+                            Cancelable::eYes, data, u""_ns, u""_ns, nullptr,
                             Sequence<OwningNonNull<MessagePort>>());
     event->SetTrusted(true);
 

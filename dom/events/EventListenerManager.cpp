@@ -273,7 +273,7 @@ void EventListenerManager::AddEventListenerInternal(
       if (doc &&
           !(aFlags.mInSystemGroup &&
             doc->DontWarnAboutMutationEventsAndAllowSlowDOMMutations())) {
-        doc->WarnOnceAbout(Document::eMutationEvent);
+        doc->WarnOnceAbout(DeprecatedOperations::eMutationEvent);
       }
       // If aEventMessage is eLegacySubtreeModified, we need to listen all
       // mutations. nsContentUtils::HasMutationListeners relies on this.
@@ -768,9 +768,9 @@ nsresult EventListenerManager::SetEventHandler(nsAtom* aName,
     if (csp) {
       bool allowsInlineScript = true;
       rv = csp->GetAllowsInline(
-          nsIContentPolicy::TYPE_SCRIPT,
-          EmptyString(),  // aNonce
-          true,  // aParserCreated (true because attribute event handler)
+          nsIContentSecurityPolicy::SCRIPT_SRC_DIRECTIVE,
+          u""_ns,  // aNonce
+          true,    // aParserCreated (true because attribute event handler)
           aElement,
           nullptr,  // nsICSPEventListener
           aBody, lineNum, columnNum, &allowsInlineScript);
@@ -887,7 +887,7 @@ nsresult EventListenerManager::CompileEventHandlerInternal(
   }
   aListener = nullptr;
 
-  nsAutoCString url(NS_LITERAL_CSTRING("-moz-evil:lying-event-listener"));
+  nsAutoCString url("-moz-evil:lying-event-listener"_ns);
   MOZ_ASSERT(body);
   MOZ_ASSERT(aElement);
   nsIURI* uri = aElement->OwnerDoc()->GetDocumentURI();
@@ -946,18 +946,15 @@ nsresult EventListenerManager::CompileEventHandlerInternal(
 
   RefPtr<ScriptFetchOptions> fetchOptions = new ScriptFetchOptions(
       CORS_NONE, aElement->OwnerDoc()->GetReferrerPolicy(), aElement,
-      aElement->OwnerDoc()->NodePrincipal());
-  NS_ENSURE_TRUE(fetchOptions, NS_ERROR_OUT_OF_MEMORY);
+      aElement->OwnerDoc()->NodePrincipal(), nullptr);
 
   RefPtr<EventScript> eventScript = new EventScript(fetchOptions, uri);
-  NS_ENSURE_TRUE(eventScript, NS_ERROR_OUT_OF_MEMORY);
 
   JS::CompileOptions options(cx);
   // Use line 0 to make the function body starts from line 1.
   options.setIntroductionType("eventHandler")
       .setFileAndLine(url.get(), 0)
-      .setElementAttributeName(jsStr)
-      .setPrivateValue(JS::PrivateValue(eventScript));
+      .setdeferDebugMetadata(true);
 
   JS::Rooted<JSObject*> handler(cx);
   result = nsJSUtils::CompileFunction(jsapi, scopeChain, options,
@@ -965,6 +962,11 @@ nsresult EventListenerManager::CompileEventHandlerInternal(
                                       argNames, *body, handler.address());
   NS_ENSURE_SUCCESS(result, result);
   NS_ENSURE_TRUE(handler, NS_ERROR_FAILURE);
+
+  JS::Rooted<JS::Value> privateValue(cx, JS::PrivateValue(eventScript));
+  result = nsJSUtils::UpdateFunctionDebugMetadata(jsapi, handler, options,
+                                                  jsStr, privateValue);
+  NS_ENSURE_SUCCESS(result, result);
 
   MOZ_ASSERT(js::IsObjectInContextCompartment(handler, cx));
   JS::Rooted<JSObject*> handlerGlobal(cx, JS::CurrentGlobalOrNull(cx));
@@ -1068,7 +1070,7 @@ EventMessage EventListenerManager::GetEventMessageAndAtomForListener(
     return nsContentUtils::GetEventMessageAndAtomForListener(aType, aAtom);
   }
 
-  *aAtom = NS_Atomize(NS_LITERAL_STRING("on") + aType).take();
+  *aAtom = NS_Atomize(u"on"_ns + aType).take();
   return eUnidentifiedEvent;
 }
 
@@ -1153,8 +1155,8 @@ void EventListenerManager::HandleEventInternal(nsPresContext* aPresContext,
             // This is tiny bit slow, but happens only once per event.
             // Similar code also in EventDispatcher.
             nsCOMPtr<EventTarget> et = aEvent->mOriginalTarget;
-            RefPtr<Event> event = EventDispatcher::CreateEvent(
-                et, aPresContext, aEvent, EmptyString());
+            RefPtr<Event> event =
+                EventDispatcher::CreateEvent(et, aPresContext, aEvent, u""_ns);
             event.forget(aDOMEvent);
           }
           if (*aDOMEvent) {
@@ -1408,7 +1410,7 @@ uint32_t EventListenerManager::MutationListenerBits() {
 }
 
 bool EventListenerManager::HasListenersFor(const nsAString& aEventName) const {
-  RefPtr<nsAtom> atom = NS_Atomize(NS_LITERAL_STRING("on") + aEventName);
+  RefPtr<nsAtom> atom = NS_Atomize(u"on"_ns + aEventName);
   return HasListenersFor(atom);
 }
 
@@ -1417,7 +1419,7 @@ bool EventListenerManager::HasListenersFor(nsAtom* aEventNameWithOn) const {
   nsAutoString name;
   aEventNameWithOn->ToString(name);
 #endif
-  NS_ASSERTION(StringBeginsWith(name, NS_LITERAL_STRING("on")),
+  NS_ASSERTION(StringBeginsWith(name, u"on"_ns),
                "Event name does not start with 'on'");
   uint32_t count = mListeners.Length();
   for (uint32_t i = 0; i < count; ++i) {

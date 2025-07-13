@@ -8,6 +8,7 @@
 #include "mozilla/AsyncEventDispatcher.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/UniquePtr.h"
+#include "mozilla/dom/PopupBlocker.h"
 #include "nsCOMPtr.h"
 #include "nsIForm.h"
 #include "nsIFormControl.h"
@@ -534,6 +535,17 @@ class HTMLFormElement final : public nsGenericHTMLElement,
    */
   nsresult GetActionURL(nsIURI** aActionURL, Element* aOriginatingElement);
 
+  // Returns a number for this form that is unique within its owner document.
+  // This is used by nsContentUtils::GenerateStateKey to identify form controls
+  // that are inserted into the document by the parser.
+  int32_t GetFormNumberForStateKey();
+
+  /**
+   * Called when we have been cloned and adopted, and the information of the
+   * node has been changed.
+   */
+  void NodeInfoChanged(Document* aOldDoc) override;
+
  protected:
   //
   // Data members
@@ -593,6 +605,9 @@ class HTMLFormElement final : public nsGenericHTMLElement,
    * @note Should only be used by UpdateValidity() and GetValidity()!
    */
   int32_t mInvalidElementsCount;
+
+  // See GetFormNumberForStateKey.
+  int32_t mFormNumber;
 
   /** Whether we are currently processing a submit event or not */
   bool mGeneratingSubmit;

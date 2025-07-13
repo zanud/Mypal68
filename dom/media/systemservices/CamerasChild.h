@@ -5,11 +5,13 @@
 #ifndef mozilla_CamerasChild_h
 #define mozilla_CamerasChild_h
 
-#include "mozilla/Move.h"
+#include <utility>
+
+#include "MediaEventSource.h"
+#include "mozilla/Mutex.h"
 #include "mozilla/camera/PCamerasChild.h"
 #include "mozilla/camera/PCamerasParent.h"
 #include "mozilla/media/DeviceChangeCallback.h"
-#include "mozilla/Mutex.h"
 #include "nsCOMPtr.h"
 
 // conflicts with #include of scoped_ptr.h

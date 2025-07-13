@@ -5,9 +5,7 @@
 #ifndef mozilla_dom_BlobImpl_h
 #define mozilla_dom_BlobImpl_h
 
-#include "mozilla/dom/BindingDeclarations.h"
-#include "mozilla/ErrorResult.h"
-#include "nsISupportsImpl.h"
+#include "nsISupports.h"
 #include "nsString.h"
 
 #define BLOBIMPL_IID                                 \
@@ -20,7 +18,13 @@
 class nsIInputStream;
 
 namespace mozilla {
+class ErrorResult;
+
 namespace dom {
+
+class SystemCallerGuarantee;
+template <typename T>
+class Optional;
 
 // This is the abstract class for any File backend. It must be nsISupports
 // because this class must be ref-counted and it has to work with IPC.
@@ -29,7 +33,7 @@ class BlobImpl : public nsISupports {
   NS_DECLARE_STATIC_IID_ACCESSOR(BLOBIMPL_IID)
   NS_DECL_THREADSAFE_ISUPPORTS
 
-  BlobImpl() {}
+  BlobImpl() = default;
 
   virtual void GetName(nsAString& aName) const = 0;
 
@@ -104,7 +108,7 @@ class BlobImpl : public nsISupports {
   virtual bool IsDirectory() const { return false; }
 
  protected:
-  virtual ~BlobImpl() {}
+  virtual ~BlobImpl() = default;
 };
 
 NS_DEFINE_STATIC_IID_ACCESSOR(BlobImpl, BLOBIMPL_IID)

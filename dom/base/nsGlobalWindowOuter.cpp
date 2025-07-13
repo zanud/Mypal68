@@ -72,8 +72,10 @@
 #include "nsJSUtils.h"
 #include "jsapi.h"
 #include "jsfriendapi.h"
-#include "js/friend/StackLimits.h"  // js::CheckRecursionLimitConservativeDontReport
+#include "js/CallAndConstruct.h"    // JS::Call
+#include "js/friend/StackLimits.h"  // js::AutoCheckRecursionLimit
 #include "js/friend/WindowProxy.h"  // js::IsWindowProxy, js::SetWindowProxy
+#include "js/PropertyAndElement.h"  // JS_DefineObject, JS_GetProperty
 #include "js/PropertySpec.h"
 #include "js/Wrapper.h"
 #include "nsCharSeparatedTokenizer.h"
@@ -110,6 +112,7 @@
 #include "PostMessageEvent.h"
 #include "mozilla/dom/DocGroup.h"
 #include "mozilla/dom/TabGroup.h"
+#include "mozilla/net/CookieSettings.h"
 
 // Interfaces Needed
 #include "nsIFrame.h"
@@ -365,7 +368,7 @@ class nsOuterWindowProxy : public MaybeCrossOriginObject<js::Wrapper> {
    */
   bool getOwnPropertyDescriptor(
       JSContext* cx, JS::Handle<JSObject*> proxy, JS::Handle<jsid> id,
-      JS::MutableHandle<JS::PropertyDescriptor> desc) const override;
+      JS::MutableHandle<Maybe<JS::PropertyDescriptor>> desc) const override;
 
   /*
    * Implementation of the same-origin case of
@@ -526,7 +529,7 @@ class nsOuterWindowProxy : public MaybeCrossOriginObject<js::Wrapper> {
   // a "print" method.
   static bool MaybeGetPDFJSPrintMethod(
       JSContext* cx, JS::Handle<JSObject*> proxy,
-      JS::MutableHandle<JS::PropertyDescriptor> desc);
+      JS::MutableHandle<Maybe<JS::PropertyDescriptor>> desc);
 
   // The actual "print" method we use for the PDFJS case.
   static bool PDFJSPrintMethod(JSContext* cx, unsigned argc, JS::Value* vp);
@@ -590,17 +593,23 @@ static bool IsNonConfigurableReadonlyPrimitiveGlobalProp(JSContext* cx,
 
 bool nsOuterWindowProxy::getOwnPropertyDescriptor(
     JSContext* cx, JS::Handle<JSObject*> proxy, JS::Handle<jsid> id,
-    JS::MutableHandle<JS::PropertyDescriptor> desc) const {
+    JS::MutableHandle<Maybe<JS::PropertyDescriptor>> desc) const {
   // First check for indexed access.  This is
   // https://html.spec.whatwg.org/multipage/window-object.html#windowproxy-getownproperty
   // step 2, mostly.
+  JS::Rooted<JS::Value> subframe(cx);
   bool found;
-  if (!GetSubframeWindow(cx, proxy, id, desc.value(), found)) {
+  if (!GetSubframeWindow(cx, proxy, id, &subframe, found)) {
     return false;
   }
   if (found) {
     // Step 2.4.
-    FillPropertyDescriptor(desc, proxy, true);
+
+    desc.set(Some(JS::PropertyDescriptor::Data(
+        subframe, {
+                      JS::PropertyAttribute::Configurable,
+                      JS::PropertyAttribute::Enumerable,
+                  })));
     return true;
   }
 
@@ -634,8 +643,9 @@ bool nsOuterWindowProxy::getOwnPropertyDescriptor(
       }
 
 #ifndef RELEASE_OR_BETA  // To be turned on in bug 1496510.
-      if (!IsNonConfigurableReadonlyPrimitiveGlobalProp(cx, id)) {
-        desc.setConfigurable(true);
+      if (desc.isSome() &&
+          !IsNonConfigurableReadonlyPrimitiveGlobalProp(cx, id)) {
+        (*desc).setConfigurable(true);
       }
 #endif
     }
@@ -650,7 +660,7 @@ bool nsOuterWindowProxy::getOwnPropertyDescriptor(
   }
 
   // Step 5
-  if (desc.object()) {
+  if (desc.isSome()) {
     return true;
   }
 
@@ -662,7 +672,7 @@ bool nsOuterWindowProxy::getOwnPropertyDescriptor(
       return false;
     }
 
-    if (desc.object()) {
+    if (desc.isSome()) {
       return true;
     }
   }
@@ -679,9 +689,8 @@ bool nsOuterWindowProxy::getOwnPropertyDescriptor(
       if (!ToJSValue(cx, WindowProxyHolder(childDOMWin), &childValue)) {
         return false;
       }
-      FillPropertyDescriptor(desc, proxy, childValue,
-                             /* readonly = */ true,
-                             /* enumerable = */ false);
+      desc.set(Some(JS::PropertyDescriptor::Data(
+          childValue, {JS::PropertyAttribute::Configurable})));
       return true;
     }
   }
@@ -720,12 +729,12 @@ bool nsOuterWindowProxy::definePropertySameOrigin(
       return true;
     }
 
-    JS::Rooted<JS::PropertyDescriptor> existingDesc(cx);
+    JS::Rooted<Maybe<JS::PropertyDescriptor>> existingDesc(cx);
     ok = js::Wrapper::getOwnPropertyDescriptor(cx, proxy, id, &existingDesc);
     if (!ok) {
       return false;
     }
-    if (!existingDesc.object() || existingDesc.configurable()) {
+    if (existingDesc.isNothing() || existingDesc->configurable()) {
       // We have no existing property, or its descriptor is already configurable
       // (on the Window itself, where things really can be non-configurable).
       // So we failed for some other reason, which we should propagate out.
@@ -1101,8 +1110,9 @@ enum { PDFJS_SLOT_CALLEE = 0 };
 // static
 bool nsOuterWindowProxy::MaybeGetPDFJSPrintMethod(
     JSContext* cx, JS::Handle<JSObject*> proxy,
-    JS::MutableHandle<JS::PropertyDescriptor> desc) {
+    JS::MutableHandle<Maybe<JS::PropertyDescriptor>> desc) {
   MOZ_ASSERT(proxy);
+  MOZ_ASSERT(!desc.isSome());
 
   nsGlobalWindowOuter* outer = GetOuterWindow(proxy);
   nsGlobalWindowInner* inner =
@@ -1162,11 +1172,13 @@ bool nsOuterWindowProxy::MaybeGetPDFJSPrintMethod(
   JS::Rooted<JSObject*> funObj(cx, JS_GetFunctionObject(fun));
   js::SetFunctionNativeReserved(funObj, PDFJS_SLOT_CALLEE, targetFunc);
 
-  JS::Rooted<JS::Value> funVal(cx, JS::ObjectValue(*funObj));
-  // JSPROP_ENUMERATE because that's what it would have been in the same-origin
-  // case without the PDF viewer messing with things.
-  desc.setDataDescriptor(funVal, JSPROP_ENUMERATE);
-  desc.object().set(proxy);
+  // { value: <print>, writable: true, enumerable: true, configurable: true }
+  // because that's what it would have been in the same-origin case without
+  // the PDF viewer messing with things.
+  desc.set(Some(JS::PropertyDescriptor::Data(
+      JS::ObjectValue(*funObj),
+      {JS::PropertyAttribute::Configurable, JS::PropertyAttribute::Enumerable,
+       JS::PropertyAttribute::Writable})));
   return true;
 }
 
@@ -1618,6 +1630,7 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INTERNAL(nsGlobalWindowOuter)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mSuspendedDoc)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mDocumentPrincipal)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mDocumentStoragePrincipal)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mDocumentIntrinsicStoragePrincipal)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mDoc)
 
   // Traverse stuff from nsPIDOMWindow
@@ -1650,6 +1663,7 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsGlobalWindowOuter)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mSuspendedDoc)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mDocumentPrincipal)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mDocumentStoragePrincipal)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mDocumentIntrinsicStoragePrincipal)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mDoc)
 
   // Unlink stuff from nsPIDOMWindow
@@ -1921,18 +1935,7 @@ bool nsGlobalWindowOuter::ComputeIsSecureContext(Document* aDocument,
     }
   }
 
-  bool isTrustworthyOrigin = false;
-  principal->GetIsOriginPotentiallyTrustworthy(&isTrustworthyOrigin);
-  return isTrustworthyOrigin;
-}
-
-// We need certain special behavior for remote XUL whitelisted domains, but we
-// don't want that behavior to take effect in automation, because we whitelist
-// all the mochitest domains. So we need to check a pref here.
-static bool TreatAsRemoteXUL(nsIPrincipal* aPrincipal) {
-  MOZ_ASSERT(!aPrincipal->IsSystemPrincipal());
-  return nsContentUtils::AllowXULXBLForPrincipal(aPrincipal) &&
-         !Preferences::GetBool("dom.use_xbl_scopes_for_remote_xul", false);
+  return principal->GetIsOriginPotentiallyTrustworthy();
 }
 
 static bool InitializeLegacyNetscapeObject(JSContext* aCx,
@@ -2058,8 +2061,7 @@ static nsresult CreateNativeGlobalForInner(
   xpc::InitGlobalObjectOptions(options, aPrincipal);
 
   // Determine if we need the Components object.
-  bool needComponents =
-      aPrincipal->IsSystemPrincipal() || TreatAsRemoteXUL(aPrincipal);
+  bool needComponents = aPrincipal->IsSystemPrincipal();
   uint32_t flags = needComponents ? 0 : xpc::OMIT_COMPONENTS_OBJECT;
   flags |= xpc::DONT_FIRE_ONNEWGLOBALHOOK;
 
@@ -2089,6 +2091,8 @@ nsresult nsGlobalWindowOuter::SetNewDocument(Document* aDocument,
              "mDocumentPrincipal prematurely set!");
   MOZ_ASSERT(mDocumentStoragePrincipal == nullptr,
              "mDocumentStoragePrincipal prematurely set!");
+  MOZ_ASSERT(mDocumentIntrinsicStoragePrincipal == nullptr,
+             "mDocumentIntrinsicStoragePrincipal prematurely set!");
   MOZ_ASSERT(aDocument);
 
   // Bail out early if we're in process of closing down the window.
@@ -2117,7 +2121,8 @@ nsresult nsGlobalWindowOuter::SetNewDocument(Document* aDocument,
   // transplanting code, since it has no good way to handle errors. This uses
   // the untrusted script limit, which is not strictly necessary since no
   // actual script should run.
-  if (!js::CheckRecursionLimitConservativeDontReport(cx)) {
+  js::AutoCheckRecursionLimit recursion(cx);
+  if (!recursion.checkConservativeDontReport(cx)) {
     NS_WARNING("Overrecursion in SetNewDocument");
     return NS_ERROR_FAILURE;
   }
@@ -2508,7 +2513,7 @@ nsresult nsGlobalWindowOuter::SetNewDocument(Document* aDocument,
       aDocument->CookieSettings()->GetRejectThirdPartyTrackers() &&
       nsContentUtils::IsThirdPartyWindowOrChannel(newInnerWindow, nullptr,
                                                   uri) &&
-      nsContentUtils::IsTrackingResourceWindow(newInnerWindow)) {
+      nsContentUtils::IsThirdPartyTrackingResourceWindow(newInnerWindow)) {
     // Grant storage access by default if the first-party storage access
     // permission has been granted already.
     // Don't notify in this case, since we would be notifying the user
@@ -2675,6 +2680,7 @@ void nsGlobalWindowOuter::DetachFromDocShell() {
     // Remember the document's principal and URI.
     mDocumentPrincipal = mDoc->NodePrincipal();
     mDocumentStoragePrincipal = mDoc->EffectiveStoragePrincipal();
+    mDocumentIntrinsicStoragePrincipal = mDoc->IntrinsicStoragePrincipal();
     mDocumentURI = mDoc->GetDocumentURI();
 
     // Release our document reference
@@ -3003,6 +3009,29 @@ nsIPrincipal* nsGlobalWindowOuter::GetEffectiveStoragePrincipal() {
 
   if (objPrincipal) {
     return objPrincipal->GetEffectiveStoragePrincipal();
+  }
+
+  return nullptr;
+}
+
+nsIPrincipal* nsGlobalWindowOuter::IntrinsicStoragePrincipal() {
+  if (mDoc) {
+    // If we have a document, get the principal from the document
+    return mDoc->IntrinsicStoragePrincipal();
+  }
+
+  if (mDocumentIntrinsicStoragePrincipal) {
+    return mDocumentIntrinsicStoragePrincipal;
+  }
+
+  // If we don't have a storage principal and we don't have a document we ask
+  // the parent window for the storage principal.
+
+  nsCOMPtr<nsIScriptObjectPrincipal> objPrincipal =
+      do_QueryInterface(GetInProcessParentInternal());
+
+  if (objPrincipal) {
+    return objPrincipal->IntrinsicStoragePrincipal();
   }
 
   return nullptr;
@@ -3374,7 +3403,7 @@ already_AddRefed<nsPIDOMWindowOuter> nsGlobalWindowOuter::GetContentInternal(
   nsCOMPtr<nsIDocShellTreeItem> primaryContent;
   if (aCallerType != CallerType::System) {
     if (mDoc) {
-      mDoc->WarnOnceAbout(Document::eWindowContentUntrusted);
+      mDoc->WarnOnceAbout(DeprecatedOperations::eWindowContentUntrusted);
     }
     // If we're called by non-chrome code, make sure we don't return
     // the primary content window if the calling tab is hidden. In
@@ -3892,7 +3921,8 @@ Maybe<CSSIntSize> nsGlobalWindowOuter::GetRDMDeviceSize(
   // Bug 1576256: This does not work for cross-process subframes.
   const Document* topInProcessContentDoc =
       aDocument.GetTopLevelContentDocument();
-  if (topInProcessContentDoc && topInProcessContentDoc->InRDMPane()) {
+  BrowsingContext* bc = topInProcessContentDoc ? topInProcessContentDoc->GetBrowsingContext() : nullptr;
+  if (bc && bc->InRDMPane()) {
     nsIDocShell* docShell = topInProcessContentDoc->GetDocShell();
     if (docShell) {
       nsPresContext* presContext = docShell->GetPresContext();
@@ -4211,11 +4241,19 @@ already_AddRefed<BrowsingContext> nsGlobalWindowOuter::GetChildWindow(
   return do_AddRef(mBrowsingContext->FindChildWithName(aName));
 }
 
-bool nsGlobalWindowOuter::DispatchCustomEvent(const nsAString& aEventName) {
+bool nsGlobalWindowOuter::DispatchCustomEvent(
+    const nsAString& aEventName, ChromeOnlyDispatch aChromeOnlyDispatch) {
   bool defaultActionEnabled = true;
-  nsContentUtils::DispatchTrustedEvent(mDoc, ToSupports(this), aEventName,
-                                       CanBubble::eYes, Cancelable::eYes,
-                                       &defaultActionEnabled);
+
+  if (aChromeOnlyDispatch == ChromeOnlyDispatch::eYes) {
+    nsContentUtils::DispatchEventOnlyToChrome(
+        mDoc, ToSupports(this), aEventName, CanBubble::eYes, Cancelable::eYes,
+        &defaultActionEnabled);
+  } else {
+    nsContentUtils::DispatchTrustedEvent(mDoc, ToSupports(this), aEventName,
+                                         CanBubble::eYes, Cancelable::eYes,
+                                         &defaultActionEnabled);
+  }
 
   return defaultActionEnabled;
 }
@@ -4706,9 +4744,11 @@ bool nsGlobalWindowOuter::SetWidgetFullscreen(FullscreenReason aReason,
 /* virtual */
 void nsGlobalWindowOuter::FullscreenWillChange(bool aIsFullscreen) {
   if (aIsFullscreen) {
-    DispatchCustomEvent(NS_LITERAL_STRING("willenterfullscreen"));
+    DispatchCustomEvent(NS_LITERAL_STRING("willenterfullscreen"),
+                        ChromeOnlyDispatch::eYes);
   } else {
-    DispatchCustomEvent(NS_LITERAL_STRING("willexitfullscreen"));
+    DispatchCustomEvent(NS_LITERAL_STRING("willexitfullscreen"),
+                        ChromeOnlyDispatch::eYes);
   }
 }
 
@@ -4739,7 +4779,8 @@ void nsGlobalWindowOuter::FinishFullscreenChange(bool aIsFullscreen) {
 
   // dispatch a "fullscreen" DOM event so that XUL apps can
   // respond visually if we are kicked into full screen mode
-  DispatchCustomEvent(NS_LITERAL_STRING("fullscreen"));
+  DispatchCustomEvent(NS_LITERAL_STRING("fullscreen"),
+                      ChromeOnlyDispatch::eYes);
 
   if (!NS_WARN_IF(!IsChromeWindow())) {
     if (RefPtr<PresShell> presShell =
@@ -5979,42 +6020,6 @@ BrowsingContext* nsGlobalWindowOuter::GetFramesOuter() {
 }
 
 /* static */
-nsGlobalWindowInner* nsGlobalWindowOuter::CallerInnerWindow(JSContext* aCx) {
-  nsIGlobalObject* global = GetIncumbentGlobal();
-  NS_ENSURE_TRUE(global, nullptr);
-  JS::Rooted<JSObject*> scope(aCx, global->GetGlobalJSObject());
-  NS_ENSURE_TRUE(scope, nullptr);
-
-  // When Jetpack runs content scripts inside a sandbox, it uses
-  // sandboxPrototype to make them appear as though they're running in the
-  // scope of the page. So when a content script invokes postMessage, it expects
-  // the |source| of the received message to be the window set as the
-  // sandboxPrototype. This used to work incidentally for unrelated reasons, but
-  // now we need to do some special handling to support it.
-  if (xpc::IsSandbox(scope)) {
-    JSAutoRealm ar(aCx, scope);
-    JS::Rooted<JSObject*> scopeProto(aCx);
-    bool ok = JS_GetPrototype(aCx, scope, &scopeProto);
-    NS_ENSURE_TRUE(ok, nullptr);
-    if (scopeProto && xpc::IsSandboxPrototypeProxy(scopeProto) &&
-        // Our current Realm on aCx is the sandbox.  Using that for the
-        // CheckedUnwrapDynamic call makes sense: if the sandbox can unwrap the
-        // window, we can use it.  And we do want CheckedUnwrapDynamic, because
-        // the whole point is to unwrap windows.
-        (scopeProto = js::CheckedUnwrapDynamic(
-             scopeProto, aCx, /* stopAtWindowProxy = */ false))) {
-      global = xpc::NativeGlobal(scopeProto);
-      NS_ENSURE_TRUE(global, nullptr);
-    }
-  }
-
-  // The calling window must be holding a reference, so we can return a weak
-  // pointer.
-  nsCOMPtr<nsPIDOMWindowInner> win = do_QueryInterface(global);
-  return nsGlobalWindowInner::Cast(win);
-}
-
-/* static */
 bool nsGlobalWindowOuter::GatherPostMessageData(
     JSContext* aCx, const nsAString& aTargetOrigin, BrowsingContext** aSource,
     nsAString& aOrigin, nsIURI** aTargetOriginURI,
@@ -6029,7 +6034,8 @@ bool nsGlobalWindowOuter::GatherPostMessageData(
   //
 
   // First, get the caller's window
-  RefPtr<nsGlobalWindowInner> callerInnerWin = CallerInnerWindow(aCx);
+  RefPtr<nsGlobalWindowInner> callerInnerWin =
+      nsContentUtils::CallerInnerWindow();
   nsIPrincipal* callerPrin;
   if (callerInnerWin) {
     RefPtr<Document> doc = callerInnerWin->GetExtantDoc();
@@ -6395,7 +6401,8 @@ void nsGlobalWindowOuter::CloseOuter(bool aTrustedCaller) {
   bool wasInClose = mInClose;
   mInClose = true;
 
-  if (!DispatchCustomEvent(NS_LITERAL_STRING("DOMWindowClose"))) {
+  if (!DispatchCustomEvent(NS_LITERAL_STRING("DOMWindowClose"),
+                           ChromeOnlyDispatch::eYes)) {
     // Someone chose to prevent the default action for this event, if
     // so, let's not close this window after all...
 
@@ -6428,7 +6435,8 @@ void nsGlobalWindowOuter::ForceClose() {
 
   mInClose = true;
 
-  DispatchCustomEvent(NS_LITERAL_STRING("DOMWindowClose"));
+  DispatchCustomEvent(NS_LITERAL_STRING("DOMWindowClose"),
+                      ChromeOnlyDispatch::eYes);
 
   FinalClose();
 }
@@ -7682,6 +7690,10 @@ nsIDOMWindowUtils* nsGlobalWindowOuter::WindowUtils() {
   return mWindowUtils;
 }
 
+bool nsGlobalWindowOuter::IsInSyncOperation() {
+  return GetExtantDoc() && GetExtantDoc()->IsInSyncOperation();
+}
+
 // Note: This call will lock the cursor, it will not change as it moves.
 // To unlock, the cursor must be set back to Auto.
 void nsGlobalWindowOuter::SetCursorOuter(const nsACString& aCursor,
@@ -7951,10 +7963,8 @@ AbstractThread* nsGlobalWindowOuter::AbstractMainThreadFor(
 }
 
 nsGlobalWindowOuter::TemporarilyDisableDialogs::TemporarilyDisableDialogs(
-    nsGlobalWindowOuter* aWindow MOZ_GUARD_OBJECT_NOTIFIER_PARAM_IN_IMPL)
+    nsGlobalWindowOuter* aWindow)
     : mSavedDialogsEnabled(false) {
-  MOZ_GUARD_OBJECT_NOTIFIER_INIT;
-
   MOZ_ASSERT(aWindow);
   nsGlobalWindowOuter* topWindowOuter =
       aWindow->GetInProcessScriptableTopInternal();

@@ -8,14 +8,17 @@
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/dom/nsCSPUtils.h"
 #include "mozilla/dom/BrowserChild.h"
+#include "mozilla/dom/ReferrerInfo.h"
 #include "mozilla/ipc/BackgroundUtils.h"
 #include "mozilla/ipc/PBackgroundSharedTypes.h"
 #include "mozilla/LoadContext.h"
 #include "mozilla/StorageAccess.h"
+#include "mozilla/StoragePrincipalHelper.h"
 #include "nsContentUtils.h"
 #include "nsIContentSecurityPolicy.h"
 #include "nsINetworkInterceptController.h"
 #include "nsIProtocolHandler.h"
+#include "nsIReferrerInfo.h"
 #include "nsIBrowserChild.h"
 #include "nsScriptSecurityManager.h"
 #include "nsNetUtil.h"
@@ -123,7 +126,8 @@ nsresult WorkerLoadInfo::SetPrincipalsAndCSPOnMainThread(
 
   mPrincipalInfo = MakeUnique<PrincipalInfo>();
   mStoragePrincipalInfo = MakeUnique<PrincipalInfo>();
-  mOriginAttributes = nsContentUtils::GetOriginAttributes(aLoadGroup);
+  StoragePrincipalHelper::GetRegularPrincipalOriginAttributes(
+      aLoadGroup, mOriginAttributes);
 
   nsresult rv = PrincipalToPrincipalInfo(aPrincipal, mPrincipalInfo.get());
   NS_ENSURE_SUCCESS(rv, rv);
@@ -295,7 +299,7 @@ bool WorkerLoadInfo::PrincipalURIMatchesScriptURL() {
 
   // A system principal must either be a blob URL or a resource JSM.
   if (mPrincipal->IsSystemPrincipal()) {
-    if (scheme == NS_LITERAL_CSTRING("blob")) {
+    if (scheme == "blob"_ns) {
       return true;
     }
 
@@ -310,15 +314,14 @@ bool WorkerLoadInfo::PrincipalURIMatchesScriptURL() {
   // A null principal can occur for a data URL worker script or a blob URL
   // worker script from a sandboxed iframe.
   if (mPrincipal->GetIsNullPrincipal()) {
-    return scheme == NS_LITERAL_CSTRING("data") ||
-           scheme == NS_LITERAL_CSTRING("blob");
+    return scheme == "data"_ns || scheme == "blob"_ns;
   }
 
   // The principal for a blob: URL worker script does not have a matching URL.
   // This is likely a bug in our referer setting logic, but exempt it for now.
   // This is another reason we should fix bug 1340694 so that referer does not
   // depend on the principal URI.
-  if (scheme == NS_LITERAL_CSTRING("blob")) {
+  if (scheme == "blob"_ns) {
     return true;
   }
 

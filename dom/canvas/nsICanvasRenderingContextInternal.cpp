@@ -4,8 +4,16 @@
 
 #include "nsICanvasRenderingContextInternal.h"
 
-#include "mozilla/PresShell.h"
+#include "mozilla/PresShell.h" //MY
+#include "mozilla/dom/Document.h"
 #include "nsRefreshDriver.h"
+
+mozilla::PresShell* nsICanvasRenderingContextInternal::GetPresShell() {
+  if (mCanvasElement) {
+    return mCanvasElement->OwnerDoc()->GetPresShell();
+  }
+  return nullptr;
+}
 
 void nsICanvasRenderingContextInternal::RemovePostRefreshObserver() {
   if (mRefreshDriver) {

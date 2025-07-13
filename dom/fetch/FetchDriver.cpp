@@ -7,6 +7,7 @@
 
 #include "nsIAsyncVerifyRedirectCallback.h"
 #include "mozilla/dom/Document.h"
+#include "nsICookieSettings.h"
 #include "nsIFile.h"
 #include "nsIInputStream.h"
 #include "nsIOutputStream.h"

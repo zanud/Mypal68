@@ -8,6 +8,7 @@
 #include "mozilla/dom/ServiceWorkerInfo.h"
 #include "mozilla/dom/ServiceWorkerRegistrationBinding.h"
 #include "mozilla/dom/ServiceWorkerRegistrationDescriptor.h"
+#include "nsContentUtils.h"
 #include "nsProxyRelease.h"
 #include "nsTObserverArray.h"
 

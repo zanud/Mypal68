@@ -501,8 +501,8 @@ class CGNativePropertyHooks(CGThing):
             and self.descriptor.proxy
             and not self.descriptor.isMaybeCrossOriginObject()
         ):
-            resolveOwnProperty = "ResolveOwnProperty"
-            enumerateOwnProperties = "EnumerateOwnProperties"
+            resolveOwnProperty = "binding_detail::ResolveOwnProperty"
+            enumerateOwnProperties = "binding_detail::EnumerateOwnProperties"
             if self.descriptor.needsXrayNamedDeleterHook():
                 deleteNamedProperty = "DeleteNamedProperty"
         elif self.descriptor.needsXrayResolveHooks():
@@ -3058,15 +3058,6 @@ class AttrDefiner(PropertyDefiner):
         self.regular = [m for m in attributes if not isChromeOnly(m["attr"])]
         self.static = static
 
-        if (
-            not static
-            and not unforgeable
-            and descriptor.interface.hasInterfacePrototypeObject()
-        ):
-            self.regular.append(
-                {"name": "@@toStringTag", "attr": None, "flags": "JSPROP_READONLY"}
-            )
-
         if static:
             if not descriptor.interface.hasInterfaceObject():
                 # static attributes go on the interface object
@@ -3090,15 +3081,10 @@ class AttrDefiner(PropertyDefiner):
 
     @staticmethod
     def condition(m, d):
-        if m["name"] == "@@toStringTag":
-            return MemberCondition()
         return PropertyDefiner.getControllingCondition(m["attr"], d)
 
     @staticmethod
     def specData(entry, descriptor, static=False, crossOriginOnly=False):
-        if entry["name"] == "@@toStringTag":
-            return (entry["name"], entry["flags"], descriptor.interface.getClassName())
-
         def getter(attr):
             if crossOriginOnly and not attr.getExtendedAttribute("CrossOriginReadable"):
                 return "nullptr, nullptr"
@@ -3194,13 +3180,6 @@ class AttrDefiner(PropertyDefiner):
 
     @staticmethod
     def formatSpec(fields):
-        if fields[0] == "@@toStringTag":
-            return '  JS_STRING_SYM_PS(%s, "%s", %s)' % (
-                fields[0][2:],
-                fields[2],
-                fields[1],
-            )
-
         return '  JSPropertySpec::nativeAccessors("%s", %s, %s, %s)' % fields
 
     def generateArray(self, array, name):
@@ -3696,6 +3675,15 @@ class CGCreateInterfaceObjectsMethod(CGAbstractMethod):
         else:
             chromeProperties = "nullptr"
 
+        # We use getClassName here. This should be the right thing to pass as
+        # the name argument to CreateInterfaceObjects. This is generally the
+        # interface identifier, except for the synthetic interfaces created for
+        # the default iterator objects. If needInterfaceObject is true then
+        # we'll use the name to install a property on the global object, so
+        # there shouldn't be any spaces in the name.
+        name = self.descriptor.interface.getClassName()
+        assert not (needInterfaceObject and " " in name)
+
         call = fill(
             """
             JS::Heap<JSObject*>* protoCache = ${protoCache};
@@ -3706,7 +3694,7 @@ class CGCreateInterfaceObjectsMethod(CGAbstractMethod):
                                         interfaceCache,
                                         ${properties},
                                         ${chromeProperties},
-                                        ${name}, aDefineOnGlobal,
+                                        "${name}", aDefineOnGlobal,
                                         ${unscopableNames},
                                         ${isGlobal},
                                         ${legacyWindowAliases},
@@ -3722,9 +3710,7 @@ class CGCreateInterfaceObjectsMethod(CGAbstractMethod):
             interfaceCache=interfaceCache,
             properties=properties,
             chromeProperties=chromeProperties,
-            name='"' + self.descriptor.interface.identifier.name + '"'
-            if needInterfaceObject
-            else "nullptr",
+            name=name,
             unscopableNames="unscopableNames" if self.haveUnscopables else "nullptr",
             isGlobal=toStringBool(isGlobal),
             legacyWindowAliases="legacyWindowAliases"
@@ -5205,7 +5191,7 @@ class CastableObjectUnwrapper:
                 // that already has a content reflection...
                 if (!IsDOMObject(js::UncheckedUnwrap(&${source}.toObject()))) {
                   nsCOMPtr<nsIGlobalObject> contentGlobal;
-                  JS::Handle<JSObject*> callback = CallbackOrNull();
+                  JS::Rooted<JSObject*> callback(cx, CallbackOrNull());
                   if (!callback ||
                       !GetContentGlobalForJSImplementedObject(cx, callback, getter_AddRefs(contentGlobal))) {
                     $*{exceptionCode}
@@ -6033,14 +6019,13 @@ def getJSToNativeConversionInfo(
             for (size_t i = 0; i < ids.length(); ++i) {
               curId = ids[i];
 
-              JS::Rooted<JS::PropertyDescriptor> desc(cx);
+              JS::Rooted<mozilla::Maybe<JS::PropertyDescriptor>> desc(cx);
               if (!JS_GetOwnPropertyDescriptorById(cx, recordObj, curId,
                                                    &desc)) {
                 $*{exceptionCode}
               }
 
-              if (!desc.object() /* == undefined in spec terms */ ||
-                  !desc.enumerable()) {
+              if (desc.isNothing() || !desc->enumerable()) {
                 continue;
               }
 
@@ -9138,21 +9123,21 @@ class CGPerSignatureCall(CGThing):
         )
         cgThings = []
 
-        deprecated = idlNode.getExtendedAttribute("Deprecated") or (
-            idlNode.isStatic()
-            and descriptor.interface.getExtendedAttribute("Deprecated")
-        )
-        if deprecated:
-            cgThings.append(
-                CGGeneric(
-                    dedent(
-                        """
-                DeprecationWarning(cx, obj, Document::e%s);
-                """
-                        % deprecated[0]
-                    )
-                )
-            )
+        #deprecated = idlNode.getExtendedAttribute("Deprecated") or (
+        #    idlNode.isStatic()
+        #    and descriptor.interface.getExtendedAttribute("Deprecated")
+        #)
+        #if deprecated:
+        #    cgThings.append(
+        #        CGGeneric(
+        #            dedent(
+        #                """
+        #        DeprecationWarning(cx, obj, DeprecatedOperations::e%s);
+        #        """
+        #                % deprecated[0]
+        #            )
+        #        )
+        #    )
 
         lenientFloatCode = None
         if idlNode.getExtendedAttribute("LenientFloat") is not None and (
@@ -10658,19 +10643,21 @@ class CGResolveHook(CGAbstractClassHook):
     def generate_code(self):
         return dedent(
             """
-            JS::Rooted<JS::PropertyDescriptor> desc(cx);
+            JS::Rooted<mozilla::Maybe<JS::PropertyDescriptor>> desc(cx);
             if (!self->DoResolve(cx, obj, id, &desc)) {
               return false;
             }
-            if (!desc.object()) {
+            if (desc.isNothing()) {
               return true;
             }
             // If desc.value() is undefined, then the DoResolve call
             // has already defined it on the object.  Don't try to also
             // define it.
-            if (!desc.value().isUndefined()) {
-              desc.attributesRef() |= JSPROP_RESOLVING;
-              if (!JS_DefinePropertyById(cx, obj, id, desc)) {
+            MOZ_ASSERT(desc->isDataDescriptor());
+            if (!desc->value().isUndefined()) {
+              JS::Rooted<JS::PropertyDescriptor> defineDesc(cx, *desc);
+              defineDesc.setResolving(true);
+              if (!JS_DefinePropertyById(cx, obj, id, defineDesc)) {
                 return false;
               }
             }
@@ -11379,7 +11366,7 @@ class CGSpecializedLenientSetter(CGSpecializedSetter):
         assert all(ord(c) < 128 for c in attrName)
         return dedent(
             """
-            DeprecationWarning(cx, obj, Document::eLenientSetter);
+            //DeprecationWarning(cx, obj, DeprecatedOperations::eLenientSetter);
             return true;
             """
         )
@@ -13502,23 +13489,6 @@ class CGClass(CGThing):
         return result
 
 
-class CGResolveOwnProperty(CGAbstractStaticMethod):
-    def __init__(self, descriptor):
-        args = [
-            Argument("JSContext*", "cx"),
-            Argument("JS::Handle<JSObject*>", "wrapper"),
-            Argument("JS::Handle<JSObject*>", "obj"),
-            Argument("JS::Handle<jsid>", "id"),
-            Argument("JS::MutableHandle<JS::PropertyDescriptor>", "desc"),
-        ]
-        CGAbstractStaticMethod.__init__(
-            self, descriptor, "ResolveOwnProperty", "bool", args
-        )
-
-    def definition_body(self):
-        return "return js::GetProxyHandler(obj)->getOwnPropertyDescriptor(cx, wrapper, id, desc);\n"
-
-
 class CGResolveOwnPropertyViaResolve(CGAbstractBindingMethod):
     """
     An implementation of Xray ResolveOwnProperty stuff for things that have a
@@ -13531,7 +13501,7 @@ class CGResolveOwnPropertyViaResolve(CGAbstractBindingMethod):
             Argument("JS::Handle<JSObject*>", "wrapper"),
             Argument("JS::Handle<JSObject*>", "obj"),
             Argument("JS::Handle<jsid>", "id"),
-            Argument("JS::MutableHandle<JS::PropertyDescriptor>", "desc"),
+            Argument("JS::MutableHandle<Maybe<JS::PropertyDescriptor>>", "desc"),
         ]
         CGAbstractBindingMethod.__init__(
             self,
@@ -13555,39 +13525,25 @@ class CGResolveOwnPropertyViaResolve(CGAbstractBindingMethod):
               // them.
               JSAutoRealm ar(cx, obj);
               JS_MarkCrossZoneId(cx, id);
-              JS::Rooted<JS::PropertyDescriptor> objDesc(cx);
+              JS::Rooted<mozilla::Maybe<JS::PropertyDescriptor>> objDesc(cx);
               if (!self->DoResolve(cx, obj, id, &objDesc)) {
                 return false;
               }
-              // If desc.value() is undefined, then the DoResolve call
+              // If desc->value() is undefined, then the DoResolve call
               // has already defined the property on the object.  Don't
               // try to also define it.
-              if (objDesc.object() &&
-                  !objDesc.value().isUndefined() &&
-                  !JS_DefinePropertyById(cx, obj, id, objDesc)) {
-                return false;
+              if (objDesc.isSome() &&
+                  !objDesc->value().isUndefined()) {
+                JS::Rooted<JS::PropertyDescriptor> defineDesc(cx, *objDesc);
+                if (!JS_DefinePropertyById(cx, obj, id, defineDesc)) {
+                  return false;
+                }
               }
             }
             return self->DoResolve(cx, wrapper, id, desc);
             """
             )
         )
-
-
-class CGEnumerateOwnProperties(CGAbstractStaticMethod):
-    def __init__(self, descriptor):
-        args = [
-            Argument("JSContext*", "cx"),
-            Argument("JS::Handle<JSObject*>", "wrapper"),
-            Argument("JS::Handle<JSObject*>", "obj"),
-            Argument("JS::MutableHandleVector<jsid>", "props"),
-        ]
-        CGAbstractStaticMethod.__init__(
-            self, descriptor, "EnumerateOwnProperties", "bool", args
-        )
-
-    def definition_body(self):
-        return "return js::GetProxyHandler(obj)->ownPropertyKeys(cx, wrapper, props);\n"
 
 
 class CGEnumerateOwnPropertiesViaGetOwnPropertyNames(CGAbstractBindingMethod):
@@ -14099,7 +14055,7 @@ class CGDOMJSProxyHandler_getOwnPropDescriptor(ClassMethod):
             Argument("JS::Handle<JSObject*>", "proxy"),
             Argument("JS::Handle<jsid>", "id"),
             Argument("bool", "ignoreNamedProps"),
-            Argument("JS::MutableHandle<JS::PropertyDescriptor>", "desc"),
+            Argument("JS::MutableHandle<Maybe<JS::PropertyDescriptor>>", "desc"),
         ]
         ClassMethod.__init__(
             self,
@@ -14133,20 +14089,27 @@ class CGDOMJSProxyHandler_getOwnPropDescriptor(ClassMethod):
             xrayCheck = "!isXray &&"
 
         if self.descriptor.supportsIndexedProperties():
-            readonly = toStringBool(indexedSetter is None)
-            fillDescriptor = (
-                "FillPropertyDescriptor(desc, proxy, %s);\nreturn true;\n" % readonly
+            attributes = [
+                "JS::PropertyAttribute::Configurable",
+                "JS::PropertyAttribute::Enumerable",
+            ]
+            if indexedSetter is not None:
+                attributes.append("JS::PropertyAttribute::Writable")
+            setDescriptor = (
+                "desc.set(mozilla::Some(JS::PropertyDescriptor::Data(value, { %s })));\nreturn true;\n"
+                % ", ".join(attributes)
             )
             templateValues = {
-                "jsvalRef": "desc.value()",
-                "jsvalHandle": "desc.value()",
+                "jsvalRef": "value",
+                "jsvalHandle": "&value",
                 "obj": "proxy",
-                "successCode": fillDescriptor,
+                "successCode": setDescriptor,
             }
             getIndexed = fill(
                 """
                 uint32_t index = GetArrayIndexFromId(id);
                 if (IsArrayIndex(index)) {
+                  JS::Rooted<JS::Value> value(cx);
                   $*{callGetter}
                 }
 
@@ -14160,17 +14123,20 @@ class CGDOMJSProxyHandler_getOwnPropDescriptor(ClassMethod):
 
         if self.descriptor.supportsNamedProperties():
             operations = self.descriptor.operations
-            readonly = toStringBool(operations["NamedSetter"] is None)
-            fillDescriptor = (
-                "FillPropertyDescriptor(desc, proxy, %s, %s);\n"
-                "return true;\n"
-                % (readonly, toStringBool(self.descriptor.namedPropertiesEnumerable))
+            attributes = ["JS::PropertyAttribute::Configurable"]
+            if self.descriptor.namedPropertiesEnumerable:
+                attributes.append("JS::PropertyAttribute::Enumerable")
+            if operations["NamedSetter"] is not None:
+                attributes.append("JS::PropertyAttribute::Writable")
+            setDescriptor = (
+                "desc.set(mozilla::Some(JS::PropertyDescriptor::Data(value, { %s })));\nreturn true;\n"
+                % ", ".join(attributes)
             )
             templateValues = {
-                "jsvalRef": "desc.value()",
-                "jsvalHandle": "desc.value()",
+                "jsvalRef": "value",
+                "jsvalHandle": "&value",
                 "obj": "proxy",
-                "successCode": fillDescriptor,
+                "successCode": setDescriptor,
             }
 
             computeCondition = dedent(
@@ -14206,6 +14172,7 @@ class CGDOMJSProxyHandler_getOwnPropDescriptor(ClassMethod):
                   $*{computeCondition}
                 }
                 if (callNamedGetter) {
+                  JS::Rooted<JS::Value> value(cx);
                   $*{namedGetCode}
                 }
                 """,
@@ -14226,15 +14193,13 @@ class CGDOMJSProxyHandler_getOwnPropDescriptor(ClassMethod):
               if (!JS_GetOwnPropertyDescriptorById(cx, expando, id, desc)) {
                 return false;
               }
-              if (desc.object()) {
-                // Pretend the property lives on the wrapper.
-                desc.object().set(proxy);
+              if (desc.isSome()) {
                 return true;
               }
             }
 
             $*{namedGet}
-            desc.object().set(nullptr);
+            desc.reset();
             return true;
             """,
             xrayDecl=xrayDecl,
@@ -15433,7 +15398,7 @@ class CGDOMJSProxyHandler_getOwnPropertyDescriptor(ClassMethod):
             Argument("JSContext*", "cx"),
             Argument("JS::Handle<JSObject*>", "proxy"),
             Argument("JS::Handle<jsid>", "id"),
-            Argument("JS::MutableHandle<JS::PropertyDescriptor>", "desc"),
+            Argument("JS::MutableHandle<Maybe<JS::PropertyDescriptor>>", "desc"),
         ]
         ClassMethod.__init__(
             self,
@@ -15478,7 +15443,7 @@ class CGDOMJSProxyHandler_getOwnPropertyDescriptor(ClassMethod):
             }
 
             // Step 3.
-            if (desc.object()) {
+            if (desc.isSome()) {
               return true;
             }
 
@@ -15868,6 +15833,7 @@ class CGDescriptor(CGThing):
                 elif m.getExtendedAttribute("Replaceable"):
                     cgThings.append(CGSpecializedReplaceableSetter(descriptor, m))
                 elif m.getExtendedAttribute("LenientSetter"):
+                    # XXX In this case, we need to add an include for mozilla/dom/Document.h to the generated cpp file.
                     cgThings.append(CGSpecializedLenientSetter(descriptor, m))
                 if (
                     not m.isStatic()
@@ -15989,9 +15955,6 @@ class CGDescriptor(CGThing):
         # after we have our DOMProxyHandler defined.
         if descriptor.wantsXrays:
             if descriptor.concrete and descriptor.proxy:
-                if not descriptor.isMaybeCrossOriginObject():
-                    cgThings.append(CGResolveOwnProperty(descriptor))
-                    cgThings.append(CGEnumerateOwnProperties(descriptor))
                 if descriptor.needsXrayNamedDeleterHook():
                     cgThings.append(CGDeleteNamedProperty(descriptor))
             elif descriptor.needsXrayResolveHooks():
@@ -17642,12 +17605,13 @@ class CGBindingRoot(CGThing):
     """
 
     def __init__(self, config, prefix, webIDLFile):
-        bindingHeaders = dict.fromkeys(("mozilla/dom/NonRefcountedDOMObject.h",), True)
+        bindingHeaders = dict.fromkeys(
+            ("mozilla/dom/NonRefcountedDOMObject.h", "MainThreadUtils.h"), True
+        )
         bindingDeclareHeaders = dict.fromkeys(
             (
                 "mozilla/dom/BindingDeclarations.h",
                 "mozilla/dom/Nullable.h",
-                "mozilla/ErrorResult.h",
                 "GeckoProfiler.h",
             ),
             True,
@@ -17682,6 +17646,27 @@ class CGBindingRoot(CGThing):
             d.interface.isIteratorInterface() or d.interface.isIterable()
             for d in descriptors
         )
+
+        def memberNeedsSubjectPrincipal(d, m):
+            if m.isAttr():
+                return (
+                    "needsSubjectPrincipal" in d.getExtendedAttributes(m, getter=True)
+                ) or (
+                    not m.readonly
+                    and "needsSubjectPrincipal"
+                    in d.getExtendedAttributes(m, setter=True)
+                )
+            return m.isMethod() and "needsSubjectPrincipal" in d.getExtendedAttributes(
+                m
+            )
+
+        if any(
+            memberNeedsSubjectPrincipal(d, m)
+            for d in descriptors
+            for m in d.interface.members
+        ):
+            bindingHeaders["mozilla/BasePrincipal.h"] = True
+            bindingHeaders["nsJSPrincipals.h"] = True
 
         def descriptorHasCrossOriginProperties(desc):
             def hasCrossOriginProperty(m):
@@ -17726,6 +17711,18 @@ class CGBindingRoot(CGThing):
         # JS::SetReservedSlot are also used too many places to restate
         # dependency logic.
         bindingHeaders["js/Object.h"] = True
+
+        # JS::IsCallable, JS::Call, JS::Construct
+        bindingHeaders["js/CallAndConstruct.h"] = True
+
+        # JS_DefineElement, JS_DefineProperty, JS_DefinePropertyById,
+        # JS_DefineUCProperty, JS_ForwardGetPropertyTo, JS_GetProperty,
+        # JS_GetPropertyById, JS_HasPropertyById, JS_SetProperty,
+        # JS_SetPropertyById
+        bindingHeaders["js/PropertyAndElement.h"] = True
+
+        # JS_GetOwnPropertyDescriptorById
+        bindingHeaders["js/PropertyDescriptor.h"] = True
 
         def descriptorDeprecated(desc):
             iface = desc.interface
@@ -17851,6 +17848,9 @@ class CGBindingRoot(CGThing):
         bindingHeaders["AtomList.h"] = (
             hasNonEmptyDictionaries or jsImplemented or callbackDescriptors
         )
+
+        if callbackDescriptors:
+            bindingDeclareHeaders["mozilla/ErrorResult.h"] = True
 
         def descriptorClearsPropsInSlots(descriptor):
             if not descriptor.wrapperCache:
@@ -19466,7 +19466,8 @@ class CGJSImplClass(CGBindingImplClass):
             if (!JS_WrapObject(aCx, &obj)) {
               return nullptr;
             }
-            if (!JS_DefineProperty(aCx, mImpl->CallbackOrNull(), "__DOM_IMPL__", obj, 0)) {
+            JS::Rooted<JSObject*> callback(aCx, mImpl->CallbackOrNull());
+            if (!JS_DefineProperty(aCx, callback, "__DOM_IMPL__", obj, 0)) {
               return nullptr;
             }
             return obj;
@@ -20020,7 +20021,7 @@ class CallbackMember(CGNativeMember):
         needThisHandling,
         rethrowContentException=False,
         spiderMonkeyInterfacesAreStructs=False,
-        wrapScope='CallbackKnownNotGray()',
+        wrapScope=None,
         canRunScript=False,
     ):
         """
@@ -20168,6 +20169,7 @@ class CallbackMember(CGNativeMember):
             jsvalIndex = "%d" % i
             if arg.canHaveMissingValue():
                 argval += ".Value()"
+
         if arg.type.isDOMString():
             # XPConnect string-to-JS conversion wants to mutate the string.  So
             # let's give it a string it can mutate
@@ -20177,6 +20179,12 @@ class CallbackMember(CGNativeMember):
         else:
             result = argval
             prepend = ""
+
+        if arg.type.isUnion() and self.wrapScope is None:
+            prepend += (
+                "JS::Rooted<JSObject*> callbackObj(cx, CallbackKnownNotGray());\n"
+            )
+            self.wrapScope = "callbackObj"
 
         conversion = prepend + wrapForType(
             arg.type,
@@ -20608,10 +20616,11 @@ class CallbackSetter(CallbackAccessor):
         return fill(
             """
             MOZ_ASSERT(argv.length() == 1);
+            JS::Rooted<JSObject*> callback(cx, CallbackKnownNotGray());
             ${atomCacheName}* atomsCache = GetAtomCache<${atomCacheName}>(cx);
             if ((JSID_IS_VOID(*reinterpret_cast<jsid*>(atomsCache)) &&
                  !InitIds(cx, atomsCache)) ||
-                !JS_SetPropertyById(cx, CallbackKnownNotGray(), atomsCache->${attrAtomName}, argv[0])) {
+                !JS_SetPropertyById(cx, callback, atomsCache->${attrAtomName}, argv[0])) {
               aRv.Throw(NS_ERROR_UNEXPECTED);
               return${errorReturn};
             }
@@ -22557,13 +22566,13 @@ class CGEventRoot(CGThing):
             [
                 config.getDescriptor(parent).headerFile,
                 "mozilla/Attributes.h",
-                "mozilla/ErrorResult.h",
                 "mozilla/dom/%sBinding.h" % interfaceName,
                 "mozilla/dom/BindingUtils.h",
             ],
             [
                 "%s.h" % interfaceName,
                 "js/GCAPI.h",
+                "mozilla/HoldDropJSObjects.h",
                 "mozilla/dom/Nullable.h",
             ],
             "",

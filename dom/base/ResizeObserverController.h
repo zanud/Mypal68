@@ -5,6 +5,7 @@
 #ifndef mozilla_dom_ResizeObserverController_h
 #define mozilla_dom_ResizeObserverController_h
 
+#include "mozilla/dom/Document.h"
 #include "mozilla/dom/ResizeObserver.h"
 #include "mozilla/TimeStamp.h"
 #include "nsRefreshObservers.h"
@@ -18,7 +19,6 @@ class PresShell;
 
 namespace dom {
 
-class Document;
 class ResizeObserverController;
 
 /**

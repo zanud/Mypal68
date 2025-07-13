@@ -174,9 +174,9 @@ class nsObjectLoadingContent : public nsImageLoadingContent,
   void TeardownProtoChain();
 
   // Helper for WebIDL NeedResolve
-  bool DoResolve(JSContext* aCx, JS::Handle<JSObject*> aObject,
-                 JS::Handle<jsid> aId,
-                 JS::MutableHandle<JS::PropertyDescriptor> aDesc);
+  bool DoResolve(
+      JSContext* aCx, JS::Handle<JSObject*> aObject, JS::Handle<jsid> aId,
+      JS::MutableHandle<mozilla::Maybe<JS::PropertyDescriptor>> aDesc);
   // The return value is whether DoResolve might end up resolving the given
   // id.  If in doubt, return true.
   static bool MayResolve(jsid aId);
@@ -365,7 +365,7 @@ class nsObjectLoadingContent : public nsImageLoadingContent,
    */
   void GetNestedParams(nsTArray<mozilla::dom::MozPluginParameter>& aParameters);
 
-  MOZ_MUST_USE nsresult BuildParametersArray();
+  [[nodiscard]] nsresult BuildParametersArray();
 
   /**
    * Loads fallback content with the specified FallbackType

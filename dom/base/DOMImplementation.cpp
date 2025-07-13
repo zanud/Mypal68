@@ -8,6 +8,7 @@
 #include "mozilla/dom/DOMImplementationBinding.h"
 #include "nsContentCreatorFunctions.h"
 #include "nsContentUtils.h"
+#include "mozilla/dom/Document.h"
 #include "mozilla/dom/DocumentType.h"
 #include "nsTextNode.h"
 
@@ -23,6 +24,18 @@ NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE(DOMImplementation, mOwner)
 
 NS_IMPL_CYCLE_COLLECTING_ADDREF(DOMImplementation)
 NS_IMPL_CYCLE_COLLECTING_RELEASE(DOMImplementation)
+
+DOMImplementation::DOMImplementation(Document* aOwner,
+                                     nsIGlobalObject* aScriptObject,
+                                     nsIURI* aDocumentURI, nsIURI* aBaseURI)
+    : mOwner(aOwner),
+      mScriptObject(do_GetWeakReference(aScriptObject)),
+      mDocumentURI(aDocumentURI),
+      mBaseURI(aBaseURI) {
+  MOZ_ASSERT(aOwner);
+}
+
+DOMImplementation::~DOMImplementation() = default;
 
 JSObject* DOMImplementation::WrapObject(JSContext* aCx,
                                         JS::Handle<JSObject*> aGivenProto) {

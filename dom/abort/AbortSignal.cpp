@@ -5,10 +5,10 @@
 #include "AbortSignal.h"
 
 #include "mozilla/dom/Event.h"
+#include "mozilla/dom/EventBinding.h"
 #include "mozilla/dom/AbortSignalBinding.h"
 
-namespace mozilla {
-namespace dom {
+namespace mozilla::dom {
 
 // AbortSignalImpl
 // ----------------------------------------------------------------------------
@@ -112,5 +112,4 @@ void AbortFollower::Unfollow() {
 
 bool AbortFollower::IsFollowing() const { return !!mFollowingSignal; }
 
-}  // namespace dom
-}  // namespace mozilla
+}  // namespace mozilla::dom

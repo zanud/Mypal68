@@ -28,9 +28,12 @@
 #include "mozilla/TimeStamp.h"
 #include "mozilla/dom/BindContext.h"
 #include "mozilla/dom/CharacterData.h"
+#include "mozilla/dom/CustomElementRegistry.h"
+#include "mozilla/dom/DebuggerNotificationBinding.h"
 #include "mozilla/dom/DocumentType.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/Event.h"
+#include "mozilla/dom/Exceptions.h"
 #include "mozilla/dom/Link.h"
 #include "mozilla/dom/HTMLImageElement.h"
 #include "mozilla/dom/HTMLMediaElement.h"
@@ -111,6 +114,14 @@
 
 using namespace mozilla;
 using namespace mozilla::dom;
+
+static bool ShouldUseNACScope(const nsINode* aNode) {
+  return aNode->IsInNativeAnonymousSubtree();
+}
+
+static bool ShouldUseUAWidgetScope(const nsINode* aNode) {
+  return aNode->HasBeenInUAWidget();
+}
 
 void* nsINode::operator new(size_t aSize, nsNodeInfoManager* aManager) {
   if (StaticPrefs::dom_arena_allocator_enabled_AtStartup()) {
@@ -771,7 +782,7 @@ nsINode* nsINode::RemoveChild(nsINode& aOldChild, ErrorResult& aError) {
 
   // Check again, we may not be the child's parent anymore.
   // Can be triggered by dom/base/crashtests/293388-1.html
-  if (aOldChild.AsContent()->IsRootOfAnonymousSubtree() ||
+  if (aOldChild.IsRootOfNativeAnonymousSubtree() ||
       aOldChild.GetParentNode() != this) {
     // aOldChild isn't one of our children.
     aError.ThrowNotFoundError(
@@ -1240,6 +1251,12 @@ void nsINode::LookupNamespaceURI(const nsAString& aNamespacePrefix,
                       aNamespacePrefix, aNamespaceURI))) {
     SetDOMStringToNull(aNamespaceURI);
   }
+}
+
+mozilla::Maybe<mozilla::dom::EventCallbackDebuggerNotificationType>
+nsINode::GetDebuggerNotificationType() const {
+  return mozilla::Some(
+      mozilla::dom::EventCallbackDebuggerNotificationType::Node);
 }
 
 bool nsINode::ComputeDefaultWantsUntrusted(ErrorResult& aRv) {
@@ -2340,8 +2357,7 @@ void nsINode::EnsurePreInsertionValidity1(ErrorResult& aError) {
 void nsINode::EnsurePreInsertionValidity2(bool aReplace, nsINode& aNewChild,
                                           nsINode* aRefChild,
                                           ErrorResult& aError) {
-  if (aNewChild.IsContent() &&
-      aNewChild.AsContent()->IsRootOfAnonymousSubtree()) {
+  if (aNewChild.IsRootOfNativeAnonymousSubtree()) {
     // This is anonymous content.  Don't allow its insertion
     // anywhere, since it might have UnbindFromTree calls coming
     // its way.
@@ -2790,7 +2806,7 @@ bool nsINode::Contains(const nsINode* aOther) const {
     // document.contains(aOther) returns true if aOther is in the document,
     // but is not in any anonymous subtree.
     // IsInUncomposedDoc() check is done already before this.
-    return !aOther->IsInAnonymousSubtree();
+    return !aOther->IsInNativeAnonymousSubtree();
   }
 
   if (!IsElement() && !IsDocumentFragment()) {
@@ -3194,8 +3210,8 @@ already_AddRefed<nsINode> nsINode::CloneAndAdopt(
       CustomElementData* data = elem->GetCustomElementData();
       if (data && data->mState == CustomElementData::State::eCustom) {
         LifecycleAdoptedCallbackArgs args = {oldDoc, newDoc};
-        nsContentUtils::EnqueueLifecycleCallback(Document::eAdopted, elem,
-                                                 nullptr, &args);
+        nsContentUtils::EnqueueLifecycleCallback(ElementCallbackType::eAdopted,
+                                                 elem, nullptr, &args);
       }
     }
 
@@ -3432,6 +3448,18 @@ DocGroup* nsINode::GetDocGroup() const { return OwnerDoc()->GetDocGroup(); }
 
 nsINode* nsINode::GetFlattenedTreeParentNodeNonInline() const {
   return GetFlattenedTreeParentNode();
+}
+
+ParentObject nsINode::GetParentObject() const {
+  ParentObject p(OwnerDoc());
+  // Note that mReflectionScope is a no-op for chrome, and other places
+  // where we don't check this value.
+  if (ShouldUseNACScope(this)) {
+    p.mReflectionScope = ReflectionScope::NAC;
+  } else if (ShouldUseUAWidgetScope(this)) {
+    p.mReflectionScope = ReflectionScope::UAWidget;
+  }
+  return p;
 }
 
 void nsINode::FireNodeRemovedForChildren() {

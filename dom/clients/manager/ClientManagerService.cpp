@@ -10,6 +10,7 @@
 #include "ClientOpenWindowUtils.h"
 #include "ClientPrincipalUtils.h"
 #include "ClientSourceParent.h"
+#include "mozilla/Preferences.h" //MY
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/dom/ServiceWorkerManager.h"
 #include "mozilla/dom/ServiceWorkerUtils.h"

@@ -10,28 +10,33 @@
 #ifndef nsFrameLoader_h_
 #define nsFrameLoader_h_
 
-#include "nsDocShell.h"
-#include "nsIFrame.h"
-#include "nsStringFwd.h"
-#include "nsPoint.h"
-#include "nsSize.h"
-#include "nsWrapperCache.h"
-#include "nsIURI.h"
-#include "nsFrameMessageManager.h"
-#include "mozilla/dom/BindingUtils.h"
-#include "mozilla/dom/BrowsingContext.h"
-#include "mozilla/dom/Element.h"
-#include "mozilla/dom/ParentSHistory.h"
-#include "mozilla/Attributes.h"
-#include "mozilla/ScrollbarPreferences.h"
-#include "mozilla/layers/LayersTypes.h"
-#include "nsStubMutationObserver.h"
+#include <cstdint>
+#include "ErrorList.h"
 #include "Units.h"
-#include "nsPluginTags.h"
+#include "js/RootingAPI.h"
+#include "mozilla/AlreadyAddRefed.h"
+#include "mozilla/Assertions.h"
+#include "mozilla/Attributes.h"
+#include "mozilla/RefPtr.h"
+#include "mozilla/dom/BrowsingContext.h"
+#include "mozilla/dom/Nullable.h"
+#include "mozilla/dom/WindowProxyHolder.h"
+#include "mozilla/layers/LayersTypes.h"
+#include "nsCOMPtr.h"
+#include "nsCycleCollectionParticipant.h"
+#include "nsDocShell.h"
+#include "mozilla/dom/MessageManagerCallback.h"
+#include "nsID.h"
+#include "nsIFrame.h"
+#include "nsIMutationObserver.h"
+#include "nsISupports.h"
+#include "nsRect.h"
+#include "nsStringFwd.h"
+#include "nsStubMutationObserver.h"
+#include "nsWrapperCache.h"
 
 class nsIURI;
 class nsSubDocumentFrame;
-class nsView;
 class AutoResetInShow;
 class AutoResetInFrameSwap;
 class nsFrameLoaderOwner;
@@ -39,7 +44,6 @@ class nsIRemoteTab;
 class nsIDocShellTreeItem;
 class nsIDocShellTreeOwner;
 class nsILoadContext;
-class nsIMessageSender;
 class nsIPrintSettings;
 class nsIWebBrowserPersistDocumentReceiver;
 class nsIWebProgressListener;
@@ -51,12 +55,12 @@ class OriginAttributes;
 namespace dom {
 class ChromeMessageSender;
 class ContentParent;
+class Document;
+class Element;
 class TabListener;
 class InProcessBrowserChildMessageManager;
 class MessageSender;
-class PBrowserParent;
 class ProcessMessageManager;
-class Promise;
 class BrowserParent;
 class MutableTabContext;
 class BrowserBridgeChild;
@@ -230,7 +234,7 @@ class nsFrameLoader final : public nsStubMutationObserver,
    */
   bool OwnerIsMozBrowserFrame();
 
-  nsIContent* GetParentObject() const { return mOwnerContent; }
+  nsIContent* GetParentObject() const;
 
   /**
    * MessageManagerCallback methods that we override.
@@ -281,17 +285,13 @@ class nsFrameLoader final : public nsStubMutationObserver,
    * Return the primary frame for our owning content, or null if it
    * can't be found.
    */
-  nsIFrame* GetPrimaryFrameOfOwningContent() const {
-    return mOwnerContent ? mOwnerContent->GetPrimaryFrame() : nullptr;
-  }
+  nsIFrame* GetPrimaryFrameOfOwningContent() const;
 
   /**
    * Return the document that owns this, or null if we don't have
    * an owner.
    */
-  Document* GetOwnerDoc() const {
-    return mOwnerContent ? mOwnerContent->OwnerDoc() : nullptr;
-  }
+  Document* GetOwnerDoc() const;
 
   /**
    * Returns whether this frame is a remote frame.

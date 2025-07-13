@@ -1269,7 +1269,7 @@ nsresult nsWebBrowserPersist::SaveURIInternal(
             do_QueryInterface(httpChannel));
         NS_ASSERTION(uploadChannel, "http must support nsIUploadChannel");
         // Attach the postdata to the http channel
-        uploadChannel->SetUploadStream(aPostData, EmptyCString(), -1);
+        uploadChannel->SetUploadStream(aPostData, ""_ns, -1);
       }
     }
 
@@ -1387,7 +1387,7 @@ nsresult nsWebBrowserPersist::GetExtensionForContentType(
   nsAutoCString contentType;
   LossyCopyUTF16toASCII(MakeStringSpan(aContentType), contentType);
   nsAutoCString ext;
-  rv = mMIMEService->GetPrimaryExtension(contentType, EmptyCString(), ext);
+  rv = mMIMEService->GetPrimaryExtension(contentType, ""_ns, ext);
   if (NS_SUCCEEDED(rv)) {
     *aExt = UTF8ToNewUnicode(ext);
     NS_ENSURE_TRUE(*aExt, NS_ERROR_OUT_OF_MEMORY);
@@ -1491,8 +1491,8 @@ nsresult nsWebBrowserPersist::SaveDocumentInternal(
         dataDirParent->GetLeafName(dirName);
 
         nsAutoCString newRelativePathToData;
-        newRelativePathToData = NS_ConvertUTF16toUTF8(dirName) +
-                                NS_LITERAL_CSTRING("/") + relativePathToData;
+        newRelativePathToData =
+            NS_ConvertUTF16toUTF8(dirName) + "/"_ns + relativePathToData;
         relativePathToData = newRelativePathToData;
 
         nsCOMPtr<nsIFile> newDataDirParent;
@@ -1546,7 +1546,7 @@ NS_IMETHODIMP
 nsWebBrowserPersist::OnWalk::VisitResource(
     nsIWebBrowserPersistDocument* aDoc, const nsACString& aURI,
     nsContentPolicyType aContentPolicyType) {
-  return mParent->StoreURI(nsAutoCString(aURI).get(), aDoc, aContentPolicyType);
+  return mParent->StoreURI(aURI, aDoc, aContentPolicyType);
 }
 
 NS_IMETHODIMP
@@ -1556,8 +1556,8 @@ nsWebBrowserPersist::OnWalk::VisitDocument(
   nsAutoCString uriSpec;
   nsresult rv = aSubDoc->GetDocumentURI(uriSpec);
   NS_ENSURE_SUCCESS(rv, rv);
-  rv = mParent->StoreURI(uriSpec.get(), aDoc,
-                         nsIContentPolicy::TYPE_SUBDOCUMENT, false, &data);
+  rv = mParent->StoreURI(uriSpec, aDoc, nsIContentPolicy::TYPE_SUBDOCUMENT,
+                         false, &data);
   NS_ENSURE_SUCCESS(rv, rv);
   if (!data) {
     // If the URI scheme isn't persistable, then don't persist.
@@ -1962,7 +1962,7 @@ nsresult nsWebBrowserPersist::CalculateAndAppendFileExt(
   // Append the extension onto the file
   if (!contentType.IsEmpty()) {
     nsCOMPtr<nsIMIMEInfo> mimeInfo;
-    mMIMEService->GetFromTypeAndExtension(contentType, EmptyCString(),
+    mMIMEService->GetFromTypeAndExtension(contentType, ""_ns,
                                           getter_AddRefs(mimeInfo));
 
     nsCOMPtr<nsIFile> localFile;
@@ -2214,15 +2214,13 @@ void nsWebBrowserPersist::CalcTotalProgress() {
   }
 }
 
-nsresult nsWebBrowserPersist::StoreURI(const char* aURI,
+nsresult nsWebBrowserPersist::StoreURI(const nsACString& aURI,
                                        nsIWebBrowserPersistDocument* aDoc,
                                        nsContentPolicyType aContentPolicyType,
                                        bool aNeedsPersisting, URIData** aData) {
-  NS_ENSURE_ARG_POINTER(aURI);
-
   nsCOMPtr<nsIURI> uri;
-  nsresult rv = NS_NewURI(getter_AddRefs(uri), nsDependentCString(aURI),
-                          mCurrentCharset.get(), mCurrentBaseURI);
+  nsresult rv = NS_NewURI(getter_AddRefs(uri), aURI, mCurrentCharset.get(),
+                          mCurrentBaseURI);
   NS_ENSURE_SUCCESS(rv, rv);
 
   return StoreURI(uri, aDoc, aContentPolicyType, aNeedsPersisting, aData);
@@ -2277,9 +2275,7 @@ nsresult nsWebBrowserPersist::URIData::GetLocalURI(nsIURI* targetBaseURI,
   }
 
   // remove username/password if present
-  Unused << NS_MutateURI(fileAsURI)
-                .SetUserPass(EmptyCString())
-                .Finalize(fileAsURI);
+  Unused << NS_MutateURI(fileAsURI).SetUserPass(""_ns).Finalize(fileAsURI);
 
   // reset node attribute
   // Use relative or absolute links
@@ -2410,13 +2406,13 @@ nsresult nsWebBrowserPersist::SaveSubframeContent(
     mWalkStack.AppendElement(std::move(toWalk));
   } else {
     nsContentPolicyType policyType = nsIContentPolicy::TYPE_OTHER;
-    if (StringBeginsWith(contentType, NS_LITERAL_CSTRING("image/"))) {
+    if (StringBeginsWith(contentType, "image/"_ns)) {
       policyType = nsIContentPolicy::TYPE_IMAGE;
-    } else if (StringBeginsWith(contentType, NS_LITERAL_CSTRING("audio/")) ||
-               StringBeginsWith(contentType, NS_LITERAL_CSTRING("video/"))) {
+    } else if (StringBeginsWith(contentType, "audio/"_ns) ||
+               StringBeginsWith(contentType, "video/"_ns)) {
       policyType = nsIContentPolicy::TYPE_MEDIA;
     }
-    rv = StoreURI(aURISpec.get(), aParentDocument, policyType);
+    rv = StoreURI(aURISpec, aParentDocument, policyType);
   }
   NS_ENSURE_SUCCESS(rv, rv);
 

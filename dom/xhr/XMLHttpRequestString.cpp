@@ -38,7 +38,7 @@ class XMLHttpRequestStringBuffer final {
     mData.Append(aString);
   }
 
-  MOZ_MUST_USE bool GetAsString(nsAString& aString) {
+  [[nodiscard]] bool GetAsString(nsAString& aString) {
     MutexAutoLock lock(mMutex);
     return aString.Assign(mData, mozilla::fallible);
   }
@@ -47,7 +47,7 @@ class XMLHttpRequestStringBuffer final {
     return mData.SizeOfExcludingThisIfUnshared(aMallocSizeOf);
   }
 
-  MOZ_MUST_USE bool GetAsString(DOMString& aString, uint32_t aLength) {
+  [[nodiscard]] bool GetAsString(DOMString& aString, uint32_t aLength) {
     MutexAutoLock lock(mMutex);
     MOZ_ASSERT(aLength <= mData.Length());
 

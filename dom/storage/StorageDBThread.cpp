@@ -205,7 +205,7 @@ nsresult StorageDBThread::Init(const nsString& aProfilePath) {
     return rv;
   }
 
-  rv = mDatabaseFile->Append(NS_LITERAL_STRING("webappsstore.sqlite"));
+  rv = mDatabaseFile->Append(u"webappsstore.sqlite"_ns);
   NS_ENSURE_SUCCESS(rv, rv);
 
   // Need to keep the lock to avoid setting mThread later then
@@ -587,8 +587,8 @@ nsresult StorageDBThread::InitDatabase() {
   nsCOMPtr<mozIStorageStatement> stmt;
   // Note: result of this select must match StorageManager::CreateOrigin()
   rv = mWorkerConnection->CreateStatement(
-      NS_LITERAL_CSTRING("SELECT DISTINCT originAttributes || ':' || originKey "
-                         "FROM webappsstore2"),
+      nsLiteralCString("SELECT DISTINCT originAttributes || ':' || originKey "
+                       "FROM webappsstore2"),
       getter_AddRefs(stmt));
   NS_ENSURE_SUCCESS(rv, rv);
   mozStorageStatementScoper scope(stmt);
@@ -663,7 +663,7 @@ nsresult StorageDBThread::ConfigureWALBehavior() {
   // Get the DB's page size
   nsCOMPtr<mozIStorageStatement> stmt;
   nsresult rv = mWorkerConnection->CreateStatement(
-      NS_LITERAL_CSTRING(MOZ_STORAGE_UNIQUIFY_QUERY_STR "PRAGMA page_size"),
+      nsLiteralCString(MOZ_STORAGE_UNIQUIFY_QUERY_STR "PRAGMA page_size"),
       getter_AddRefs(stmt));
   NS_ENSURE_SUCCESS(rv, rv);
 
@@ -867,7 +867,7 @@ const nsCString StorageDBThread::DBOperation::OriginNoSuffix() const {
     return mCache->OriginNoSuffix();
   }
 
-  return EmptyCString();
+  return ""_ns;
 }
 
 const nsCString StorageDBThread::DBOperation::OriginSuffix() const {
@@ -875,7 +875,7 @@ const nsCString StorageDBThread::DBOperation::OriginSuffix() const {
     return mCache->OriginSuffix();
   }
 
-  return EmptyCString();
+  return ""_ns;
 }
 
 const nsCString StorageDBThread::DBOperation::Origin() const {
@@ -891,7 +891,7 @@ const nsCString StorageDBThread::DBOperation::Target() const {
     case opAddItem:
     case opUpdateItem:
     case opRemoveItem:
-      return Origin() + NS_LITERAL_CSTRING("|") + NS_ConvertUTF16toUTF8(mKey);
+      return Origin() + "|"_ns + NS_ConvertUTF16toUTF8(mKey);
 
     default:
       return Origin();
@@ -932,15 +932,14 @@ nsresult StorageDBThread::DBOperation::Perform(StorageDBThread* aThread) {
       NS_ENSURE_STATE(stmt);
       mozStorageStatementScoper scope(stmt);
 
-      rv = stmt->BindUTF8StringByName(NS_LITERAL_CSTRING("originAttributes"),
+      rv = stmt->BindUTF8StringByName("originAttributes"_ns,
                                       mCache->OriginSuffix());
       NS_ENSURE_SUCCESS(rv, rv);
 
-      rv = stmt->BindUTF8StringByName(NS_LITERAL_CSTRING("originKey"),
-                                      mCache->OriginNoSuffix());
+      rv = stmt->BindUTF8StringByName("originKey"_ns, mCache->OriginNoSuffix());
       NS_ENSURE_SUCCESS(rv, rv);
 
-      rv = stmt->BindInt32ByName(NS_LITERAL_CSTRING("offset"),
+      rv = stmt->BindInt32ByName("offset"_ns,
                                  static_cast<int32_t>(mCache->LoadedCount()));
       NS_ENSURE_SUCCESS(rv, rv);
 
@@ -974,8 +973,7 @@ nsresult StorageDBThread::DBOperation::Perform(StorageDBThread* aThread) {
 
       mozStorageStatementScoper scope(stmt);
 
-      rv = stmt->BindUTF8StringByName(NS_LITERAL_CSTRING("usageOrigin"),
-                                      mUsage->OriginScope());
+      rv = stmt->BindUTF8StringByName("usageOrigin"_ns, mUsage->OriginScope());
       NS_ENSURE_SUCCESS(rv, rv);
 
       bool exists;
@@ -1005,20 +1003,19 @@ nsresult StorageDBThread::DBOperation::Perform(StorageDBThread* aThread) {
 
       mozStorageStatementScoper scope(stmt);
 
-      rv = stmt->BindUTF8StringByName(NS_LITERAL_CSTRING("originAttributes"),
+      rv = stmt->BindUTF8StringByName("originAttributes"_ns,
                                       mCache->OriginSuffix());
       NS_ENSURE_SUCCESS(rv, rv);
-      rv = stmt->BindUTF8StringByName(NS_LITERAL_CSTRING("originKey"),
-                                      mCache->OriginNoSuffix());
+      rv = stmt->BindUTF8StringByName("originKey"_ns, mCache->OriginNoSuffix());
       NS_ENSURE_SUCCESS(rv, rv);
       // Filling the 'scope' column just for downgrade compatibility reasons
       rv = stmt->BindUTF8StringByName(
-          NS_LITERAL_CSTRING("scope"),
+          "scope"_ns,
           Scheme0Scope(mCache->OriginSuffix(), mCache->OriginNoSuffix()));
       NS_ENSURE_SUCCESS(rv, rv);
-      rv = stmt->BindStringByName(NS_LITERAL_CSTRING("key"), mKey);
+      rv = stmt->BindStringByName("key"_ns, mKey);
       NS_ENSURE_SUCCESS(rv, rv);
-      rv = stmt->BindStringByName(NS_LITERAL_CSTRING("value"), mValue);
+      rv = stmt->BindStringByName("value"_ns, mValue);
       NS_ENSURE_SUCCESS(rv, rv);
 
       rv = stmt->Execute();
@@ -1041,13 +1038,12 @@ nsresult StorageDBThread::DBOperation::Perform(StorageDBThread* aThread) {
       NS_ENSURE_STATE(stmt);
       mozStorageStatementScoper scope(stmt);
 
-      rv = stmt->BindUTF8StringByName(NS_LITERAL_CSTRING("originAttributes"),
+      rv = stmt->BindUTF8StringByName("originAttributes"_ns,
                                       mCache->OriginSuffix());
       NS_ENSURE_SUCCESS(rv, rv);
-      rv = stmt->BindUTF8StringByName(NS_LITERAL_CSTRING("originKey"),
-                                      mCache->OriginNoSuffix());
+      rv = stmt->BindUTF8StringByName("originKey"_ns, mCache->OriginNoSuffix());
       NS_ENSURE_SUCCESS(rv, rv);
-      rv = stmt->BindStringByName(NS_LITERAL_CSTRING("key"), mKey);
+      rv = stmt->BindStringByName("key"_ns, mKey);
       NS_ENSURE_SUCCESS(rv, rv);
 
       rv = stmt->Execute();
@@ -1067,11 +1063,10 @@ nsresult StorageDBThread::DBOperation::Perform(StorageDBThread* aThread) {
       NS_ENSURE_STATE(stmt);
       mozStorageStatementScoper scope(stmt);
 
-      rv = stmt->BindUTF8StringByName(NS_LITERAL_CSTRING("originAttributes"),
+      rv = stmt->BindUTF8StringByName("originAttributes"_ns,
                                       mCache->OriginSuffix());
       NS_ENSURE_SUCCESS(rv, rv);
-      rv = stmt->BindUTF8StringByName(NS_LITERAL_CSTRING("originKey"),
-                                      mCache->OriginNoSuffix());
+      rv = stmt->BindUTF8StringByName("originKey"_ns, mCache->OriginNoSuffix());
       NS_ENSURE_SUCCESS(rv, rv);
 
       rv = stmt->Execute();
@@ -1109,8 +1104,7 @@ nsresult StorageDBThread::DBOperation::Perform(StorageDBThread* aThread) {
       NS_ENSURE_STATE(stmt);
       mozStorageStatementScoper scope(stmt);
 
-      rv = stmt->BindUTF8StringByName(NS_LITERAL_CSTRING("scope"),
-                                      mOrigin + NS_LITERAL_CSTRING("*"));
+      rv = stmt->BindUTF8StringByName("scope"_ns, mOrigin + "*"_ns);
       NS_ENSURE_SUCCESS(rv, rv);
 
       rv = stmt->Execute();
@@ -1131,8 +1125,7 @@ nsresult StorageDBThread::DBOperation::Perform(StorageDBThread* aThread) {
           new OriginAttrsPatternMatchSQLFunction(mOriginPattern));
 
       rv = aThread->mWorkerConnection->CreateFunction(
-          NS_LITERAL_CSTRING("ORIGIN_ATTRS_PATTERN_MATCH"), 1,
-          patternMatchFunction);
+          "ORIGIN_ATTRS_PATTERN_MATCH"_ns, 1, patternMatchFunction);
       NS_ENSURE_SUCCESS(rv, rv);
 
       nsCOMPtr<mozIStorageStatement> stmt =
@@ -1149,7 +1142,7 @@ nsresult StorageDBThread::DBOperation::Perform(StorageDBThread* aThread) {
 
       // Always remove the function
       aThread->mWorkerConnection->RemoveFunction(
-          NS_LITERAL_CSTRING("ORIGIN_ATTRS_PATTERN_MATCH"));
+          "ORIGIN_ATTRS_PATTERN_MATCH"_ns);
 
       NS_ENSURE_SUCCESS(rv, rv);
 

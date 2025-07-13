@@ -52,13 +52,14 @@ class VideoFrameMarkerPayload : public ProfilerMarkerPayload {
         mAudioPositionUs(aAudioPositionUs),
         mVideoFrameTimeUs(aVideoFrameTimeUs) {}
 
-  BlocksRingBuffer::Length TagAndSerializationBytes() const override {
+  ProfileBufferEntryWriter::Length TagAndSerializationBytes() const override {
     return CommonPropsTagAndSerializationBytes() +
-           BlocksRingBuffer::SumBytes(mAudioPositionUs, mVideoFrameTimeUs);
+           ProfileBufferEntryWriter::SumBytes(mAudioPositionUs,
+                                              mVideoFrameTimeUs);
   }
 
   void SerializeTagAndPayload(
-      BlocksRingBuffer::EntryWriter& aEntryWriter) const override {
+      ProfileBufferEntryWriter& aEntryWriter) const override {
     static const DeserializerTag tag = TagForDeserializer(Deserialize);
     SerializeTagAndCommonProps(tag, aEntryWriter);
     aEntryWriter.WriteObject(mAudioPositionUs);
@@ -66,7 +67,7 @@ class VideoFrameMarkerPayload : public ProfilerMarkerPayload {
   }
 
   static UniquePtr<ProfilerMarkerPayload> Deserialize(
-      BlocksRingBuffer::EntryReader& aEntryReader) {
+      ProfileBufferEntryReader& aEntryReader) {
     ProfilerMarkerPayload::CommonProps props =
         DeserializeCommonProps(aEntryReader);
     auto audioPositionUs = aEntryReader.ReadObject<int64_t>();
@@ -632,6 +633,17 @@ void VideoSink::MaybeResolveEndPromise() {
 
     TimeStamp nowTime;
     const auto clockTime = mAudioSink->GetPosition(&nowTime);
+
+    // Clear future frames from the compositor, in case the playback position
+    // unexpectedly jumped to the end, and all frames between the previous
+    // playback position and the end were discarded. Old frames based on the
+    // previous playback position might still be queued in the compositor. See
+    // bug 1598143 for when this can happen.
+    mContainer->ClearFutureFrames(nowTime);
+    if (mSecondaryContainer) {
+      mSecondaryContainer->ClearFutureFrames(nowTime);
+    }
+
     if (clockTime < mVideoFrameEndTime) {
       VSINK_LOG_V(
           "Not reach video end time yet, reschedule timer to resolve "
@@ -662,29 +674,18 @@ void VideoSink::SetSecondaryVideoContainer(VideoFrameContainer* aSecondary) {
     MOZ_DIAGNOSTIC_ASSERT(mainImageContainer);
     MOZ_DIAGNOSTIC_ASSERT(secondaryImageContainer);
 
-    // If the video isn't currently playing, get the most recently
-    // decoded frame and display that in the secondary container as
-    // well.
-    nsTArray<ImageContainer::OwningImage> oldImages;
-    mainImageContainer->GetCurrentImages(&oldImages);
-    if (oldImages.Length()) {
-      ImageContainer::OwningImage& old = oldImages.LastElement();
-
-      nsTArray<ImageContainer::NonOwningImage> currentFrame;
-      // We hardcode this first frame to 0 so that we ensure that subsequent
-      // frames always have a greater frameID, which is an ImageContainer
-      // invariant.
+    // If the video isn't currently playing, get the current frame and display
+    // that in the secondary container as well.
+    AutoLockImage lockImage(mainImageContainer);
+    TimeStamp now = TimeStamp::Now();
+    if (RefPtr<Image> image = lockImage.GetImage(now)) {
+      AutoTArray<ImageContainer::NonOwningImage, 1> currentFrame;
       currentFrame.AppendElement(ImageContainer::NonOwningImage(
-          old.mImage, old.mTimeStamp, /* frameID */ 0, old.mProducerID));
-
+          image, now, /* frameID */ 1,
+          /* producerId */ ImageContainer::AllocateProducerID()));
       secondaryImageContainer->SetCurrentImages(currentFrame);
     }
   }
-}
-
-void VideoSink::ClearSecondaryVideoContainer() {
-  AssertOwnerThread();
-  mSecondaryContainer = nullptr;
 }
 
 nsCString VideoSink::GetDebugInfo() {

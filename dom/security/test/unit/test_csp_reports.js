@@ -120,7 +120,7 @@ function run_test() {
   makeTest(0, { "blocked-uri": "inline" }, false, function(csp) {
     let inlineOK = true;
     inlineOK = csp.getAllowsInline(
-      Ci.nsIContentPolicy.TYPE_SCRIPT,
+      Ci.nsIContentSecurityPolicy.SCRIPT_SRC_DIRECTIVE,
       "", // aNonce
       false, // aParserCreated
       null, // aTriggeringElement
@@ -183,8 +183,6 @@ function run_test() {
       NetUtil.newURI("http://blocked.test/foo.js"),
       null,
       null,
-      null,
-      null,
       true,
       null
     );
@@ -194,7 +192,7 @@ function run_test() {
   makeTest(3, { "blocked-uri": "inline" }, true, function(csp) {
     let inlineOK = true;
     inlineOK = csp.getAllowsInline(
-      Ci.nsIContentPolicy.TYPE_SCRIPT,
+      Ci.nsIContentSecurityPolicy.SCRIPT_SRC_DIRECTIVE,
       "", // aNonce
       false, // aParserCreated
       null, // aTriggeringElement
@@ -245,8 +243,6 @@ function run_test() {
       NetUtil.newURI("data:image/png;base64," + base64data),
       null,
       null,
-      null,
-      null,
       true,
       null
     );
@@ -259,8 +255,6 @@ function run_test() {
       Ci.nsIContentPolicy.TYPE_SUBDOCUMENT,
       null, // nsICSPEventListener
       NetUtil.newURI("intent://mymaps.com/maps?um=1&ie=UTF-8&fb=1&sll"),
-      null,
-      null,
       null,
       null,
       true,
@@ -279,8 +273,6 @@ function run_test() {
       NetUtil.newURI(selfSpec + "#bar"),
       null,
       null,
-      null,
-      null,
       true,
       null
     );
@@ -297,8 +289,6 @@ function run_test() {
         Ci.nsIContentPolicy.TYPE_SCRIPT,
         null, // nsICSPEventListener
         NetUtil.newURI("ftp://blocked.test/profile.png"),
-        null,
-        null,
         null,
         null,
         true,

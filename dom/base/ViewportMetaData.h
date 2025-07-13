@@ -5,6 +5,7 @@
 #ifndef DOM_VIEWPORT_META_DATA_H_
 #define DOM_VIEWPORT_META_DATA_H_
 
+#include "nsString.h"
 #include "nsAString.h"
 
 namespace mozilla {

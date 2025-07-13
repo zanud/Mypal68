@@ -4,23 +4,56 @@
 
 #include "WorkerError.h"
 
-#include "js/friend/ErrorMessages.h"  // JSMSG_OVER_RECURSED
+#include <stdio.h>
+#include <algorithm>
+#include <utility>
+#include "MainThreadUtils.h"
+#include "WorkerPrivate.h"
+#include "WorkerRunnable.h"
+#include "WorkerScope.h"
+#include "js/ComparisonOperators.h"
+#include "js/UniquePtr.h"
+#include "js/friend/ErrorMessages.h"
+#include "jsapi.h"
 #include "mozilla/ArrayAlgorithm.h"
+#include "mozilla/ArrayIterator.h"
+#include "mozilla/Assertions.h"
+#include "mozilla/BasicEvents.h"
 #include "mozilla/DOMEventTargetHelper.h"
+#include "mozilla/ErrorResult.h"
+#include "mozilla/EventDispatcher.h"
+#include "mozilla/RefPtr.h"
+#include "mozilla/Span.h"
+#include "mozilla/ThreadSafeWeakPtr.h"
+#include "mozilla/Unused.h"
+#include "mozilla/dom/BindingDeclarations.h"
+#include "mozilla/dom/BindingUtils.h"
 #include "mozilla/dom/ErrorEvent.h"
 #include "mozilla/dom/ErrorEventBinding.h"
+#include "mozilla/dom/Event.h"
+#include "mozilla/dom/EventBinding.h"
+#include "mozilla/dom/EventTarget.h"
 #include "mozilla/dom/RemoteWorkerChild.h"
+#include "mozilla/dom/RemoteWorkerTypes.h"
+#include "mozilla/dom/RootedDictionary.h"
 #include "mozilla/dom/ServiceWorkerManager.h"
 #include "mozilla/dom/SimpleGlobalObject.h"
+#include "mozilla/dom/Worker.h"
+#include "mozilla/dom/WorkerCommon.h"
 #include "mozilla/dom/WorkerDebuggerGlobalScopeBinding.h"
 #include "mozilla/dom/WorkerGlobalScopeBinding.h"
-#include "mozilla/EventDispatcher.h"
-#include "nsGlobalWindowInner.h"
+#include "mozilla/fallible.h"
+#include "nsCOMPtr.h"
+#include "nsDebug.h"
+#include "nsGlobalWindowOuter.h"
 #include "nsIConsoleService.h"
+#include "nsIScriptError.h"
 #include "nsScriptError.h"
-#include "WorkerRunnable.h"
-#include "WorkerPrivate.h"
-#include "WorkerScope.h"
+#include "nsServiceManagerUtils.h"
+#include "nsString.h"
+#include "nsWrapperCacheInlines.h"
+#include "nscore.h"
+#include "xpcpublic.h"
 
 namespace mozilla {
 namespace dom {
@@ -176,8 +209,8 @@ class ReportGenericErrorRunnable final : public WorkerDebuggeeRunnable {
 
     RefPtr<mozilla::dom::EventTarget> parentEventTarget =
         aWorkerPrivate->ParentEventTargetRef();
-    RefPtr<Event> event = Event::Constructor(
-        parentEventTarget, NS_LITERAL_STRING("error"), EventInit());
+    RefPtr<Event> event =
+        Event::Constructor(parentEventTarget, u"error"_ns, EventInit());
     event->SetTrusted(true);
 
     parentEventTarget->DispatchEvent(*event);
@@ -259,7 +292,7 @@ void WorkerErrorReport::ReportError(
 
     if (aTarget) {
       RefPtr<ErrorEvent> event =
-          ErrorEvent::Constructor(aTarget, NS_LITERAL_STRING("error"), init);
+          ErrorEvent::Constructor(aTarget, u"error"_ns, init);
       event->SetTrusted(true);
 
       bool defaultActionEnabled =
@@ -312,7 +345,7 @@ void WorkerErrorReport::ReportError(
         MOZ_ASSERT(globalScope->GetWrapperPreserveColor() == global);
 
         RefPtr<ErrorEvent> event =
-            ErrorEvent::Constructor(aTarget, NS_LITERAL_STRING("error"), init);
+            ErrorEvent::Constructor(aTarget, u"error"_ns, init);
         event->SetTrusted(true);
 
         if (NS_FAILED(EventDispatcher::DispatchDOMEvent(

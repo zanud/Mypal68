@@ -60,6 +60,10 @@ CharacterData::~CharacterData() {
   }
 }
 
+Element* CharacterData::GetNameSpaceElement() {
+  return Element::FromNodeOrNull(GetParentNode());
+}
+
 NS_IMPL_CYCLE_COLLECTION_CLASS(CharacterData)
 
 NS_IMPL_CYCLE_COLLECTION_TRACE_WRAPPERCACHE(CharacterData)
@@ -118,6 +122,14 @@ void CharacterData::SetNodeValueInternal(const nsAString& aNodeValue,
 //----------------------------------------------------------------------
 
 // Implementation of CharacterData
+
+void CharacterData::SetTextContentInternal(const nsAString& aTextContent,
+                                           nsIPrincipal* aSubjectPrincipal,
+                                           ErrorResult& aError) {
+  // Batch possible DOMSubtreeModified events.
+  mozAutoSubtreeModified subtree(OwnerDoc(), nullptr);
+  return SetNodeValue(aTextContent, aError);
+}
 
 void CharacterData::GetData(nsAString& aData) const {
   if (mText.Is2b()) {

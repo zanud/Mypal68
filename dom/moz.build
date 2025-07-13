@@ -96,7 +96,7 @@ DIRS += [
     'websocket',
     'serviceworkers',
     'simpledb',
-    'reporting',
+    #tipa THE_PEOPORTIMG'reporting',
     'localstorage',
     'l10n',
 ]

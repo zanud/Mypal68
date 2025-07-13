@@ -26,8 +26,10 @@ class TextEditor;
  */
 class TextControlElement : public nsGenericHTMLFormElementWithState {
  public:
-  TextControlElement(already_AddRefed<dom::NodeInfo>&& aNodeInfo, uint8_t aType)
-      : nsGenericHTMLFormElementWithState(std::move(aNodeInfo), aType){};
+  TextControlElement(already_AddRefed<dom::NodeInfo>&& aNodeInfo,
+                     dom::FromParser aFromParser, uint8_t aType)
+      : nsGenericHTMLFormElementWithState(std::move(aNodeInfo), aFromParser,
+                                          aType){};
 
   NS_DECL_ISUPPORTS_INHERITED
   NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED(TextControlElement,

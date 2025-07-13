@@ -8,6 +8,7 @@
 #include "GLContext.h"
 #include "jsapi.h"
 #include "js/Warnings.h"  // JS::WarnASCII
+#include "mozilla/dom/Document.h" //MY
 #include "mozilla/dom/ScriptSettings.h"
 #include "mozilla/gfx/Logging.h"
 #include "mozilla/Preferences.h"

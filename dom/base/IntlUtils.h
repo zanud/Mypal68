@@ -38,6 +38,8 @@ class IntlUtils final : public nsISupports, public nsWrapperCache {
                      mozilla::dom::LocaleInfo& aResult,
                      mozilla::ErrorResult& aError);
 
+  bool IsAppLocaleRTL();
+
  private:
   ~IntlUtils();
 

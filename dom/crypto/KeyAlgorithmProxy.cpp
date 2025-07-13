@@ -3,11 +3,13 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "mozilla/dom/KeyAlgorithmProxy.h"
+
+#include "js/StructuredClone.h"
+#include "mozilla/Assertions.h"
 #include "mozilla/dom/StructuredCloneHolder.h"
 #include "mozilla/dom/WebCryptoCommon.h"
 
-namespace mozilla {
-namespace dom {
+namespace mozilla::dom {
 
 bool KeyAlgorithmProxy::WriteStructuredClone(
     JSStructuredCloneWriter* aWriter) const {
@@ -231,5 +233,4 @@ KeyAlgorithmProxy::GetMechanism(const HmacKeyAlgorithm& aAlgorithm) {
   return UNKNOWN_CK_MECHANISM;
 }
 
-}  // namespace dom
-}  // namespace mozilla
+}  // namespace mozilla::dom

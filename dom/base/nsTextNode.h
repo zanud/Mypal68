@@ -10,6 +10,7 @@
  */
 
 #include "mozilla/Attributes.h"
+#include "mozilla/dom/Document.h" //MY GeometryUtilsBinding
 #include "mozilla/dom/Text.h"
 #include "nsDebug.h"
 

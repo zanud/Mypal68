@@ -7,11 +7,12 @@
 #include "mozilla/dom/ContentChild.h"
 #include "mozilla/dom/BrowserChild.h"
 #include "mozilla/dom/DocGroup.h"
+#include "mozilla/dom/Document.h" //MY
 #include "mozilla/dom/TimeoutManager.h"
 #include "mozilla/AbstractThread.h"
 #include "mozilla/ClearOnShutdown.h"
+#include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/StaticPtr.h"
-#include "mozilla/Telemetry.h"
 #include "mozilla/ThrottledEventQueue.h"
 #include "nsIDocShell.h"
 

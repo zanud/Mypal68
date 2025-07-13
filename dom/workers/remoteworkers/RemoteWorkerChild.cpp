@@ -8,6 +8,7 @@
 #include "mozilla/dom/IndexedDatabaseManager.h"
 #include "mozilla/dom/MessagePort.h"
 #include "mozilla/dom/RemoteWorkerTypes.h"
+#include "mozilla/dom/ScriptSettings.h" //MY AutoJSAP
 #include "mozilla/dom/ServiceWorkerInterceptController.h"
 #include "mozilla/dom/ServiceWorkerUtils.h"
 #include "mozilla/dom/workerinternals/ScriptLoader.h"

@@ -8,6 +8,7 @@
 #include "ServiceWorkerManager.h"
 #include "nsContentUtils.h"
 #include "nsICacheInfoChannel.h"
+#include "nsIHttpChannel.h"
 #include "nsIHttpChannelInternal.h"
 #include "nsIHttpHeaderVisitor.h"
 #include "nsINamed.h"
@@ -23,6 +24,7 @@
 #include "mozilla/Assertions.h"
 #include "mozilla/CycleCollectedJSContext.h"  // for MicroTaskRunnable
 #include "mozilla/JSObjectHolder.h"
+#include "mozilla/Preferences.h"
 #include "mozilla/dom/Client.h"
 #include "mozilla/dom/ClientIPCTypes.h"
 #include "mozilla/dom/FetchUtil.h"
@@ -109,7 +111,7 @@ ServiceWorkerPrivate::~ServiceWorkerPrivate() {
 
 namespace {
 
-class CheckScriptEvaluationWithCallback final : public WorkerRunnable {
+class CheckScriptEvaluationWithCallback final : public WorkerDebuggeeRunnable {
   nsMainThreadPtrHandle<ServiceWorkerPrivate> mServiceWorkerPrivate;
   nsMainThreadPtrHandle<KeepAliveToken> mKeepAliveToken;
 
@@ -127,7 +129,7 @@ class CheckScriptEvaluationWithCallback final : public WorkerRunnable {
       ServiceWorkerPrivate* aServiceWorkerPrivate,
       KeepAliveToken* aKeepAliveToken,
       LifeCycleEventCallback* aScriptEvaluationCallback)
-      : WorkerRunnable(aWorkerPrivate),
+      : WorkerDebuggeeRunnable(aWorkerPrivate, WorkerThreadModifyBusyCount),
         mServiceWorkerPrivate(new nsMainThreadPtrHolder<ServiceWorkerPrivate>(
             "CheckScriptEvaluationWithCallback::mServiceWorkerPrivate",
             aServiceWorkerPrivate)),
@@ -497,9 +499,7 @@ class SendMessageEventRunnable final : public ExtendableEventWorkerRunnable {
     RefPtr<EventTarget> target = aWorkerPrivate->GlobalScope();
     RefPtr<ExtendableMessageEvent> extendableEvent =
         ExtendableMessageEvent::Constructor(
-            target,
-            deserializationFailed ? NS_LITERAL_STRING("messageerror")
-                                  : NS_LITERAL_STRING("message"),
+            target, deserializationFailed ? u"messageerror"_ns : u"message"_ns,
             init);
 
     extendableEvent->SetTrusted(true);
@@ -831,8 +831,8 @@ class SendPushEventRunnable final
     pei.mCancelable = false;
 
     ErrorResult result;
-    RefPtr<PushEvent> event = PushEvent::Constructor(
-        globalObj, NS_LITERAL_STRING("push"), pei, result);
+    RefPtr<PushEvent> event =
+        PushEvent::Constructor(globalObj, u"push"_ns, pei, result);
     if (NS_WARN_IF(result.Failed())) {
       result.SuppressException();
       errorReporter->Report();
@@ -872,7 +872,7 @@ class SendPushSubscriptionChangeEventRunnable final
     init.mCancelable = false;
 
     RefPtr<ExtendableEvent> event = ExtendableEvent::Constructor(
-        target, NS_LITERAL_STRING("pushsubscriptionchange"), init);
+        target, u"pushsubscriptionchange"_ns, init);
 
     event->SetTrusted(true);
 
@@ -1208,7 +1208,7 @@ class FetchEventRunnable : public ExtendableFunctionalEventWorkerRunnable,
         mRequestCredentials(RequestCredentials::Same_origin),
         mContentPolicyType(nsIContentPolicy::TYPE_INVALID),
         mUploadStreamContentLength(-1),
-        mReferrer(NS_LITERAL_STRING(kFETCH_CLIENT_REFERRER_STR)),
+        mReferrer(NS_LITERAL_STRING_FROM_CSTRING(kFETCH_CLIENT_REFERRER_STR)),
         mReferrerPolicy(ReferrerPolicy::_empty),
         mIsNonSubresourceRequest(aIsNonSubresourceRequest) {
     MOZ_ASSERT(aWorkerPrivate);
@@ -1255,7 +1255,7 @@ class FetchEventRunnable : public ExtendableFunctionalEventWorkerRunnable,
     MOZ_ASSERT(httpChannel, "How come we don't have an HTTP channel?");
 
     mReferrerPolicy = ReferrerPolicy::_empty;
-    mReferrer = EmptyString();
+    mReferrer.Truncate();
     nsCOMPtr<nsIReferrerInfo> referrerInfo = httpChannel->GetReferrerInfo();
     if (referrerInfo) {
       mReferrerPolicy = referrerInfo->ReferrerPolicy();
@@ -1310,15 +1310,6 @@ class FetchEventRunnable : public ExtendableFunctionalEventWorkerRunnable,
 
     if (mMarkLaunchServiceWorkerEnd) {
       mInterceptedChannel->SetLaunchServiceWorkerEnd(TimeStamp::Now());
-
-      // A probe to measure sw launch time for telemetry.
-      TimeStamp launchStartTime = TimeStamp();
-      mInterceptedChannel->GetLaunchServiceWorkerStart(&launchStartTime);
-
-      TimeStamp launchEndTime = TimeStamp();
-      mInterceptedChannel->GetLaunchServiceWorkerEnd(&launchEndTime);
-      Telemetry::AccumulateTimeDelta(Telemetry::SERVICE_WORKER_LAUNCH_TIME,
-                                     launchStartTime, launchEndTime);
     }
 
     mInterceptedChannel->SetDispatchFetchEventEnd(TimeStamp::Now());
@@ -1450,7 +1441,7 @@ class FetchEventRunnable : public ExtendableFunctionalEventWorkerRunnable,
     }
 
     RefPtr<FetchEvent> event =
-        FetchEvent::Constructor(globalObj, NS_LITERAL_STRING("fetch"), init);
+        FetchEvent::Constructor(globalObj, u"fetch"_ns, init);
 
     event->PostInit(mInterceptedChannel, mRegistration, mScriptSpec);
     event->SetTrusted(true);
@@ -1635,8 +1626,6 @@ nsresult ServiceWorkerPrivate::SpawnWorkerIfNeeded(WakeUpReason aWhy,
       swm->GetRegistration(mInfo->Principal(), mInfo->Scope());
   NS_ENSURE_TRUE(reg, NS_ERROR_FAILURE);
 
-  // TODO(catalinb): Bug 1192138 - Add telemetry for service worker wake-ups.
-
   // Ensure that the IndexedDatabaseManager is initialized
   Unused << NS_WARN_IF(!IndexedDatabaseManager::GetOrCreate());
 
@@ -1711,7 +1700,7 @@ nsresult ServiceWorkerPrivate::SpawnWorkerIfNeeded(WakeUpReason aWhy,
 
   mWorkerPrivate = WorkerPrivate::Constructor(jsapi.cx(), scriptSpec, false,
                                               WorkerTypeService, VoidString(),
-                                              EmptyCString(), &info, error);
+                                              ""_ns, &info, error);
   if (NS_WARN_IF(error.Failed())) {
     return error.StealNSResult();
   }

@@ -4,9 +4,9 @@
 
 #include "FetchObserver.h"
 #include "mozilla/dom/Event.h"
+#include "mozilla/dom/EventBinding.h"
 
-namespace mozilla {
-namespace dom {
+namespace mozilla::dom {
 
 NS_IMPL_CYCLE_COLLECTION_CLASS(FetchObserver)
 
@@ -76,5 +76,4 @@ void FetchObserver::SetState(FetchState aState) {
   DispatchEvent(*event);
 }
 
-}  // namespace dom
-}  // namespace mozilla
+}  // namespace mozilla::dom

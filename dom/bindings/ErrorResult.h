@@ -26,13 +26,13 @@
 #include <stdarg.h>
 
 #include <new>
+#include <utility>
 
 #include "js/GCAnnotations.h"
 #include "js/ErrorReport.h"
 #include "js/Value.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/Attributes.h"
-#include "mozilla/Move.h"
 #include "nsISupportsImpl.h"
 #include "nsString.h"
 #include "nsTArray.h"
@@ -272,9 +272,8 @@ class TErrorResult {
   // If "context" is not null and our exception has a useful message string, the
   // string "%s: ", with the value of "context" replacing %s, will be prepended
   // to the message string.  The passed-in string must be ASCII.
-  MOZ_MUST_USE
-  bool MaybeSetPendingException(JSContext* cx,
-                                const char* description = nullptr) {
+  [[nodiscard]] bool MaybeSetPendingException(
+      JSContext* cx, const char* description = nullptr) {
     WouldReportJSException();
     if (!Failed()) {
       return false;

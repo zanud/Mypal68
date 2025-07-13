@@ -43,6 +43,8 @@
 namespace mozilla {
 namespace dom {
 
+class Credential;
+
 class WebAuthnTransaction {
  public:
   explicit WebAuthnTransaction(const RefPtr<Promise>& aPromise)

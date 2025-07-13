@@ -8,13 +8,11 @@
 #include "mozilla/dom/NonRefcountedDOMObject.h"
 #include "mozilla/dom/TextDecoderBinding.h"
 #include "mozilla/dom/TypedArray.h"
-#include "nsAutoPtr.h"
 #include "mozilla/Encoding.h"
+#include "mozilla/ErrorResult.h"
+#include "mozilla/UniquePtr.h"
 
 namespace mozilla {
-
-class ErrorResult;
-
 namespace dom {
 
 class ArrayBufferViewOrArrayBuffer;
@@ -26,12 +24,12 @@ class TextDecoder final : public NonRefcountedDOMObject {
                                   const nsAString& aEncoding,
                                   const TextDecoderOptions& aOptions,
                                   ErrorResult& aRv) {
-    nsAutoPtr<TextDecoder> txtDecoder(new TextDecoder());
+    auto txtDecoder = MakeUnique<TextDecoder>();
     txtDecoder->Init(aEncoding, aOptions, aRv);
     if (aRv.Failed()) {
       return nullptr;
     }
-    return txtDecoder.forget();
+    return txtDecoder.release();
   }
 
   TextDecoder() : mFatal(false), mIgnoreBOM(false) {

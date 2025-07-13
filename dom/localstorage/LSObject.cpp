@@ -268,8 +268,9 @@ nsresult LSObject::CreateForWindow(nsPIDOMWindowInner* aWindow,
   // for the check.
   nsCString originAttrSuffix;
   nsCString originKey;
-  nsresult rv =
-      GenerateOriginKey(storagePrincipal, originAttrSuffix, originKey);
+  nsresult rv = storagePrincipal->GetStorageOriginKey(originKey);
+  storagePrincipal->OriginAttributesRef().CreateSuffix(originAttrSuffix);
+
   if (NS_FAILED(rv)) {
     return NS_ERROR_NOT_AVAILABLE;
   }
@@ -352,8 +353,8 @@ nsresult LSObject::CreateForPrincipal(nsPIDOMWindowInner* aWindow,
 
   nsCString originAttrSuffix;
   nsCString originKey;
-  nsresult rv =
-      GenerateOriginKey(aStoragePrincipal, originAttrSuffix, originKey);
+  nsresult rv = aStoragePrincipal->GetStorageOriginKey(originKey);
+  aStoragePrincipal->OriginAttributesRef().CreateSuffix(originAttrSuffix);
   if (NS_FAILED(rv)) {
     return NS_ERROR_NOT_AVAILABLE;
   }

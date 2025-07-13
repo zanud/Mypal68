@@ -6,7 +6,6 @@
 #define mozilla_dom_ServiceWorkerRegistrar_h
 
 #include "mozilla/Monitor2.h"
-#include "mozilla/Telemetry.h"
 #include "nsClassHashtable.h"
 #include "nsIAsyncShutdown.h"
 #include "nsIObserver.h"
@@ -14,7 +13,7 @@
 #include "nsString.h"
 #include "nsTArray.h"
 
-#define SERVICEWORKERREGISTRAR_FILE "serviceworker.txt"
+#define SERVICEWORKERREGISTRAR_FILE u"serviceworker.txt"
 #define SERVICEWORKERREGISTRAR_VERSION "8"
 #define SERVICEWORKERREGISTRAR_TERMINATOR "#"
 #define SERVICEWORKERREGISTRAR_TRUE "true"

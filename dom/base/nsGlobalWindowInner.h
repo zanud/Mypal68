@@ -33,12 +33,12 @@
 #include "mozilla/dom/BindingDeclarations.h"
 #include "mozilla/dom/ChromeMessageBroadcaster.h"
 #include "mozilla/dom/DebuggerNotificationManager.h"
+#include "mozilla/dom/Location.h"
 #include "mozilla/dom/NavigatorBinding.h"
 #include "mozilla/dom/StorageEvent.h"
 #include "mozilla/dom/StorageEventBinding.h"
 #include "mozilla/dom/UnionTypes.h"
 #include "mozilla/Attributes.h"
-#include "mozilla/GuardObjects.h"
 #include "mozilla/LinkedList.h"
 #include "mozilla/OwningNonNull.h"
 #include "mozilla/TimeStamp.h"
@@ -46,7 +46,6 @@
 #  include "mozilla/webgpu/InstanceProvider.h"
 #endif
 #include "nsWrapperCacheInlines.h"
-#include "mozilla/dom/Document.h"
 #include "mozilla/dom/EventTarget.h"
 #include "mozilla/dom/WindowBinding.h"
 #include "Units.h"
@@ -113,7 +112,6 @@ class IdleRequestCallback;
 class IncrementalRunnable;
 class InstallTriggerImpl;
 class IntlUtils;
-class Location;
 class MediaQueryList;
 class OwningExternalOrWindowProxy;
 class Promise;
@@ -273,6 +271,8 @@ class nsGlobalWindowInner final : public mozilla::dom::EventTarget,
 
   virtual nsIPrincipal* GetEffectiveStoragePrincipal() override;
 
+  virtual nsIPrincipal* IntrinsicStoragePrincipal() override;
+
   // nsIDOMWindow
   NS_DECL_NSIDOMWINDOW
 
@@ -290,10 +290,7 @@ class nsGlobalWindowInner final : public mozilla::dom::EventTarget,
   virtual mozilla::EventListenerManager* GetOrCreateListenerManager() override;
 
   mozilla::Maybe<mozilla::dom::EventCallbackDebuggerNotificationType>
-  GetDebuggerNotificationType() const override {
-    return mozilla::Some(
-        mozilla::dom::EventCallbackDebuggerNotificationType::Global);
-  }
+  GetDebuggerNotificationType() const override;
 
   bool ComputeDefaultWantsUntrusted(mozilla::ErrorResult& aRv) final;
 
@@ -401,9 +398,9 @@ class nsGlobalWindowInner final : public mozilla::dom::EventTarget,
 
   static bool DeviceSensorsEnabled(JSContext* /* unused */, JSObject* aObj);
 
-  bool DoResolve(JSContext* aCx, JS::Handle<JSObject*> aObj,
-                 JS::Handle<jsid> aId,
-                 JS::MutableHandle<JS::PropertyDescriptor> aDesc);
+  bool DoResolve(
+      JSContext* aCx, JS::Handle<JSObject*> aObj, JS::Handle<jsid> aId,
+      JS::MutableHandle<mozilla::Maybe<JS::PropertyDescriptor>> aDesc);
   // The return value is whether DoResolve might end up resolving the given id.
   // If in doubt, return true.
   static bool MayResolve(jsid aId);
@@ -878,13 +875,11 @@ class nsGlobalWindowInner final : public mozilla::dom::EventTarget,
                   mozilla::ErrorResult& aError);
 
   already_AddRefed<mozilla::dom::Promise> CreateImageBitmap(
-      JSContext* aCx, const mozilla::dom::ImageBitmapSource& aImage,
-      mozilla::ErrorResult& aRv);
+      const mozilla::dom::ImageBitmapSource& aImage, mozilla::ErrorResult& aRv);
 
   already_AddRefed<mozilla::dom::Promise> CreateImageBitmap(
-      JSContext* aCx, const mozilla::dom::ImageBitmapSource& aImage,
-      int32_t aSx, int32_t aSy, int32_t aSw, int32_t aSh,
-      mozilla::ErrorResult& aRv);
+      const mozilla::dom::ImageBitmapSource& aImage, int32_t aSx, int32_t aSy,
+      int32_t aSw, int32_t aSh, mozilla::ErrorResult& aRv);
 
   void StructuredClone(JSContext* aCx, JS::Handle<JS::Value> aValue,
                        const mozilla::dom::StructuredSerializeOptions& aOptions,
@@ -947,9 +942,7 @@ class nsGlobalWindowInner final : public mozilla::dom::EventTarget,
 
   void UpdateTopInnerWindow();
 
-  virtual bool IsInSyncOperation() override {
-    return GetExtantDoc() && GetExtantDoc()->IsInSyncOperation();
-  }
+  virtual bool IsInSyncOperation() override;
 
  protected:
   // Web IDL helpers
@@ -1184,8 +1177,9 @@ class nsGlobalWindowInner final : public mozilla::dom::EventTarget,
   void FireOnNewGlobalObject();
 
   // Helper for resolving the components shim.
-  bool ResolveComponentsShim(JSContext* aCx, JS::Handle<JSObject*> aObj,
-                             JS::MutableHandle<JS::PropertyDescriptor> aDesc);
+  bool ResolveComponentsShim(
+      JSContext* aCx, JS::Handle<JSObject*> aObj,
+      JS::MutableHandle<mozilla::Maybe<JS::PropertyDescriptor>> aDesc);
 
   // nsPIDOMWindow{Inner,Outer} should be able to see these helper methods.
   friend class nsPIDOMWindowInner;
@@ -1346,6 +1340,7 @@ class nsGlobalWindowInner final : public mozilla::dom::EventTarget,
   // FreeInnerObjects has been called.
   nsCOMPtr<nsIPrincipal> mDocumentPrincipal;
   nsCOMPtr<nsIPrincipal> mDocumentStoragePrincipal;
+  nsCOMPtr<nsIPrincipal> mDocumentIntrinsicStoragePrincipal;
   nsCOMPtr<nsIContentSecurityPolicy> mDocumentCsp;
 
   RefPtr<mozilla::dom::DebuggerNotificationManager>

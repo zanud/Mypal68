@@ -7,6 +7,7 @@
 
 #include "mozilla/dom/BaseBlobImpl.h"
 #include "mozilla/Mutex.h"
+#include "nsCOMPtr.h" //MY
 
 class nsIFile;
 

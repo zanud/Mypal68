@@ -108,6 +108,7 @@ HTMLFormElement::HTMLFormElement(
       mPastNameLookupTable(FORM_CONTROL_LIST_HASHTABLE_LENGTH),
       mSubmitPopupState(PopupBlocker::openAbused),
       mInvalidElementsCount(0),
+      mFormNumber(-1),
       mGeneratingSubmit(false),
       mGeneratingReset(false),
       mIsSubmitting(false),
@@ -1670,7 +1671,8 @@ nsresult HTMLFormElement::GetActionURL(nsIURI** aActionURL,
   nsIScriptSecurityManager* securityManager =
       nsContentUtils::GetSecurityManager();
   rv = securityManager->CheckLoadURIWithPrincipal(
-      NodePrincipal(), actionURL, nsIScriptSecurityManager::STANDARD);
+      NodePrincipal(), actionURL, nsIScriptSecurityManager::STANDARD,
+      OwnerDoc()->InnerWindowID());
   NS_ENSURE_SUCCESS(rv, rv);
 
   // Potentially the page uses the CSP directive 'upgrade-insecure-requests'. In
@@ -2437,6 +2439,27 @@ void HTMLFormElement::RemoveElementFromPastNamesMap(Element* aElement) {
 JSObject* HTMLFormElement::WrapNode(JSContext* aCx,
                                     JS::Handle<JSObject*> aGivenProto) {
   return HTMLFormElement_Binding::Wrap(aCx, this, aGivenProto);
+}
+
+int32_t HTMLFormElement::GetFormNumberForStateKey() {
+  if (mFormNumber == -1) {
+    mFormNumber = OwnerDoc()->GetNextFormNumber();
+  }
+  return mFormNumber;
+}
+
+void HTMLFormElement::NodeInfoChanged(Document* aOldDoc) {
+  nsGenericHTMLElement::NodeInfoChanged(aOldDoc);
+
+  // When a <form> element is adopted into a new document, we want any state
+  // keys generated from it to no longer consider this element to be parser
+  // inserted, and so have state keys based on the position of the <form>
+  // element in the document, rather than the order it was inserted in.
+  //
+  // This is not strictly necessary, since we only ever look at the form number
+  // for parser inserted form controls, and we do that at the time the form
+  // control element is inserted into its original document by the parser.
+  mFormNumber = -1;
 }
 
 }  // namespace dom

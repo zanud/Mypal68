@@ -180,8 +180,8 @@ void nsCSPParser::logWarningErrorToConsole(uint32_t aSeverityFlag,
   // send console messages off to the context and let the context
   // deal with it (potentially messages need to be queued up)
   mCSPContext->logToConsole(aProperty, aParams,
-                            EmptyString(),   // aSourceName
-                            EmptyString(),   // aSourceLine
+                            u""_ns,          // aSourceName
+                            u""_ns,          // aSourceLine
                             0,               // aLineNumber
                             0,               // aColumnNumber
                             aSeverityFlag);  // aFlags
@@ -307,7 +307,7 @@ bool nsCSPParser::path(nsCSPHostSrc* aCspHost) {
     // www.example.com/ should result in www.example.com/
     // please note that we do not have to perform any pct-decoding here
     // because we are just appending a '/' and not any actual chars.
-    aCspHost->appendPath(NS_LITERAL_STRING("/"));
+    aCspHost->appendPath(u"/"_ns);
     return true;
   }
   // path can begin with "/" but not "//"
@@ -424,7 +424,7 @@ nsCSPBaseSrc* nsCSPParser::keywordSource() {
     if (!CSP_IsDirective(mCurDir[0],
                          nsIContentSecurityPolicy::SCRIPT_SRC_DIRECTIVE)) {
       // Todo: Enforce 'strict-dynamic' within default-src; see Bug 1313937
-      AutoTArray<nsString, 1> params = {NS_LITERAL_STRING("strict-dynamic")};
+      AutoTArray<nsString, 1> params = {u"strict-dynamic"_ns};
       logWarningErrorToConsole(nsIScriptError::warningFlag,
                                "ignoringStrictDynamic", params);
       return nullptr;
@@ -628,7 +628,7 @@ nsCSPBaseSrc* nsCSPParser::sourceExpression() {
   // the default scheme. However, we still would need to apply the default
   // scheme in case we would parse "*:80".
   if (mCurToken.EqualsASCII("*")) {
-    return new nsCSPHostSrc(NS_LITERAL_STRING("*"));
+    return new nsCSPHostSrc(u"*"_ns);
   }
 
   // Calling resetCurChar allows us to use mCurChar and mEndChar
@@ -834,7 +834,8 @@ nsCSPDirective* nsCSPParser::directiveName() {
                 NS_ConvertUTF16toUTF8(mCurValue).get()));
 
   // Check if it is a valid directive
-  if (!CSP_IsValidDirective(mCurToken)) {
+  CSPDirective directive = CSP_StringToCSPDirective(mCurToken);
+  if (directive == nsIContentSecurityPolicy::NO_DIRECTIVE) {
     AutoTArray<nsString, 1> params = {mCurToken};
     logWarningErrorToConsole(nsIScriptError::warningFlag,
                              "couldNotProcessUnknownDirective", params);
@@ -845,8 +846,7 @@ nsCSPDirective* nsCSPParser::directiveName() {
   // http://www.w3.org/TR/2014/WD-CSP11-20140211/#reflected-xss
   // Currently we are not supporting that directive, hence we log a
   // warning to the console and ignore the directive including its values.
-  if (CSP_IsDirective(mCurToken,
-                      nsIContentSecurityPolicy::REFLECTED_XSS_DIRECTIVE)) {
+  if (directive == nsIContentSecurityPolicy::REFLECTED_XSS_DIRECTIVE) {
     AutoTArray<nsString, 1> params = {mCurToken};
     logWarningErrorToConsole(nsIScriptError::warningFlag,
                              "notSupportingDirective", params);
@@ -855,7 +855,7 @@ nsCSPDirective* nsCSPParser::directiveName() {
 
   // Make sure the directive does not already exist
   // (see http://www.w3.org/TR/CSP11/#parsing)
-  if (mPolicy->hasDirective(CSP_StringToCSPDirective(mCurToken))) {
+  if (mPolicy->hasDirective(directive)) {
     AutoTArray<nsString, 1> params = {mCurToken};
     logWarningErrorToConsole(nsIScriptError::warningFlag, "duplicateDirective",
                              params);
@@ -866,12 +866,9 @@ nsCSPDirective* nsCSPParser::directiveName() {
   // report-uri, frame-ancestors, and sandbox, see:
   // http://www.w3.org/TR/CSP11/#delivery-html-meta-element
   if (mDeliveredViaMetaTag &&
-      ((CSP_IsDirective(mCurToken,
-                        nsIContentSecurityPolicy::REPORT_URI_DIRECTIVE)) ||
-       (CSP_IsDirective(mCurToken,
-                        nsIContentSecurityPolicy::FRAME_ANCESTORS_DIRECTIVE)) ||
-       (CSP_IsDirective(mCurToken,
-                        nsIContentSecurityPolicy::SANDBOX_DIRECTIVE)))) {
+      ((directive == nsIContentSecurityPolicy::REPORT_URI_DIRECTIVE) ||
+       (directive == nsIContentSecurityPolicy::FRAME_ANCESTORS_DIRECTIVE) ||
+       (directive == nsIContentSecurityPolicy::SANDBOX_DIRECTIVE))) {
     // log to the console to indicate that meta CSP is ignoring the directive
     AutoTArray<nsString, 1> params = {mCurToken};
     logWarningErrorToConsole(nsIScriptError::warningFlag,
@@ -880,51 +877,43 @@ nsCSPDirective* nsCSPParser::directiveName() {
   }
 
   // special case handling for block-all-mixed-content
-  if (CSP_IsDirective(mCurToken,
-                      nsIContentSecurityPolicy::BLOCK_ALL_MIXED_CONTENT)) {
-    return new nsBlockAllMixedContentDirective(
-        CSP_StringToCSPDirective(mCurToken));
+  if (directive == nsIContentSecurityPolicy::BLOCK_ALL_MIXED_CONTENT) {
+    return new nsBlockAllMixedContentDirective(directive);
   }
 
   // special case handling for upgrade-insecure-requests
-  if (CSP_IsDirective(
-          mCurToken, nsIContentSecurityPolicy::UPGRADE_IF_INSECURE_DIRECTIVE)) {
-    return new nsUpgradeInsecureDirective(CSP_StringToCSPDirective(mCurToken));
+  if (directive == nsIContentSecurityPolicy::UPGRADE_IF_INSECURE_DIRECTIVE) {
+    return new nsUpgradeInsecureDirective(directive);
   }
 
   // if we have a child-src, cache it as a fallback for
   //   * workers (if worker-src is not explicitly specified)
   //   * frames  (if frame-src is not explicitly specified)
-  if (CSP_IsDirective(mCurToken,
-                      nsIContentSecurityPolicy::CHILD_SRC_DIRECTIVE)) {
-    mChildSrc = new nsCSPChildSrcDirective(CSP_StringToCSPDirective(mCurToken));
+  if (directive == nsIContentSecurityPolicy::CHILD_SRC_DIRECTIVE) {
+    mChildSrc = new nsCSPChildSrcDirective(directive);
     return mChildSrc;
   }
 
   // if we have a frame-src, cache it so we can discard child-src for frames
-  if (CSP_IsDirective(mCurToken,
-                      nsIContentSecurityPolicy::FRAME_SRC_DIRECTIVE)) {
-    mFrameSrc = new nsCSPDirective(CSP_StringToCSPDirective(mCurToken));
+  if (directive == nsIContentSecurityPolicy::FRAME_SRC_DIRECTIVE) {
+    mFrameSrc = new nsCSPDirective(directive);
     return mFrameSrc;
   }
 
   // if we have a worker-src, cache it so we can discard child-src for workers
-  if (CSP_IsDirective(mCurToken,
-                      nsIContentSecurityPolicy::WORKER_SRC_DIRECTIVE)) {
-    mWorkerSrc = new nsCSPDirective(CSP_StringToCSPDirective(mCurToken));
+  if (directive == nsIContentSecurityPolicy::WORKER_SRC_DIRECTIVE) {
+    mWorkerSrc = new nsCSPDirective(directive);
     return mWorkerSrc;
   }
 
   // if we have a script-src, cache it as a fallback for worker-src
   // in case child-src is not present
-  if (CSP_IsDirective(mCurToken,
-                      nsIContentSecurityPolicy::SCRIPT_SRC_DIRECTIVE)) {
-    mScriptSrc =
-        new nsCSPScriptSrcDirective(CSP_StringToCSPDirective(mCurToken));
+  if (directive == nsIContentSecurityPolicy::SCRIPT_SRC_DIRECTIVE) {
+    mScriptSrc = new nsCSPScriptSrcDirective(directive);
     return mScriptSrc;
   }
 
-  return new nsCSPDirective(CSP_StringToCSPDirective(mCurToken));
+  return new nsCSPDirective(directive);
 }
 
 // directive = *WSP [ directive-name [ WSP directive-value ] ]
@@ -940,7 +929,7 @@ void nsCSPParser::directive() {
   // Make sure that the directive-srcs-array contains at least
   // one directive and one src.
   if (mCurDir.Length() < 1) {
-    AutoTArray<nsString, 1> params = {NS_LITERAL_STRING("directive missing")};
+    AutoTArray<nsString, 1> params = {u"directive missing"_ns};
     logWarningErrorToConsole(nsIScriptError::warningFlag,
                              "failedToParseUnrecognizedSource", params);
     return;
@@ -962,8 +951,7 @@ void nsCSPParser::directive() {
   // by a directive name but does not include any srcs.
   if (cspDir->equals(nsIContentSecurityPolicy::BLOCK_ALL_MIXED_CONTENT)) {
     if (mCurDir.Length() > 1) {
-      AutoTArray<nsString, 1> params = {
-          NS_LITERAL_STRING("block-all-mixed-content")};
+      AutoTArray<nsString, 1> params = {u"block-all-mixed-content"_ns};
       logWarningErrorToConsole(nsIScriptError::warningFlag,
                                "ignoreSrcForDirective", params);
     }
@@ -976,8 +964,7 @@ void nsCSPParser::directive() {
   // specified by a directive name but does not include any srcs.
   if (cspDir->equals(nsIContentSecurityPolicy::UPGRADE_IF_INSECURE_DIRECTIVE)) {
     if (mCurDir.Length() > 1) {
-      AutoTArray<nsString, 1> params = {
-          NS_LITERAL_STRING("upgrade-insecure-requests")};
+      AutoTArray<nsString, 1> params = {u"upgrade-insecure-requests"_ns};
       logWarningErrorToConsole(nsIScriptError::warningFlag,
                                "ignoreSrcForDirective", params);
     }
@@ -1044,7 +1031,7 @@ void nsCSPParser::directive() {
           !srcStr.EqualsASCII(CSP_EnumToUTF8Keyword(CSP_UNSAFE_EVAL)) &&
           !StringBeginsWith(
               srcStr, nsDependentString(CSP_EnumToUTF16Keyword(CSP_NONCE))) &&
-          !StringBeginsWith(srcStr, NS_LITERAL_STRING("'sha"))) {
+          !StringBeginsWith(srcStr, u"'sha"_ns)) {
         AutoTArray<nsString, 1> params = {srcStr};
         logWarningErrorToConsole(nsIScriptError::warningFlag,
                                  "ignoringSrcForStrictDynamic", params);
@@ -1062,7 +1049,7 @@ void nsCSPParser::directive() {
               cspDir->equals(nsIContentSecurityPolicy::STYLE_SRC_DIRECTIVE))) {
     mUnsafeInlineKeywordSrc->invalidate();
     // log to the console that unsafe-inline will be ignored
-    AutoTArray<nsString, 1> params = {NS_LITERAL_STRING("'unsafe-inline'")};
+    AutoTArray<nsString, 1> params = {u"'unsafe-inline'"_ns};
     logWarningErrorToConsole(nsIScriptError::warningFlag,
                              "ignoringSrcWithinScriptStyleSrc", params);
   }

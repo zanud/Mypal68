@@ -58,8 +58,7 @@ nsresult CheckInternal(nsIContentSecurityPolicy* aCSP,
     aCSP->LogViolationDetails(nsIContentSecurityPolicy::VIOLATION_TYPE_EVAL,
                               nullptr,  // triggering element
                               aCSPEventListener, aFileNameString, aExpression,
-                              aLineNum, aColumnNum, EmptyString(),
-                              EmptyString());
+                              aLineNum, aColumnNum, u""_ns, u""_ns);
   }
 
   return NS_OK;
@@ -71,8 +70,7 @@ class WorkerCSPCheckRunnable final : public WorkerMainThreadRunnable {
                          const nsAString& aExpression,
                          const nsAString& aFileNameString, uint32_t aLineNum,
                          uint32_t aColumnNum)
-      : WorkerMainThreadRunnable(aWorkerPrivate,
-                                 NS_LITERAL_CSTRING("CSP Eval Check")),
+      : WorkerMainThreadRunnable(aWorkerPrivate, "CSP Eval Check"_ns),
         mExpression(aExpression),
         mFileNameString(aFileNameString),
         mLineNum(aLineNum),

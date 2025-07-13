@@ -185,7 +185,7 @@ already_AddRefed<nsINode> NodeIterator::NextOrPrevNode(
 
 void NodeIterator::Detach() {
   if (mRoot) {
-    mRoot->OwnerDoc()->WarnOnceAbout(Document::eNodeIteratorDetach);
+    mRoot->OwnerDoc()->WarnOnceAbout(DeprecatedOperations::eNodeIteratorDetach);
   }
 }
 

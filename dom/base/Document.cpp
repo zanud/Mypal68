@@ -6,28 +6,101 @@
  * Base class for all our document implementations.
  */
 
-#include "AudioChannelService.h"
 #include "mozilla/dom/Document.h"
-#include "DocumentInlines.h"
+#include "mozilla/dom/DocumentInlines.h"
+
+#include <inttypes.h>
+#include <stdlib.h>
+#include <string.h>
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <initializer_list>
+#include <iterator>
+#include <limits>
+#include <type_traits>
+#include "Attr.h"
+#include "AutoplayPolicy.h"
+#include "ErrorList.h"
+#include "ExpandedPrincipal.h"
+#include "MainThreadUtils.h"
+#include "MobileViewportManager.h"
+#include "NodeUbiReporting.h"
+#include "PLDHashTable.h"
+#include "StorageAccessPermissionRequest.h"
+#include "ThirdPartyUtil.h"
+#include "domstubs.h"
+#include "gfxPlatform.h"
+#include "imgIContainer.h"
+#include "imgLoader.h"
+#include "imgRequestProxy.h"
+#include "js/Value.h"
+#include "jsapi.h"
+#include "mozAutoDocUpdate.h"
+#include "mozIDOMWindow.h"
+#include "mozIThirdPartyUtil.h"
+#include "mozilla/AbstractTimelineMarker.h"
 #include "mozilla/AntiTrackingCommon.h"
+#include "mozilla/ArrayIterator.h"
 #include "mozilla/ArrayUtils.h"
-#include "mozilla/AutoRestore.h"
-#include "mozilla/BinarySearch.h"
+#include "mozilla/AsyncEventDispatcher.h"
+#include "mozilla/BasePrincipal.h"
 #include "mozilla/CSSEnabledState.h"
+#include "mozilla/CycleCollectedJSContext.h"
 #include "mozilla/DebugOnly.h"
+#include "mozilla/DocLoadingTimelineMarker.h"
+#include "mozilla/DocumentStyleRootIterator.h"
 #include "mozilla/EditorCommands.h"
-#include "mozilla/EffectSet.h"
-#include "mozilla/EnumSet.h"
+#include "mozilla/Encoding.h"
+#include "mozilla/ErrorResult.h"
+#include "mozilla/EventDispatcher.h"
+#include "mozilla/EventListenerManager.h"
+#include "mozilla/EventQueue.h"
+#include "mozilla/EventStateManager.h"
+#include "mozilla/ExtensionPolicyService.h"
+#include "mozilla/FullscreenChange.h"
+#include "mozilla/GlobalStyleSheetCache.h"
 #include "mozilla/HTMLEditor.h"
+#include "mozilla/HoldDropJSObjects.h"
 #include "mozilla/IdentifierMapEntry.h"
 #include "mozilla/IntegerRange.h"
-#include "mozilla/MemoryReporting.h"
+#include "mozilla/InternalMutationEvent.h"
 #include "mozilla/Likely.h"
-#include "mozilla/LoadInfo.h"
+#include "mozilla/Logging.h"
+#include "mozilla/LookAndFeel.h"
+#include "mozilla/MacroForEach.h"
 #include "mozilla/MediaFeatureChange.h"
+#include "mozilla/MediaManager.h"
+#include "mozilla/MemoryReporting.h"
+#include "mozilla/NullPrincipal.h"
+#include "mozilla/OriginAttributes.h"
+#include "mozilla/OwningNonNull.h"
+#include "mozilla/PendingAnimationTracker.h"
+#include "mozilla/PendingFullscreenEvent.h"
+#include "PermissionDelegateHandler.h"
+#include "nsPermissionManager.h"
+#include "mozilla/Preferences.h"
+#include "mozilla/PreloadHashKey.h"
 #include "mozilla/PresShell.h"
+#include "mozilla/PresShellForwards.h"
 #include "mozilla/PresShellInlines.h"
+#include "mozilla/PseudoStyleType.h"
+#include "mozilla/RefCountType.h"
+#include "mozilla/RelativeTo.h"
 #include "mozilla/RestyleManager.h"
+#include "mozilla/ReverseIterator.h"
+#include "mozilla/SMILAnimationController.h"
+#include "mozilla/SMILTimeContainer.h"
+#include "mozilla/ScopeExit.h"
+#include "mozilla/Services.h"
+#include "mozilla/ServoCSSPropList.h"
+#include "mozilla/ServoStyleConsts.h"
+#include "mozilla/ServoStyleSet.h"
+#include "mozilla/ServoTypes.h"
+#include "mozilla/SizeOfState.h"
+#include "mozilla/Span.h"
+#include "mozilla/Sprintf.h"
+#include "mozilla/StaticAnalysisFunctions.h"
 #include "mozilla/StaticPrefs_browser.h"
 #include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/StaticPrefs_full_screen_api.h"
@@ -38,260 +111,277 @@
 #include "mozilla/StaticPrefs_security.h"
 #include "mozilla/StaticPresData.h"
 #include "mozilla/StorageAccess.h"
+#include "mozilla/StoragePrincipalHelper.h"
+#include "mozilla/StyleSheet.h"
 #include "mozilla/TextControlElement.h"
 #include "mozilla/TextEditor.h"
+#include "mozilla/TimelineConsumers.h"
+#include "mozilla/TypedEnumBits.h"
 #include "mozilla/URLDecorationStripper.h"
 #include "mozilla/URLExtraData.h"
-#include "mozilla/BasePrincipal.h"
-#include <algorithm>
-
-#include "mozilla/Logging.h"
-#include "plstr.h"
-#include "mozilla/Sprintf.h"
-
-#include "mozilla/Telemetry.h"
-#include "nsIInlineSpellChecker.h"
-#include "nsIInterfaceRequestor.h"
-#include "nsIInterfaceRequestorUtils.h"
-#include "nsILoadContext.h"
-#include "nsITextControlFrame.h"
-#include "nsCommandManager.h"
-#include "nsCommandParams.h"
-#include "nsUnicharUtils.h"
-#include "nsContentList.h"
-#include "nsCSSPseudoElements.h"
-#include "nsIObserver.h"
-#include "nsIBaseWindow.h"
-#include "nsILayoutHistoryState.h"
-#include "mozilla/GlobalStyleSheetCache.h"
-#include "mozilla/css/Loader.h"
+#include "mozilla/Unused.h"
 #include "mozilla/css/ImageLoader.h"
-#include "nsDocShell.h"
-#include "nsDocShellLoadTypes.h"
-#include "nsIDocShellTreeItem.h"
-#include "nsCOMArray.h"
-#include "nsQueryObject.h"
-#include "mozilla/Services.h"
-#include "nsScreen.h"
-#include "ChildIterator.h"
-#include "PermissionDelegateHandler.h"
-
-#include "mozilla/AsyncEventDispatcher.h"
-#include "mozilla/BasicEvents.h"
-#include "mozilla/EventListenerManager.h"
-#include "mozilla/EventStateManager.h"
-#include "mozilla/FullscreenChange.h"
-#include "mozilla/PendingAnimationTracker.h"
-
-#include "mozilla/dom/Attr.h"
-#include "mozilla/dom/BindingDeclarations.h"
-#include "mozilla/dom/ContentChild.h"
-#include "mozilla/dom/CSSImportRule.h"
-#include "mozilla/dom/CSPDictionariesBinding.h"
-#include "mozilla/dom/DOMIntersectionObserver.h"
-#include "mozilla/dom/Element.h"
-#include "mozilla/dom/ElementBinding.h"
-#include "mozilla/dom/Event.h"
-#include "mozilla/dom/FeaturePolicy.h"
-#include "mozilla/dom/FeaturePolicyUtils.h"
-#include "mozilla/dom/FramingChecker.h"
-#include "mozilla/dom/HTMLAllCollection.h"
-#include "mozilla/dom/HTMLMetaElement.h"
-#include "mozilla/dom/HTMLSharedElement.h"
-#include "mozilla/dom/HTMLDialogElement.h"
-#include "mozilla/dom/MutationObservers.h"
-#include "mozilla/dom/Navigator.h"
-#include "mozilla/dom/Performance.h"
-#include "mozilla/dom/TreeOrderedArrayInlines.h"
-#include "mozilla/dom/ResizeObserver.h"
-#include "mozilla/dom/ResizeObserverController.h"
-#include "mozilla/dom/ServiceWorkerContainer.h"
-#include "mozilla/dom/ScriptLoader.h"
-#include "mozilla/dom/ShadowIncludingTreeIterator.h"
-#include "mozilla/dom/StyleSheetList.h"
-#include "mozilla/dom/SVGUseElement.h"
-#include "mozilla/dom/UserActivation.h"
-#include "mozilla/net/CookieSettings.h"
-#include "nsGenericHTMLElement.h"
-#include "mozilla/dom/CDATASection.h"
-#include "mozilla/dom/ProcessingInstruction.h"
-#include "mozilla/dom/PostMessageEvent.h"
-#include "nsDOMString.h"
-#include "nsLayoutUtils.h"  // for GetFrameForPoint
-#include "nsIFrame.h"
-#include "nsIBrowserChild.h"
-#include "nsImportModule.h"
-
-#include "nsRange.h"
-#include "mozilla/dom/DocumentType.h"
-#include "mozilla/dom/NodeIterator.h"
-#include "mozilla/dom/Promise.h"
-#include "mozilla/dom/PromiseNativeHandler.h"
-#include "mozilla/dom/TreeWalker.h"
-
-#include "mozilla/dom/ServiceWorkerManager.h"
-#include "imgLoader.h"
-
-#include "nsAboutProtocolUtils.h"
-#include "nsCanvasFrame.h"
-#include "nsContentCID.h"
-#include "nsContentSecurityUtils.h"
-#include "nsError.h"
-#include "nsPresContext.h"
-#include "nsThreadUtils.h"
-#include "nsNodeInfoManager.h"
-#include "nsIEditingSession.h"
-#include "nsIFileChannel.h"
-#include "nsIMultiPartChannel.h"
-#include "nsIRefreshURI.h"
-#include "nsIWebNavigation.h"
-#include "nsIScriptError.h"
-#include "nsISimpleEnumerator.h"
-#include "nsIRequestContext.h"
-#include "nsStyleSheetService.h"
-
-#include "nsNetUtil.h"  // for NS_NewURI
-#include "nsIInputStreamChannel.h"
-#include "nsIAuthPrompt.h"
-#include "nsIAuthPrompt2.h"
-
-#include "nsIScriptSecurityManager.h"
-#include "nsIPermission.h"
-#include "nsPermissionManager.h"
-#include "nsIPrincipal.h"
-#include "nsIPrivateBrowsingChannel.h"
-#include "ExpandedPrincipal.h"
-#include "mozilla/NullPrincipal.h"
-
-#include "nsPIDOMWindow.h"
-#include "nsFocusManager.h"
-#include "nsICookieService.h"
-
-#include "nsBidiUtils.h"
-
-#include "nsContentCreatorFunctions.h"
-
-#include "nsIScriptContext.h"
-#include "nsHTMLDocument.h"
-#include "nsIRequest.h"
-#include "mozilla/dom/BlobURLProtocolHandler.h"
-
-#include "nsCharsetSource.h"
-#include "nsIParser.h"
-#include "nsIContentSink.h"
-
-#include "mozilla/EventDispatcher.h"
-#include "mozilla/EventStates.h"
-#include "mozilla/InternalMutationEvent.h"
-#include "nsDOMCID.h"
-
-#include "jsapi.h"
-#include "xpcpublic.h"
-#include "nsCCUncollectableMarker.h"
-#include "nsIContentPolicy.h"
-#include "nsContentPolicyUtils.h"
-#include "nsICategoryManager.h"
-#include "nsIDocumentLoaderFactory.h"
-#include "nsIDocumentLoader.h"
-#include "nsIContentViewer.h"
-#include "nsIXMLContentSink.h"
-#include "nsIPrompt.h"
-#include "nsIPropertyBag2.h"
-#include "mozilla/dom/PageTransitionEvent.h"
-#include "mozilla/dom/StyleSheetApplicableStateChangeEvent.h"
-#include "nsJSUtils.h"
-#include "nsFrameLoader.h"
-#include "nsEscape.h"
-#include "nsObjectLoadingContent.h"
-#include "nsHtml5TreeOpExecutor.h"
-#include "mozilla/dom/HTMLFormElement.h"
-#include "mozilla/dom/HTMLLinkElement.h"
-#include "mozilla/dom/HTMLMediaElement.h"
-#include "mozilla/dom/HTMLIFrameElement.h"
-#include "mozilla/dom/HTMLImageElement.h"
-#include "mozilla/dom/HTMLTextAreaElement.h"
-#include "mozilla/dom/MediaSource.h"
-
-#include "mozAutoDocUpdate.h"
-#include "nsGlobalWindow.h"
-#include "mozilla/Encoding.h"
-#include "nsDOMNavigationTiming.h"
-
-#include "mozilla/SMILAnimationController.h"
-#include "imgIContainer.h"
-
-#include "nsRefreshDriver.h"
-
-// FOR CSP (autogenerated by xpidl)
-#include "nsIContentSecurityPolicy.h"
-#include "mozilla/dom/nsCSPContext.h"
-#include "mozilla/dom/nsCSPService.h"
-#include "mozilla/dom/nsCSPUtils.h"
-#include "nsHTMLStyleSheet.h"
-#include "nsHTMLCSSStyleSheet.h"
-#include "mozilla/dom/DOMImplementation.h"
-#include "mozilla/dom/ShadowRoot.h"
-#include "mozilla/dom/Comment.h"
-#include "nsTextNode.h"
-#include "mozilla/dom/Link.h"
-#include "mozilla/dom/HTMLCollectionBinding.h"
-#include "mozilla/dom/HTMLElementBinding.h"
-#include "nsXULAppAPI.h"
-#include "mozilla/dom/Touch.h"
-#include "mozilla/dom/TouchEvent.h"
-
-#include "mozilla/Preferences.h"
-
-#include "imgRequestProxy.h"
-#include "nsWrapperCacheInlines.h"
-#include "nsSandboxFlags.h"
-#include "mozilla/dom/AnimatableBinding.h"
+#include "mozilla/css/Loader.h"
+#include "mozilla/css/Rule.h"
+#include "mozilla/css/SheetParsingMode.h"
 #include "mozilla/dom/AnonymousContent.h"
-#include "mozilla/dom/BindingUtils.h"
+#include "mozilla/dom/BrowserChild.h"
+#include "mozilla/dom/BrowsingContextGroup.h"
+#include "mozilla/dom/CDATASection.h"
+#include "mozilla/dom/CSPDictionariesBinding.h"
+#include "mozilla/dom/CanonicalBrowsingContext.h"
+#include "mozilla/dom/ChromeObserver.h"
 #include "mozilla/dom/ClientInfo.h"
 #include "mozilla/dom/ClientState.h"
-#include "mozilla/dom/DocumentFragment.h"
-#include "mozilla/dom/DocumentTimeline.h"
-#include "mozilla/dom/Event.h"
-#include "mozilla/dom/HTMLBodyElement.h"
-#include "mozilla/dom/HTMLInputElement.h"
-#include "mozilla/dom/ImageTracker.h"
-#include "mozilla/dom/MediaQueryList.h"
-#include "mozilla/dom/NodeFilterBinding.h"
-#include "mozilla/OwningNonNull.h"
-#include "mozilla/dom/BrowserChild.h"
-#include "mozilla/dom/WebComponentsBinding.h"
-#include "mozilla/dom/CustomElementRegistryBinding.h"
-#include "mozilla/dom/CustomElementRegistry.h"
-#include "mozilla/dom/ServiceWorkerDescriptor.h"
-#include "mozilla/dom/TimeoutManager.h"
-#include "mozilla/dom/DocumentL10n.h"
-#include "mozilla/ExtensionPolicyService.h"
-#include "nsIFrame.h"
-#include "nsDOMCaretPosition.h"
-#include "nsViewportInfo.h"
-#include "mozilla/StaticPtr.h"
-#include "nsIHttpChannelInternal.h"
-#include "nsISecurityConsoleMessage.h"
-#include "nsCharSeparatedTokenizer.h"
-#include "mozilla/dom/XPathEvaluator.h"
-#include "mozilla/dom/XPathNSResolverBinding.h"
-#include "mozilla/dom/XPathResult.h"
-#include "nsIDocumentEncoder.h"
-#include "nsIDocumentActivity.h"
-#include "nsIStructuredCloneContainer.h"
+#include "mozilla/dom/Comment.h"
+#include "mozilla/dom/ContentChild.h"
+#include "mozilla/dom/DOMImplementation.h"
+#include "mozilla/dom/DOMIntersectionObserver.h"
 #include "mozilla/dom/DOMStringList.h"
-#include "nsWindowSizes.h"
-#include "mozilla/dom/Location.h"
-#include "mozilla/dom/FontFaceSet.h"
-#include "mozilla/ServoStyleSet.h"
-#include "mozilla/StyleSheet.h"
-#include "mozilla/StyleSheetInlines.h"
-#include "mozilla/dom/SVGDocument.h"
-#include "mozilla/dom/SVGSVGElement.h"
 #include "mozilla/dom/DocGroup.h"
+#include "mozilla/dom/DocumentBinding.h"
+#include "mozilla/dom/DocumentFragment.h"
+#include "mozilla/dom/DocumentL10n.h"
+#include "mozilla/dom/DocumentTimeline.h"
+#include "mozilla/dom/DocumentType.h"
+#include "mozilla/dom/ElementBinding.h"
+#include "mozilla/dom/Event.h"
+#include "mozilla/dom/EventListenerBinding.h"
+#include "mozilla/dom/FeaturePolicy.h"
+#include "mozilla/dom/FeaturePolicyUtils.h"
+#include "mozilla/dom/FontFaceSet.h"
+#include "mozilla/dom/FramingChecker.h"
+#include "mozilla/dom/FromParser.h"
+#include "mozilla/dom/HTMLAllCollection.h"
+#include "mozilla/dom/HTMLBodyElement.h"
+#include "mozilla/dom/HTMLCollectionBinding.h"
+#include "mozilla/dom/HTMLDialogElement.h"
+#include "mozilla/dom/HTMLFormElement.h"
+#include "mozilla/dom/HTMLIFrameElement.h"
+#include "mozilla/dom/HTMLImageElement.h"
+#include "mozilla/dom/HTMLInputElement.h"
+#include "mozilla/dom/HTMLLinkElement.h"
+#include "mozilla/dom/HTMLMediaElement.h"
+#include "mozilla/dom/HTMLMetaElement.h"
+#include "mozilla/dom/HTMLSharedElement.h"
+#include "mozilla/dom/HTMLTextAreaElement.h"
+#include "mozilla/dom/ImageTracker.h"
+#include "mozilla/dom/Link.h"
+#include "mozilla/dom/MediaQueryList.h"
+#include "mozilla/dom/MediaSource.h"
+#include "mozilla/dom/MutationObservers.h"
+#include "mozilla/dom/NameSpaceConstants.h"
+#include "mozilla/dom/Navigator.h"
+#include "mozilla/dom/NodeInfo.h"
+#include "mozilla/dom/NodeIterator.h"
+#include "mozilla/dom/PContentChild.h"
+#include "mozilla/dom/PWindowGlobalChild.h"
+#include "mozilla/dom/PageTransitionEvent.h"
+#include "mozilla/dom/PageTransitionEventBinding.h"
+#include "mozilla/dom/Performance.h"
+#include "mozilla/dom/PermissionMessageUtils.h"
+#include "mozilla/dom/PostMessageEvent.h"
+#include "mozilla/dom/ProcessingInstruction.h"
+#include "mozilla/dom/Promise.h"
+#include "mozilla/dom/PromiseNativeHandler.h"
+#include "mozilla/dom/ResizeObserverController.h"
+#include "mozilla/dom/SVGElement.h"
+#include "mozilla/dom/SVGSVGElement.h"
+#include "mozilla/dom/SVGUseElement.h"
+#include "mozilla/dom/ScriptLoader.h"
+#include "mozilla/dom/ScriptSettings.h"
+#include "mozilla/dom/Selection.h"
+#include "mozilla/dom/ServiceWorkerContainer.h"
+#include "mozilla/dom/ServiceWorkerDescriptor.h"
+#include "mozilla/dom/ServiceWorkerManager.h"
+#include "mozilla/dom/ShadowIncludingTreeIterator.h"
+#include "mozilla/dom/ShadowRoot.h"
+#include "mozilla/dom/StyleSheetApplicableStateChangeEvent.h"
+#include "mozilla/dom/StyleSheetApplicableStateChangeEventBinding.h"
+#include "mozilla/dom/StyleSheetList.h"
 #include "mozilla/dom/TabGroup.h"
-#include "mozilla/dom/ChromeObserver.h"
+#include "mozilla/dom/TimeoutManager.h"
+#include "mozilla/dom/Touch.h"
+#include "mozilla/dom/TouchEvent.h"
+#include "mozilla/dom/TreeOrderedArray.h"
+#include "mozilla/dom/TreeOrderedArrayInlines.h"
+#include "mozilla/dom/TreeWalker.h"
+#include "mozilla/dom/URL.h"
+#include "mozilla/dom/UserActivation.h"
+#include "mozilla/dom/WindowBinding.h"
+#include "mozilla/dom/WindowGlobalChild.h"
+#include "mozilla/dom/WindowProxyHolder.h"
+#include "mozilla/dom/XPathEvaluator.h"
+#include "mozilla/dom/nsCSPContext.h"
+#include "mozilla/dom/nsCSPUtils.h"
+#include "mozilla/extensions/WebExtensionPolicy.h"
+#include "mozilla/fallible.h"
+#include "mozilla/gfx/BaseCoord.h"
+#include "mozilla/gfx/BaseSize.h"
+#include "mozilla/gfx/Coord.h"
+#include "mozilla/gfx/Point.h"
+#include "mozilla/gfx/ScaleFactor.h"
+#include "mozilla/ipc/MessageChannel.h"
+#include "mozilla/net/ChannelEventQueue.h"
+#include "mozilla/net/CookieSettings.h"
+#include "mozilla/net/NeckoChannelParams.h"
+#include "mozilla/net/RequestContextService.h"
+#include "nsAboutProtocolUtils.h"
+#include "nsAlgorithm.h"
+#include "nsAttrValue.h"
+#include "nsAttrValueInlines.h"
+#include "nsBaseHashtable.h"
+#include "nsBidiUtils.h"
+#include "nsCRT.h"
+#include "nsCSSPropertyID.h"
+#include "nsCSSProps.h"
+#include "nsCSSPseudoElements.h"
+#include "nsCanvasFrame.h"
+#include "nsCaseTreatment.h"
+#include "nsCharsetSource.h"
+#include "nsCommandManager.h"
+#include "nsCommandParams.h"
+#include "nsComponentManagerUtils.h"
+#include "nsContentCreatorFunctions.h"
+#include "nsContentList.h"
+#include "nsContentPermissionHelper.h"
+#include "nsContentSecurityUtils.h"
+#include "nsContentUtils.h"
+#include "nsCoord.h"
+#include "nsCycleCollectionNoteChild.h"
+#include "nsCycleCollectionTraversalCallback.h"
+#include "nsDOMAttributeMap.h"
+#include "nsDOMCaretPosition.h"
+#include "nsDOMNavigationTiming.h"
+#include "nsDOMString.h"
+#include "nsDeviceContext.h"
+#include "nsDocShell.h"
+#include "nsError.h"
+#include "nsEscape.h"
+#include "nsFocusManager.h"
+#include "nsFrameLoader.h"
+#include "nsFrameLoaderOwner.h"
+#include "nsGenericHTMLElement.h"
+#include "nsGlobalWindowInner.h"
+#include "nsGlobalWindowOuter.h"
+#include "nsHTMLCSSStyleSheet.h"
+#include "nsHTMLDocument.h"
+#include "nsHTMLStyleSheet.h"
+#include "nsHtml5Module.h"
+#include "nsHtml5Parser.h"
+#include "nsHtml5TreeOpExecutor.h"
+#include "nsIApplicationCache.h"
+#include "nsIAsyncShutdown.h"
+#include "nsIAuthPrompt.h"
+#include "nsIAuthPrompt2.h"
+#include "nsIBFCacheEntry.h"
+#include "nsIBaseWindow.h"
+#include "nsIBrowserChild.h"
+#include "nsICSSLoaderObserver.h"
+#include "nsICategoryManager.h"
+#include "nsIContent.h"
+#include "nsIContentPolicy.h"
+#include "nsIContentSecurityPolicy.h"
+#include "nsIContentSink.h"
+#include "nsICookieSettings.h"
+#include "nsICookieService.h"
+#include "nsIDOMXULCommandDispatcher.h"
+#include "nsIDocShell.h"
+#include "nsIDocShellTreeItem.h"
+#include "nsIDocumentActivity.h"
+#include "nsIDocumentEncoder.h"
+#include "nsIDocumentLoader.h"
+#include "nsIDocumentLoaderFactory.h"
+#include "nsIDocumentObserver.h"
+#include "nsIEditingSession.h"
+#include "nsIEditor.h"
+#include "nsIEffectiveTLDService.h"
+#include "nsIFile.h"
+#include "nsIFileChannel.h"
+#include "nsIFrame.h"
+#include "nsIGlobalObject.h"
+#include "nsIHTMLCollection.h"
+#include "nsIHttpChannel.h"
+#include "nsIHttpChannelInternal.h"
+#include "nsIIOService.h"
+#include "nsIImageLoadingContent.h"
+#include "nsIInlineSpellChecker.h"
+#include "nsIInputStreamChannel.h"
+#include "nsIInterfaceRequestorUtils.h"
+#include "nsILayoutHistoryState.h"
+#include "nsIMultiPartChannel.h"
+#include "nsIMutationObserver.h"
+#include "nsINamed.h"
+#include "nsINodeList.h"
+#include "nsIObjectLoadingContent.h"
+#include "nsIObserverService.h"
+#include "nsIPermission.h"
+#include "nsIPrivateBrowsingChannel.h" //MY
+#include "nsIPrompt.h"
+#include "nsIPropertyBag2.h"
+#include "nsIReferrerInfo.h"
+#include "nsIRefreshURI.h"
+#include "nsIRequest.h"
+#include "nsIRequestContext.h"
+#include "nsIRunnable.h"
+#include "nsIScriptElement.h"
+#include "nsIScriptError.h"
+#include "nsIScriptGlobalObject.h"
+#include "nsIScriptSecurityManager.h"
+#include "nsISecurityConsoleMessage.h"
+#include "nsISelectionController.h"
+#include "nsISerialEventTarget.h"
+#include "nsISerializable.h"
+#include "nsISimpleEnumerator.h"
+#include "nsISpeculativeConnect.h"
+#include "nsIStructuredCloneContainer.h"
+#include "nsIThread.h"
+#include "nsITimedChannel.h"
+#include "nsITimer.h"
+#include "nsIURIMutator.h"
+#include "nsIVariant.h"
+#include "nsIWeakReference.h"
+#include "nsIWebNavigation.h"
+#include "nsIWidget.h"
+#include "nsIXMLContentSink.h"
+#include "nsImageLoadingContent.h"
+#include "nsImportModule.h"
+#include "nsLanguageAtomService.h"
+#include "nsLayoutUtils.h"
+#include "nsNetCID.h"
+#include "nsNetUtil.h"
+#include "nsNodeInfoManager.h"
+#include "nsObjectLoadingContent.h"
+#include "nsPIDOMWindowInlines.h"
+#include "nsPIWindowRoot.h"
+#include "nsPoint.h"
+#include "nsPointerHashKeys.h"
+#include "nsPresContext.h"
+#include "nsQueryFrame.h"
+#include "nsQueryObject.h"
+#include "nsRange.h"
+#include "nsRect.h"
+#include "nsRefreshDriver.h"
+#include "nsSandboxFlags.h"
+#include "nsServiceManagerUtils.h"
+#include "nsStringFlags.h"
+#include "nsStringIterator.h"
+#include "nsStyleSheetService.h"
+#include "nsStyleStruct.h"
+#include "nsTextNode.h"
+#include "nsUnicharUtils.h"
+#include "nsWrapperCache.h"
+#include "nsWrapperCacheInlines.h"
+#include "nsXPCOMCID.h"
+#include "nsXULAppAPI.h"
+#include "prthread.h"
+#include "prtime.h"
+#include "prtypes.h"
+#include "xpcpublic.h"
+
+// XXX Must be included after mozilla/Encoding.h
+#include "encoding_rs.h"
+
 #ifdef MOZ_XUL
 #  include "mozilla/dom/XULBroadcastManager.h"
 #  include "mozilla/dom/XULPersist.h"
@@ -302,34 +392,6 @@
 #  include "nsXULPopupManager.h"
 #  include "nsIDocShellTreeOwner.h"
 #endif
-
-#include "mozilla/DocLoadingTimelineMarker.h"
-
-#include "mozilla/dom/WindowGlobalChild.h"
-
-#include "nsISpeculativeConnect.h"
-
-#include "mozilla/MediaManager.h"
-
-#include "AutoplayPolicy.h"
-#include "nsIURIMutator.h"
-#include "mozilla/DocumentStyleRootIterator.h"
-#include "mozilla/PendingFullscreenEvent.h"
-#include "mozilla/RestyleManager.h"
-#include "mozilla/ClearOnShutdown.h"
-#include "mozilla/ResultExtensions.h"
-#include "nsHTMLTags.h"
-#include "MobileViewportManager.h"
-#include "NodeUbiReporting.h"
-#include "nsICookieService.h"
-#include "mozilla/net/ChannelEventQueue.h"
-#include "mozilla/net/RequestContextService.h"
-#include "StorageAccessPermissionRequest.h"
-#include "mozilla/dom/WindowProxyHolder.h"
-#include "ThirdPartyUtil.h"
-#include "nsHtml5Module.h"
-#include "nsHtml5Parser.h"
-#include "nsTableWrapperFrame.h"
 
 #define XML_DECLARATION_BITS_DECLARATION_EXISTS (1 << 0)
 #define XML_DECLARATION_BITS_ENCODING_EXISTS (1 << 1)
@@ -1160,6 +1222,17 @@ Document::FrameRequest::FrameRequest(FrameRequestCallback& aCallback,
                                      int32_t aHandle)
     : mCallback(&aCallback), mHandle(aHandle) {}
 
+Document::FrameRequest::~FrameRequest() = default;
+
+struct Document::MetaViewportElementAndData {
+  RefPtr<HTMLMetaElement> mElement;
+  ViewportMetaData mData;
+
+  bool operator==(const MetaViewportElementAndData& aOther) const {
+    return mElement == aOther.mElement && mData == aOther.mData;
+  }
+};
+
 // ==================================================================
 // =
 // ==================================================================
@@ -1317,17 +1390,15 @@ Document::Document(const char* aContentType)
       mHeaderData(nullptr),
       mScrollAnchorAdjustmentLength(0),
       mScrollAnchorAdjustmentCount(0),
-      mCurrentOrientationAngle(0),
-      mCurrentOrientationType(OrientationType::Portrait_primary),
       mServoRestyleRootDirtyBits(0),
       mThrowOnDynamicMarkupInsertionCounter(0),
       mIgnoreOpensDuringUnloadCounter(0),
       mDocLWTheme(Doc_Theme_Uninitialized),
       mSavedResolution(1.0f),
-      mPendingInitialTranslation(false),
       mGeneration(0),
       mCachedTabSizeGeneration(0),
-      mInRDMPane(false),
+      mNextFormNumber(0),
+      mNextControlNumber(0),
       mPreloadService(this) {
   MOZ_LOG(gDocumentLeakPRLog, LogLevel::Debug, ("DOCUMENT %p created", this));
 
@@ -1366,83 +1437,6 @@ Document::~Document() {
 
   if (IsTopLevelContentDocument()) {
     RemoveToplevelLoadingDocument(this);
-
-    // don't report for about: pages
-    if (!IsAboutPage()) {
-      // Record the page load
-      uint32_t pageLoaded = 1;
-      Accumulate(Telemetry::MIXED_CONTENT_UNBLOCK_COUNTER, pageLoaded);
-      // Record the mixed content status of the docshell in Telemetry
-      enum {
-        NO_MIXED_CONTENT = 0,  // There is no Mixed Content on the page
-        MIXED_DISPLAY_CONTENT =
-            1,  // The page attempted to load Mixed Display Content
-        MIXED_ACTIVE_CONTENT =
-            2,  // The page attempted to load Mixed Active Content
-        MIXED_DISPLAY_AND_ACTIVE_CONTENT =
-            3  // The page attempted to load Mixed Display & Mixed Active
-               // Content
-      };
-
-      bool mixedActiveLoaded = GetHasMixedActiveContentLoaded();
-      bool mixedActiveBlocked = GetHasMixedActiveContentBlocked();
-
-      bool mixedDisplayLoaded = GetHasMixedDisplayContentLoaded();
-      bool mixedDisplayBlocked = GetHasMixedDisplayContentBlocked();
-
-      bool hasMixedDisplay = (mixedDisplayBlocked || mixedDisplayLoaded);
-      bool hasMixedActive = (mixedActiveBlocked || mixedActiveLoaded);
-
-      uint32_t mixedContentLevel = NO_MIXED_CONTENT;
-      if (hasMixedDisplay && hasMixedActive) {
-        mixedContentLevel = MIXED_DISPLAY_AND_ACTIVE_CONTENT;
-      } else if (hasMixedActive) {
-        mixedContentLevel = MIXED_ACTIVE_CONTENT;
-      } else if (hasMixedDisplay) {
-        mixedContentLevel = MIXED_DISPLAY_CONTENT;
-      }
-      Accumulate(Telemetry::MIXED_CONTENT_PAGE_LOAD, mixedContentLevel);
-
-      // record CSP telemetry on this document
-      if (mHasCSP) {
-        Accumulate(Telemetry::CSP_DOCUMENTS_COUNT, 1);
-      }
-      if (mHasUnsafeInlineCSP) {
-        Accumulate(Telemetry::CSP_UNSAFE_INLINE_DOCUMENTS_COUNT, 1);
-      }
-      if (mHasUnsafeEvalCSP) {
-        Accumulate(Telemetry::CSP_UNSAFE_EVAL_DOCUMENTS_COUNT, 1);
-      }
-
-      if (MOZ_UNLIKELY(mMathMLEnabled)) {
-        ScalarAdd(Telemetry::ScalarID::MATHML_DOC_COUNT, 1);
-      }
-
-      ScalarAdd(Telemetry::ScalarID::MEDIA_PAGE_COUNT, 1);
-      if (mDocTreeHadAudibleMedia) {
-        ScalarAdd(Telemetry::ScalarID::MEDIA_PAGE_HAD_MEDIA_COUNT, 1);
-      }
-
-      if (IsHTMLDocument()) {
-        switch (GetCompatibilityMode()) {
-          case eCompatibility_FullStandards:
-            Telemetry::AccumulateCategorical(
-                Telemetry::LABELS_QUIRKS_MODE::FullStandards);
-            break;
-          case eCompatibility_AlmostStandards:
-            Telemetry::AccumulateCategorical(
-                Telemetry::LABELS_QUIRKS_MODE::AlmostStandards);
-            break;
-          case eCompatibility_NavQuirks:
-            Telemetry::AccumulateCategorical(
-                Telemetry::LABELS_QUIRKS_MODE::NavQuirks);
-            break;
-          default:
-            MOZ_ASSERT_UNREACHABLE("Unknown quirks mode");
-            break;
-        }
-      }
-    }
   }
 
   mInDestructor = true;
@@ -1488,9 +1482,7 @@ Document::~Document() {
   mCachedRootElement = nullptr;
 
   for (auto& sheets : mAdditionalSheets) {
-    for (StyleSheet* sheet : sheets) {
-      sheet->ClearAssociatedDocumentOrShadowRoot();
-    }
+    UnlinkStyleSheets(sheets);
   }
 
   if (mAttrStyleSheet) {
@@ -1652,8 +1644,10 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INTERNAL(Document)
 
   DocumentOrShadowRoot::Traverse(tmp, cb);
 
-  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mChannel)
-  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mLayoutHistoryState)
+  for (auto& sheets : tmp->mAdditionalSheets) {
+    tmp->TraverseStyleSheets(sheets, "mAdditionalSheets[<origin>][i]", cb);
+  }
+
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mOnloadBlocker)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mDOMImplementation)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mImageMaps)
@@ -1761,10 +1755,26 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(Document)
   tmp->UnlinkOriginalDocumentIfStatic();
 
   tmp->mCachedRootElement = nullptr;  // Avoid a dangling pointer
+
+  tmp->SetScriptGlobalObject(nullptr);
+
+  for (auto& sheets : tmp->mAdditionalSheets) {
+    tmp->UnlinkStyleSheets(sheets);
+  }
+
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mSecurityInfo)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mDisplayDocument)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mFontFaceSet)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mReadyForIdle)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mDocumentL10n)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mParser)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mOnloadBlocker)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mDOMImplementation)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mImageMaps)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mOrientationPendingPromise)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mOriginalDocument)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mCachedEncoder)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mStateObjectCached)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mDocumentTimeline)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mPendingAnimationTracker)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mTemplateContentsOwner)
@@ -1776,17 +1786,19 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(Document)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mScripts);
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mApplets);
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mAnchors);
-  NS_IMPL_CYCLE_COLLECTION_UNLINK(mOrientationPendingPromise)
-  NS_IMPL_CYCLE_COLLECTION_UNLINK(mFontFaceSet)
-  NS_IMPL_CYCLE_COLLECTION_UNLINK(mReadyForIdle);
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mAnonymousContents)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mCommandDispatcher)
-  NS_IMPL_CYCLE_COLLECTION_UNLINK(mDocumentL10n);
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mFeaturePolicy)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mSuppressedEventListener)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mPrototypeDocument)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mMidasCommandManager)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mAll)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mReferrerInfo)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mPreloadReferrerInfo)
+
+  if (tmp->IsTopLevelContentDocument()) {
+    RemoveToplevelLoadingDocument(tmp);
+  }
 
   tmp->mParentDocument = nullptr;
 
@@ -2758,6 +2770,14 @@ nsresult Document::InitCSP(nsIChannel* aChannel) {
     return NS_OK;
   }
 
+  // If this is an image, no need to set a CSP. Otherwise SVG images
+  // served with a CSP might block internally applied inline styles.
+  nsCOMPtr<nsILoadInfo> loadInfo = aChannel->LoadInfo();
+  if (loadInfo->GetExternalContentPolicyType() ==
+      nsIContentPolicy::TYPE_IMAGE) {
+    return NS_OK;
+  }
+
   MOZ_ASSERT(!mCSP, "where did mCSP get set if not here?");
 
   // If there is a CSP that needs to be inherited from whatever
@@ -2766,7 +2786,6 @@ nsresult Document::InitCSP(nsIChannel* aChannel) {
   // document needs to inherit the CSP. See:
   // https://w3c.github.io/webappsec-csp/#initialize-document-csp
   if (CSP_ShouldResponseInheritCSP(aChannel)) {
-    nsCOMPtr<nsILoadInfo> loadInfo = aChannel->LoadInfo();
     mCSP = loadInfo->GetCspToInherit();
   }
 
@@ -3137,6 +3156,30 @@ void Document::RemoveFromIdTable(Element* aElement, nsAtom* aId) {
   }
 }
 
+void Document::UpdateReferrerInfoFromMeta(const nsAString& aMetaReferrer,
+                                          bool aPreload) {
+  ReferrerPolicyEnum policy =
+      ReferrerInfo::ReferrerPolicyFromMetaString(aMetaReferrer);
+  // The empty string "" corresponds to no referrer policy, causing a fallback
+  // to a referrer policy defined elsewhere.
+  if (policy == ReferrerPolicy::_empty) {
+    return;
+  }
+
+  MOZ_ASSERT(mReferrerInfo);
+  MOZ_ASSERT(mPreloadReferrerInfo);
+
+  if (aPreload) {
+    mPreloadReferrerInfo =
+        static_cast<mozilla::dom::ReferrerInfo*>((mPreloadReferrerInfo).get())
+            ->CloneWithNewPolicy(policy);
+  } else {
+    mReferrerInfo =
+        static_cast<mozilla::dom::ReferrerInfo*>((mReferrerInfo).get())
+            ->CloneWithNewPolicy(policy);
+  }
+}
+
 void Document::SetPrincipals(nsIPrincipal* aNewPrincipal,
                              nsIPrincipal* aNewStoragePrincipal) {
   MOZ_ASSERT(!!aNewPrincipal == !!aNewStoragePrincipal);
@@ -3268,16 +3311,20 @@ bool Document::GetAllowPlugins() {
   return true;
 }
 
-void Document::InitializeLocalization(nsTArray<nsString>& aResourceIds) {
-  MOZ_ASSERT(!mDocumentL10n, "mDocumentL10n should not be initialized yet");
-
-  RefPtr<DocumentL10n> l10n = new DocumentL10n(this);
-  ErrorResult rv;
-  l10n->Init(aResourceIds, rv);
-  if (NS_WARN_IF(rv.Failed())) {
-    return;
+void Document::EnsureL10n() {
+  if (!mDocumentL10n) {
+    Element* elem = GetDocumentElement();
+    if (NS_WARN_IF(!elem)) {
+      return;
+    }
+    bool isSync = elem->HasAttr(kNameSpaceID_None, nsGkAtoms::datal10nsync);
+    mDocumentL10n = DocumentL10n::Create(this, isSync);
+    MOZ_ASSERT(mDocumentL10n);
   }
-  mDocumentL10n = l10n;
+}
+
+bool Document::HasPendingInitialTranslation() {
+  return mDocumentL10n && mDocumentL10n->GetState() != DocumentL10nState::Ready;
 }
 
 DocumentL10n* Document::GetL10n() { return mDocumentL10n; }
@@ -3298,36 +3345,24 @@ void Document::LocalizationLinkAdded(Element* aLinkElement) {
     return;
   }
 
+  EnsureL10n();
+
   nsAutoString href;
   aLinkElement->GetAttr(kNameSpaceID_None, nsGkAtoms::href, href);
-  // If the link is added after the DocumentL10n instance
-  // has been initialized, just pass the resource ID to it.
-  if (mDocumentL10n) {
-    AutoTArray<nsString, 1> resourceIds;
-    resourceIds.AppendElement(href);
-    mDocumentL10n->AddResourceIds(resourceIds, false);
-  } else if (mReadyState >= READYSTATE_INTERACTIVE) {
-    // Otherwise, if the document has already been parsed
-    // we need to lazily initialize the localization.
-    AutoTArray<nsString, 1> resourceIds;
-    resourceIds.AppendElement(href);
-    InitializeLocalization(resourceIds);
-    mDocumentL10n->TriggerInitialDocumentTranslation();
+
+  mDocumentL10n->AddResourceId(href);
+
+  if (mReadyState >= READYSTATE_INTERACTIVE) {
+    mDocumentL10n->Activate(true);
+    mDocumentL10n->TriggerInitialTranslation();
   } else {
-    // Otherwise, we're still parsing the document.
-    // In that case, add it to the pending list. This list
-    // will be resolved once the end of l10n resource
-    // container is reached.
-    mL10nResources.AppendElement(href);
-
-    if (!mPendingInitialTranslation) {
-      // Our initial translation is going to block layout start.  Make sure we
-      // don't fire the load event until after that stops happening and layout
-      // has a chance to start.
+    if (!mDocumentL10n->mBlockingLayout) {
+      // Our initial translation is going to block layout start.  Make sure
+      // we don't fire the load event until after that stops happening and
+      // layout has a chance to start.
       BlockOnload();
+      mDocumentL10n->mBlockingLayout = true;
     }
-
-    mPendingInitialTranslation = true;
   }
 }
 
@@ -3336,17 +3371,17 @@ void Document::LocalizationLinkRemoved(Element* aLinkElement) {
     return;
   }
 
-  nsAutoString href;
-  aLinkElement->GetAttr(kNameSpaceID_None, nsGkAtoms::href, href);
   if (mDocumentL10n) {
-    AutoTArray<nsString, 1> resourceIds;
-    resourceIds.AppendElement(href);
-    uint32_t remaining = mDocumentL10n->RemoveResourceIds(resourceIds);
+    nsAutoString href;
+    aLinkElement->GetAttr(kNameSpaceID_None, nsGkAtoms::href, href);
+    uint32_t remaining = mDocumentL10n->RemoveResourceId(href);
     if (remaining == 0) {
+      if (mDocumentL10n->mBlockingLayout) {
+        mDocumentL10n->mBlockingLayout = false;
+        UnblockOnload(/* aFireSync = */ false);
+      }
       mDocumentL10n = nullptr;
     }
-  } else {
-    mL10nResources.RemoveElement(href);
   }
 }
 
@@ -3363,38 +3398,37 @@ void Document::LocalizationLinkRemoved(Element* aLinkElement) {
  * collected.
  */
 void Document::OnL10nResourceContainerParsed() {
-  if (!mL10nResources.IsEmpty()) {
-    InitializeLocalization(mL10nResources);
-    mL10nResources.Clear();
+  if (mDocumentL10n) {
+    mDocumentL10n->Activate(false);
   }
 }
 
-void Document::TriggerInitialDocumentTranslation() {
+void Document::OnParsingCompleted() {
   // Let's call it again, in case the resource
   // container has not been closed, and only
   // now we're closing the document.
   OnL10nResourceContainerParsed();
 
   if (mDocumentL10n) {
-    mDocumentL10n->TriggerInitialDocumentTranslation();
+    mDocumentL10n->TriggerInitialTranslation();
   }
 }
 
-void Document::InitialDocumentTranslationCompleted() {
-  if (mPendingInitialTranslation) {
+void Document::InitialTranslationCompleted(bool aL10nCached) {
+  if (mDocumentL10n && mDocumentL10n->mBlockingLayout) {
     // This means we blocked the load event in LocalizationLinkAdded.  It's
     // important that the load blocker removal here be async, because our caller
     // will notify the content sink after us, and we want the content sync's
     // work to happen before the load event fires.
+    mDocumentL10n->mBlockingLayout = false;
     UnblockOnload(/* aFireSync = */ false);
   }
-  mPendingInitialTranslation = false;
 
   mL10nProtoElements.Clear();
 
   nsXULPrototypeDocument* proto = GetPrototype();
   if (proto) {
-    proto->SetIsL10nCached();
+    proto->SetIsL10nCached(aL10nCached);
   }
 }
 
@@ -5090,35 +5124,15 @@ void Document::GetCookie(nsAString& aCookie, ErrorResult& rv) {
   nsCOMPtr<nsICookieService> service =
       do_GetService(NS_COOKIESERVICE_CONTRACTID);
   if (service) {
-    // Get a URI from the document principal. We use the original
-    // codebase in case the codebase was changed by SetDomain
-    nsCOMPtr<nsIURI> codebaseURI;
-    NodePrincipal()->GetURI(getter_AddRefs(codebaseURI));
-
-    if (!codebaseURI) {
-      // Document's principal is not a codebase (may be system), so
-      // can't set cookies
-
-      return;
-    }
-
-    nsCOMPtr<nsIChannel> channel(mChannel);
-    if (!channel) {
-      channel = CreateDummyChannelForCookies(codebaseURI);
-      if (!channel) {
-        return;
-      }
-    }
-
     nsAutoCString cookie;
-    service->GetCookieString(codebaseURI, channel, cookie);
+    service->GetCookieStringForPrincipal(EffectiveStoragePrincipal(), cookie);
     // CopyUTF8toUTF16 doesn't handle error
     // because it assumes that the input is valid.
     UTF_8_ENCODING->DecodeWithoutBOMHandling(cookie, aCookie);
   }
 }
 
-void Document::SetCookie(const nsAString& aCookie, ErrorResult& rv) {
+void Document::SetCookie(const nsAString& aCookie, ErrorResult& aRv) {
   if (mDisableCookieAccess) {
     return;
   }
@@ -5126,7 +5140,7 @@ void Document::SetCookie(const nsAString& aCookie, ErrorResult& rv) {
   // If the document's sandboxed origin flag is set, access to write cookies
   // is prohibited.
   if (mSandboxFlags & SANDBOXED_ORIGIN) {
-    rv.Throw(NS_ERROR_DOM_SECURITY_ERR);
+    aRv.Throw(NS_ERROR_DOM_SECURITY_ERR);
     return;
   }
 
@@ -5145,31 +5159,50 @@ void Document::SetCookie(const nsAString& aCookie, ErrorResult& rv) {
     return;
   }
 
+  if (!mDocumentURI) {
+    return;
+  }
+
+  // The code for getting the URI matches Navigator::CookieEnabled
+  nsCOMPtr<nsIURI> principalURI;
+  auto* basePrin = BasePrincipal::Cast(NodePrincipal());
+  basePrin->GetURI(getter_AddRefs(principalURI));
+
+  if (!principalURI) {
+    // Document's principal is not a content or null (may be system), so
+    // can't set cookies
+
+    return;
+  }
+
+  nsCOMPtr<nsIChannel> channel(mChannel);
+  if (!channel) {
+    channel = CreateDummyChannelForCookies(principalURI);
+    if (!channel) {
+      return;
+    }
+  }
+
   // not having a cookie service isn't an error
   nsCOMPtr<nsICookieService> service =
       do_GetService(NS_COOKIESERVICE_CONTRACTID);
-  if (service && mDocumentURI) {
-    // The code for getting the URI matches Navigator::CookieEnabled
-    nsCOMPtr<nsIURI> codebaseURI;
-    NodePrincipal()->GetURI(getter_AddRefs(codebaseURI));
+  if (!service) {
+    return;
+  }
 
-    if (!codebaseURI) {
-      // Document's principal is not a codebase (may be system), so
-      // can't set cookies
+  NS_ConvertUTF16toUTF8 cookie(aCookie);
+  nsresult rv = service->SetCookieString(principalURI, cookie, channel);
 
-      return;
-    }
+  // No warning messages here.
+  if (NS_FAILED(rv)) {
+    return;
+  }
 
-    nsCOMPtr<nsIChannel> channel(mChannel);
-    if (!channel) {
-      channel = CreateDummyChannelForCookies(codebaseURI);
-      if (!channel) {
-        return;
-      }
-    }
-
-    NS_ConvertUTF16toUTF8 cookie(aCookie);
-    service->SetCookieString(codebaseURI, cookie, channel);
+  nsCOMPtr<nsIObserverService> observerService =
+      mozilla::services::GetObserverService();
+  if (observerService) {
+    observerService->NotifyObservers(ToSupports(this), "document-set-cookie",
+                                     nsString(aCookie).get());
   }
 }
 
@@ -5285,9 +5318,13 @@ void Document::SetFgColor(const nsAString& aFgColor) {
   }
 }
 
-void Document::CaptureEvents() { WarnOnceAbout(Document::eUseOfCaptureEvents); }
+void Document::CaptureEvents() {
+  WarnOnceAbout(DeprecatedOperations::eUseOfCaptureEvents);
+}
 
-void Document::ReleaseEvents() { WarnOnceAbout(Document::eUseOfReleaseEvents); }
+void Document::ReleaseEvents() {
+  WarnOnceAbout(DeprecatedOperations::eUseOfReleaseEvents);
+}
 
 HTMLAllCollection* Document::All() {
   if (!mAll) {
@@ -5522,6 +5559,7 @@ void Document::SetHeaderData(nsAtom* aHeaderField, const nsAString& aData) {
       // before the current URI of the webnavigation has been updated, so we
       // can't assert equality here.
       refresher->SetupRefreshURIFromHeader(mDocumentURI, NodePrincipal(),
+                                           InnerWindowID(),
                                            NS_ConvertUTF16toUTF8(aData));
     }
   }
@@ -7420,8 +7458,8 @@ already_AddRefed<nsIURI> Document::GetDomainURI() {
   if (uri) {
     return uri.forget();
   }
-
-  principal->GetURI(getter_AddRefs(uri));
+  auto* basePrin = BasePrincipal::Cast(principal);
+  basePrin->GetURI(getter_AddRefs(uri));
   return uri.forget();
 }
 
@@ -8669,7 +8707,7 @@ nsINode* Document::AdoptNode(nsINode& aAdoptedNode, ErrorResult& rv) {
     case COMMENT_NODE:
     case DOCUMENT_TYPE_NODE: {
       // Don't allow adopting a node's anonymous subtree out from under it.
-      if (adoptedNode->AsContent()->IsRootOfAnonymousSubtree()) {
+      if (adoptedNode->IsRootOfNativeAnonymousSubtree()) {
         rv.Throw(NS_ERROR_DOM_NOT_SUPPORTED_ERR);
         return nullptr;
       }
@@ -9642,13 +9680,9 @@ void Document::CollectDescendantDocuments(
   }
 }
 
-bool Document::CanSavePresentation(nsIRequest* aNewRequest,
-                                   uint16_t& aBFCacheCombo) {
-  bool ret = true;
-
+bool Document::CanSavePresentation(nsIRequest* aNewRequest) {
   if (!IsBFCachingAllowed()) {
-    aBFCacheCombo |= BFCacheStatus::NOT_ALLOWED;
-    ret = false;
+    return false;
   }
 
   nsAutoCString uri;
@@ -9661,8 +9695,7 @@ bool Document::CanSavePresentation(nsIRequest* aNewRequest,
   if (EventHandlingSuppressed()) {
     MOZ_LOG(gPageCacheLog, mozilla::LogLevel::Verbose,
             ("Save of %s blocked on event handling suppression", uri.get()));
-    aBFCacheCombo |= BFCacheStatus::EVENT_HANDLING_SUPPRESSED;
-    ret = false;
+    return false;
   }
 
   // Do not allow suspended windows to be placed in the
@@ -9674,8 +9707,7 @@ bool Document::CanSavePresentation(nsIRequest* aNewRequest,
   if (win && win->IsSuspended() && !win->IsFrozen()) {
     MOZ_LOG(gPageCacheLog, mozilla::LogLevel::Verbose,
             ("Save of %s blocked on suspended Window", uri.get()));
-    aBFCacheCombo |= BFCacheStatus::SUSPENDED;
-    ret = false;
+    return false;
   }
 
   // Check our event listener manager for unload/beforeunload listeners.
@@ -9685,8 +9717,7 @@ bool Document::CanSavePresentation(nsIRequest* aNewRequest,
     if (manager && manager->HasUnloadListeners()) {
       MOZ_LOG(gPageCacheLog, mozilla::LogLevel::Verbose,
               ("Save of %s blocked due to unload handlers", uri.get()));
-      aBFCacheCombo |= BFCacheStatus::UNLOAD_LISTENER;
-      ret = false;
+      return false;
     }
   }
 
@@ -9730,8 +9761,8 @@ bool Document::CanSavePresentation(nsIRequest* aNewRequest,
                   ("Save of %s blocked because document has request %s",
                    uri.get(), requestName.get()));
         }
-        aBFCacheCombo |= BFCacheStatus::REQUEST;
-        ret = false;
+
+        return false;
       }
     }
   }
@@ -9741,8 +9772,7 @@ bool Document::CanSavePresentation(nsIRequest* aNewRequest,
       MediaManager::Get()->IsWindowStillActive(win->WindowID())) {
     MOZ_LOG(gPageCacheLog, mozilla::LogLevel::Verbose,
             ("Save of %s blocked due to GetUserMedia", uri.get()));
-    aBFCacheCombo |= BFCacheStatus::ACTIVE_GET_USER_MEDIA;
-    ret = false;
+    return false;
   }
 
 #ifdef MOZ_WEBRTC
@@ -9750,8 +9780,7 @@ bool Document::CanSavePresentation(nsIRequest* aNewRequest,
   if (win && win->HasActivePeerConnections()) {
     MOZ_LOG(gPageCacheLog, mozilla::LogLevel::Verbose,
             ("Save of %s blocked due to PeerConnection", uri.get()));
-    aBFCacheCombo |= BFCacheStatus::ACTIVE_PEER_CONNECTION;
-    ret = false;
+    return false;
   }
 #endif  // MOZ_WEBRTC
 
@@ -9760,8 +9789,7 @@ bool Document::CanSavePresentation(nsIRequest* aNewRequest,
   if (ContainsMSEContent()) {
     MOZ_LOG(gPageCacheLog, mozilla::LogLevel::Verbose,
             ("Save of %s blocked due to MSE use", uri.get()));
-    aBFCacheCombo |= BFCacheStatus::CONTAINS_MSE_CONTENT;
-    ret = false;
+    return false;
   }
 
   if (mSubDocuments) {
@@ -9769,16 +9797,12 @@ bool Document::CanSavePresentation(nsIRequest* aNewRequest,
       auto entry = static_cast<SubDocMapEntry*>(iter.Get());
       Document* subdoc = entry->mSubDocument;
 
-      uint16_t subDocBFCacheCombo = 0;
       // The aIgnoreRequest we were passed is only for us, so don't pass it on.
-      bool canCache =
-          subdoc ? subdoc->CanSavePresentation(nullptr, subDocBFCacheCombo)
-                 : false;
+      bool canCache = subdoc ? subdoc->CanSavePresentation(nullptr) : false;
       if (!canCache) {
         MOZ_LOG(gPageCacheLog, mozilla::LogLevel::Verbose,
                 ("Save of %s blocked due to subdocument blocked", uri.get()));
-        aBFCacheCombo |= subDocBFCacheCombo;
-        ret = false;
+        return false;
       }
     }
   }
@@ -9789,25 +9813,19 @@ bool Document::CanSavePresentation(nsIRequest* aNewRequest,
     if (globalWindow->HasActiveSpeechSynthesis()) {
       MOZ_LOG(gPageCacheLog, mozilla::LogLevel::Verbose,
               ("Save of %s blocked due to Speech use", uri.get()));
-      aBFCacheCombo |= BFCacheStatus::HAS_ACTIVE_SPEECH_SYNTHESIS;
-      ret = false;
+      return false;
     }
 #endif
 #ifdef MOZ_VR
     if (globalWindow->HasUsedVR()) {
       MOZ_LOG(gPageCacheLog, mozilla::LogLevel::Verbose,
               ("Save of %s blocked due to having used VR", uri.get()));
-      aBFCacheCombo |= BFCacheStatus::HAS_USED_VR;
-      ret = false;
+      return false;
     }
 #endif
   }
 
-  return ret;
-}
-
-static bool HasHttpScheme(nsIURI* aURI) {
-  return aURI && (aURI->SchemeIs("http") || aURI->SchemeIs("https"));
+  return true;
 }
 
 void Document::Destroy() {
@@ -9859,6 +9877,10 @@ void Document::Destroy() {
 
   // To break cycles.
   mPreloadService.ClearAllPreloads();
+
+  if (mDocumentL10n) {
+    mDocumentL10n->Destroy();
+  }
 }
 
 void Document::RemovedFromDocShell() {
@@ -10049,7 +10071,7 @@ nsIContent* Document::GetContentInThisDocument(nsIFrame* aFrame) const {
   for (nsIFrame* f = aFrame; f;
        f = nsLayoutUtils::GetParentOrPlaceholderForCrossDoc(f)) {
     nsIContent* content = f->GetContent();
-    if (!content || content->IsInAnonymousSubtree()) continue;
+    if (!content || content->IsInNativeAnonymousSubtree()) continue;
 
     if (content->OwnerDoc() == this) {
       return content;
@@ -10172,23 +10194,6 @@ void Document::OnPageHide(bool aPersisted, EventTarget* aDispatchStartTarget,
   MOZ_DIAGNOSTIC_ASSERT(
       inFrameLoaderSwap ==
       (mDocumentContainer && mDocumentContainer->InFrameSwap()));
-
-  if (IsTopLevelContentDocument() && GetDocGroup() &&
-      Telemetry::CanRecordExtended()) {
-    TabGroup* tabGroup = mDocGroup->GetTabGroup();
-
-    if (tabGroup) {
-      uint32_t active = tabGroup->Count(true /* aActiveOnly */);
-      uint32_t total = tabGroup->Count();
-
-      if (HasHttpScheme(GetDocumentURI())) {
-        Telemetry::Accumulate(Telemetry::ACTIVE_HTTP_DOCGROUPS_PER_TABGROUP,
-                              active);
-        Telemetry::Accumulate(Telemetry::TOTAL_HTTP_DOCGROUPS_PER_TABGROUP,
-                              total);
-      }
-    }
-  }
 
   // Send out notifications that our <link> elements are detached,
   // but only if this is not a full unload.
@@ -11310,8 +11315,8 @@ void Document::RegisterPendingLinkUpdate(Link* aLink) {
 
   if (!mHasLinksToUpdateRunnable && !mFlushingPendingLinkUpdates) {
     nsCOMPtr<nsIRunnable> event =
-        NewRunnableMethod("Document::FlushPendingLinkUpdatesFromRunnable", this,
-                          &Document::FlushPendingLinkUpdatesFromRunnable);
+        NewRunnableMethod("Document::FlushPendingLinkUpdates", this,
+                          &Document::FlushPendingLinkUpdates);
     // Do this work in a second in the worst case.
     nsresult rv = NS_DispatchToCurrentThreadQueue(event.forget(), 1000,
                                                   EventQueuePriority::Idle);
@@ -11326,16 +11331,10 @@ void Document::RegisterPendingLinkUpdate(Link* aLink) {
   mLinksToUpdate.InfallibleAppend(aLink);
 }
 
-void Document::FlushPendingLinkUpdatesFromRunnable() {
+void Document::FlushPendingLinkUpdates() {
+  MOZ_DIAGNOSTIC_ASSERT(!mFlushingPendingLinkUpdates);
   MOZ_ASSERT(mHasLinksToUpdateRunnable);
   mHasLinksToUpdateRunnable = false;
-  FlushPendingLinkUpdates();
-}
-
-void Document::FlushPendingLinkUpdates() {
-  if (mFlushingPendingLinkUpdates) {
-    return;
-  }
 
   auto restore = MakeScopeExit([&] { mFlushingPendingLinkUpdates = false; });
   mFlushingPendingLinkUpdates = true;
@@ -11522,7 +11521,7 @@ static const char* kDocumentWarnings[] = {
 #undef DOCUMENT_WARNING
 
 bool Document::HasWarnedAbout(DeprecatedOperations aOperation) const {
-  return mDeprecationWarnedAbout[aOperation];
+  return mDeprecationWarnedAbout[static_cast<size_t>(aOperation)];
 }
 
 void Document::WarnOnceAbout(DeprecatedOperations aOperation,
@@ -11531,12 +11530,12 @@ void Document::WarnOnceAbout(DeprecatedOperations aOperation,
   if (HasWarnedAbout(aOperation)) {
     return;
   }
-  mDeprecationWarnedAbout[aOperation] = true;
+  mDeprecationWarnedAbout[static_cast<size_t>(aOperation)] = true;
   uint32_t flags =
       asError ? nsIScriptError::errorFlag : nsIScriptError::warningFlag;
-  nsContentUtils::ReportToConsole(flags, "DOM Core"_ns, this,
-                                  nsContentUtils::eDOM_PROPERTIES,
-                                  kDeprecationWarnings[aOperation]);
+  nsContentUtils::ReportToConsole(
+      flags, "DOM Core"_ns, this, nsContentUtils::eDOM_PROPERTIES,
+      kDeprecationWarnings[static_cast<size_t>(aOperation)]);
 }
 
 bool Document::HasWarnedAbout(DocumentWarnings aWarning) const {
@@ -13810,26 +13809,6 @@ bool Document::HasScriptsBlockedBySandbox() {
   return mSandboxFlags & SANDBOXED_SCRIPTS;
 }
 
-bool Document::InlineScriptAllowedByCSP() {
-  // this function assumes the inline script is parser created
-  //  (e.g., before setting attribute(!) event handlers)
-  bool allowsInlineScript = true;
-  if (mCSP) {
-    nsresult rv = mCSP->GetAllowsInline(
-        nsIContentPolicy::TYPE_SCRIPT,
-        EmptyString(),  // aNonce
-        true,           // aParserCreated
-        nullptr,        // aTriggeringElement
-        nullptr,        // aCSPEventListener
-        EmptyString(),  // FIXME get script sample (bug 1314567)
-        0,              // aLineNumber
-        0,              // aColumnNumber
-        &allowsInlineScript);
-    NS_ENSURE_SUCCESS(rv, true);
-  }
-  return allowsInlineScript;
-}
-
 void Document::UpdateIntersectionObservations() {
   if (mIntersectionObservers.IsEmpty()) {
     return;
@@ -14214,8 +14193,8 @@ void Document::MaybeAllowStorageForOpenerAfterUserInteraction() {
     return;
   }
 
-  // No tracking resource.
-  if (!nsContentUtils::IsTrackingResourceWindow(inner)) {
+  // We care about first-party tracking resources only.
+  if (!nsContentUtils::IsFirstPartyTrackingResourceWindow(inner)) {
     return;
   }
 
@@ -14295,10 +14274,6 @@ class UserIntractionTimer final : public Runnable,
     StoreUserInteraction();
     return NS_OK;
   }
-
-#ifdef MOZ_COLLECTING_RUNNABLE_TELEMETRY
-  using nsINamed::GetName;
-#endif
 
   // nsIAsyncShutdownBlocker interface
 
@@ -14852,26 +14827,19 @@ void Document::RecordNavigationTiming(ReadyState aReadyState) {
       return;
     }
   }
-  TimeStamp startTime = timing->GetNavigationStartTimeStamp();
   switch (aReadyState) {
     case READYSTATE_LOADING:
       if (!mDOMLoadingSet) {
-        Telemetry::AccumulateTimeDelta(Telemetry::TIME_TO_DOM_LOADING_MS,
-                                       startTime);
         mDOMLoadingSet = true;
       }
       break;
     case READYSTATE_INTERACTIVE:
       if (!mDOMInteractiveSet) {
-        Telemetry::AccumulateTimeDelta(Telemetry::TIME_TO_DOM_INTERACTIVE_MS,
-                                       startTime);
         mDOMInteractiveSet = true;
       }
       break;
     case READYSTATE_COMPLETE:
       if (!mDOMCompleteSet) {
-        Telemetry::AccumulateTimeDelta(Telemetry::TIME_TO_DOM_COMPLETE_MS,
-                                       startTime);
         mDOMCompleteSet = true;
       }
       break;
@@ -15028,6 +14996,7 @@ nsIPrincipal* Document::EffectiveStoragePrincipal() const {
   return mActiveStoragePrincipal = mIntrinsicStoragePrincipal;
 }
 
+// static
 void Document::AddToplevelLoadingDocument(Document* aDoc) {
   MOZ_ASSERT(aDoc && aDoc->IsTopLevelContentDocument());
   // Currently we're interested in foreground documents only, so bail out early.
@@ -15043,6 +15012,7 @@ void Document::AddToplevelLoadingDocument(Document* aDoc) {
   }
 }
 
+// static
 void Document::RemoveToplevelLoadingDocument(Document* aDoc) {
   MOZ_ASSERT(aDoc && aDoc->IsTopLevelContentDocument());
   if (sLoadingForegroundTopLevelContentDocument) {
@@ -15083,8 +15053,9 @@ StylePrefersColorScheme Document::PrefersColorScheme() const {
 
 // static
 bool Document::UseOverlayScrollbars(const Document* aDocument) {
+  BrowsingContext* bc = aDocument ? aDocument->GetBrowsingContext() : nullptr;
   return LookAndFeel::GetInt(LookAndFeel::IntID::UseOverlayScrollbars) ||
-         (aDocument && aDocument->InRDMPane());
+         (bc && bc->InRDMPane());
 }
 
 bool Document::HasRecentlyStartedForegroundLoads() {

@@ -5,9 +5,10 @@
 #ifndef mozilla_dom_MultipartBlobImpl_h
 #define mozilla_dom_MultipartBlobImpl_h
 
+#include <utility>
+
 #include "mozilla/Attributes.h"
 #include "mozilla/ErrorResult.h"
-#include "mozilla/Move.h"
 #include "mozilla/dom/BaseBlobImpl.h"
 
 namespace mozilla {
@@ -78,7 +79,7 @@ class MultipartBlobImpl final : public BaseBlobImpl {
                      UINT64_MAX),
         mBlobImpls(std::move(aBlobImpls)) {}
 
-  virtual ~MultipartBlobImpl() {}
+  virtual ~MultipartBlobImpl() = default;
 
   void SetLengthAndModifiedDate(ErrorResult& aRv);
 

@@ -8,14 +8,10 @@
 #include "mozilla/dom/PopupBlocker.h"
 #include "mozilla/dom/TimeoutHandler.h"
 #include "mozilla/LinkedList.h"
+#include "mozilla/ProfileChunkedBuffer.h"
 #include "mozilla/TimeStamp.h"
-#include "nsCOMPtr.h"
+#include "nsGlobalWindowInner.h"
 #include "nsCycleCollectionParticipant.h"
-
-class nsIEventTarget;
-class nsIPrincipal;
-class nsIEventTarget;
-class nsGlobalWindowInner;
 
 namespace mozilla {
 namespace dom {

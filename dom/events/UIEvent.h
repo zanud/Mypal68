@@ -12,6 +12,7 @@
 #include "mozilla/dom/WindowProxyHolder.h"
 #include "nsDeviceContext.h"
 #include "nsDocShell.h"
+#include "nsIContent.h"
 #include "nsPresContext.h"
 
 class nsINode;

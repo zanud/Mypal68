@@ -41,7 +41,7 @@ using namespace mozilla::widget;
 
 namespace mozilla {
 
-#define IDEOGRAPHIC_SPACE (NS_LITERAL_STRING(u"\x3000"))
+#define IDEOGRAPHIC_SPACE (u"\x3000"_ns)
 
 /******************************************************************************
  * TextComposition
@@ -593,8 +593,7 @@ nsresult TextComposition::RequestToCommit(nsIWidget* aWidget, bool aDiscard) {
   // Otherwise, synthesize the commit in content.
   nsAutoString data(aDiscard ? EmptyString() : lastData);
   if (data == mLastData) {
-    DispatchCompositionEventRunnable(eCompositionCommitAsIs, EmptyString(),
-                                     true);
+    DispatchCompositionEventRunnable(eCompositionCommitAsIs, u""_ns, true);
   } else {
     DispatchCompositionEventRunnable(eCompositionCommit, data, true);
   }

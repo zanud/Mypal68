@@ -38,42 +38,20 @@ interface PeerConnectionImpl  {
 
   Promise<RTCStatsReport> getStats(MediaStreamTrack? selector);
 
+  sequence<MediaStream> getRemoteStreams();
+
   /* Adds the tracks created by GetUserMedia */
   [Throws]
   TransceiverImpl createTransceiverImpl(DOMString kind,
                                         MediaStreamTrack? track);
   [Throws]
   boolean checkNegotiationNeeded();
-  [Throws]
-  void insertDTMF(TransceiverImpl transceiver, DOMString tones,
-                  optional unsigned long duration = 100,
-                  optional unsigned long interToneGap = 70);
-  [Throws]
-  DOMString getDTMFToneBuffer(RTCRtpSender sender);
-  [Throws]
-  sequence<RTCRtpSourceEntry> getRtpSources(MediaStreamTrack track,
-                                            DOMHighResTimeStamp rtpSourceNow);
-  DOMHighResTimeStamp getNowInRtpSourceReferenceTime();
 
   [Throws]
   void replaceTrackNoRenegotiation(TransceiverImpl transceiverImpl,
                                    MediaStreamTrack? withTrack);
   [Throws]
   void closeStreams();
-
-  [Throws]
-  void addRIDExtension(MediaStreamTrack recvTrack, unsigned short extensionId);
-  [Throws]
-  void addRIDFilter(MediaStreamTrack recvTrack, DOMString rid);
-
-  // Inserts CSRC data for the RtpSourceObserver for testing
-  [Throws]
-  void insertAudioLevelForContributingSource(MediaStreamTrack recvTrack,
-                                             unsigned long source,
-                                             DOMHighResTimeStamp timestamp,
-                                             unsigned long rtpTimestamp,
-                                             boolean hasLevel,
-                                             byte level);
 
   [Throws]
   void enablePacketDump(unsigned long level,
@@ -115,6 +93,8 @@ interface PeerConnectionImpl  {
   readonly attribute DOMString pendingLocalDescription;
   readonly attribute DOMString currentRemoteDescription;
   readonly attribute DOMString pendingRemoteDescription;
+  readonly attribute boolean? currentOfferer;
+  readonly attribute boolean? pendingOfferer;
 
   readonly attribute RTCIceConnectionState iceConnectionState;
   readonly attribute RTCIceGatheringState iceGatheringState;

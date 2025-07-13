@@ -4,7 +4,8 @@
 
 #include "ServiceWorkerScriptCache.h"
 
-#include "js/Array.h"  // JS::GetArrayLength
+#include "js/Array.h"               // JS::GetArrayLength
+#include "js/PropertyAndElement.h"  // JS_GetElement
 #include "mozilla/SystemGroup.h"
 #include "mozilla/Unused.h"
 #include "mozilla/dom/CacheBinding.h"
@@ -18,6 +19,7 @@
 #include "mozilla/ipc/PBackgroundSharedTypes.h"
 #include "mozilla/net/CookieSettings.h"
 #include "nsICacheInfoChannel.h"
+#include "nsIHttpChannel.h"
 #include "nsIStreamLoader.h"
 #include "nsIThreadRetargetableRequest.h"
 #include "nsIUUIDGenerator.h"
@@ -70,7 +72,7 @@ already_AddRefed<CacheStorage> CreateCacheStorage(JSContext* aCx,
   // explicitly fails for private browsing so there should never be
   // a service worker running in private browsing mode.  Therefore if
   // we are purging scripts or running a comparison algorithm we cannot
-  // be in private browing.
+  // be in private browsing.
   //
   // Also, bypass the CacheStorage trusted origin checks.  The ServiceWorker
   // has validated the origin prior to this point.  All the information
@@ -300,7 +302,7 @@ class CompareManager final : public PromiseNativeHandler {
     if (mAreScriptsEqual) {
       MOZ_ASSERT(mCallback);
       mCallback->ComparisonResult(aStatus, true /* aSameScripts */, mOnFailure,
-                                  EmptyString(), mMaxScope, mLoadFlags);
+                                  u""_ns, mMaxScope, mLoadFlags);
       Cleanup();
       return;
     }
@@ -541,8 +543,7 @@ class CompareManager final : public PromiseNativeHandler {
       return rv;
     }
 
-    RefPtr<InternalResponse> ir =
-        new InternalResponse(200, NS_LITERAL_CSTRING("OK"));
+    RefPtr<InternalResponse> ir = new InternalResponse(200, "OK"_ns);
     ir->SetBody(body, aCN->Buffer().Length());
     ir->SetURLList(aCN->URLList());
 
@@ -681,8 +682,7 @@ nsresult CompareNetwork::Initialize(nsIPrincipal* aPrincipal,
       MOZ_ASSERT(NS_SUCCEEDED(rv));
     }
 
-    rv = httpChannel->SetRequestHeader(NS_LITERAL_CSTRING("Service-Worker"),
-                                       NS_LITERAL_CSTRING("script"),
+    rv = httpChannel->SetRequestHeader("Service-Worker"_ns, "script"_ns,
                                        /* merge */ false);
     MOZ_ASSERT(NS_SUCCEEDED(rv));
   }
@@ -908,8 +908,8 @@ CompareNetwork::OnStreamComplete(nsIStreamLoader* aLoader,
 
   // Note: we explicitly don't check for the return value here, because the
   // absence of the header is not an error condition.
-  Unused << httpChannel->GetResponseHeader(
-      NS_LITERAL_CSTRING("Service-Worker-Allowed"), mMaxScope);
+  Unused << httpChannel->GetResponseHeader("Service-Worker-Allowed"_ns,
+                                           mMaxScope);
 
   // [9.2 Update]4.13, If response's cache state is not "local",
   // set registration's last update check time to the current time
@@ -958,9 +958,8 @@ CompareNetwork::OnStreamComplete(nsIStreamLoader* aLoader,
   char16_t* buffer = nullptr;
   size_t len = 0;
 
-  rv = ScriptLoader::ConvertToUTF16(httpChannel, aString, aLen,
-                                    NS_LITERAL_STRING("UTF-8"), nullptr, buffer,
-                                    len);
+  rv = ScriptLoader::ConvertToUTF16(httpChannel, aString, aLen, u"UTF-8"_ns,
+                                    nullptr, buffer, len);
   if (NS_WARN_IF(NS_FAILED(rv))) {
     return rv;
   }
@@ -1038,8 +1037,8 @@ CompareCache::OnStreamComplete(nsIStreamLoader* aLoader, nsISupports* aContext,
   char16_t* buffer = nullptr;
   size_t len = 0;
 
-  nsresult rv = ScriptLoader::ConvertToUTF16(
-      nullptr, aString, aLen, NS_LITERAL_STRING("UTF-8"), nullptr, buffer, len);
+  nsresult rv = ScriptLoader::ConvertToUTF16(nullptr, aString, aLen,
+                                             u"UTF-8"_ns, nullptr, buffer, len);
   if (NS_WARN_IF(NS_FAILED(rv))) {
     Finish(rv, false);
     return rv;
@@ -1259,8 +1258,8 @@ void CompareManager::RejectedCallback(JSContext* aCx,
 
 void CompareManager::Fail(nsresult aStatus) {
   MOZ_ASSERT(NS_IsMainThread());
-  mCallback->ComparisonResult(aStatus, false /* aIsEqual */, mOnFailure,
-                              EmptyString(), EmptyCString(), mLoadFlags);
+  mCallback->ComparisonResult(aStatus, false /* aIsEqual */, mOnFailure, u""_ns,
+                              ""_ns, mLoadFlags);
   Cleanup();
 }
 

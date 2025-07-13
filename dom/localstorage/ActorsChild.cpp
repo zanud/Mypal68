@@ -9,6 +9,7 @@
 #include "LSObject.h"
 #include "LSObserver.h"
 #include "LSSnapshot.h"
+#include "mozilla/dom/Document.h" //MY
 
 namespace mozilla {
 namespace dom {

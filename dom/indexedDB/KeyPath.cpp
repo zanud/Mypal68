@@ -13,6 +13,8 @@
 #include "xpcpublic.h"
 
 #include "js/Array.h"  // JS::NewArrayObject
+#include "js/PropertyAndElement.h"  // JS_DefineElement, JS_DefineUCProperty, JS_DeleteUCProperty
+#include "js/PropertyDescriptor.h"  // JS::PropertyDescriptor, JS_GetOwnUCPropertyDescriptor
 #include "mozilla/dom/BindingDeclarations.h"
 #include "mozilla/dom/Blob.h"
 #include "mozilla/dom/BlobBinding.h"
@@ -99,7 +101,7 @@ nsresult GetJSValFromKeyPathString(
 
       // We call JS_GetOwnUCPropertyDescriptor on purpose (as opposed to
       // JS_GetUCPropertyDescriptor) to avoid searching the prototype chain.
-      JS::Rooted<JS::PropertyDescriptor> desc(aCx);
+      JS::Rooted<mozilla::Maybe<JS::PropertyDescriptor>> desc(aCx);
       bool ok = JS_GetOwnUCPropertyDescriptor(aCx, obj, keyPathChars,
                                               keyPathLen, &desc);
       IDB_ENSURE_TRUE(ok, NS_ERROR_DOM_INDEXEDDB_UNKNOWN_ERR);
@@ -107,8 +109,8 @@ nsresult GetJSValFromKeyPathString(
       JS::Rooted<JS::Value> intermediate(aCx);
       bool hasProp = false;
 
-      if (desc.object()) {
-        intermediate = desc.value();
+      if (desc.isSome() && desc->isDataDescriptor()) {
+        intermediate = desc->value();
         hasProp = true;
       } else {
         // If we get here it means the object doesn't have the property or the
@@ -348,11 +350,12 @@ nsresult KeyPath::ExtractKey(JSContext* aCx, const JS::Value& aValue,
       return rv;
     }
 
-    ErrorResult errorResult;
-    auto result = aKey.AppendItem(aCx, IsArray() && i == 0, value, errorResult);
-    if (!result.Is(Ok, errorResult)) {
+    auto result = aKey.AppendItem(aCx, IsArray() && i == 0, value);
+    if (!result.Is(Ok)) {
       NS_ASSERTION(aKey.IsUnset(), "Encoding error should unset");
-      errorResult.SuppressException();
+      if (result.Is(SpecialValues::Exception)) {
+        result.AsException().SuppressException();
+      }
       return NS_ERROR_DOM_INDEXEDDB_DATA_ERR;
     }
   }
@@ -413,11 +416,12 @@ nsresult KeyPath::ExtractOrCreateKey(JSContext* aCx, const JS::Value& aValue,
     return rv;
   }
 
-  ErrorResult errorResult;
-  auto result = aKey.AppendItem(aCx, false, value, errorResult);
-  if (!result.Is(Ok, errorResult)) {
+  auto result = aKey.AppendItem(aCx, false, value);
+  if (!result.Is(Ok)) {
     NS_ASSERTION(aKey.IsUnset(), "Should be unset");
-    errorResult.SuppressException();
+    if (result.Is(SpecialValues::Exception)) {
+      result.AsException().SuppressException();
+    }
     return value.isUndefined() ? NS_OK : NS_ERROR_DOM_INDEXEDDB_DATA_ERR;
   }
 

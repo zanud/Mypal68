@@ -11,10 +11,13 @@
 
 #include "nsCOMPtr.h"
 #include "mozilla/dom/CallbackObject.h"
-#include "mozilla/ErrorResult.h"
 #include "mozilla/dom/NodeFilterBinding.h"
 
 class nsINode;
+
+namespace mozilla {
+class ErrorResult;
+}
 
 class nsTraversal {
  public:

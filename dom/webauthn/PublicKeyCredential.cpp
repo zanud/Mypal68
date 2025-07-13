@@ -6,6 +6,7 @@
 #include "mozilla/dom/PublicKeyCredential.h"
 #include "mozilla/dom/WebAuthenticationBinding.h"
 #include "nsCycleCollectionParticipant.h"
+#include "mozilla/dom/AuthenticatorResponse.h"
 
 #ifdef OS_WIN
 #  include "WinWebAuthnManager.h"

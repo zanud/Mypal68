@@ -12,11 +12,9 @@
 #define mozilla_dom_BindingDeclarations_h__
 
 #include "js/RootingAPI.h"
-#include "js/Value.h"
+#include "js/TypeDecls.h"
 
 #include "mozilla/Maybe.h"
-#include "mozilla/RootedOwningNonNull.h"
-#include "mozilla/RootedRefPtr.h"
 
 #include "mozilla/dom/DOMString.h"
 
@@ -26,10 +24,19 @@
 
 #include <type_traits>
 
+#include "js/Value.h"
+#include "mozilla/RootedOwningNonNull.h"
+#include "mozilla/RootedRefPtr.h"
+
 class nsIPrincipal;
 class nsWrapperCache;
 
 namespace mozilla {
+
+class ErrorResult;
+class OOMReporter;
+class CopyableErrorResult;
+
 namespace dom {
 
 class BindingCallContext;

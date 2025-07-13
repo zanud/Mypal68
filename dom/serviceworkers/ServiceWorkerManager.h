@@ -5,31 +5,28 @@
 #ifndef mozilla_dom_workers_serviceworkermanager_h
 #define mozilla_dom_workers_serviceworkermanager_h
 
-#include "nsIServiceWorkerManager.h"
-#include "nsCOMPtr.h"
-
-#include "ipc/IPCMessageUtils.h"
-#include "mozilla/Attributes.h"
-#include "mozilla/AutoRestore.h"
-#include "mozilla/ConsoleReportCollector.h"
-#include "mozilla/LinkedList.h"
+#include <cstdint>
+#include "ErrorList.h"
+#include "js/ErrorReport.h"
+#include "mozilla/AlreadyAddRefed.h"
+#include "mozilla/Assertions.h"
 #include "mozilla/MozPromise.h"
-#include "mozilla/Preferences.h"
-#include "mozilla/TypedEnumBits.h"
+#include "mozilla/RefPtr.h"
 #include "mozilla/UniquePtr.h"
-#include "mozilla/WeakPtr.h"
-#include "mozilla/dom/BindingUtils.h"
 #include "mozilla/dom/ClientHandle.h"
-#include "mozilla/dom/Promise.h"
-#include "mozilla/dom/ServiceWorkerRegistrar.h"
-#include "mozilla/dom/ServiceWorkerRegistrarTypes.h"
+#include "mozilla/dom/ClientOpPromise.h"
+#include "mozilla/dom/ServiceWorkerRegistrationBinding.h"
 #include "mozilla/dom/ServiceWorkerRegistrationInfo.h"
 #include "mozilla/dom/ServiceWorkerUtils.h"
-#include "mozilla/ipc/BackgroundUtils.h"
+#include "mozilla/mozalloc.h"
 #include "nsClassHashtable.h"
-#include "nsDataHashtable.h"
-#include "nsRefPtrHashtable.h"
-#include "nsTArrayForwardDeclare.h"
+#include "nsContentUtils.h"
+#include "nsHashKeys.h"
+#include "nsIObserver.h"
+#include "nsIServiceWorkerManager.h"
+#include "nsISupports.h"
+#include "nsStringFwd.h"
+#include "nsTArray.h"
 
 class nsIConsoleReportCollector;
 
@@ -221,7 +218,7 @@ class ServiceWorkerManager final : public nsIServiceWorkerManager,
    * so that argument might look like: nsTArray<nsString> { some_nsString,
    * PromiseFlatString(some_nsSubString_aka_nsAString),
    * NS_ConvertUTF8toUTF16(some_nsCString_or_nsCSubString),
-   * NS_LITERAL_STRING("some literal") }.  If you have anything else, like a
+   * u"some literal"_ns }.  If you have anything else, like a
    * number, you can use an nsAutoString with AppendInt/friends.
    *
    * @param [aFlags]
@@ -232,9 +229,8 @@ class ServiceWorkerManager final : public nsIServiceWorkerManager,
   static void LocalizeAndReportToAllClients(
       const nsCString& aScope, const char* aStringKey,
       const nsTArray<nsString>& aParamArray, uint32_t aFlags = 0x0,
-      const nsString& aFilename = EmptyString(),
-      const nsString& aLine = EmptyString(), uint32_t aLineNumber = 0,
-      uint32_t aColumnNumber = 0);
+      const nsString& aFilename = u""_ns, const nsString& aLine = u""_ns,
+      uint32_t aLineNumber = 0, uint32_t aColumnNumber = 0);
 
   // Always consumes the error by reporting to consoles of all controlled
   // documents.

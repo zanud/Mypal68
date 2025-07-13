@@ -96,14 +96,14 @@ void nsDOMNavigationTiming::NotifyUnloadAccepted(nsIURI* aOldURI) {
 
 void nsDOMNavigationTiming::NotifyUnloadEventStart() {
   mUnloadStart = TimeStamp::Now();
-  PROFILER_TRACING_DOCSHELL("Navigation", "Unload", NETWORK,
-                            TRACING_INTERVAL_START, mDocShell);
+  PROFILER_TRACING_MARKER_DOCSHELL("Navigation", "Unload", NETWORK,
+                                   TRACING_INTERVAL_START, mDocShell);
 }
 
 void nsDOMNavigationTiming::NotifyUnloadEventEnd() {
   mUnloadEnd = TimeStamp::Now();
-  PROFILER_TRACING_DOCSHELL("Navigation", "Unload", NETWORK,
-                            TRACING_INTERVAL_END, mDocShell);
+  PROFILER_TRACING_MARKER_DOCSHELL("Navigation", "Unload", NETWORK,
+                                   TRACING_INTERVAL_END, mDocShell);
 }
 
 void nsDOMNavigationTiming::NotifyLoadEventStart() {
@@ -112,8 +112,8 @@ void nsDOMNavigationTiming::NotifyLoadEventStart() {
   }
   mLoadEventStart = TimeStamp::Now();
 
-  PROFILER_TRACING_DOCSHELL("Navigation", "Load", NETWORK,
-                            TRACING_INTERVAL_START, mDocShell);
+  PROFILER_TRACING_MARKER_DOCSHELL("Navigation", "Load", NETWORK,
+                                   TRACING_INTERVAL_START, mDocShell);
 
   if (IsTopLevelContentDocumentInContentProcess()) {
     TimeStamp now = TimeStamp::Now();
@@ -142,8 +142,8 @@ void nsDOMNavigationTiming::NotifyLoadEventEnd() {
   }
   mLoadEventEnd = TimeStamp::Now();
 
-  PROFILER_TRACING_DOCSHELL("Navigation", "Load", NETWORK, TRACING_INTERVAL_END,
-                            mDocShell);
+  PROFILER_TRACING_MARKER_DOCSHELL("Navigation", "Load", NETWORK,
+                                   TRACING_INTERVAL_END, mDocShell);
 
   if (IsTopLevelContentDocumentInContentProcess()) {
 #ifdef MOZ_GECKO_PROFILER
@@ -216,8 +216,8 @@ void nsDOMNavigationTiming::NotifyDOMContentLoadedStart(nsIURI* aURI) {
   mLoadedURI = aURI;
   mDOMContentLoadedEventStart = TimeStamp::Now();
 
-  PROFILER_TRACING_DOCSHELL("Navigation", "DOMContentLoaded", NETWORK,
-                            TRACING_INTERVAL_START, mDocShell);
+  PROFILER_TRACING_MARKER_DOCSHELL("Navigation", "DOMContentLoaded", NETWORK,
+                                   TRACING_INTERVAL_START, mDocShell);
 
   if (IsTopLevelContentDocumentInContentProcess()) {
     TimeStamp now = TimeStamp::Now();
@@ -248,8 +248,8 @@ void nsDOMNavigationTiming::NotifyDOMContentLoadedEnd(nsIURI* aURI) {
   mLoadedURI = aURI;
   mDOMContentLoadedEventEnd = TimeStamp::Now();
 
-  PROFILER_TRACING_DOCSHELL("Navigation", "DOMContentLoaded", NETWORK,
-                            TRACING_INTERVAL_END, mDocShell);
+  PROFILER_TRACING_MARKER_DOCSHELL("Navigation", "DOMContentLoaded", NETWORK,
+                                   TRACING_INTERVAL_END, mDocShell);
 
   if (IsTopLevelContentDocumentInContentProcess()) {
     Telemetry::AccumulateTimeDelta(Telemetry::TIME_TO_DOM_CONTENT_LOADED_END_MS,

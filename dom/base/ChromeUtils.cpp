@@ -5,41 +5,39 @@
 #include "ChromeUtils.h"
 
 #include "js/CharacterEncoding.h"
-#include "js/Object.h"  // JS::GetClass
+#include "js/Object.h"              // JS::GetClass
+#include "js/PropertyAndElement.h"  // JS_DefineProperty, JS_DefinePropertyById, JS_Enumerate, JS_GetProperty, JS_GetPropertyById, JS_SetProperty, JS_SetPropertyById
+#include "js/PropertyDescriptor.h"  // JS::PropertyDescriptor, JS_GetOwnPropertyDescriptorById
 #include "js/SavedFrameAPI.h"
 #include "jsfriendapi.h"
 #include "WrapperFactory.h"
 
 #include "mozilla/Base64.h"
-#include "mozilla/BasePrincipal.h"
 #include "mozilla/CycleCollectedJSRuntime.h"
 #include "mozilla/PerformanceMetricsCollector.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/ProcInfo.h"
-#include "mozilla/RDDProcessManager.h"
 #include "mozilla/ResultExtensions.h"
 #include "mozilla/TimeStamp.h"
-#include "mozilla/dom/BrowsingContext.h"
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/dom/IdleDeadline.h"
 #include "mozilla/dom/JSWindowActorService.h"
+#include "mozilla/dom/PopupBlocker.h"
 #include "mozilla/dom/Promise.h"
+#ifdef THE_REPORTING
 #include "mozilla/dom/ReportingHeader.h"
+#endif
 #include "mozilla/dom/UnionTypes.h"
 #include "mozilla/dom/WindowBinding.h"  // For IdleRequestCallback/Options
-#include "mozilla/gfx/GPUProcessManager.h"
 #include "mozilla/ipc/GeckoChildProcessHost.h"
 #include "mozilla/net/UrlClassifierFeatureFactory.h"
-#include "mozilla/net/SocketProcessHost.h"
 #include "IOActivityMonitor.h"
-#include "nsIOService.h"
 #include "nsThreadUtils.h"
 #include "mozJSComponentLoader.h"
 #include "GeckoProfiler.h"
 #include "nsIException.h"
 
-namespace mozilla {
-namespace dom {
+namespace mozilla::dom {
 
 /* static */
 void ChromeUtils::NondeterministicGetWeakMapKeys(
@@ -251,18 +249,18 @@ void ChromeUtils::ShallowClone(GlobalObject& aGlobal, JS::HandleObject aObj,
       return;
     }
 
-    JS::Rooted<JS::PropertyDescriptor> desc(cx);
+    JS::Rooted<Maybe<JS::PropertyDescriptor>> desc(cx);
     JS::RootedId id(cx);
     for (jsid idVal : ids) {
       id = idVal;
       if (!JS_GetOwnPropertyDescriptorById(cx, obj, id, &desc)) {
         continue;
       }
-      if (desc.setter() || desc.getter()) {
+      if (desc.isNothing() || desc->isAccessorDescriptor()) {
         continue;
       }
       valuesIds.infallibleAppend(id);
-      values.infallibleAppend(desc.value());
+      values.infallibleAppend(desc->value());
     }
   }
 
@@ -568,9 +566,8 @@ static bool DefineGetter(JSContext* aCx, JS::Handle<JSObject*> aTarget,
 
   js::SetFunctionNativeReserved(getter, SLOT_URI, uri);
 
-  return JS_DefinePropertyById(
-      aCx, aTarget, id, getter, setter,
-      JSPROP_GETTER | JSPROP_SETTER | JSPROP_ENUMERATE);
+  return JS_DefinePropertyById(aCx, aTarget, id, getter, setter,
+                               JSPROP_ENUMERATE);
 }
 }  // namespace module_getter
 
@@ -1036,6 +1033,7 @@ already_AddRefed<Promise> ChromeUtils::RequestIOActivity(GlobalObject& aGlobal,
 }
 
 /* static */
+#ifdef THE_REPORTING
 bool ChromeUtils::HasReportingHeaderForOrigin(GlobalObject& global,
                                               const nsAString& aOrigin,
                                               ErrorResult& aRv) {
@@ -1047,6 +1045,7 @@ bool ChromeUtils::HasReportingHeaderForOrigin(GlobalObject& global,
   return ReportingHeader::HasReportingHeaderForOrigin(
       NS_ConvertUTF16toUTF8(aOrigin));
 }
+#endif
 
 /* static */
 PopupBlockerState ChromeUtils::GetPopupControlState(GlobalObject& aGlobal) {
@@ -1122,5 +1121,4 @@ bool ChromeUtils::IsClassifierBlockingErrorCode(GlobalObject& aGlobal,
       static_cast<nsresult>(aError));
 }
 
-}  // namespace dom
-}  // namespace mozilla
+}  // namespace mozilla::dom

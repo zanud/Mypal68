@@ -17,7 +17,7 @@ namespace dom {
 mozilla::ipc::IPCResult WebAuthnTransactionParent::RecvRequestRegister(
     const uint64_t& aTransactionId,
     const WebAuthnMakeCredentialInfo& aTransactionInfo) {
-  AssertIsOnBackgroundThread();
+  ::mozilla::ipc::AssertIsOnBackgroundThread();
 
 #ifdef OS_WIN
   if (WinWebAuthnManager::AreWebAuthNApisAvailable()) {
@@ -38,7 +38,7 @@ mozilla::ipc::IPCResult WebAuthnTransactionParent::RecvRequestRegister(
 mozilla::ipc::IPCResult WebAuthnTransactionParent::RecvRequestSign(
     const uint64_t& aTransactionId,
     const WebAuthnGetAssertionInfo& aTransactionInfo) {
-  AssertIsOnBackgroundThread();
+  ::mozilla::ipc::AssertIsOnBackgroundThread();
 
 #ifdef OS_WIN
   if (WinWebAuthnManager::AreWebAuthNApisAvailable()) {
@@ -58,7 +58,7 @@ mozilla::ipc::IPCResult WebAuthnTransactionParent::RecvRequestSign(
 
 mozilla::ipc::IPCResult WebAuthnTransactionParent::RecvRequestCancel(
     const uint64_t& aTransactionId) {
-  AssertIsOnBackgroundThread();
+  ::mozilla::ipc::AssertIsOnBackgroundThread();
 
 #ifdef OS_WIN
   if (WinWebAuthnManager::AreWebAuthNApisAvailable()) {
@@ -77,7 +77,7 @@ mozilla::ipc::IPCResult WebAuthnTransactionParent::RecvRequestCancel(
 }
 
 mozilla::ipc::IPCResult WebAuthnTransactionParent::RecvDestroyMe() {
-  AssertIsOnBackgroundThread();
+  ::mozilla::ipc::AssertIsOnBackgroundThread();
 
   // The child was disconnected from the WebAuthnManager instance and will send
   // no further messages. It is kept alive until we delete it explicitly.
@@ -95,7 +95,7 @@ mozilla::ipc::IPCResult WebAuthnTransactionParent::RecvDestroyMe() {
 }
 
 void WebAuthnTransactionParent::ActorDestroy(ActorDestroyReason aWhy) {
-  AssertIsOnBackgroundThread();
+  ::mozilla::ipc::AssertIsOnBackgroundThread();
 
   // Called either by Send__delete__() in RecvDestroyMe() above, or when
   // the channel disconnects. Ensure the token manager forgets about us.

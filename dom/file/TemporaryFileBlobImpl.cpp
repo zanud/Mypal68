@@ -5,6 +5,7 @@
 #include "TemporaryFileBlobImpl.h"
 
 #include "IPCBlobInputStreamThread.h"
+#include "mozilla/ErrorResult.h"
 #include "nsFileStreams.h"
 #include "nsIFile.h"
 #include "nsIFileStreams.h"

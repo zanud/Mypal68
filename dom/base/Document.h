@@ -5,62 +5,104 @@
 #ifndef mozilla_dom_Document_h___
 #define mozilla_dom_Document_h___
 
-#include "mozilla/EventStates.h"  // for EventStates
-#include "mozilla/FlushType.h"    // for enum
-#include "mozilla/MozPromise.h"   // for MozPromise
-#include "mozilla/FunctionRef.h"  // for FunctionRef
-#include "nsCOMArray.h"           // for member
-#include "nsCompatibility.h"      // for member
-#include "nsCOMPtr.h"             // for member
-#include "nsICookieSettings.h"
-#include "nsGkAtoms.h"           // for static class members
-#include "nsNameSpaceManager.h"  // for static class members
-#include "nsIApplicationCache.h"
-#include "nsIApplicationCacheContainer.h"
-#include "nsIContentViewer.h"
-#include "nsIDOMXULCommandDispatcher.h"
-#include "nsIInterfaceRequestor.h"
-#include "nsILoadContext.h"
-#include "nsILoadGroup.h"  // for member (in nsCOMPtr)
-#include "nsINode.h"       // for base class
-#include "nsIParser.h"
-#include "nsIChannelEventSink.h"
-#include "nsIProgressEventSink.h"
-#include "nsIRadioGroupContainer.h"
-#include "nsIScriptObjectPrincipal.h"
-#include "nsIScriptGlobalObject.h"  // for member (in nsCOMPtr)
-#include "nsIURI.h"  // for use in inline functions
-#include "nsIWebProgressListener.h"  // for nsIWebProgressListener
-#include "nsIWeakReferenceUtils.h"   // for nsWeakPtr
-#include "nsPIDOMWindow.h"           // for use in inline functions
-#include "nsPropertyTable.h"         // for member
-#include "nsStringFwd.h"
-#include "nsStubMutationObserver.h"
-#include "nsTHashtable.h"  // for member
-#include "nsURIHashKey.h"
-#include "mozilla/ServoBindingTypes.h"
-#include "mozilla/WeakPtr.h"
-#include "Units.h"
-#include "nsContentListDeclarations.h"
-#include "nsExpirationTracker.h"
-#include "nsClassHashtable.h"
+#include <bitset>
+#include <cstddef>
+#include <cstdint>
+#include <new>
+#include <utility>
+#include "ErrorList.h"
+#include "MainThreadUtils.h"
 #include "ReferrerInfo.h"
+#include "Units.h"
+#include "imgIRequest.h"
+#include "js/RootingAPI.h"
+#include "js/friend/DOMProxy.h"
+#include "mozilla/AlreadyAddRefed.h"
+#include "mozilla/Assertions.h"
 #include "mozilla/Attributes.h"
+#include "mozilla/BasicEvents.h"
+#include "mozilla/BitSet.h"
 #include "mozilla/CORSMode.h"
+#include "mozilla/EventStates.h"
+#include "mozilla/FlushType.h"
+#include "mozilla/FunctionRef.h"
+#include "mozilla/HashTable.h"
+#include "mozilla/LinkedList.h"
+#include "mozilla/Maybe.h"
+#include "mozilla/MozPromise.h"
+#include "mozilla/NotNull.h"
+#include "mozilla/PreloadService.h"
+#include "mozilla/RefPtr.h"
+#include "mozilla/Result.h"
+#include "mozilla/SegmentedVector.h"
+#include "mozilla/TaskCategory.h"
+#include "mozilla/TimeStamp.h"
+#include "mozilla/UniquePtr.h"
+#include "mozilla/WeakPtr.h"
 #include "mozilla/dom/BrowsingContext.h"
 #include "mozilla/dom/ContentBlockingLog.h"
 #include "mozilla/dom/DispatcherTrait.h"
 #include "mozilla/dom/DocumentOrShadowRoot.h"
+#include "mozilla/dom/Element.h"
+#include "mozilla/dom/EventTarget.h"
+#include "mozilla/dom/Nullable.h"
 #include "mozilla/dom/ViewportMetaData.h"
-#include "mozilla/HashTable.h"
-#include "mozilla/LinkedList.h"
-#include "mozilla/NotNull.h"
-#include "mozilla/PreloadService.h"
-#include "mozilla/SegmentedVector.h"
-#include "mozilla/TimeStamp.h"
-#include "mozilla/UniquePtr.h"
-#include <bitset>  // for member
-#include "js/friend/DOMProxy.h"  // JS::ExpandoAndGeneration
+#include "nsAtom.h"
+#include "nsCOMArray.h"
+#include "nsCOMPtr.h"
+#include "nsClassHashtable.h"
+#include "nsCompatibility.h"
+#include "nsContentListDeclarations.h"
+#include "nsCycleCollectionParticipant.h"
+#include "nsDataHashtable.h"
+#include "nsDebug.h"
+#include "nsExpirationTracker.h"
+#include "nsGkAtoms.h"
+#include "nsHashKeys.h"
+#include "nsIApplicationCacheContainer.h"
+#include "nsIChannel.h"
+#include "nsIChannelEventSink.h"
+#include "nsIContentViewer.h"
+#include "nsID.h"
+#include "nsIInterfaceRequestor.h"
+#include "nsILoadContext.h"
+#include "nsILoadGroup.h"
+#include "nsILoadInfo.h"
+#include "nsINode.h"
+#include "nsIObserver.h"
+#include "nsIParser.h"
+#include "nsIPrincipal.h"
+#include "nsIProgressEventSink.h"
+#include "nsIRadioGroupContainer.h"
+#include "nsIReferrerInfo.h"
+#include "nsIRequestObserver.h"
+#include "nsIScriptObjectPrincipal.h"
+#include "nsIStreamListener.h"
+#include "nsISupports.h"
+#include "nsISupportsUtils.h"
+#include "nsIURI.h"
+#include "nsIWeakReferenceUtils.h"
+#include "nsLiteralString.h"
+#include "nsPIDOMWindow.h"
+#include "nsPropertyTable.h"
+#include "nsRefPtrHashtable.h"
+#include "nsString.h"
+#include "nsStubMutationObserver.h"
+#include "nsTArray.h"
+#include "nsTHashtable.h"
+#include "nsTLiteralString.h"
+#include "nsTObserverArray.h"
+#include "nsThreadUtils.h"
+#include "nsURIHashKey.h"
+#include "nsViewportInfo.h"
+#include "nsWeakReference.h"
+#include "nsXULElement.h"
+#include "nscore.h"
+
+// XXX We need to include this here to ensure that DefaultDeleter for Servo
+// types is specialized before the template is instantiated. Probably, this
+// should be included at some other place already that's generated by cbindgen.
+#include "mozilla/ServoStyleConsts.h"
 
 // windows.h #defines CreateEvent
 #ifdef CreateEvent
@@ -77,56 +119,64 @@ class ElementCreationOptionsOrString;
 }  // namespace mozilla
 #endif  // MOZILLA_INTERNAL_API
 
+class InfallibleAllocPolicy;
+class JSObject;
+class JSTracer;
+class PLDHashTable;
 class gfxUserFontSet;
-class imgIRequest;
+class mozIDOMWindowProxy;
 class nsCachableElementsByNameNodeList;
 class nsContentList;
-class nsIDocShell;
-class nsDocShell;
+class nsCycleCollectionTraversalCallback;
+class nsDOMCaretPosition;
 class nsDOMNavigationTiming;
+class nsDocShell;
 class nsFrameLoader;
+class nsGenericHTMLElement;
 class nsGlobalWindowInner;
-class nsHtml5TreeOpExecutor;
 class nsHTMLCSSStyleSheet;
 class nsHTMLDocument;
 class nsHTMLStyleSheet;
-class nsGenericHTMLElement;
-class nsAtom;
+class nsHtml5TreeOpExecutor;
+class nsIAppWindow;
+class nsIApplicationCache;
+class nsIAsyncVerifyRedirectCallback;
 class nsIBFCacheEntry;
-class nsIChannel;
 class nsIContent;
 class nsIContentSecurityPolicy;
 class nsIContentSink;
+class nsICookieSettings;
+class nsIDOMXULCommandDispatcher;
 class nsIDocShell;
 class nsIDocShellTreeItem;
 class nsIDocumentEncoder;
 class nsIDocumentObserver;
+class nsIEventTarget;
+class nsIFrame;
+class nsIGlobalObject;
 class nsIHTMLCollection;
+class nsIInputStream;
 class nsILayoutHistoryState;
-class nsILoadContext;
 class nsIObjectLoadingContent;
-class nsIObserver;
-class nsIPrincipal;
+class PermissionDelegateHandler;
+class nsIRadioVisitor;
 class nsIRequest;
 class nsIRunnable;
+class nsIScriptGlobalObject;
 class nsISecurityConsoleMessage;
-class nsIStreamListener;
+class nsISerialEventTarget;
 class nsIStructuredCloneContainer;
-class nsIURI;
 class nsIVariant;
-class nsViewManager;
+class nsNodeInfoManager;
+class nsPIWindowRoot;
 class nsPresContext;
 class nsRange;
 class nsSimpleContentList;
 class nsTextNode;
-class nsWindowSizes;
-class nsDOMCaretPosition;
-class nsViewportInfo;
-class nsIGlobalObject;
-class nsIAppWindow;
+class nsViewManager;
 class nsXULPrototypeDocument;
-class nsXULPrototypeElement;
-class PermissionDelegateHandler;
+struct JSContext;
+struct RawServoSelectorList;
 struct nsFont;
 
 namespace mozilla {
@@ -135,7 +185,6 @@ class StyleSheet;
 class EditorCommand;
 class Encoding;
 class ErrorResult;
-class EventStates;
 class EventListenerManager;
 class FullscreenExit;
 class FullscreenRequest;
@@ -169,8 +218,6 @@ class ClientState;
 class CDATASection;
 class Comment;
 class CSSImportRule;
-struct CustomElementDefinition;
-class DocGroup;
 class DocumentL10n;
 class DocumentFragment;
 class DocumentTimeline;
@@ -178,16 +225,16 @@ class DocumentType;
 class DOMImplementation;
 class DOMIntersectionObserver;
 class DOMStringList;
-class Element;
-struct ElementCreationOptions;
 class Event;
-class EventTarget;
+class EventListener;
+struct FailedCertSecurityInfo;
 class FeaturePolicy;
 class FontFaceSet;
 class FrameRequestCallback;
 class ImageTracker;
 class HTMLAllCollection;
 class HTMLBodyElement;
+class HTMLInputElement;
 class HTMLMetaElement;
 class HTMLDialogElement;
 class HTMLSharedElement;
@@ -196,8 +243,9 @@ struct LifecycleCallbackArgs;
 class Link;
 class Location;
 class MediaQueryList;
-class GlobalObject;
+struct NetErrorInfo;
 class NodeFilter;
+class NodeInfo;
 class NodeIterator;
 enum class OrientationType : uint8_t;
 class ProcessingInstruction;
@@ -205,7 +253,7 @@ class Promise;
 class ScriptLoader;
 class Selection;
 class ServiceWorkerDescriptor;
-class StyleSheetList;
+class ShadowRoot;
 class SVGDocument;
 class SVGElement;
 class SVGSVGElement;
@@ -213,13 +261,13 @@ class SVGUseElement;
 class Touch;
 class TouchList;
 class TreeWalker;
+class WindowContext;
+class WindowGlobalChild;
+class WindowProxyHolder;
 class XPathEvaluator;
 class XPathExpression;
 class XPathNSResolver;
 class XPathResult;
-template <typename>
-class Sequence;
-
 class nsDocumentOnStack;
 class nsUnblockOnloadEvent;
 
@@ -227,20 +275,6 @@ template <typename, typename>
 class CallbackObjectHolder;
 
 enum class CallerType : uint32_t;
-
-enum BFCacheStatus {
-  NOT_ALLOWED = 1 << 0,                  // Status 0
-  EVENT_HANDLING_SUPPRESSED = 1 << 1,    // Status 1
-  SUSPENDED = 1 << 2,                    // Status 2
-  UNLOAD_LISTENER = 1 << 3,              // Status 3
-  REQUEST = 1 << 4,                      // Status 4
-  ACTIVE_GET_USER_MEDIA = 1 << 5,        // Status 5
-  ACTIVE_PEER_CONNECTION = 1 << 6,       // Status 6
-  CONTAINS_EME_CONTENT = 1 << 7,         // Status 7
-  CONTAINS_MSE_CONTENT = 1 << 8,         // Status 8
-  HAS_ACTIVE_SPEECH_SYNTHESIS = 1 << 9,  // Status 9
-  HAS_USED_VR = 1 << 10,                 // Status 10
-};
 
 }  // namespace dom
 }  // namespace mozilla
@@ -267,6 +301,13 @@ class DOMStyleSheetSetList;
 class ResizeObserver;
 class ResizeObserverController;
 class PostMessageEvent;
+
+#define DEPRECATED_OPERATION(_op) e##_op,
+enum class DeprecatedOperations : uint16_t {
+#include "nsDeprecatedOperationList.h"
+  eDeprecatedOperationCount
+};
+#undef DEPRECATED_OPERATION
 
 // Document states
 
@@ -571,7 +612,7 @@ class Document : public nsINode,
   // checks to ensure that the intrinsic storage principal should really be
   // used here.  It is only designed to be used in very specific circumstances,
   // such as when inheriting the document/storage principal.
-  nsIPrincipal* IntrinsicStoragePrincipal() const {
+  nsIPrincipal* IntrinsicStoragePrincipal() final {
     return mIntrinsicStoragePrincipal;
   }
 
@@ -820,28 +861,7 @@ class Document : public nsINode,
    * header. So override the old ReferrerInfo if we get one from meta
    */
   void UpdateReferrerInfoFromMeta(const nsAString& aMetaReferrer,
-                                  bool aPreload) {
-    ReferrerPolicyEnum policy =
-        ReferrerInfo::ReferrerPolicyFromMetaString(aMetaReferrer);
-    // The empty string "" corresponds to no referrer policy, causing a fallback
-    // to a referrer policy defined elsewhere.
-    if (policy == ReferrerPolicy::_empty) {
-      return;
-    }
-
-    MOZ_ASSERT(mReferrerInfo);
-    MOZ_ASSERT(mPreloadReferrerInfo);
-
-    if (aPreload) {
-      mPreloadReferrerInfo =
-          static_cast<mozilla::dom::ReferrerInfo*>((mPreloadReferrerInfo).get())
-              ->CloneWithNewPolicy(policy);
-    } else {
-      mReferrerInfo =
-          static_cast<mozilla::dom::ReferrerInfo*>((mReferrerInfo).get())
-              ->CloneWithNewPolicy(policy);
-    }
-  }
+                                  bool aPreload);
 
   /**
    * Set the principals responsible for this document.  Chances are, you do not
@@ -1695,6 +1715,18 @@ class Document : public nsINode,
 
   void SetKeyPressEventModel(uint16_t aKeyPressEventModel);
 
+  // Gets the next form number.
+  //
+  // Used by nsContentUtils::GenerateStateKey to get a unique number for each
+  // parser inserted form element.
+  int32_t GetNextFormNumber() { return mNextFormNumber++; }
+
+  // Gets the next form control number.
+  //
+  // Used by nsContentUtils::GenerateStateKey to get a unique number for each
+  // parser inserted form control element.
+  int32_t GetNextControlNumber() { return mNextControlNumber++; }
+
   PreloadService& Preloads() { return mPreloadService; }
 
  protected:
@@ -2175,25 +2207,10 @@ class Document : public nsINode,
 
   // ScreenOrientation related APIs
 
-  void SetCurrentOrientation(OrientationType aType, uint16_t aAngle) {
-    mCurrentOrientationType = aType;
-    mCurrentOrientationAngle = aAngle;
-  }
-
-  uint16_t CurrentOrientationAngle() const { return mCurrentOrientationAngle; }
-  OrientationType CurrentOrientationType() const {
-    return mCurrentOrientationType;
-  }
   void ClearOrientationPendingPromise();
   bool SetOrientationPendingPromise(Promise* aPromise);
   Promise* GetOrientationPendingPromise() const {
     return mOrientationPendingPromise;
-  }
-
-  void SetRDMPaneOrientation(OrientationType aType, uint16_t aAngle) {
-    if (mInRDMPane) {
-      SetCurrentOrientation(aType, aAngle);
-    }
   }
 
   //----------------------------------------------------------------------
@@ -2477,12 +2494,8 @@ class Document : public nsINode,
    * replace this document in the docshell.  The new document's request
    * will be ignored when checking for active requests.  If there is no
    * request associated with the new document, this parameter may be null.
-   *
-   * |aBFCacheCombo| is used as a bitmask to indicate what the status
-   * combination is when we try to BFCache aNewRequest
    */
-  virtual bool CanSavePresentation(nsIRequest* aNewRequest,
-                                   uint16_t& aBFCacheCombo);
+  virtual bool CanSavePresentation(nsIRequest* aNewRequest);
 
   virtual nsresult Init();
 
@@ -3172,6 +3185,7 @@ class Document : public nsINode,
 
   struct FrameRequest {
     FrameRequest(FrameRequestCallback& aCallback, int32_t aHandle);
+    ~FrameRequest();
 
     // Comparator operators to allow RemoveElementSorted with an
     // integer argument on arrays of FrameRequest
@@ -3288,30 +3302,9 @@ class Document : public nsINode,
   // Add aLink to the set of links that need their status resolved.
   void RegisterPendingLinkUpdate(Link* aLink);
 
-  // Update state on links in mLinksToUpdate.  This function must be called
-  // prior to selector matching that needs to differentiate between :link and
-  // :visited.  In particular, it does _not_ need to be called before doing any
-  // selector matching that uses TreeMatchContext::eNeverMatchVisited.  The only
-  // reason we haven't moved all calls to this function entirely inside the
-  // TreeMatchContext constructor is to not call it all the time during various
-  // style system and frame construction operations (though it would likely be a
-  // no-op for all but the first call).
-  //
-  // XXXbz Does this really need to be called before selector matching?  All it
-  // will do is ensure all the links involved are registered to observe history,
-  // which won't synchronously change their state to :visited anyway!  So
-  // calling this won't affect selector matching done immediately afterward, as
-  // far as I can tell.
+  // Update state on links in mLinksToUpdate.
   void FlushPendingLinkUpdates();
 
-  void FlushPendingLinkUpdatesFromRunnable();
-
-#define DEPRECATED_OPERATION(_op) e##_op,
-  enum DeprecatedOperations {
-#include "nsDeprecatedOperationList.h"
-    eDeprecatedOperationCount
-  };
-#undef DEPRECATED_OPERATION
   bool HasWarnedAbout(DeprecatedOperations aOperation) const;
   void WarnOnceAbout(DeprecatedOperations aOperation,
                      bool asError = false) const;
@@ -3396,14 +3389,6 @@ class Document : public nsINode,
   // Skip GetContentType, because our NS_IMETHOD version above works fine here.
   // GetDoctype defined above
   Element* GetDocumentElement() const { return GetRootElement(); }
-
-  enum ElementCallbackType {
-    eConnected,
-    eDisconnected,
-    eAdopted,
-    eAttributeChanged,
-    eGetCustomInterface
-  };
 
   Document* GetTopLevelContentDocument();
   const Document* GetTopLevelContentDocument() const;
@@ -3743,8 +3728,6 @@ class Document : public nsINode,
 
   bool HasScriptsBlockedBySandbox();
 
-  bool InlineScriptAllowedByCSP();
-
   void ReportHasScrollLinkedEffect();
   bool HasScrollLinkedEffect() const { return mHasScrollLinkedEffect; }
 
@@ -3866,19 +3849,19 @@ class Document : public nsINode,
    * the document element.
    * In XUL it happens at `DoneWalking`, during
    * `MozBeforeInitialXULLayout`.
-   *
-   * It triggers the initial translation of the
-   * document.
    */
-  void TriggerInitialDocumentTranslation();
+  void OnParsingCompleted();
 
   /**
    * This method is called when the initial translation
    * of the document is completed.
    *
    * It unblocks the load event if translation was blocking it.
+   *
+   * If the `aL10nCached` is set to `true`, and the document has
+   * a prototype, it will set the `isL10nCached` flag on it.
    */
-  void InitialDocumentTranslationCompleted();
+  void InitialTranslationCompleted(bool aL10nCached);
 
   /**
    * Returns whether the document allows localization.
@@ -3896,7 +3879,7 @@ class Document : public nsINode,
   virtual bool UseWidthDeviceWidthFallbackViewport() const;
 
  private:
-  void InitializeLocalization(nsTArray<nsString>& aResourceIds);
+  void EnsureL10n();
 
   // Returns true if there is any valid value in the viewport meta tag.
   bool ParseWidthAndHeightInMetaViewport(const nsAString& aWidthString,
@@ -3914,8 +3897,6 @@ class Document : public nsINode,
 
   // Returns a ViewportMetaData for this document.
   ViewportMetaData GetViewportMetaData() const;
-
-  nsTArray<nsString> mL10nResources;
 
   // The application cache that this document is associated with, if
   // any.  This can change during the lifetime of the document.
@@ -4022,9 +4003,6 @@ class Document : public nsINode,
   }
 
   void SetPrototypeDocument(nsXULPrototypeDocument* aPrototype);
-
-  bool InRDMPane() const { return mInRDMPane; }
-  void SetInRDMPane(bool aInRDMPane) { mInRDMPane = aInRDMPane; }
 
   // CSS prefers-color-scheme media feature for this document.
   StylePrefersColorScheme PrefersColorScheme() const;
@@ -4211,7 +4189,9 @@ class Document : public nsINode,
                                   aTrackingFullHashes);
   }
 
-  mutable std::bitset<eDeprecatedOperationCount> mDeprecationWarnedAbout;
+  mutable std::bitset<static_cast<size_t>(
+      DeprecatedOperations::eDeprecatedOperationCount)>
+      mDeprecationWarnedAbout;
   mutable std::bitset<eDocumentWarningCount> mDocWarningWarnedAbout;
 
   // Lazy-initialization to have mDocGroup initialized in prior to the
@@ -4289,9 +4269,10 @@ class Document : public nsINode,
   already_AddRefed<nsIChannel> CreateDummyChannelForCookies(
       nsIURI* aCodebaseURI);
 
-  void AddToplevelLoadingDocument(Document* aDoc);
-  void RemoveToplevelLoadingDocument(Document* aDoc);
+  static void AddToplevelLoadingDocument(Document* aDoc);
+  static void RemoveToplevelLoadingDocument(Document* aDoc);
   static AutoTArray<Document*, 8>* sLoadingForegroundTopLevelContentDocument;
+  friend class cycleCollection;
 
   nsCOMPtr<nsIReferrerInfo> mPreloadReferrerInfo;
   nsCOMPtr<nsIReferrerInfo> mReferrerInfo;
@@ -5001,9 +4982,6 @@ class Document : public nsINode,
   // http://www.w3.org/TR/screen-orientation/
   RefPtr<Promise> mOrientationPendingPromise;
 
-  uint16_t mCurrentOrientationAngle;
-  OrientationType mCurrentOrientationType;
-
   nsTArray<RefPtr<nsFrameLoader>> mInitializableFrameLoaders;
   nsTArray<nsCOMPtr<nsIRunnable>> mFrameLoaderFinalizers;
   RefPtr<nsRunnableMethod<Document>> mFrameLoaderRunner;
@@ -5014,14 +4992,7 @@ class Document : public nsINode,
   // 2)  We haven't had Destroy() called on us yet.
   nsCOMPtr<nsILayoutHistoryState> mLayoutHistoryState;
 
-  struct MetaViewportElementAndData {
-    RefPtr<HTMLMetaElement> mElement;
-    ViewportMetaData mData;
-
-    bool operator==(const MetaViewportElementAndData& aOther) const {
-      return mElement == aOther.mElement && mData == aOther.mData;
-    }
-  };
+  struct MetaViewportElementAndData;
   // An array of <meta name="viewport"> elements and their data.
   nsTArray<MetaViewportElementAndData> mMetaViewports;
 
@@ -5096,8 +5067,6 @@ class Document : public nsINode,
   // Pres shell resolution saved before entering fullscreen mode.
   float mSavedResolution;
 
-  bool mPendingInitialTranslation;
-
   nsCOMPtr<nsICookieSettings> mCookieSettings;
 
   // Document generation. Gets incremented everytime it changes.
@@ -5106,8 +5075,6 @@ class Document : public nsINode,
   // Cached TabSizes values for the document.
   int32_t mCachedTabSizeGeneration;
   nsTabSizes mCachedTabSizes;
-
-  bool mInRDMPane;
 
   // The principal to use for the storage area of this document.
   nsCOMPtr<nsIPrincipal> mIntrinsicStoragePrincipal;
@@ -5120,6 +5087,10 @@ class Document : public nsINode,
   // The principal to use for the content blocking allow list.
   nsCOMPtr<nsIPrincipal> mContentBlockingAllowListPrincipal;
 
+  // See GetNextFormNumber and GetNextControlNumber.
+  int32_t mNextFormNumber;
+  int32_t mNextControlNumber;
+
   // Scope preloads per document.  This is used by speculative loading as well.
   PreloadService mPreloadService;
 
@@ -5127,7 +5098,7 @@ class Document : public nsINode,
   // Needs to be public because the bindings code pokes at it.
   JS::ExpandoAndGeneration mExpandoAndGeneration;
 
-  bool HasPendingInitialTranslation() { return mPendingInitialTranslation; }
+  bool HasPendingInitialTranslation();
 
   nsRefPtrHashtable<nsRefPtrHashKey<Element>, nsXULPrototypeElement>
       mL10nProtoElements;
@@ -5256,26 +5227,6 @@ inline mozilla::dom::Document* nsINode::GetOwnerDocument() const {
 }
 
 inline nsINode* nsINode::OwnerDocAsNode() const { return OwnerDoc(); }
-
-inline bool ShouldUseNACScope(const nsINode* aNode) {
-  return aNode->IsInNativeAnonymousSubtree();
-}
-
-inline bool ShouldUseUAWidgetScope(const nsINode* aNode) {
-  return aNode->HasBeenInUAWidget();
-}
-
-inline mozilla::dom::ParentObject nsINode::GetParentObject() const {
-  mozilla::dom::ParentObject p(OwnerDoc());
-  // Note that mReflectionScope is a no-op for chrome, and other places
-  // where we don't check this value.
-  if (ShouldUseNACScope(this)) {
-    p.mReflectionScope = mozilla::dom::ReflectionScope::NAC;
-  } else if (ShouldUseUAWidgetScope(this)) {
-    p.mReflectionScope = mozilla::dom::ReflectionScope::UAWidget;
-  }
-  return p;
-}
 
 inline mozilla::dom::Document* nsINode::AsDocument() {
   MOZ_ASSERT(IsDocument());

@@ -2,29 +2,31 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "nsCOMPtr.h"
 #include "GlobalKeyListener.h"
-#include "nsIContent.h"
-#include "nsAtom.h"
-#include "nsGkAtoms.h"
-#include "nsFocusManager.h"
-#include "nsNetUtil.h"
-#include "nsContentUtils.h"
-#include "nsPIDOMWindow.h"
-#include "nsIDocShell.h"
+
+#include <utility>
+
 #include "mozilla/EventListenerManager.h"
 #include "mozilla/EventStateManager.h"
 #include "mozilla/HTMLEditor.h"
 #include "mozilla/KeyEventHandler.h"
-#include "mozilla/Move.h"
 #include "mozilla/Preferences.h"
+#include "mozilla/ShortcutKeys.h"
 #include "mozilla/StaticPtr.h"
 #include "mozilla/TextEvents.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/Event.h"
 #include "mozilla/dom/EventBinding.h"
 #include "mozilla/dom/KeyboardEvent.h"
-#include "mozilla/ShortcutKeys.h"
+#include "nsAtom.h"
+#include "nsCOMPtr.h"
+#include "nsContentUtils.h"
+#include "nsFocusManager.h"
+#include "nsGkAtoms.h"
+#include "nsIContent.h"
+#include "nsIDocShell.h"
+#include "nsNetUtil.h"
+#include "nsPIDOMWindow.h"
 
 namespace mozilla {
 
@@ -104,94 +106,84 @@ void GlobalKeyListener::InstallKeyboardEventListenersTo(
   // For marking each keyboard event as if it's reserved by chrome,
   // GlobalKeyListeners need to listen each keyboard events before
   // web contents.
-  aEventListenerManager->AddEventListenerByType(
-      this, NS_LITERAL_STRING("keydown"), TrustedEventsAtCapture());
-  aEventListenerManager->AddEventListenerByType(
-      this, NS_LITERAL_STRING("keyup"), TrustedEventsAtCapture());
-  aEventListenerManager->AddEventListenerByType(
-      this, NS_LITERAL_STRING("keypress"), TrustedEventsAtCapture());
-  aEventListenerManager->AddEventListenerByType(
-      this, NS_LITERAL_STRING("mozkeydownonplugin"), TrustedEventsAtCapture());
-  aEventListenerManager->AddEventListenerByType(
-      this, NS_LITERAL_STRING("mozkeyuponplugin"), TrustedEventsAtCapture());
+  aEventListenerManager->AddEventListenerByType(this, u"keydown"_ns,
+                                                TrustedEventsAtCapture());
+  aEventListenerManager->AddEventListenerByType(this, u"keyup"_ns,
+                                                TrustedEventsAtCapture());
+  aEventListenerManager->AddEventListenerByType(this, u"keypress"_ns,
+                                                TrustedEventsAtCapture());
+  aEventListenerManager->AddEventListenerByType(this, u"mozkeydownonplugin"_ns,
+                                                TrustedEventsAtCapture());
+  aEventListenerManager->AddEventListenerByType(this, u"mozkeyuponplugin"_ns,
+                                                TrustedEventsAtCapture());
 
   // For reducing the IPC cost, preventing to dispatch reserved keyboard
   // events into the content process.
   aEventListenerManager->AddEventListenerByType(
-      this, NS_LITERAL_STRING("keydown"), TrustedEventsAtSystemGroupCapture());
+      this, u"keydown"_ns, TrustedEventsAtSystemGroupCapture());
   aEventListenerManager->AddEventListenerByType(
-      this, NS_LITERAL_STRING("keyup"), TrustedEventsAtSystemGroupCapture());
+      this, u"keyup"_ns, TrustedEventsAtSystemGroupCapture());
   aEventListenerManager->AddEventListenerByType(
-      this, NS_LITERAL_STRING("keypress"), TrustedEventsAtSystemGroupCapture());
+      this, u"keypress"_ns, TrustedEventsAtSystemGroupCapture());
   aEventListenerManager->AddEventListenerByType(
-      this, NS_LITERAL_STRING("mozkeydownonplugin"),
-      TrustedEventsAtSystemGroupCapture());
+      this, u"mozkeydownonplugin"_ns, TrustedEventsAtSystemGroupCapture());
   aEventListenerManager->AddEventListenerByType(
-      this, NS_LITERAL_STRING("mozkeyuponplugin"),
-      TrustedEventsAtSystemGroupCapture());
+      this, u"mozkeyuponplugin"_ns, TrustedEventsAtSystemGroupCapture());
 
   // Handle keyboard events in bubbling phase of the system event group.
   aEventListenerManager->AddEventListenerByType(
-      this, NS_LITERAL_STRING("keydown"), TrustedEventsAtSystemGroupBubble());
+      this, u"keydown"_ns, TrustedEventsAtSystemGroupBubble());
   aEventListenerManager->AddEventListenerByType(
-      this, NS_LITERAL_STRING("keyup"), TrustedEventsAtSystemGroupBubble());
+      this, u"keyup"_ns, TrustedEventsAtSystemGroupBubble());
   aEventListenerManager->AddEventListenerByType(
-      this, NS_LITERAL_STRING("keypress"), TrustedEventsAtSystemGroupBubble());
+      this, u"keypress"_ns, TrustedEventsAtSystemGroupBubble());
   // mozaccesskeynotfound event is fired when modifiers of keypress event
   // matches with modifier of content access key but it's not consumed by
   // remote content.
   aEventListenerManager->AddEventListenerByType(
-      this, NS_LITERAL_STRING("mozaccesskeynotfound"),
-      TrustedEventsAtSystemGroupBubble());
+      this, u"mozaccesskeynotfound"_ns, TrustedEventsAtSystemGroupBubble());
   aEventListenerManager->AddEventListenerByType(
-      this, NS_LITERAL_STRING("mozkeydownonplugin"),
-      TrustedEventsAtSystemGroupBubble());
+      this, u"mozkeydownonplugin"_ns, TrustedEventsAtSystemGroupBubble());
   aEventListenerManager->AddEventListenerByType(
-      this, NS_LITERAL_STRING("mozkeyuponplugin"),
-      TrustedEventsAtSystemGroupBubble());
+      this, u"mozkeyuponplugin"_ns, TrustedEventsAtSystemGroupBubble());
 }
 
 void GlobalKeyListener::RemoveKeyboardEventListenersFrom(
     EventListenerManager* aEventListenerManager) {
+  aEventListenerManager->RemoveEventListenerByType(this, u"keydown"_ns,
+                                                   TrustedEventsAtCapture());
+  aEventListenerManager->RemoveEventListenerByType(this, u"keyup"_ns,
+                                                   TrustedEventsAtCapture());
+  aEventListenerManager->RemoveEventListenerByType(this, u"keypress"_ns,
+                                                   TrustedEventsAtCapture());
   aEventListenerManager->RemoveEventListenerByType(
-      this, NS_LITERAL_STRING("keydown"), TrustedEventsAtCapture());
-  aEventListenerManager->RemoveEventListenerByType(
-      this, NS_LITERAL_STRING("keyup"), TrustedEventsAtCapture());
-  aEventListenerManager->RemoveEventListenerByType(
-      this, NS_LITERAL_STRING("keypress"), TrustedEventsAtCapture());
-  aEventListenerManager->RemoveEventListenerByType(
-      this, NS_LITERAL_STRING("mozkeydownonplugin"), TrustedEventsAtCapture());
-  aEventListenerManager->RemoveEventListenerByType(
-      this, NS_LITERAL_STRING("mozkeyuponplugin"), TrustedEventsAtCapture());
+      this, u"mozkeydownonplugin"_ns, TrustedEventsAtCapture());
+  aEventListenerManager->RemoveEventListenerByType(this, u"mozkeyuponplugin"_ns,
+                                                   TrustedEventsAtCapture());
 
   aEventListenerManager->RemoveEventListenerByType(
-      this, NS_LITERAL_STRING("keydown"), TrustedEventsAtSystemGroupCapture());
+      this, u"keydown"_ns, TrustedEventsAtSystemGroupCapture());
   aEventListenerManager->RemoveEventListenerByType(
-      this, NS_LITERAL_STRING("keyup"), TrustedEventsAtSystemGroupCapture());
+      this, u"keyup"_ns, TrustedEventsAtSystemGroupCapture());
   aEventListenerManager->RemoveEventListenerByType(
-      this, NS_LITERAL_STRING("keypress"), TrustedEventsAtSystemGroupCapture());
+      this, u"keypress"_ns, TrustedEventsAtSystemGroupCapture());
   aEventListenerManager->RemoveEventListenerByType(
-      this, NS_LITERAL_STRING("mozkeydownonplugin"),
-      TrustedEventsAtSystemGroupCapture());
+      this, u"mozkeydownonplugin"_ns, TrustedEventsAtSystemGroupCapture());
   aEventListenerManager->RemoveEventListenerByType(
-      this, NS_LITERAL_STRING("mozkeyuponplugin"),
-      TrustedEventsAtSystemGroupCapture());
+      this, u"mozkeyuponplugin"_ns, TrustedEventsAtSystemGroupCapture());
 
   aEventListenerManager->RemoveEventListenerByType(
-      this, NS_LITERAL_STRING("keydown"), TrustedEventsAtSystemGroupBubble());
+      this, u"keydown"_ns, TrustedEventsAtSystemGroupBubble());
   aEventListenerManager->RemoveEventListenerByType(
-      this, NS_LITERAL_STRING("keyup"), TrustedEventsAtSystemGroupBubble());
+      this, u"keyup"_ns, TrustedEventsAtSystemGroupBubble());
   aEventListenerManager->RemoveEventListenerByType(
-      this, NS_LITERAL_STRING("keypress"), TrustedEventsAtSystemGroupBubble());
+      this, u"keypress"_ns, TrustedEventsAtSystemGroupBubble());
   aEventListenerManager->RemoveEventListenerByType(
-      this, NS_LITERAL_STRING("mozaccesskeynotfound"),
-      TrustedEventsAtSystemGroupBubble());
+      this, u"mozaccesskeynotfound"_ns, TrustedEventsAtSystemGroupBubble());
   aEventListenerManager->RemoveEventListenerByType(
-      this, NS_LITERAL_STRING("mozkeydownonplugin"),
-      TrustedEventsAtSystemGroupBubble());
+      this, u"mozkeydownonplugin"_ns, TrustedEventsAtSystemGroupBubble());
   aEventListenerManager->RemoveEventListenerByType(
-      this, NS_LITERAL_STRING("mozkeyuponplugin"),
-      TrustedEventsAtSystemGroupBubble());
+      this, u"mozkeyuponplugin"_ns, TrustedEventsAtSystemGroupBubble());
 }
 
 NS_IMETHODIMP

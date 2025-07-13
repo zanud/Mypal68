@@ -39,6 +39,7 @@
 #include "nsSandboxFlags.h"
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/CycleCollectedJSContext.h"
+#include "mozilla/dom/AutoEntryScript.h"
 #include "mozilla/dom/JSExecutionContext.h"
 #include "mozilla/dom/ScriptSettings.h"
 #include "mozilla/dom/PopupBlocker.h"
@@ -126,21 +127,23 @@ static nsIScriptGlobalObject* GetGlobalObject(nsIChannel* aChannel) {
   return global;
 }
 
-static bool AllowedByCSP(nsIContentSecurityPolicy* aCSP) {
+static bool AllowedByCSP(nsIContentSecurityPolicy* aCSP,
+                         const nsAString& aContentOfPseudoScript) {
   if (!aCSP) {
     return true;
   }
 
   bool allowsInlineScript = true;
-  nsresult rv = aCSP->GetAllowsInline(nsIContentPolicy::TYPE_SCRIPT,
-                                      EmptyString(),  // aNonce
-                                      true,           // aParserCreated
-                                      nullptr,        // aElement,
-                                      nullptr,        // nsICSPEventListener
-                                      EmptyString(),  // aContent
-                                      0,              // aLineNumber
-                                      0,              // aColumnNumber
-                                      &allowsInlineScript);
+  nsresult rv =
+      aCSP->GetAllowsInline(nsIContentSecurityPolicy::SCRIPT_SRC_DIRECTIVE,
+                            u""_ns,                  // aNonce
+                            true,                    // aParserCreated
+                            nullptr,                 // aElement,
+                            nullptr,                 // nsICSPEventListener
+                            aContentOfPseudoScript,  // aContent
+                            0,                       // aLineNumber
+                            0,                       // aColumnNumber
+                            &allowsInlineScript);
 
   return (NS_SUCCEEDED(rv) && allowsInlineScript);
 }
@@ -155,12 +158,28 @@ nsresult nsJSThunk::EvaluateScript(
   }
 
   NS_ENSURE_ARG_POINTER(aChannel);
+  MOZ_ASSERT(aOriginalInnerWindow,
+             "We should not have gotten here if this was null!");
+
+  // Set the channel's resultPrincipalURI to the active document's URI.  This
+  // corresponds to treating that URI as the URI of our channel's response.  In
+  // the spec we're supposed to use the URL of the active document, but since
+  // we bail out of here if the inner window has changed, and GetDocumentURI()
+  // on the inner window returns the URL of the active document if the inner
+  // window is current, this is equivalent to the spec behavior.
+  nsCOMPtr<nsIURI> docURI = aOriginalInnerWindow->GetDocumentURI();
+  if (!docURI) {
+    // We're not going to be able to have a sane URL, so just don't run the
+    // script at all.
+    return NS_ERROR_DOM_RETVAL_UNDEFINED;
+  }
+  nsCOMPtr<nsILoadInfo> loadInfo = aChannel->LoadInfo();
+  loadInfo->SetResultPrincipalURI(docURI);
 
   // Get principal of code for execution
   nsCOMPtr<nsISupports> owner;
   aChannel->GetOwner(getter_AddRefs(owner));
   nsCOMPtr<nsIPrincipal> principal = do_QueryInterface(owner);
-  nsCOMPtr<nsILoadInfo> loadInfo = aChannel->LoadInfo();
   if (!principal) {
     if (loadInfo->GetForceInheritPrincipal()) {
       principal = loadInfo->FindPrincipalToInherit(aChannel);
@@ -180,7 +199,12 @@ nsresult nsJSThunk::EvaluateScript(
   // target document.  The target document check is performed below,
   // once we have determined the target document.
   nsCOMPtr<nsIContentSecurityPolicy> csp = loadInfo->GetCspToInherit();
-  if (!AllowedByCSP(csp)) {
+
+  nsAutoCString script(mScript);
+  // Unescape the script
+  NS_UnescapeURL(script);
+
+  if (!AllowedByCSP(csp, NS_ConvertASCIItoUTF16(script))) {
     return NS_ERROR_DOM_RETVAL_UNDEFINED;
   }
 
@@ -224,7 +248,7 @@ nsresult nsJSThunk::EvaluateScript(
     // against if the triggering principal is system.
     if (targetDoc->NodePrincipal()->Subsumes(loadInfo->TriggeringPrincipal())) {
       nsCOMPtr<nsIContentSecurityPolicy> targetCSP = targetDoc->GetCsp();
-      if (!AllowedByCSP(targetCSP)) {
+      if (!AllowedByCSP(targetCSP, NS_ConvertASCIItoUTF16(script))) {
         return NS_ERROR_DOM_RETVAL_UNDEFINED;
       }
     }
@@ -238,10 +262,6 @@ nsresult nsJSThunk::EvaluateScript(
   // So far so good: get the script context from its owner.
   nsCOMPtr<nsIScriptContext> scriptContext = global->GetContext();
   if (!scriptContext) return NS_ERROR_FAILURE;
-
-  nsAutoCString script(mScript);
-  // Unescape the script
-  NS_UnescapeURL(script);
 
   // New script entry point required, due to the "Create a script" step of
   // http://www.whatwg.org/specs/web-apps/current-work/#javascript-protocol
@@ -274,9 +294,9 @@ nsresult nsJSThunk::EvaluateScript(
   JS::CompileOptions options(cx);
   options.setFileAndLine(mURL.get(), 1);
   {
-    JSExecutionContext exec(cx, globalJSObject);
+    JSExecutionContext exec(cx, globalJSObject, options);
     exec.SetCoerceToString(true);
-    exec.Compile(options, NS_ConvertUTF8toUTF16(script));
+    exec.Compile(NS_ConvertUTF8toUTF16(script));
     rv = exec.ExecScript(&v);
   }
 
@@ -284,39 +304,40 @@ nsresult nsJSThunk::EvaluateScript(
 
   if (NS_FAILED(rv) || !(v.isString() || v.isUndefined())) {
     return NS_ERROR_MALFORMED_URI;
-  } else if (v.isUndefined()) {
+  }
+  if (v.isUndefined()) {
     return NS_ERROR_DOM_RETVAL_UNDEFINED;
-  } else {
-    MOZ_ASSERT(rv != NS_SUCCESS_DOM_SCRIPT_EVALUATION_THREW,
-               "How did we get a non-undefined return value?");
-    nsAutoJSString result;
-    if (!result.init(cx, v)) {
-      return NS_ERROR_OUT_OF_MEMORY;
-    }
+  }
+  MOZ_ASSERT(rv != NS_SUCCESS_DOM_SCRIPT_EVALUATION_THREW,
+             "How did we get a non-undefined return value?");
+  nsAutoJSString result;
+  if (!result.init(cx, v)) {
+    return NS_ERROR_OUT_OF_MEMORY;
+  }
 
-    char* bytes;
-    uint32_t bytesLen;
-    NS_NAMED_LITERAL_CSTRING(isoCharset, "windows-1252");
-    NS_NAMED_LITERAL_CSTRING(utf8Charset, "UTF-8");
-    const nsLiteralCString* charset;
-    if (IsISO88591(result)) {
-      // For compatibility, if the result is ISO-8859-1, we use
-      // windows-1252, so that people can compatibly create images
-      // using javascript: URLs.
-      bytes = ToNewCString(result, mozilla::fallible);
-      bytesLen = result.Length();
-      charset = &isoCharset;
-    } else {
-      bytes = ToNewUTF8String(result, &bytesLen);
-      charset = &utf8Charset;
-    }
-    aChannel->SetContentCharset(*charset);
-    if (bytes)
-      rv = NS_NewByteInputStream(getter_AddRefs(mInnerStream),
-                                 mozilla::Span(bytes, bytesLen),
-                                 NS_ASSIGNMENT_ADOPT);
-    else
-      rv = NS_ERROR_OUT_OF_MEMORY;
+  char* bytes;
+  uint32_t bytesLen;
+  constexpr auto isoCharset = "windows-1252"_ns;
+  constexpr auto utf8Charset = "UTF-8"_ns;
+  const nsLiteralCString* charset;
+  if (IsISO88591(result)) {
+    // For compatibility, if the result is ISO-8859-1, we use
+    // windows-1252, so that people can compatibly create images
+    // using javascript: URLs.
+    bytes = ToNewCString(result, mozilla::fallible);
+    bytesLen = result.Length();
+    charset = &isoCharset;
+  } else {
+    bytes = ToNewUTF8String(result, &bytesLen);
+    charset = &utf8Charset;
+  }
+  aChannel->SetContentCharset(*charset);
+  if (bytes) {
+    rv = NS_NewByteInputStream(getter_AddRefs(mInnerStream),
+                               mozilla::Span(bytes, bytesLen),
+                               NS_ASSIGNMENT_ADOPT);
+  } else {
+    rv = NS_ERROR_OUT_OF_MEMORY;
   }
 
   return rv;
@@ -354,7 +375,6 @@ class nsJSChannel : public nsIChannel,
 
   void CleanupStrongRefs();
 
- protected:
   nsCOMPtr<nsIChannel> mStreamChannel;
   nsCOMPtr<nsIPropertyBag2> mPropertyBag;
   nsCOMPtr<nsIStreamListener> mListener;              // Our final listener
@@ -415,9 +435,9 @@ nsresult nsJSChannel::Init(nsIURI* aURI, nsILoadInfo* aLoadInfo) {
   // and the underlying Input Stream will not be created...
   nsCOMPtr<nsIChannel> channel;
   RefPtr<nsJSThunk> thunk = mIOThunk;
-  rv = NS_NewInputStreamChannelInternal(
-      getter_AddRefs(channel), aURI, thunk.forget(),
-      NS_LITERAL_CSTRING("text/html"), EmptyCString(), aLoadInfo);
+  rv = NS_NewInputStreamChannelInternal(getter_AddRefs(channel), aURI,
+                                        thunk.forget(), "text/html"_ns, ""_ns,
+                                        aLoadInfo);
   NS_ENSURE_SUCCESS(rv, rv);
 
   rv = mIOThunk->Init(aURI);
@@ -426,8 +446,7 @@ nsresult nsJSChannel::Init(nsIURI* aURI, nsILoadInfo* aLoadInfo) {
     mPropertyBag = do_QueryInterface(channel);
     nsCOMPtr<nsIWritablePropertyBag2> writableBag = do_QueryInterface(channel);
     if (writableBag && jsURI->GetBaseURI()) {
-      writableBag->SetPropertyAsInterface(NS_LITERAL_STRING("baseURI"),
-                                          jsURI->GetBaseURI());
+      writableBag->SetPropertyAsInterface(u"baseURI"_ns, jsURI->GetBaseURI());
     }
   }
 

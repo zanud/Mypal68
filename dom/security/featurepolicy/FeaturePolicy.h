@@ -5,11 +5,9 @@
 #ifndef mozilla_dom_FeaturePolicy_h
 #define mozilla_dom_FeaturePolicy_h
 
-#include "mozilla/Attributes.h"
-#include "mozilla/dom/BindingUtils.h"
-#include "mozilla/dom/Feature.h"
 #include "nsCycleCollectionParticipant.h"
-#include "nsString.h"
+#include "nsIPrincipal.h"
+#include "nsStringFwd.h"
 #include "nsTArray.h"
 #include "nsWrapperCache.h"
 
@@ -53,12 +51,12 @@
  * HTTP header support.
  **/
 
-class nsIHttpChannel;
 class nsINode;
 
 namespace mozilla {
 namespace dom {
 class Document;
+class Feature;
 
 class FeaturePolicyUtils;
 

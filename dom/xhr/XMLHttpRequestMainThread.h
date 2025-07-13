@@ -6,7 +6,6 @@
 #define mozilla_dom_XMLHttpRequestMainThread_h
 
 #include <bitset>
-#include "nsAutoPtr.h"
 #include "nsISupportsUtils.h"
 #include "nsIURI.h"
 #include "nsIHttpChannel.h"
@@ -14,6 +13,7 @@
 #include "nsIStreamListener.h"
 #include "nsIChannelEventSink.h"
 #include "nsIAsyncVerifyRedirectCallback.h"
+#include "nsIDOMEventListener.h"
 #include "nsIInterfaceRequestor.h"
 #include "nsIHttpHeaderVisitor.h"
 #include "nsIProgressEventSink.h"
@@ -59,6 +59,8 @@ class nsIJARChannel;
 class nsILoadGroup;
 
 namespace mozilla {
+class ProfileChunkedBuffer;
+
 namespace dom {
 
 class DOMString;
@@ -210,23 +212,13 @@ class XMLHttpRequestMainThread final : public XMLHttpRequest,
     ENUM_MAX
   };
 
-  XMLHttpRequestMainThread();
+  explicit XMLHttpRequestMainThread(nsIGlobalObject* aGlobalObject);
 
-  void Construct(nsIPrincipal* aPrincipal, nsIGlobalObject* aGlobalObject,
+  void Construct(nsIPrincipal* aPrincipal,
                  nsICookieSettings* aCookieSettings, bool aForWorker,
                  nsIURI* aBaseURI = nullptr, nsILoadGroup* aLoadGroup = nullptr,
                  PerformanceStorage* aPerformanceStorage = nullptr,
-                 nsICSPEventListener* aCSPEventListener = nullptr) {
-    MOZ_ASSERT(aPrincipal);
-    mPrincipal = aPrincipal;
-    BindToOwner(aGlobalObject);
-    mBaseURI = aBaseURI;
-    mLoadGroup = aLoadGroup;
-    mCookieSettings = aCookieSettings;
-    mForWorker = aForWorker;
-    mPerformanceStorage = aPerformanceStorage;
-    mCSPEventListener = aCSPEventListener;
-  }
+                 nsICSPEventListener* aCSPEventListener = nullptr);
 
   void InitParameters(bool aAnon, bool aSystem);
 
@@ -315,7 +307,6 @@ class XMLHttpRequestMainThread final : public XMLHttpRequest,
 
  public:
   virtual void Send(
-      JSContext* aCx,
       const Nullable<
           DocumentOrBlobOrArrayBufferViewOrArrayBufferOrFormDataOrURLSearchParamsOrUSVString>&
           aData,

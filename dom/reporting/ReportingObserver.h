@@ -5,19 +5,26 @@
 #ifndef mozilla_dom_ReportingObserver_h
 #define mozilla_dom_ReportingObserver_h
 
+#include "js/RootingAPI.h"
+#include "mozilla/AlreadyAddRefed.h"
+#include "mozilla/Assertions.h"
 #include "mozilla/Attributes.h"
-#include "mozilla/dom/BindingUtils.h"
+#include "mozilla/RefPtr.h"
+#include "nsCOMPtr.h"
 #include "nsCycleCollectionParticipant.h"
 #include "nsIObserver.h"
-#include "nsWeakReference.h"
-#include "nsWrapperCache.h"
+#include "nsISupports.h"
+#include "nsStringFwd.h"
 #include "nsTArray.h"
+#include "nsWrapperCache.h"
 
 class nsPIDOMWindowInner;
 
 namespace mozilla {
-namespace dom {
+class ErrorResult;
 
+namespace dom {
+class GlobalObject;
 class Report;
 class ReportingObserverCallback;
 struct ReportingObserverOptions;

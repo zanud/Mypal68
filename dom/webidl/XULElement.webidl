@@ -5,7 +5,7 @@
 
 interface XULControllers;
 
-[Func="IsChromeOrXBL",
+[ChromeOnly,
  Exposed=Window]
 interface XULElement : Element {
   [HTMLConstructor] constructor();

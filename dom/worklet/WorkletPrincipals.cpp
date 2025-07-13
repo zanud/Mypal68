@@ -4,6 +4,7 @@
 
 #include "WorkletPrincipals.h"
 
+#include "mozilla/dom/WorkletImpl.h"
 #include "nsJSPrincipals.h"
 
 namespace mozilla {

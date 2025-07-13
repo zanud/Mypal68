@@ -189,9 +189,6 @@ function test_getElementsByAttribute() {
   var doc = ParseFile("nodelist_data_2.xhtml");
   var root = doc.documentElement;
 
-  // Sadly, DOMParser can't create XULDocument objects.  But at least we have a
-  // XULElement!
-
   Assert.equal(ChromeUtils.getClassName(root), "XULElement");
 
   Assert.equal(
@@ -266,9 +263,6 @@ function test_getElementsByAttribute() {
 function test_getElementsByAttributeNS() {
   var doc = ParseFile("nodelist_data_2.xhtml");
   var root = doc.documentElement;
-
-  // Sadly, DOMParser can't create XULDocument objects.  But at least we have a
-  // XULElement!
 
   Assert.equal(ChromeUtils.getClassName(root), "XULElement");
 

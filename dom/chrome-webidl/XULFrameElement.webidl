@@ -5,7 +5,7 @@
 interface nsIDocShell;
 interface nsIWebNavigation;
 
-[Func="IsChromeOrXBL",
+[ChromeOnly,
  Exposed=Window]
 interface XULFrameElement : XULElement
 {

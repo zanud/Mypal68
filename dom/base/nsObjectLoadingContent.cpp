@@ -2618,9 +2618,9 @@ nsNPAPIPluginInstance* nsObjectLoadingContent::ScriptRequestPluginInstance(
   // sort out what the SetupProtoChain callers look like.
   MOZ_ASSERT_IF(nsContentUtils::GetCurrentJSContext(),
                 aCx == nsContentUtils::GetCurrentJSContext());
+  // FIXME(emilio): Doesn't account for UA widgets, but probably doesn't matter?
   bool callerIsContentJS = (nsContentUtils::GetCurrentJSContext() &&
-                            !nsContentUtils::IsCallerChrome() &&
-                            !nsContentUtils::IsCallerContentXBL());
+                            !nsContentUtils::IsCallerChrome());
 
   nsCOMPtr<nsIContent> thisContent =
       do_QueryInterface(static_cast<nsIImageLoadingContent*>(this));
@@ -3430,7 +3430,7 @@ void nsObjectLoadingContent::TeardownProtoChain() {
 
 bool nsObjectLoadingContent::DoResolve(
     JSContext* aCx, JS::Handle<JSObject*> aObject, JS::Handle<jsid> aId,
-    JS::MutableHandle<JS::PropertyDescriptor> aDesc) {
+    JS::MutableHandle<mozilla::Maybe<JS::PropertyDescriptor>> aDesc) {
   // We don't resolve anything; we just try to make sure we're instantiated.
   // This purposefully does not fire for chrome/xray resolves, see bug 967694
   Unused << ScriptRequestPluginInstance(aCx);

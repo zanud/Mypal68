@@ -678,8 +678,9 @@ nsresult nsXMLContentSink::MaybeProcessXSLTLink(
 
   // Do security check
   nsIScriptSecurityManager* secMan = nsContentUtils::GetSecurityManager();
-  rv = secMan->CheckLoadURIWithPrincipal(
-      mDocument->NodePrincipal(), url, nsIScriptSecurityManager::ALLOW_CHROME);
+  rv = secMan->CheckLoadURIWithPrincipal(mDocument->NodePrincipal(), url,
+                                         nsIScriptSecurityManager::ALLOW_CHROME,
+                                         mDocument->InnerWindowID());
   NS_ENSURE_SUCCESS(rv, NS_OK);
 
   nsCOMPtr<nsILoadInfo> secCheckLoadInfo =
@@ -1042,7 +1043,7 @@ nsresult nsXMLContentSink::HandleEndElement(const char16_t* aName,
     // probably need to deal here.... (and stop appending them on open).
     mState = eXMLContentSinkState_InEpilog;
 
-    mDocument->TriggerInitialDocumentTranslation();
+    mDocument->OnParsingCompleted();
 
     // We might have had no occasion to start layout yet.  Do so now.
     MaybeStartLayout(false);
@@ -1377,9 +1378,7 @@ nsresult nsXMLContentSink::AddText(const char16_t* aText, int32_t aLength) {
   return NS_OK;
 }
 
-void nsXMLContentSink::InitialDocumentTranslationCompleted() {
-  StartLayout(false);
-}
+void nsXMLContentSink::InitialTranslationCompleted() { StartLayout(false); }
 
 void nsXMLContentSink::FlushPendingNotifications(FlushType aType) {
   // Only flush tags if we're not doing the notification ourselves

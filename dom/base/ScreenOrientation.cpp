@@ -75,12 +75,14 @@ ScreenOrientation::ScreenOrientation(nsPIDOMWindowInner* aWindow,
   mAngle = config.angle();
 
   Document* doc = GetResponsibleDocument();
-  if (doc) {
-    doc->SetCurrentOrientation(mType, mAngle);
+  BrowsingContext* bc = doc ? doc->GetBrowsingContext() : nullptr;
+  if (bc && !bc->InRDMPane()) {
+    bc->SetCurrentOrientation(mType, mAngle);
   }
 }
 
 ScreenOrientation::~ScreenOrientation() {
+  UnlockDeviceOrientation();
   hal::UnregisterScreenConfigurationObserver(this);
   MOZ_ASSERT(!mFullscreenListener);
 }
@@ -190,9 +192,10 @@ ScreenOrientation::LockOrientationTask::Run() {
     return NS_OK;
   }
 
-  if (OrientationLockContains(mDocument->CurrentOrientationType()) ||
+  BrowsingContext* bc = mDocument->GetBrowsingContext();
+  if (OrientationLockContains(bc->GetCurrentOrientationType()) ||
       (mOrientationLock == hal::eScreenOrientation_Default &&
-       mDocument->CurrentOrientationAngle() == 0)) {
+       bc->GetCurrentOrientationAngle() == 0)) {
     // Orientation lock will not cause an orientation change.
     mPromise->MaybeResolveWithUndefined();
     mDocument->ClearOrientationPendingPromise();
@@ -414,12 +417,13 @@ OrientationType ScreenOrientation::GetType(CallerType aCallerType,
   }
 
   Document* doc = GetResponsibleDocument();
-  if (!doc) {
+  BrowsingContext* bc = doc ? doc->GetBrowsingContext() : nullptr;
+  if (!bc) {
     aRv.Throw(NS_ERROR_UNEXPECTED);
     return OrientationType::Portrait_primary;
   }
 
-  return doc->CurrentOrientationType();
+  return bc->GetCurrentOrientationType();
 }
 
 uint16_t ScreenOrientation::GetAngle(CallerType aCallerType,
@@ -429,12 +433,13 @@ uint16_t ScreenOrientation::GetAngle(CallerType aCallerType,
   }
 
   Document* doc = GetResponsibleDocument();
-  if (!doc) {
+  BrowsingContext* bc = doc ? doc->GetBrowsingContext() : nullptr;
+  if (!bc) {
     aRv.Throw(NS_ERROR_UNEXPECTED);
     return 0;
   }
 
-  return doc->CurrentOrientationAngle();
+  return bc->GetCurrentOrientationAngle();
 }
 
 ScreenOrientation::LockPermission
@@ -484,7 +489,8 @@ void ScreenOrientation::Notify(const hal::ScreenConfiguration& aConfiguration) {
   }
 
   Document* doc = GetResponsibleDocument();
-  if (!doc) {
+  BrowsingContext* bc = doc ? doc->GetBrowsingContext() : nullptr;
+  if (!bc) {
     return;
   }
 
@@ -519,8 +525,8 @@ void ScreenOrientation::Notify(const hal::ScreenConfiguration& aConfiguration) {
     return;
   }
 
-  if (mType != doc->CurrentOrientationType()) {
-    doc->SetCurrentOrientation(mType, mAngle);
+  if (mType != bc->GetCurrentOrientationType()) {
+    bc->SetCurrentOrientation(mType, mAngle);
 
     nsCOMPtr<nsIRunnable> runnable = DispatchChangeEventAndResolvePromise();
     rv = NS_DispatchToMainThread(runnable);
@@ -600,9 +606,10 @@ ScreenOrientation::VisibleEventListener::HandleEvent(Event* aEvent) {
 
   target->RemoveSystemEventListener(u"visibilitychange"_ns, this, true);
 
-  if (doc->CurrentOrientationType() !=
+  BrowsingContext* bc = doc->GetBrowsingContext();
+  if (bc && bc->GetCurrentOrientationType() !=
       orientation->DeviceType(CallerType::System)) {
-    doc->SetCurrentOrientation(orientation->DeviceType(CallerType::System),
+    bc->SetCurrentOrientation(orientation->DeviceType(CallerType::System),
                                orientation->DeviceAngle(CallerType::System));
 
     nsCOMPtr<nsIRunnable> runnable =

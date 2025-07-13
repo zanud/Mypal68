@@ -482,6 +482,9 @@ class MediaDecoder : public DecoderDoctorLifeLogger<MediaDecoder> {
 
   void OnNextFrameStatus(MediaDecoderOwner::NextFrameStatus);
 
+  void OnSecondaryVideoContainerInstalled(
+      const RefPtr<VideoFrameContainer>& aSecondaryContainer);
+
   void FinishShutdown();
 
   void ConnectMirrors(MediaDecoderStateMachine* aObject);
@@ -577,6 +580,7 @@ class MediaDecoder : public DecoderDoctorLifeLogger<MediaDecoder> {
   MediaEventListener mOnMediaNotSeekable;
   MediaEventListener mOnDecodeWarning;
   MediaEventListener mOnNextFrameStatus;
+  MediaEventListener mOnSecondaryVideoContainerInstalled;
 
   // True if we have suspended video decoding.
   bool mIsVideoDecodingSuspended = false;

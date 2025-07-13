@@ -12,6 +12,65 @@
 #include "mozilla/dom/Document.h"
 #include "mozilla/StaticPrefs_extensions.h"
 
+// Helper function for IsConsideredSameOriginForUIR which makes
+// Principals of scheme 'http' return Principals of scheme 'https'.
+static already_AddRefed<nsIPrincipal> MakeHTTPPrincipalHTTPS(
+    nsIPrincipal* aPrincipal) {
+  nsCOMPtr<nsIPrincipal> principal = aPrincipal;
+  // if the principal is not http, then it can also not be upgraded
+  // to https.
+  if (!principal->SchemeIs("http")) {
+    return principal.forget();
+  }
+
+  nsAutoCString spec;
+  aPrincipal->GetAsciiSpec(spec);
+  // replace http with https
+  spec.ReplaceLiteral(0, 4, "https");
+
+  nsCOMPtr<nsIURI> newURI;
+  nsresult rv = NS_NewURI(getter_AddRefs(newURI), spec);
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    return nullptr;
+  }
+
+  mozilla::OriginAttributes OA =
+      BasePrincipal::Cast(aPrincipal)->OriginAttributesRef();
+
+  principal = BasePrincipal::CreateCodebasePrincipal(newURI, OA);
+  return principal.forget();
+}
+
+/* static */
+bool nsContentSecurityUtils::IsConsideredSameOriginForUIR(
+    nsIPrincipal* aTriggeringPrincipal, nsIPrincipal* aResultPrincipal) {
+  MOZ_ASSERT(aTriggeringPrincipal);
+  MOZ_ASSERT(aResultPrincipal);
+  // we only have to make sure that the following truth table holds:
+  // aTriggeringPrincipal         | aResultPrincipal             | Result
+  // ----------------------------------------------------------------
+  // http://example.com/foo.html  | http://example.com/bar.html  | true
+  // http://example.com/foo.html  | https://example.com/bar.html | true
+  // https://example.com/foo.html | https://example.com/bar.html | true
+  // https://example.com/foo.html | http://example.com/bar.html  | true
+
+  // fast path if both principals are same-origin
+  if (aTriggeringPrincipal->Equals(aResultPrincipal)) {
+    return true;
+  }
+
+  // in case a principal uses a scheme of 'http' then we just upgrade to
+  // 'https' and use the principal equals comparison operator to check
+  // for same-origin.
+  nsCOMPtr<nsIPrincipal> compareTriggeringPrincipal =
+      MakeHTTPPrincipalHTTPS(aTriggeringPrincipal);
+
+  nsCOMPtr<nsIPrincipal> compareResultPrincipal =
+      MakeHTTPPrincipalHTTPS(aResultPrincipal);
+
+  return compareTriggeringPrincipal->Equals(compareResultPrincipal);
+}
+
 class EvalUsageNotificationRunnable final : public Runnable {
  public:
   EvalUsageNotificationRunnable(bool aIsSystemPrincipal,
@@ -50,32 +109,32 @@ bool nsContentSecurityUtils::IsEvalAllowed(JSContext* cx,
   // exclusively used in testing contexts.
   static nsLiteralCString evalAllowlist[] = {
       // Test-only third-party library
-      NS_LITERAL_CSTRING("resource://testing-common/sinon-7.2.7.js"),
+      "resource://testing-common/sinon-7.2.7.js"_ns,
       // Test-only third-party library
-      NS_LITERAL_CSTRING("resource://testing-common/ajv-4.1.1.js"),
+      "resource://testing-common/ajv-4.1.1.js"_ns,
       // Test-only utility
-      NS_LITERAL_CSTRING("resource://testing-common/content-task.js"),
+      "resource://testing-common/content-task.js"_ns,
 
       // Tracked by Bug 1584605
-      NS_LITERAL_CSTRING("resource:///modules/translation/cld-worker.js"),
+      "resource:///modules/translation/cld-worker.js"_ns,
 
       // require.js implements a script loader for workers. It uses eval
       // to load the script; but injection is only possible in situations
       // that you could otherwise control script that gets executed, so
       // it is okay to allow eval() as it adds no additional attack surface.
       // Bug 1584564 tracks requiring safe usage of require.js
-      NS_LITERAL_CSTRING("resource://gre/modules/workers/require.js"),
+      "resource://gre/modules/workers/require.js"_ns,
 
       // The Browser Toolbox/Console
-      NS_LITERAL_CSTRING("debugger"),
+      "debugger"_ns,
   };
 
   // We also permit two specific idioms in eval()-like contexts. We'd like to
   // elminate these too; but there are in-the-wild Mozilla privileged extensions
   // that use them.
-  static NS_NAMED_LITERAL_STRING(sAllowedEval1, "this");
-  static NS_NAMED_LITERAL_STRING(sAllowedEval2,
-                                 "function anonymous(\n) {\nreturn this\n}");
+  static constexpr auto sAllowedEval1 = u"this"_ns;
+  static constexpr auto sAllowedEval2 =
+      u"function anonymous(\n) {\nreturn this\n}"_ns;
 
   if (MOZ_LIKELY(!aIsSystemPrincipal && !XRE_IsE10sParentProcess())) {
     // We restrict eval in the system principal and parent process.
@@ -154,26 +213,17 @@ bool nsContentSecurityUtils::IsEvalAllowed(JSContext* cx,
   // function
   nsAutoCString fileName;
   uint32_t lineNumber = 0, columnNumber = 0;
-  JS::AutoFilename rawScriptFilename;
-  if (JS::DescribeScriptedCaller(cx, &rawScriptFilename, &lineNumber,
-                                 &columnNumber)) {
-    nsDependentCSubstring fileName_(rawScriptFilename.get(),
-                                    strlen(rawScriptFilename.get()));
-    ToLowerCase(fileName_);
-    // Extract file name alone if scriptFilename contains line number
-    // separated by multiple space delimiters in few cases.
-    int32_t fileNameIndex = fileName_.FindChar(' ');
-    if (fileNameIndex != -1) {
-      fileName_.SetLength(fileNameIndex);
-    }
-    fileName = std::move(fileName_);
-  } else {
-    fileName = NS_LITERAL_CSTRING("unknown-file");
+  nsJSUtils::GetCallingLocation(cx, fileName, &lineNumber, &columnNumber);
+  if (fileName.IsEmpty()) {
+    fileName = "unknown-file"_ns;
   }
 
   NS_ConvertUTF8toUTF16 fileNameA(fileName);
   for (const nsLiteralCString& allowlistEntry : evalAllowlist) {
-    if (fileName.Equals(allowlistEntry)) {
+    // checking if current filename begins with entry, because JS Engine
+    // gives us additional stuff for code inside eval or Function ctor
+    // e.g., "require.js > Function"
+    if (StringBeginsWith(fileName, allowlistEntry)) {
       MOZ_LOG(sCSMLog, LogLevel::Debug,
               ("Allowing eval() %s because the containing "
                "file is in the allowlist",
@@ -203,17 +253,24 @@ bool nsContentSecurityUtils::IsEvalAllowed(JSContext* cx,
 
   // Maybe Crash
 #ifdef DEBUG
+  // MOZ_CRASH_UNSAFE_PRINTF gives us at most 1024 characters to print.
+  // The given string literal leaves us with ~950, so I'm leaving
+  // each 475 for fileName and aScript each.
+  if (fileName.Length() > 475) {
+    fileName.SetLength(475);
+  }
+  nsAutoCString trimmedScript = NS_ConvertUTF16toUTF8(aScript);
+  if (trimmedScript.Length() > 475) {
+    trimmedScript.SetLength(475);
+  }
   MOZ_CRASH_UNSAFE_PRINTF(
       "Blocking eval() %s from file %s and script provided "
       "%s",
       (aIsSystemPrincipal ? "with System Principal" : "in parent process"),
-      fileName.get(), NS_ConvertUTF16toUTF8(aScript).get());
+      fileName.get(), trimmedScript.get());
 #endif
 
-  // Do not enforce eval usage blocking on Worker threads; because this is
-  // new behavior and we want to be conservative so we don't accidently break
-  // Nightly. Bug 1584602 will enforce things.
-  return !NS_IsMainThread();
+  return false;
 }
 
 /* static */
@@ -253,7 +310,7 @@ void nsContentSecurityUtils::NotifyEvalUsage(bool aIsSystemPrincipal,
     return;
   }
 
-  rv = error->InitWithWindowID(message, aFileNameA, EmptyString(), aLineNumber,
+  rv = error->InitWithWindowID(message, aFileNameA, u""_ns, aLineNumber,
                                aColumnNumber, nsIScriptError::errorFlag,
                                "BrowserEvalUsage", aWindowID,
                                true /* From chrome context */);
@@ -290,6 +347,8 @@ void nsContentSecurityUtils::AssertAboutPageHasCSP(Document* aDocument) {
   nsCOMPtr<nsIContentSecurityPolicy> csp = aDocument->GetCsp();
   bool foundDefaultSrc = false;
   bool foundObjectSrc = false;
+  bool foundUnsafeEval = false;
+  bool foundUnsafeInline = false;
   if (csp) {
     uint32_t policyCount = 0;
     csp->GetPolicyCount(&policyCount);
@@ -301,6 +360,12 @@ void nsContentSecurityUtils::AssertAboutPageHasCSP(Document* aDocument) {
       }
       if (parsedPolicyStr.Find("object-src 'none'") >= 0) {
         foundObjectSrc = true;
+      }
+      if (parsedPolicyStr.Find("'unsafe-eval'") >= 0) {
+        foundUnsafeEval = true;
+      }
+      if (parsedPolicyStr.Find("'unsafe-inline'") >= 0) {
+        foundUnsafeInline = true;
       }
     }
   }
@@ -320,15 +385,17 @@ void nsContentSecurityUtils::AssertAboutPageHasCSP(Document* aDocument) {
   // render without a CSP applied.
   static nsLiteralCString sAllowedAboutPagesWithNoCSP[] = {
     // about:blank is a special about page -> no CSP
-    NS_LITERAL_CSTRING("about:blank"),
+    "about:blank"_ns,
     // about:srcdoc is a special about page -> no CSP
-    NS_LITERAL_CSTRING("about:srcdoc"),
+    "about:srcdoc"_ns,
     // about:sync-log displays plain text only -> no CSP
-    NS_LITERAL_CSTRING("about:sync-log"),
+    "about:sync-log"_ns,
     // about:printpreview displays plain text only -> no CSP
-    NS_LITERAL_CSTRING("about:printpreview"),
+    "about:printpreview"_ns,
+    // about:logo just displays the firefox logo -> no CSP
+    "about:logo"_ns,
 #  if defined(ANDROID)
-    NS_LITERAL_CSTRING("about:config"),
+    "about:config"_ns,
 #  endif
   };
 
@@ -345,5 +412,44 @@ void nsContentSecurityUtils::AssertAboutPageHasCSP(Document* aDocument) {
              "about: page must contain a CSP including default-src");
   MOZ_ASSERT(foundObjectSrc,
              "about: page must contain a CSP denying object-src");
+
+  if (aDocument->IsExtensionPage()) {
+    // Extensions have two CSP policies applied where the baseline CSP
+    // includes 'unsafe-eval' and 'unsafe-inline', hence we have to skip
+    // the 'unsafe-eval' and 'unsafe-inline' assertions for extension
+    // pages.
+    return;
+  }
+
+  MOZ_ASSERT(!foundUnsafeEval,
+             "about: page must not contain a CSP including 'unsafe-eval'");
+
+  static nsLiteralCString sLegacyUnsafeInlineAllowList[] = {
+      // Bug 1579160: Remove 'unsafe-inline' from style-src within
+      // about:preferences
+      "about:preferences"_ns,
+      // Bug 1571346: Remove 'unsafe-inline' from style-src within about:addons
+      "about:addons"_ns,
+      // Bug 1584485: Remove 'unsafe-inline' from style-src within:
+      // * about:newtab
+      // * about:welcome
+      // * about:home
+      "about:newtab"_ns,
+      "about:welcome"_ns,
+      "about:home"_ns,
+  };
+
+  for (const nsLiteralCString& aUnsafeInlineEntry :
+       sLegacyUnsafeInlineAllowList) {
+    // please note that we perform a substring match here on purpose,
+    // so we don't have to deal and parse out all the query arguments
+    // the various about pages rely on.
+    if (StringBeginsWith(aboutSpec, aUnsafeInlineEntry)) {
+      return;
+    }
+  }
+
+  MOZ_ASSERT(!foundUnsafeInline,
+             "about: page must not contain a CSP including 'unsafe-inline'");
 }
 #endif

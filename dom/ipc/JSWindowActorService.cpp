@@ -16,6 +16,7 @@
 #include "mozilla/dom/WindowGlobalChild.h"
 #include "mozilla/StaticPtr.h"
 #include "mozilla/Logging.h"
+#include "nsIObserverService.h" //MY
 
 namespace mozilla {
 namespace dom {

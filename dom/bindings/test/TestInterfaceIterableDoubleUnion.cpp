@@ -7,8 +7,7 @@
 #include "nsPIDOMWindow.h"
 #include "mozilla/dom/BindingUtils.h"
 
-namespace mozilla {
-namespace dom {
+namespace mozilla::dom {
 
 NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE(TestInterfaceIterableDoubleUnion, mParent)
 
@@ -71,5 +70,4 @@ OwningStringOrLong& TestInterfaceIterableDoubleUnion::GetValueAtIndex(
   return mValues.ElementAt(aIndex).second;
 }
 
-}  // namespace dom
-}  // namespace mozilla
+}  // namespace mozilla::dom

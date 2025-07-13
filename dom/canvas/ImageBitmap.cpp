@@ -4,8 +4,10 @@
 
 #include "mozilla/dom/ImageBitmap.h"
 #include "mozilla/CheckedInt.h"
+#include "mozilla/dom/BlobImpl.h"
 #include "mozilla/dom/CanvasRenderingContext2D.h"
 #include "mozilla/dom/CanvasUtils.h"
+#include "mozilla/dom/Document.h"
 #include "mozilla/dom/HTMLCanvasElement.h"
 #include "mozilla/dom/HTMLImageElement.h"
 #include "mozilla/dom/HTMLMediaElementBinding.h"
@@ -19,6 +21,7 @@
 #include "mozilla/dom/WorkerRef.h"
 #include "mozilla/dom/WorkerRunnable.h"
 #include "mozilla/gfx/2D.h"
+#include "mozilla/gfx/Logging.h"
 #include "mozilla/gfx/Swizzle.h"
 #include "mozilla/Mutex.h"
 #include "mozilla/ScopeExit.h"
@@ -868,7 +871,7 @@ already_AddRefed<ImageBitmap> ImageBitmap::CreateInternal(
     nsIGlobalObject* aGlobal, ImageData& aImageData,
     const Maybe<IntRect>& aCropRect, ErrorResult& aRv) {
   // Copy data into SourceSurface.
-  dom::Uint8ClampedArray array;
+  RootedSpiderMonkeyInterface<Uint8ClampedArray> array(RootingCx());
   DebugOnly<bool> inited = array.Init(aImageData.GetDataObject());
   MOZ_ASSERT(inited);
 
@@ -932,7 +935,7 @@ already_AddRefed<ImageBitmap> ImageBitmap::CreateInternal(
   }
 
   window->GetExtantDoc()->WarnOnceAbout(
-      Document::eCreateImageBitmapCanvasRenderingContext2D);
+      DeprecatedOperations::eCreateImageBitmapCanvasRenderingContext2D);
 
   // Check write-only mode.
   bool writeOnly =

@@ -4,8 +4,16 @@
 
 #include "RefMessageBodyService.h"
 
-namespace mozilla {
-namespace dom {
+#include <cstdint>
+#include <cstdlib>
+#include "mozilla/ErrorResult.h"
+#include "mozilla/RefPtr.h"
+#include "mozilla/dom/ipc/StructuredCloneData.h"
+#include "nsBaseHashtable.h"
+#include "nsContentUtils.h"
+#include "nsDebug.h"
+
+namespace mozilla::dom {
 
 StaticMutex sRefMessageBodyServiceMutex;
 
@@ -131,6 +139,8 @@ RefMessageBody::RefMessageBody(const nsID& aPortID,
       mMaxCount(Nothing()),
       mCount(0) {}
 
+RefMessageBody::~RefMessageBody() = default;
+
 void RefMessageBody::Read(JSContext* aCx, JS::MutableHandle<JS::Value> aValue,
                           ErrorResult& aRv) {
   MutexAutoLock lock(mMutex);
@@ -143,5 +153,4 @@ bool RefMessageBody::TakeTransferredPortsAsSequence(
   return mCloneData->TakeTransferredPortsAsSequence(aPorts);
 }
 
-}  // namespace dom
-}  // namespace mozilla
+}  // namespace mozilla::dom

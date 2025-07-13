@@ -14,7 +14,6 @@
 #include "nsDOMString.h"
 #include "nsWhitespaceTokenizer.h"
 #include "nsWrapperCache.h"
-#include "mozilla/dom/Element.h"
 #include "mozilla/dom/BindingDeclarations.h"
 #include "mozilla/dom/DOMTokenListSupportedTokens.h"
 
@@ -22,6 +21,7 @@ namespace mozilla {
 class ErrorResult;
 namespace dom {
 class DocGroup;
+class Element;
 }  // namespace dom
 }  // namespace mozilla
 

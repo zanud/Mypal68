@@ -5,25 +5,32 @@
 #ifndef mozilla_dom_Promise_h
 #define mozilla_dom_Promise_h
 
+#include <functional>
 #include <type_traits>
 #include <utility>
-
-#include "js/Promise.h"
+#include "ErrorList.h"
+#include "js/RootingAPI.h"
 #include "js/TypeDecls.h"
-#include "jspubtd.h"
-#include "mozilla/Attributes.h"
+#include "mozilla/AlreadyAddRefed.h"
+#include "mozilla/Assertions.h"
 #include "mozilla/ErrorResult.h"
-#include "mozilla/TimeStamp.h"
-#include "mozilla/TypeTraits.h"
+#include "mozilla/RefPtr.h"
+#include "mozilla/Result.h"
 #include "mozilla/WeakPtr.h"
-#include "mozilla/dom/BindingDeclarations.h"
-#include "mozilla/dom/PromiseBinding.h"
+#include "mozilla/dom/AutoEntryScript.h"
+#include "mozilla/dom/ScriptSettings.h"
 #include "mozilla/dom/ToJSValue.h"
-#include "nsAutoPtr.h"
 #include "nsCycleCollectionParticipant.h"
-#include "nsWrapperCache.h"
+#include "nsError.h"
+#include "nsISupports.h"
+#include "nsString.h"
 
+class nsCycleCollectionTraversalCallback;
 class nsIGlobalObject;
+
+namespace JS {
+class Value;
+}
 
 namespace mozilla {
 
@@ -173,12 +180,7 @@ class Promise : public SupportsWeakPtr {
 
   // Mark a settled promise as already handled so that rejections will not
   // be reported as unhandled.
-  void SetSettledPromiseIsHandled() {
-    AutoEntryScript aes(mGlobal, "Set settled promise handled");
-    JSContext* cx = aes.cx();
-    JS::RootedObject promiseObj(cx, mPromiseObj);
-    JS::SetSettledPromiseIsHandled(cx, promiseObj);
-  }
+  void SetSettledPromiseIsHandled();
 
   // WebIDL
 
@@ -315,6 +317,7 @@ class Promise : public SupportsWeakPtr {
   void MaybeSomething(T&& aArgument, MaybeFunc aFunc) {
     MOZ_ASSERT(PromiseObj());  // It was preserved!
 
+    AutoAllowLegacyScriptExecution exemption;
     AutoEntryScript aes(mGlobal, "Promise resolution or rejection");
     JSContext* cx = aes.cx();
 

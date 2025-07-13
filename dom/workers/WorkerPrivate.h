@@ -5,6 +5,7 @@
 #ifndef mozilla_dom_workers_workerprivate_h__
 #define mozilla_dom_workers_workerprivate_h__
 
+#include <bitset>
 #include "ScriptLoader.h"
 #include "js/ContextOptions.h"
 #include "mozilla/Attributes.h"
@@ -17,6 +18,7 @@
 #include "mozilla/UniquePtr.h"
 #include "mozilla/dom/ClientSource.h"
 #include "mozilla/dom/FlippedOnce.h"
+#include "mozilla/dom/JSExecutionManager.h" //MY
 #include "mozilla/dom/Worker.h"
 #include "mozilla/dom/WorkerCommon.h"
 #include "mozilla/dom/WorkerLoadInfo.h"
@@ -25,6 +27,7 @@
 #include "mozilla/dom/workerinternals/JSSettings.h"
 #include "mozilla/dom/workerinternals/Queue.h"
 #include "nsContentUtils.h"
+#include "nsIChannel.h"
 #include "nsIContentSecurityPolicy.h"
 #include "nsIEventTarget.h"
 #include "nsTObserverArray.h"

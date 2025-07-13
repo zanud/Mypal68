@@ -29,6 +29,7 @@
 #include "js/Wrapper.h"
 #include "mozilla/HashFunctions.h"
 #include "mozilla/UniquePtr.h"
+#include "mozilla/dom/AutoEntryScript.h"
 #include "mozilla/dom/ScriptSettings.h"
 
 #define NPRUNTIME_JSCLASS_NAME "NPObject JS wrapper class"
@@ -184,7 +185,8 @@ class NPObjWrapperProxyHandler : public js::BaseProxyHandler {
 
   bool getOwnPropertyDescriptor(
       JSContext* cx, JS::Handle<JSObject*> proxy, JS::Handle<jsid> id,
-      JS::MutableHandle<JS::PropertyDescriptor> desc) const override;
+      JS::MutableHandle<mozilla::Maybe<JS::PropertyDescriptor>> desc)
+      const override;
 
   bool ownPropertyKeys(JSContext* cx, JS::Handle<JSObject*> proxy,
                        JS::MutableHandleVector<jsid> properties) const override;
@@ -265,7 +267,7 @@ static const JSClassOps sNPObjectMemberClassOps = {nullptr,
 
 static const JSClass sNPObjectMemberClass = {
     "NPObject Ambiguous Member class",
-    JSCLASS_HAS_PRIVATE | JSCLASS_FOREGROUND_FINALIZE,
+    JSCLASS_HAS_RESERVED_SLOTS(1) | JSCLASS_FOREGROUND_FINALIZE,
     &sNPObjectMemberClassOps};
 
 static void OnWrapperDestroyed();
@@ -690,6 +692,8 @@ static bool doInvoke(NPObject* npobj, NPIdentifier method,
   if (NS_WARN_IF(!globalObject)) {
     return false;
   }
+
+  AutoAllowLegacyScriptExecution exemption;
 
   // We're about to run script via JS_CallFunctionValue, so we need an
   // AutoEntryScript. NPAPI plugins are Gecko-specific and not in any spec.
@@ -1493,13 +1497,13 @@ static bool CallNPMethod(JSContext* cx, unsigned argc, JS::Value* vp) {
 
 bool NPObjWrapperProxyHandler::getOwnPropertyDescriptor(
     JSContext* cx, JS::Handle<JSObject*> proxy, JS::Handle<jsid> id,
-    JS::MutableHandle<JS::PropertyDescriptor> desc) const {
+    JS::MutableHandle<mozilla::Maybe<JS::PropertyDescriptor>> desc) const {
   bool resolved = false;
   JS::Rooted<JSObject*> method(cx);
   if (!NPObjWrapper_Resolve(cx, proxy, id, &resolved, &method)) return false;
   if (!resolved) {
     // No such property.
-    desc.object().set(nullptr);
+    desc.reset();
     return true;
   }
 
@@ -1509,7 +1513,9 @@ bool NPObjWrapperProxyHandler::getOwnPropertyDescriptor(
   // reason for returning a descriptor here is to make property enumeration work
   // correctly (it will call getOwnPropertyDescriptor to check enumerability).
   JS::Rooted<JS::Value> val(cx, JS::ObjectOrNullValue(method));
-  desc.initFields(proxy, val, JSPROP_ENUMERATE, nullptr, nullptr);
+  JS::Rooted<JS::PropertyDescriptor> desc_(cx);
+  desc_.value().set(val);
+  desc.set(mozilla::Some(desc_.get()));
   return true;
 }
 
@@ -1573,7 +1579,7 @@ bool NPObjWrapperProxyHandler::ownPropertyKeys(
 static bool NPObjWrapper_Resolve(JSContext* cx, JS::Handle<JSObject*> obj,
                                  JS::Handle<jsid> id, bool* resolvedp,
                                  JS::MutableHandle<JSObject*> method) {
-  if (JSID_IS_SYMBOL(id)) return true;
+  if (id.isSymbol()) return true;
 
   AUTO_PROFILER_LABEL("NPObjWrapper_Resolve", JS);
 
@@ -2003,7 +2009,7 @@ static bool CreateNPObjectMember(NPP npp, JSContext* cx,
 
   vp.setObject(*memobj);
 
-  JS::SetPrivate(memobj, (void*)memberPrivate);
+  SetPrivate(memobj, (void*)memberPrivate);
 
   NPIdentifier identifier = JSIdToNPIdentifier(id);
 
@@ -2055,7 +2061,8 @@ static bool CreateNPObjectMember(NPP npp, JSContext* cx,
 static void NPObjectMember_Finalize(JSFreeOp* fop, JSObject* obj) {
   NPObjectMemberPrivate* memberPrivate;
 
-  memberPrivate = (NPObjectMemberPrivate*)JS::GetPrivate(obj);
+  memberPrivate =
+      JS::GetMaybePtrFromReservedSlot<NPObjectMemberPrivate>(obj, 0);
   if (!memberPrivate) return;
 
   delete memberPrivate;
@@ -2139,7 +2146,8 @@ static bool NPObjectMember_Call(JSContext* cx, unsigned argc, JS::Value* vp) {
 }
 
 static void NPObjectMember_Trace(JSTracer* trc, JSObject* obj) {
-  auto* memberPrivate = (NPObjectMemberPrivate*)JS::GetPrivate(obj);
+  auto* memberPrivate =
+      JS::GetMaybePtrFromReservedSlot<NPObjectMemberPrivate>(obj, 0);
   if (!memberPrivate) return;
 
   // Our NPIdentifier is not always interned, so we must trace it.

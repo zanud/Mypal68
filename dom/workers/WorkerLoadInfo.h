@@ -5,6 +5,7 @@
 #ifndef mozilla_dom_workers_WorkerLoadInfo_h
 #define mozilla_dom_workers_WorkerLoadInfo_h
 
+#include "mozilla/OriginAttributes.h"
 #include "mozilla/StorageAccess.h"
 #include "mozilla/UniquePtr.h"
 #include "mozilla/dom/ChannelInfo.h"
@@ -13,14 +14,17 @@
 
 #include "nsIInterfaceRequestor.h"
 #include "nsILoadContext.h"
+#include "nsIRequest.h"
 #include "nsISupportsImpl.h"
 #include "nsIWeakReferenceUtils.h"
+#include "nsTArray.h"
 
 class nsIChannel;
 class nsIContentSecurityPolicy;
 class nsICookieSettings;
 class nsILoadGroup;
 class nsIPrincipal;
+class nsIReferrerInfo;
 class nsIRunnable;
 class nsIScriptContext;
 class nsIBrowserChild;

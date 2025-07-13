@@ -11,39 +11,69 @@
 #ifndef nsXULElement_h__
 #define nsXULElement_h__
 
-#include "js/CompileOptions.h"  // JS::CompileOptions
+#include <stdint.h>
+#include <stdio.h>
+#include "ErrorList.h"
+#include "js/RootingAPI.h"
 #include "js/SourceText.h"
 #include "js/TracingAPI.h"
+#include "mozilla/AlreadyAddRefed.h"
+#include "mozilla/Assertions.h"
 #include "mozilla/Attributes.h"
-#include "nsAtom.h"
-#include "mozilla/dom/NodeInfo.h"
-#include "nsIControllers.h"
-#include "nsIURI.h"
-#include "nsLayoutCID.h"
-#include "AttrArray.h"
-#include "nsGkAtoms.h"
-#include "nsStringFwd.h"
-#include "nsStyledElement.h"
-#include "mozilla/dom/DOMRect.h"
-#include "mozilla/dom/Element.h"
+#include "mozilla/BasicEvents.h"
+#include "mozilla/RefPtr.h"
 #include "mozilla/dom/DOMString.h"
+#include "mozilla/dom/Element.h"
+#include "mozilla/dom/FragmentOrElement.h"
 #include "mozilla/dom/FromParser.h"
+#include "mozilla/dom/NameSpaceConstants.h"
+#include "mozilla/dom/NodeInfo.h"
+#include "nsAtom.h"
+#include "nsAttrName.h"
+#include "nsAttrValue.h"
+#include "nsCOMPtr.h"
+#include "nsCaseTreatment.h"
+#include "nsChangeHint.h"
+#include "nsCycleCollectionParticipant.h"
+#include "nsGkAtoms.h"
+#include "nsIContent.h"
+#include "nsINode.h"
+#include "nsISupports.h"
+#include "nsLiteralString.h"
+#include "nsString.h"
+#include "nsStyledElement.h"
+#include "nsTArray.h"
+#include "nsTLiteralString.h"
+#include "nscore.h"
 
-class nsXULPrototypeDocument;
-
+class JSObject;
+class JSScript;
+class nsAttrValueOrString;
+class nsIControllers;
 class nsIObjectInputStream;
 class nsIObjectOutputStream;
 class nsIOffThreadScriptReceiver;
+class nsIPrincipal;
+class nsIURI;
+class nsXULPrototypeDocument;
 class nsXULPrototypeNode;
+struct JSContext;
+
 typedef nsTArray<RefPtr<nsXULPrototypeNode>> nsPrototypeArray;
 
+namespace JS {
+class CompileOptions;
+}
+
 namespace mozilla {
+class ErrorResult;
 class EventChainPreVisitor;
 class EventListenerManager;
 namespace css {
 class StyleRule;
 }  // namespace css
 namespace dom {
+class Document;
 class HTMLIFrameElement;
 class PrototypeDocumentContentSink;
 enum class CallerType : uint32_t;
@@ -373,12 +403,11 @@ class nsXULElement : public nsStyledElement {
     SetAttr(aName, aValue, aError);
   }
   bool GetXULBoolAttr(nsAtom* aName) const {
-    return AttrValueIs(kNameSpaceID_None, aName, NS_LITERAL_STRING("true"),
-                       eCaseMatters);
+    return AttrValueIs(kNameSpaceID_None, aName, u"true"_ns, eCaseMatters);
   }
   void SetXULBoolAttr(nsAtom* aName, bool aValue) {
     if (aValue) {
-      SetAttr(kNameSpaceID_None, aName, NS_LITERAL_STRING("true"), true);
+      SetAttr(kNameSpaceID_None, aName, u"true"_ns, true);
     } else {
       UnsetAttr(kNameSpaceID_None, aName, true);
     }

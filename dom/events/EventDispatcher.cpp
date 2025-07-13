@@ -885,7 +885,7 @@ nsresult EventDispatcher::Dispatch(nsISupports* aTarget,
   bool clearTargets = false;
 
   nsCOMPtr<nsIContent> content = do_QueryInterface(aEvent->mOriginalTarget);
-  bool isInAnon = content && content->IsInAnonymousSubtree();
+  bool isInAnon = content && content->IsInNativeAnonymousSubtree();
 
   aEvent->mFlags.mIsBeingDispatched = true;
 
@@ -1014,8 +1014,8 @@ nsresult EventDispatcher::Dispatch(nsISupports* aTarget,
             // This is tiny bit slow, but happens only once per event.
             // Similar code also in EventListenerManager.
             nsCOMPtr<EventTarget> et = aEvent->mOriginalTarget;
-            RefPtr<Event> event = EventDispatcher::CreateEvent(
-                et, aPresContext, aEvent, EmptyString());
+            RefPtr<Event> event =
+                EventDispatcher::CreateEvent(et, aPresContext, aEvent, u""_ns);
             event.swap(postVisitor.mDOMEvent);
           }
           nsAutoString typeStr;
@@ -1247,7 +1247,7 @@ nsresult EventDispatcher::DispatchDOMEvent(nsISupports* aTarget,
   if (aEventType.LowerCaseEqualsLiteral("deviceorientationevent")) {
     DeviceOrientationEventInit init;
     RefPtr<Event> event =
-        DeviceOrientationEvent::Constructor(aOwner, EmptyString(), init);
+        DeviceOrientationEvent::Constructor(aOwner, u""_ns, init);
     event->MarkUninitialized();
     return event.forget();
   }
@@ -1285,8 +1285,7 @@ nsresult EventDispatcher::DispatchDOMEvent(nsISupports* aTarget,
   }
   if (aEventType.LowerCaseEqualsLiteral("hashchangeevent")) {
     HashChangeEventInit init;
-    RefPtr<Event> event =
-        HashChangeEvent::Constructor(aOwner, EmptyString(), init);
+    RefPtr<Event> event = HashChangeEvent::Constructor(aOwner, u""_ns, init);
     event->MarkUninitialized();
     return event.forget();
   }
@@ -1295,7 +1294,7 @@ nsresult EventDispatcher::DispatchDOMEvent(nsISupports* aTarget,
   }
   if (aEventType.LowerCaseEqualsLiteral("storageevent")) {
     RefPtr<Event> event =
-        StorageEvent::Constructor(aOwner, EmptyString(), StorageEventInit());
+        StorageEvent::Constructor(aOwner, u""_ns, StorageEventInit());
     event->MarkUninitialized();
     return event.forget();
   }

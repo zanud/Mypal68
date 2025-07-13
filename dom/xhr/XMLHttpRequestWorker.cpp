@@ -197,7 +197,7 @@ class WorkerThreadProxySyncRunnable : public WorkerMainThreadRunnable {
 
  public:
   WorkerThreadProxySyncRunnable(WorkerPrivate* aWorkerPrivate, Proxy* aProxy)
-      : WorkerMainThreadRunnable(aWorkerPrivate, NS_LITERAL_CSTRING("XHR")),
+      : WorkerMainThreadRunnable(aWorkerPrivate, "XHR"_ns),
         mProxy(aProxy),
         mErrorCode(NS_OK) {
     MOZ_ASSERT(aWorkerPrivate);
@@ -757,9 +757,9 @@ bool Proxy::Init() {
     return false;
   }
 
-  mXHR = new XMLHttpRequestMainThread();
+  mXHR = new XMLHttpRequestMainThread(ownerWindow ? ownerWindow->AsGlobal()
+                                                  : nullptr);
   mXHR->Construct(mWorkerPrivate->GetPrincipal(),
-                  ownerWindow ? ownerWindow->AsGlobal() : nullptr,
                   mWorkerPrivate->CookieSettings(), true,
                   mWorkerPrivate->GetBaseURI(), mWorkerPrivate->GetLoadGroup(),
                   mWorkerPrivate->GetPerformanceStorage(),
@@ -1295,7 +1295,7 @@ void SendRunnable::RunOnMainThread(ErrorResult& aRv) {
 
   mProxy->mInnerChannelId++;
 
-  mProxy->mXHR->Send(nullptr, payload, aRv);
+  mProxy->mXHR->Send(payload, aRv);
 
   if (!aRv.Failed()) {
     mProxy->mOutstandingSendCount++;
@@ -1311,8 +1311,10 @@ void SendRunnable::RunOnMainThread(ErrorResult& aRv) {
   }
 }
 
-XMLHttpRequestWorker::XMLHttpRequestWorker(WorkerPrivate* aWorkerPrivate)
-    : mWorkerPrivate(aWorkerPrivate),
+XMLHttpRequestWorker::XMLHttpRequestWorker(WorkerPrivate* aWorkerPrivate,
+                                           nsIGlobalObject* aGlobalObject)
+    : XMLHttpRequest(aGlobalObject),
+      mWorkerPrivate(aWorkerPrivate),
       mResponseType(XMLHttpRequestResponseType::_empty),
       mStateData(new StateData()),
       mResponseData(new ResponseData()),
@@ -1384,8 +1386,8 @@ already_AddRefed<XMLHttpRequest> XMLHttpRequestWorker::Construct(
     return nullptr;
   }
 
-  RefPtr<XMLHttpRequestWorker> xhr = new XMLHttpRequestWorker(workerPrivate);
-  xhr->BindToOwner(global);
+  RefPtr<XMLHttpRequestWorker> xhr =
+      new XMLHttpRequestWorker(workerPrivate, global);
 
   if (workerPrivate->XHRParamsAllowed()) {
     if (aParams.mMozSystem)
@@ -1472,13 +1474,12 @@ void XMLHttpRequestWorker::MaybeDispatchPrematureAbortEvents(ErrorResult& aRv) {
   if (mProxy->mSeenUploadLoadStart) {
     MOZ_ASSERT(mUpload);
 
-    DispatchPrematureAbortEvent(mUpload, NS_LITERAL_STRING("abort"), true, aRv);
+    DispatchPrematureAbortEvent(mUpload, u"abort"_ns, true, aRv);
     if (aRv.Failed()) {
       return;
     }
 
-    DispatchPrematureAbortEvent(mUpload, NS_LITERAL_STRING("loadend"), true,
-                                aRv);
+    DispatchPrematureAbortEvent(mUpload, u"loadend"_ns, true, aRv);
     if (aRv.Failed()) {
       return;
     }
@@ -1494,19 +1495,18 @@ void XMLHttpRequestWorker::MaybeDispatchPrematureAbortEvents(ErrorResult& aRv) {
 
   if (mProxy->mSeenLoadStart) {
     if (isStateChanged) {
-      DispatchPrematureAbortEvent(this, NS_LITERAL_STRING("readystatechange"),
-                                  false, aRv);
+      DispatchPrematureAbortEvent(this, u"readystatechange"_ns, false, aRv);
       if (aRv.Failed()) {
         return;
       }
     }
 
-    DispatchPrematureAbortEvent(this, NS_LITERAL_STRING("abort"), false, aRv);
+    DispatchPrematureAbortEvent(this, u"abort"_ns, false, aRv);
     if (aRv.Failed()) {
       return;
     }
 
-    DispatchPrematureAbortEvent(this, NS_LITERAL_STRING("loadend"), false, aRv);
+    DispatchPrematureAbortEvent(this, u"loadend"_ns, false, aRv);
     if (aRv.Failed()) {
       return;
     }
@@ -1598,9 +1598,9 @@ void XMLHttpRequestWorker::SendInternal(const BodyExtractorBase* aBody,
       return;
     }
 
-    blobImpl = StreamBlobImpl::Create(
-        uploadStream.forget(), NS_ConvertUTF8toUTF16(defaultContentType),
-        size_u64, NS_LITERAL_STRING("StreamBlobImpl"));
+    blobImpl = StreamBlobImpl::Create(uploadStream.forget(),
+                                      NS_ConvertUTF8toUTF16(defaultContentType),
+                                      size_u64, u"StreamBlobImpl"_ns);
     MOZ_ASSERT(blobImpl);
   }
 
@@ -1845,7 +1845,6 @@ XMLHttpRequestUpload* XMLHttpRequestWorker::GetUpload(ErrorResult& aRv) {
 }
 
 void XMLHttpRequestWorker::Send(
-    JSContext* aCx,
     const Nullable<
         DocumentOrBlobOrArrayBufferViewOrArrayBufferOrFormDataOrURLSearchParamsOrUSVString>&
         aData,

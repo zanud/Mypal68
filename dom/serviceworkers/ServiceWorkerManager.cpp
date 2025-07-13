@@ -27,7 +27,6 @@
 #include "mozilla/Result.h"
 #include "mozilla/ResultExtensions.h"
 #include "mozilla/SystemGroup.h"
-#include "mozilla/Telemetry.h"
 #include "mozilla/dom/BindingUtils.h"
 #include "mozilla/dom/ClientHandle.h"
 #include "mozilla/dom/ClientManager.h"
@@ -447,8 +446,6 @@ RefPtr<GenericErrorResultPromise> ServiceWorkerManager::StartControllingClient(
       aRegistrationInfo->StartControllingClient();
     }
 
-    Telemetry::Accumulate(Telemetry::SERVICE_WORKER_CONTROLLED_DOCUMENTS, 1);
-
     // Always check to see if we failed to actually control the client.  In
     // that case removed the client from our list of controlled clients.
     return promise->Then(
@@ -482,8 +479,6 @@ RefPtr<GenericErrorResultPromise> ServiceWorkerManager::StartControllingClient(
   clientHandle->OnDetach()->Then(
       SystemGroup::EventTargetFor(TaskCategory::Other), __func__,
       [self, aClientInfo] { self->StopControllingClient(aClientInfo); });
-
-  Telemetry::Accumulate(Telemetry::SERVICE_WORKER_CONTROLLED_DOCUMENTS, 1);
 
   // Always check to see if we failed to actually control the client.  In
   // that case removed the client from our list of controlled clients.
@@ -885,7 +880,6 @@ RefPtr<ServiceWorkerRegistrationPromise> ServiceWorkerManager::Register(
   queue->ScheduleJob(job);
 
   MOZ_ASSERT(NS_IsMainThread());
-  Telemetry::Accumulate(Telemetry::SERVICE_WORKER_REGISTRATIONS, 1);
 
   return cb->Promise();
 }
@@ -953,8 +947,12 @@ class GetRegistrationsRunnable final : public Runnable {
         break;
       }
 
-      rv = principal->CheckMayLoad(scopeURI, true /* report */,
-                                   false /* allowIfInheritsPrincipal */);
+      // Unfortunately we don't seem to have an obvious window id here; in
+      // particular ClientInfo does not have one, and neither do service worker
+      // registrations, as far as I can tell.
+      rv = principal->CheckMayLoadWithReporting(
+          scopeURI, false /* allowIfInheritsPrincipal */,
+          0 /* innerWindowID */);
       if (NS_WARN_IF(NS_FAILED(rv))) {
         continue;
       }
@@ -1016,8 +1014,11 @@ class GetRegistrationRunnable final : public Runnable {
       return NS_OK;
     }
 
-    rv = principal->CheckMayLoad(uri, true /* report */,
-                                 false /* allowIfInheritsPrinciple */);
+    // Unfortunately we don't seem to have an obvious window id here; in
+    // particular ClientInfo does not have one, and neither do service worker
+    // registrations, as far as I can tell.
+    rv = principal->CheckMayLoadWithReporting(
+        uri, false /* allowIfInheritsPrincipal */, 0 /* innerWindowID */);
     if (NS_FAILED(rv)) {
       mPromise->Reject(NS_ERROR_DOM_SECURITY_ERR, __func__);
       return NS_OK;
@@ -1062,11 +1063,11 @@ ServiceWorkerManager::SendPushEvent(const nsACString& aOriginAttributes,
     // whether we really need to in PushMessageDispatcher::NotifyWorkers.  Since
     // in practice this only affects JS callers that pass data, and we don't
     // have any right now, let's not worry about it.
-    return SendPushEvent(aOriginAttributes, aScope, EmptyString(),
+    return SendPushEvent(aOriginAttributes, aScope, u""_ns,
                          Some(aDataBytes));
   }
   MOZ_ASSERT(optional_argc == 0);
-  return SendPushEvent(aOriginAttributes, aScope, EmptyString(), Nothing());
+  return SendPushEvent(aOriginAttributes, aScope, u""_ns, Nothing());
 }
 
 nsresult ServiceWorkerManager::SendPushEvent(
@@ -1144,7 +1145,7 @@ ServiceWorkerManager::SendNotificationClickEvent(
     const nsAString& aLang, const nsAString& aBody, const nsAString& aTag,
     const nsAString& aIcon, const nsAString& aData,
     const nsAString& aBehavior) {
-  return SendNotificationEvent(NS_LITERAL_STRING(NOTIFICATION_CLICK_EVENT_NAME),
+  return SendNotificationEvent(nsLiteralString(NOTIFICATION_CLICK_EVENT_NAME),
                                aOriginSuffix, aScope, aID, aTitle, aDir, aLang,
                                aBody, aTag, aIcon, aData, aBehavior);
 }
@@ -1156,7 +1157,7 @@ ServiceWorkerManager::SendNotificationCloseEvent(
     const nsAString& aLang, const nsAString& aBody, const nsAString& aTag,
     const nsAString& aIcon, const nsAString& aData,
     const nsAString& aBehavior) {
-  return SendNotificationEvent(NS_LITERAL_STRING(NOTIFICATION_CLOSE_EVENT_NAME),
+  return SendNotificationEvent(nsLiteralString(NOTIFICATION_CLOSE_EVENT_NAME),
                                aOriginSuffix, aScope, aID, aTitle, aDir, aLang,
                                aBody, aTag, aIcon, aData, aBehavior);
 }
@@ -2428,9 +2429,8 @@ void ServiceWorkerManager::Update(
       new UpdateRunnable(aPrincipal, aScope, std::move(aNewestWorkerScriptUrl),
                          aCallback, UpdateRunnable::eSuccess, promise);
 
-  RefPtr<CancelableRunnable> failureRunnable =
-      new UpdateRunnable(aPrincipal, aScope, EmptyCString(), aCallback,
-                         UpdateRunnable::eFailure, promise);
+  RefPtr<CancelableRunnable> failureRunnable = new UpdateRunnable(
+      aPrincipal, aScope, ""_ns, aCallback, UpdateRunnable::eFailure, promise);
 
   ServiceWorkerUpdaterChild* actor =
       new ServiceWorkerUpdaterChild(promise, successRunnable, failureRunnable);

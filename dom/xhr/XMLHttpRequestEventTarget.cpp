@@ -4,6 +4,8 @@
 
 #include "XMLHttpRequestEventTarget.h"
 
+#include "mozilla/dom/DebuggerNotificationBinding.h"
+
 namespace mozilla {
 namespace dom {
 
@@ -22,6 +24,11 @@ NS_INTERFACE_MAP_END_INHERITING(DOMEventTargetHelper)
 
 NS_IMPL_ADDREF_INHERITED(XMLHttpRequestEventTarget, DOMEventTargetHelper)
 NS_IMPL_RELEASE_INHERITED(XMLHttpRequestEventTarget, DOMEventTargetHelper)
+
+mozilla::Maybe<EventCallbackDebuggerNotificationType>
+XMLHttpRequestEventTarget::GetDebuggerNotificationType() const {
+  return mozilla::Some(EventCallbackDebuggerNotificationType::Xhr);
+}
 
 void XMLHttpRequestEventTarget::DisconnectFromOwner() {
   DOMEventTargetHelper::DisconnectFromOwner();

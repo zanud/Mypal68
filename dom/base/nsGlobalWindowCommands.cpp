@@ -32,6 +32,7 @@
 #include "mozilla/TextEvents.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/Selection.h"
+#include "mozilla/intl/WordBreaker.h"
 #include "mozilla/layers/KeyboardMap.h"
 
 using namespace mozilla;

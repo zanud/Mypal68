@@ -1214,7 +1214,7 @@ nsresult OpenOp::DatabaseWork() {
     return rv;
   }
 
-  rv = dbDirectory->Append(NS_LITERAL_STRING(SDB_DIRECTORY_NAME));
+  rv = dbDirectory->Append(NS_LITERAL_STRING_FROM_CSTRING(SDB_DIRECTORY_NAME));
   if (NS_WARN_IF(NS_FAILED(rv))) {
     return rv;
   }
@@ -1698,7 +1698,7 @@ nsresult QuotaClient::GetUsageForOrigin(PersistenceType aPersistenceType,
 
   MOZ_ASSERT(directory);
 
-  rv = directory->Append(NS_LITERAL_STRING(SDB_DIRECTORY_NAME));
+  rv = directory->Append(NS_LITERAL_STRING_FROM_CSTRING(SDB_DIRECTORY_NAME));
   if (NS_WARN_IF(NS_FAILED(rv))) {
     return rv;
   }

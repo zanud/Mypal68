@@ -14,6 +14,7 @@
 #include "MediaTrackListener.h"
 #include "mozilla/dom/AudioNode.h"
 #include "mozilla/dom/AudioStreamTrack.h"
+#include "mozilla/dom/BlobImpl.h"
 #include "mozilla/dom/MediaStreamTrack.h"
 #include "mozilla/dom/VideoStreamTrack.h"
 #include "mozilla/gfx/Point.h"  // IntSize

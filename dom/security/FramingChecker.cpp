@@ -217,16 +217,16 @@ static bool ShouldIgnoreFrameOptions(nsIChannel* aChannel,
   nsCOMPtr<nsILoadInfo> loadInfo = aChannel->LoadInfo();
   uint64_t innerWindowID = loadInfo->GetInnerWindowID();
   bool privateWindow = !!loadInfo->GetOriginAttributes().mPrivateBrowsingId;
-  AutoTArray<nsString, 2> params = {NS_LITERAL_STRING("x-frame-options"),
-                                    NS_LITERAL_STRING("frame-ancestors")};
+  AutoTArray<nsString, 2> params = {u"x-frame-options"_ns,
+                                    u"frame-ancestors"_ns};
   CSP_LogLocalizedStr("IgnoringSrcBecauseOfDirective", params,
-                      EmptyString(),  // no sourcefile
-                      EmptyString(),  // no scriptsample
-                      0,              // no linenumber
-                      0,              // no columnnumber
+                      u""_ns,  // no sourcefile
+                      u""_ns,  // no scriptsample
+                      0,       // no linenumber
+                      0,       // no columnnumber
                       nsIScriptError::warningFlag,
-                      NS_LITERAL_CSTRING("IgnoringSrcBecauseOfDirective"),
-                      innerWindowID, privateWindow);
+                      "IgnoringSrcBecauseOfDirective"_ns, innerWindowID,
+                      privateWindow);
 
   return true;
 }
@@ -262,8 +262,8 @@ bool FramingChecker::CheckFrameOptions(nsIChannel* aChannel,
   }
 
   nsAutoCString xfoHeaderCValue;
-  Unused << httpChannel->GetResponseHeader(
-      NS_LITERAL_CSTRING("X-Frame-Options"), xfoHeaderCValue);
+  Unused << httpChannel->GetResponseHeader("X-Frame-Options"_ns,
+                                           xfoHeaderCValue);
   NS_ConvertUTF8toUTF16 xfoHeaderValue(xfoHeaderCValue);
 
   // if no header value, there's nothing to do.

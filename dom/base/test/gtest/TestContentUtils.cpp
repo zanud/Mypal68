@@ -5,9 +5,11 @@
 #include "gtest/gtest.h"
 
 #include "jsapi.h"
+#include "js/PropertyAndElement.h"  // JS_DefineProperty
 #include "nsContentUtils.h"
 #include "nsNetUtil.h"
 #include "mozilla/CycleCollectedJSContext.h"
+#include "mozilla/dom/ScriptSettings.h"
 #include "mozilla/dom/SimpleGlobalObject.h"
 
 TEST(DOM_Base_ContentUtils, StringifyJSON_EmptyValue)

@@ -8,7 +8,6 @@
 #include "nsCOMPtr.h"
 #include "mozilla/dom/Document.h"
 #include "nsWrapperCache.h"
-#include "mozilla/ErrorResult.h"
 #include "mozilla/Span.h"
 #include "mozilla/dom/DOMParserBinding.h"
 #include "mozilla/dom/TypedArray.h"
@@ -16,6 +15,8 @@
 class nsIGlobalObject;
 
 namespace mozilla {
+class ErrorResult;
+
 namespace dom {
 
 class DOMParser final : public nsISupports, public nsWrapperCache {
