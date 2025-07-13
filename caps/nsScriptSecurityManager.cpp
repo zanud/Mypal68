@@ -145,6 +145,9 @@ class nsAutoInPrincipalDomainOriginSetter {
 uint32_t nsAutoInPrincipalDomainOriginSetter::sInPrincipalDomainOrigin;
 
 static nsresult GetOriginFromURI(nsIURI* aURI, nsACString& aOrigin) {
+  if (!aURI) {
+    return NS_ERROR_NULL_POINTER;
+  }
   if (nsAutoInPrincipalDomainOriginSetter::sInPrincipalDomainOrigin > 1) {
     // Allow a single recursive call to GetPrincipalDomainOrigin, since that
     // might be happening on a different principal from the first call.  But
@@ -165,7 +168,7 @@ static nsresult GetOriginFromURI(nsIURI* aURI, nsACString& aOrigin) {
     nsAutoCString scheme;
     rv = uri->GetScheme(scheme);
     NS_ENSURE_SUCCESS(rv, rv);
-    aOrigin = scheme + NS_LITERAL_CSTRING("://") + hostPort;
+    aOrigin = scheme + "://"_ns + hostPort;
   } else {
     // Some URIs (e.g., nsSimpleURI) don't support host. Just
     // get the full spec.
@@ -178,14 +181,15 @@ static nsresult GetOriginFromURI(nsIURI* aURI, nsACString& aOrigin) {
 
 static nsresult GetPrincipalDomainOrigin(nsIPrincipal* aPrincipal,
                                          nsACString& aOrigin) {
+  aOrigin.Truncate();
   nsCOMPtr<nsIURI> uri;
   aPrincipal->GetDomain(getter_AddRefs(uri));
-  if (!uri) {
-    aPrincipal->GetURI(getter_AddRefs(uri));
+  nsresult rv = GetOriginFromURI(uri, aOrigin);
+  if (NS_SUCCEEDED(rv)) {
+    return rv;
   }
-  NS_ENSURE_TRUE(uri, NS_ERROR_UNEXPECTED);
-
-  return GetOriginFromURI(uri, aOrigin);
+  // If there is no Domain fallback to the Principals Origin
+  return aPrincipal->GetOriginNoSuffix(aOrigin);
 }
 
 inline void SetPendingExceptionASCII(JSContext* cx, const char* aMsg) {
@@ -485,22 +489,15 @@ nsScriptSecurityManager::CheckSameOriginURI(nsIURI* aSourceURI,
   return NS_OK;
 }
 
-/*static*/
-uint32_t nsScriptSecurityManager::HashPrincipalByOrigin(
-    nsIPrincipal* aPrincipal) {
-  nsCOMPtr<nsIURI> uri;
-  aPrincipal->GetDomain(getter_AddRefs(uri));
-  if (!uri) aPrincipal->GetURI(getter_AddRefs(uri));
-  return SecurityHashURI(uri);
-}
-
 NS_IMETHODIMP
 nsScriptSecurityManager::CheckLoadURIFromScript(JSContext* cx, nsIURI* aURI) {
   // Get principal of currently executing script.
   MOZ_ASSERT(cx == nsContentUtils::GetCurrentJSContext());
   nsIPrincipal* principal = nsContentUtils::SubjectPrincipal();
-  nsresult rv = CheckLoadURIWithPrincipal(principal, aURI,
-                                          nsIScriptSecurityManager::STANDARD);
+  nsresult rv = CheckLoadURIWithPrincipal(
+      // Passing 0 for the window ID here is OK, because we will report a
+      // script-visible exception anyway.
+      principal, aURI, nsIScriptSecurityManager::STANDARD, 0);
   if (NS_SUCCEEDED(rv)) {
     // OK to load
     return NS_OK;
@@ -565,7 +562,8 @@ static bool EqualOrSubdomain(nsIURI* aProbeArg, nsIURI* aBase) {
 NS_IMETHODIMP
 nsScriptSecurityManager::CheckLoadURIWithPrincipal(nsIPrincipal* aPrincipal,
                                                    nsIURI* aTargetURI,
-                                                   uint32_t aFlags) {
+                                                   uint32_t aFlags,
+                                                   uint64_t aInnerWindowID) {
   MOZ_ASSERT(aPrincipal, "CheckLoadURIWithPrincipal must have a principal");
 
   // If someone passes a flag that we don't understand, we should
@@ -603,7 +601,8 @@ nsScriptSecurityManager::CheckLoadURIWithPrincipal(nsIPrincipal* aPrincipal,
     if (basePrin->Is<ExpandedPrincipal>()) {
       auto expanded = basePrin->As<ExpandedPrincipal>();
       for (auto& prin : expanded->AllowList()) {
-        nsresult rv = CheckLoadURIWithPrincipal(prin, aTargetURI, aFlags);
+        nsresult rv =
+            CheckLoadURIWithPrincipal(prin, aTargetURI, aFlags, aInnerWindowID);
         if (NS_SUCCEEDED(rv)) {
           // Allow access if it succeeded with one of the allowlisted principals
           return NS_OK;
@@ -654,10 +653,15 @@ nsScriptSecurityManager::CheckLoadURIWithPrincipal(nsIPrincipal* aPrincipal,
     // access:
     rv = CheckLoadURIFlags(
         sourceURI, aTargetURI, sourceBaseURI, targetBaseURI, aFlags,
-        aPrincipal->OriginAttributesRef().mPrivateBrowsingId > 0);
+        aPrincipal->OriginAttributesRef().mPrivateBrowsingId > 0,
+        aInnerWindowID);
     NS_ENSURE_SUCCESS(rv, rv);
     // Check the principal is allowed to load the target.
-    return aPrincipal->CheckMayLoad(targetBaseURI, true, false);
+    if (aFlags & nsIScriptSecurityManager::DONT_REPORT_ERRORS) {
+      return aPrincipal->CheckMayLoad(targetBaseURI, false);
+    }
+    return aPrincipal->CheckMayLoadWithReporting(targetBaseURI, false,
+                                                 aInnerWindowID);
   }
 
   //-- get the source scheme
@@ -774,7 +778,8 @@ nsScriptSecurityManager::CheckLoadURIWithPrincipal(nsIPrincipal* aPrincipal,
     if (!schemesMatch || (denySameSchemeLinks && !isSamePage)) {
       return CheckLoadURIFlags(
           currentURI, currentOtherURI, sourceBaseURI, targetBaseURI, aFlags,
-          aPrincipal->OriginAttributesRef().mPrivateBrowsingId > 0);
+          aPrincipal->OriginAttributesRef().mPrivateBrowsingId > 0,
+          aInnerWindowID);
     }
     // Otherwise... check if we can nest another level:
     nsCOMPtr<nsINestedURI> nestedURI = do_QueryInterface(currentURI);
@@ -808,7 +813,8 @@ nsScriptSecurityManager::CheckLoadURIWithPrincipal(nsIPrincipal* aPrincipal,
  */
 nsresult nsScriptSecurityManager::CheckLoadURIFlags(
     nsIURI* aSourceURI, nsIURI* aTargetURI, nsIURI* aSourceBaseURI,
-    nsIURI* aTargetBaseURI, uint32_t aFlags, bool aFromPrivateWindow) {
+    nsIURI* aTargetBaseURI, uint32_t aFlags, bool aFromPrivateWindow,
+    uint64_t aInnerWindowID) {
   // Note that the order of policy checks here is very important!
   // We start from most restrictive and work our way down.
   bool reportErrors = !(aFlags & nsIScriptSecurityManager::DONT_REPORT_ERRORS);
@@ -824,7 +830,8 @@ nsresult nsScriptSecurityManager::CheckLoadURIFlags(
   if (NS_FAILED(rv)) {
     // Deny access, since the origin principal is not system
     if (reportErrors) {
-      ReportError(errorTag, aSourceURI, aTargetURI, aFromPrivateWindow);
+      ReportError(errorTag, aSourceURI, aTargetURI, aFromPrivateWindow,
+                  aInnerWindowID);
     }
     return rv;
   }
@@ -836,7 +843,8 @@ nsresult nsScriptSecurityManager::CheckLoadURIFlags(
         aTargetURI, nsIProtocolHandler::URI_DISALLOW_IN_PRIVATE_CONTEXT);
     if (NS_FAILED(rv)) {
       if (reportErrors) {
-        ReportError(errorTag, aSourceURI, aTargetURI, aFromPrivateWindow);
+        ReportError(errorTag, aSourceURI, aTargetURI, aFromPrivateWindow,
+                    aInnerWindowID);
       }
       return rv;
     }
@@ -903,7 +911,8 @@ nsresult nsScriptSecurityManager::CheckLoadURIFlags(
     }
 
     if (reportErrors) {
-      ReportError(errorTag, aSourceURI, aTargetURI, aFromPrivateWindow);
+      ReportError(errorTag, aSourceURI, aTargetURI, aFromPrivateWindow,
+                  aInnerWindowID);
     }
     return NS_ERROR_DOM_BAD_URI;
   }
@@ -928,7 +937,8 @@ nsresult nsScriptSecurityManager::CheckLoadURIFlags(
 
     // Nothing else.
     if (reportErrors) {
-      ReportError(errorTag, aSourceURI, aTargetURI, aFromPrivateWindow);
+      ReportError(errorTag, aSourceURI, aTargetURI, aFromPrivateWindow,
+                  aInnerWindowID);
     }
     return NS_ERROR_DOM_BAD_URI;
   }
@@ -971,7 +981,8 @@ nsresult nsScriptSecurityManager::CheckLoadURIFlags(
 
 nsresult nsScriptSecurityManager::ReportError(const char* aMessageTag,
                                               nsIURI* aSource, nsIURI* aTarget,
-                                              bool aFromPrivateWindow) {
+                                              bool aFromPrivateWindow,
+                                              uint64_t aInnerWindowID) {
   nsresult rv;
   NS_ENSURE_TRUE(aSource && aTarget, NS_ERROR_NULL_POINTER);
 
@@ -1005,9 +1016,15 @@ nsresult nsScriptSecurityManager::ReportError(const char* aMessageTag,
   NS_ENSURE_TRUE(error, NS_ERROR_FAILURE);
 
   // using category of "SOP" so we can link to MDN
-  rv = error->Init(message, EmptyString(), EmptyString(), 0, 0,
-                   nsIScriptError::errorFlag, "SOP", aFromPrivateWindow,
-                   true /* From chrome context */);
+  if (aInnerWindowID != 0) {
+    rv = error->InitWithWindowID(
+        message, EmptyString(), EmptyString(), 0, 0, nsIScriptError::errorFlag,
+        "SOP"_ns, aInnerWindowID, true /* From chrome context */);
+  } else {
+    rv = error->Init(message, EmptyString(), EmptyString(), 0, 0,
+                     nsIScriptError::errorFlag, "SOP", aFromPrivateWindow,
+                     true /* From chrome context */);
+  }
   NS_ENSURE_SUCCESS(rv, rv);
   console->LogMessage(error);
   return NS_OK;
@@ -1022,7 +1039,7 @@ nsScriptSecurityManager::CheckLoadURIStrWithPrincipal(
   rv = NS_NewURI(getter_AddRefs(target), aTargetURIStr);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  rv = CheckLoadURIWithPrincipal(aPrincipal, target, aFlags);
+  rv = CheckLoadURIWithPrincipal(aPrincipal, target, aFlags, 0);
   if (rv == NS_ERROR_DOM_BAD_URI) {
     // Don't warn because NS_ERROR_DOM_BAD_URI is one of the expected
     // return values.
@@ -1050,7 +1067,7 @@ nsScriptSecurityManager::CheckLoadURIStrWithPrincipal(
                                getter_AddRefs(target));
     NS_ENSURE_SUCCESS(rv, rv);
 
-    rv = CheckLoadURIWithPrincipal(aPrincipal, target, aFlags);
+    rv = CheckLoadURIWithPrincipal(aPrincipal, target, aFlags, 0);
     if (rv == NS_ERROR_DOM_BAD_URI) {
       // Don't warn because NS_ERROR_DOM_BAD_URI is one of the expected
       // return values.
@@ -1104,12 +1121,12 @@ nsScriptSecurityManager::CreateCodebasePrincipal(
 NS_IMETHODIMP
 nsScriptSecurityManager::CreateCodebasePrincipalFromOrigin(
     const nsACString& aOrigin, nsIPrincipal** aPrincipal) {
-  if (StringBeginsWith(aOrigin, NS_LITERAL_CSTRING("["))) {
+  if (StringBeginsWith(aOrigin, "["_ns)) {
     return NS_ERROR_INVALID_ARG;
   }
 
   if (StringBeginsWith(aOrigin,
-                       NS_LITERAL_CSTRING(NS_NULLPRINCIPAL_SCHEME ":"))) {
+                       nsLiteralCString(NS_NULLPRINCIPAL_SCHEME ":"))) {
     return NS_ERROR_INVALID_ARG;
   }
 
@@ -1200,8 +1217,7 @@ nsScriptSecurityManager::PrincipalWithOA(
       return NS_ERROR_INVALID_ARG;
     }
     RefPtr<ContentPrincipal> copy = new ContentPrincipal();
-    ContentPrincipal* contentPrincipal =
-        static_cast<ContentPrincipal*>(aPrincipal);
+    auto* contentPrincipal = static_cast<ContentPrincipal*>(aPrincipal);
     nsresult rv = copy->Init(contentPrincipal, attrs);
     NS_ENSURE_SUCCESS(rv, rv);
     copy.forget(aReturnPrincipal);
@@ -1454,8 +1470,8 @@ void nsScriptSecurityManager::AddSitesToFileURIAllowlist(
     // Check if the URI is schemeless. If so, add both http and https.
     nsAutoCString unused;
     if (NS_FAILED(sIOService->ExtractScheme(site, unused))) {
-      AddSitesToFileURIAllowlist(NS_LITERAL_CSTRING("http://") + site);
-      AddSitesToFileURIAllowlist(NS_LITERAL_CSTRING("https://") + site);
+      AddSitesToFileURIAllowlist("http://"_ns + site);
+      AddSitesToFileURIAllowlist("https://"_ns + site);
       continue;
     }
 
@@ -1469,8 +1485,7 @@ void nsScriptSecurityManager::AddSitesToFileURIAllowlist(
           do_GetService("@mozilla.org/consoleservice;1"));
       if (console) {
         nsAutoString msg =
-            NS_LITERAL_STRING(
-                "Unable to to add site to file:// URI allowlist: ") +
+            u"Unable to to add site to file:// URI allowlist: "_ns +
             NS_ConvertASCIItoUTF16(site);
         console->LogStringMessage(msg.get());
       }
@@ -1603,8 +1618,7 @@ nsScriptSecurityManager::EnsureFileURIAllowlist() {
     // Figure out if this policy allows loading file:// URIs. If not, we can
     // skip it.
     nsCString checkLoadURIPrefName =
-        NS_LITERAL_CSTRING("capability.policy.") + policyName +
-        NS_LITERAL_CSTRING(".checkloaduri.enabled");
+        "capability.policy."_ns + policyName + ".checkloaduri.enabled"_ns;
     nsAutoString value;
     nsresult rv = Preferences::GetString(checkLoadURIPrefName.get(), value);
     if (NS_FAILED(rv) || !value.LowerCaseEqualsLiteral("allaccess")) {
@@ -1612,8 +1626,8 @@ nsScriptSecurityManager::EnsureFileURIAllowlist() {
     }
 
     // Grab the list of domains associated with this policy.
-    nsCString domainPrefName = NS_LITERAL_CSTRING("capability.policy.") +
-                               policyName + NS_LITERAL_CSTRING(".sites");
+    nsCString domainPrefName =
+        "capability.policy."_ns + policyName + ".sites"_ns;
     nsAutoCString siteList;
     Preferences::GetCString(domainPrefName.get(), siteList);
     AddSitesToFileURIAllowlist(siteList);

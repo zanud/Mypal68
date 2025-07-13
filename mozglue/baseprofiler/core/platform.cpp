@@ -39,6 +39,9 @@
 #include "mozilla/BaseProfilerDetail.h"
 #include "mozilla/DoubleConversion.h"
 #include "mozilla/Printf.h"
+#include "mozilla/ProfileBufferChunkManagerSingle.h"
+#include "mozilla/ProfileBufferChunkManagerWithLocalLimit.h"
+#include "mozilla/ProfileChunkedBuffer.h"
 #include "mozilla/Services.h"
 #include "mozilla/Span.h"
 #include "mozilla/StackWalk.h"
@@ -166,6 +169,25 @@ void PrintToConsole(const char* aFmt, ...) {
   va_end(args);
 }
 
+constexpr static bool ValidateFeatures() {
+  int expectedFeatureNumber = 0;
+
+  // Feature numbers should start at 0 and increase by 1 each.
+#define CHECK_FEATURE(n_, str_, Name_, desc_) \
+  if ((n_) != expectedFeatureNumber) {        \
+    return false;                             \
+  }                                           \
+  ++expectedFeatureNumber;
+
+  BASE_PROFILER_FOR_EACH_FEATURE(CHECK_FEATURE)
+
+#undef CHECK_FEATURE
+
+  return true;
+}
+
+static_assert(ValidateFeatures(), "Feature list is invalid");
+
 // Return all features that are available on this platform.
 static uint32_t AvailableFeatures() {
   uint32_t features = 0;
@@ -197,7 +219,7 @@ static uint32_t DefaultFeatures() {
          ProfilerFeature::StackWalk | ProfilerFeature::Threads;
 }
 
-// Extra default features when MOZ_BASE_PROFILER_STARTUP is set (even if not
+// Extra default features when MOZ_PROFILER_STARTUP is set (even if not
 // available).
 static uint32_t StartupExtraDefaultFeatures() {
   // Enable mainthreadio by default for startup profiles as startup is heavy on
@@ -218,6 +240,10 @@ class MOZ_RAII PSAutoLock {
 
   PSAutoLock(const PSAutoLock&) = delete;
   void operator=(const PSAutoLock&) = delete;
+
+  [[nodiscard]] static bool IsLockedOnCurrentThread() {
+    return gPSMutex.IsLockedOnCurrentThread();
+  }
 
  private:
   static detail::BaseProfilerMutex gPSMutex;
@@ -271,7 +297,7 @@ class CorePS {
         // functions guarded by gPSMutex as well as others without safety (e.g.,
         // profiler_add_marker). It is *not* used inside the critical section of
         // the sampler, because mutexes cannot be used there.
-        mCoreBlocksRingBuffer(BlocksRingBuffer::ThreadSafety::WithMutex)
+        mCoreBuffer(ProfileChunkedBuffer::ThreadSafety::WithMutex)
 #ifdef USE_LUL_STACKWALK
         ,
         mLul(nullptr)
@@ -327,10 +353,13 @@ class CorePS {
   }
 
   // No PSLockRef is needed for this field because it's immutable.
+  PS_GET_LOCKLESS(int, MainThreadId)
+
+  // No PSLockRef is needed for this field because it's immutable.
   PS_GET_LOCKLESS(TimeStamp, ProcessStartTime)
 
   // No PSLockRef is needed for this field because it's thread-safe.
-  PS_GET_LOCKLESS(BlocksRingBuffer&, CoreBlocksRingBuffer)
+  PS_GET_LOCKLESS(ProfileChunkedBuffer&, CoreBuffer)
 
   PS_GET(const Vector<UniquePtr<RegisteredThread>>&, RegisteredThreads)
 
@@ -419,16 +448,16 @@ class CorePS {
   // The time that the process started.
   const TimeStamp mProcessStartTime;
 
-  // The thread-safe blocks-oriented ring buffer into which all profiling data
-  // is recorded.
+  // The thread-safe blocks-oriented buffer into which all profiling data is
+  // recorded.
   // ActivePS controls the lifetime of the underlying contents buffer: When
-  // ActivePS does not exist, mCoreBlocksRingBuffer is empty and rejects all
-  // reads&writes; see ActivePS for further details.
+  // ActivePS does not exist, mCoreBuffer is empty and rejects all reads&writes;
+  // see ActivePS for further details.
   // Note: This needs to live here outside of ActivePS, because some producers
   // are indirectly controlled (e.g., by atomic flags) and therefore may still
   // attempt to write some data shortly after ActivePS has shutdown and deleted
   // the underlying buffer in memory.
-  BlocksRingBuffer mCoreBlocksRingBuffer;
+  ProfileChunkedBuffer mCoreBuffer;
 
   // Info on all the registered threads.
   // ThreadIds in mRegisteredThreads are unique.
@@ -462,6 +491,13 @@ struct LiveProfiledThreadData {
   UniquePtr<ProfiledThreadData> mProfiledThreadData;
 };
 
+// The buffer size is provided as a number of "entries", this is their size in
+// bytes.
+constexpr static uint32_t scBytesPerEntry = 8;
+
+// Expected maximum size needed to store one stack sample.
+constexpr static uint32_t scExpectedMaximumStackSize = 64 * 1024;
+
 // This class contains the profiler's global state that is valid only when the
 // profiler is active. When not instantiated, the profiler is inactive.
 //
@@ -470,6 +506,57 @@ struct LiveProfiledThreadData {
 //
 class ActivePS {
  private:
+  // We need to decide how many chunks of what size we want to fit in the given
+  // total maximum capacity for this process, in the (likely) context of
+  // multiple processes doing the same choice and having an inter-process
+  // mechanism to control the overal memory limit.
+
+  // Minimum chunk size allowed, enough for at least one stack.
+  constexpr static uint32_t scMinimumChunkSize = 2 * scExpectedMaximumStackSize;
+
+  // Ideally we want at least 2 unreleased chunks to work with (1 current and 1
+  // next), and 2 released chunks (so that one can be recycled when old, leaving
+  // one with some data).
+  constexpr static uint32_t scMinimumNumberOfChunks = 4;
+
+  // And we want to limit chunks to a maximum size, which is a compromise
+  // between:
+  // - A big size, which helps with reducing the rate of allocations and IPCs.
+  // - A small size, which helps with equalizing the duration of recorded data
+  //   (as the inter-process controller will discard the oldest chunks in all
+  //   Firefox processes).
+  constexpr static uint32_t scMaximumChunkSize = 1024 * 1024;
+
+ public:
+  // We should be able to store at least the minimum number of the smallest-
+  // possible chunks.
+  constexpr static uint32_t scMinimumBufferSize =
+      scMinimumNumberOfChunks * scMinimumChunkSize;
+  constexpr static uint32_t scMinimumBufferEntries =
+      scMinimumBufferSize / scBytesPerEntry;
+
+  // Limit to 2GiB.
+  constexpr static uint32_t scMaximumBufferSize = 2u * 1024u * 1024u * 1024u;
+  constexpr static uint32_t scMaximumBufferEntries =
+      scMaximumBufferSize / scBytesPerEntry;
+
+  constexpr static uint32_t ClampToAllowedEntries(uint32_t aEntries) {
+    if (aEntries <= scMinimumBufferEntries) {
+      return scMinimumBufferEntries;
+    }
+    if (aEntries >= scMaximumBufferEntries) {
+      return scMaximumBufferEntries;
+    }
+    return aEntries;
+  }
+
+ private:
+  constexpr static uint32_t ChunkSizeForEntries(uint32_t aEntries) {
+    return uint32_t(std::min(size_t(ClampToAllowedEntries(aEntries)) *
+                                 scBytesPerEntry / scMinimumNumberOfChunks,
+                             size_t(scMaximumChunkSize)));
+  }
+
   static uint32_t AdjustFeatures(uint32_t aFeatures, uint32_t aFilterCount) {
     // Filter out any features unavailable in this platform/configuration.
     aFeatures &= AvailableFeatures();
@@ -479,6 +566,13 @@ class ActivePS {
     // explicitly specify ProfilerFeature::Threads.
     if (aFilterCount > 0) {
       aFeatures |= ProfilerFeature::Threads;
+    }
+
+    // Some features imply others.
+    if (aFeatures & ProfilerFeature::FileIOAll) {
+      aFeatures |= ProfilerFeature::MainThreadIO | ProfilerFeature::FileIO;
+    } else if (aFeatures & ProfilerFeature::FileIO) {
+      aFeatures |= ProfilerFeature::MainThreadIO;
     }
 
     return aFeatures;
@@ -492,9 +586,13 @@ class ActivePS {
         mDuration(aDuration),
         mInterval(aInterval),
         mFeatures(AdjustFeatures(aFeatures, aFilterCount)),
-        // 8 bytes per entry.
-        mProfileBuffer(CorePS::CoreBlocksRingBuffer(),
-                       PowerOfTwo32(aCapacity.Value() * 8)),
+        mProfileBufferChunkManager(
+            size_t(ClampToAllowedEntries(aCapacity.Value())) * scBytesPerEntry,
+            ChunkSizeForEntries(aCapacity.Value())),
+        mProfileBuffer([this]() -> ProfileChunkedBuffer& {
+          CorePS::CoreBuffer().SetChunkManager(mProfileBufferChunkManager);
+          return CorePS::CoreBuffer();
+        }()),
         // The new sampler thread doesn't start sampling immediately because the
         // main loop within Run() is blocked until this function's caller
         // unlocks gPSMutex.
@@ -514,7 +612,7 @@ class ActivePS {
     }
   }
 
-  ~ActivePS() {}
+  ~ActivePS() { CorePS::CoreBuffer().ResetChunkManager(); }
 
   bool ThreadSelected(const char* aThreadName) {
     MOZ_RELEASE_ASSERT(sInstance);
@@ -560,7 +658,7 @@ class ActivePS {
                              aFilterCount, aDuration);
   }
 
-  static MOZ_MUST_USE SamplerThread* Destroy(PSLockRef aLock) {
+  [[nodiscard]] static SamplerThread* Destroy(PSLockRef aLock) {
     auto samplerThread = sInstance->mSamplerThread;
     delete sInstance;
     sInstance = nullptr;
@@ -631,6 +729,11 @@ class ActivePS {
 #undef PS_GET_FEATURE
 
   PS_GET(const Vector<std::string>&, Filters)
+
+  static void FulfillChunkRequests(PSLockRef) {
+    MOZ_ASSERT(sInstance);
+    sInstance->mProfileBufferChunkManager.FulfillChunkRequests();
+  }
 
   static ProfileBuffer& Buffer(PSLockRef) { return sInstance->mProfileBuffer; }
 
@@ -849,6 +952,9 @@ class ActivePS {
 
   // Substrings of names of threads we want to profile.
   Vector<std::string> mFilters;
+
+  // The chunk manager used by `mProfileBuffer` below.
+  ProfileBufferChunkManagerWithLocalLimit mProfileBufferChunkManager;
 
   // The buffer into which all samples are recorded.
   ProfileBuffer mProfileBuffer;
@@ -1756,60 +1862,65 @@ static void PrintUsageThenExit(int aExitCode) {
       "\n"
       "  MOZ_BASE_PROFILER_HELP\n"
       "  If set to any value, prints this message.\n"
-      "  Use MOZ_PROFILER_HELP for Gecko Profiler help.\n"
+      "  (Only BaseProfiler features are known here; Use MOZ_PROFILER_HELP\n"
+      "  for Gecko Profiler help, with more features).\n"
       "\n"
       "  MOZ_BASE_PROFILER_{,DEBUG_,VERBOSE}LOGGING\n"
-      "  Enables logging to stdout. The levels of logging available are\n"
-      "  'MOZ_BASE_PROFILER_LOGGING' (least verbose), '..._DEBUG_LOGGING',\n"
-      "  '..._VERBOSE_LOGGING' (most verbose)\n"
+      "  Enables BaseProfiler logging to stdout. The levels of logging\n"
+      "  available are MOZ_BASE_PROFILER_LOGGING' (least verbose),\n"
+      "  '..._DEBUG_LOGGING', '..._VERBOSE_LOGGING' (most verbose)\n"
       "\n"
-      "  MOZ_BASE_PROFILER_STARTUP\n"
+      "  MOZ_PROFILER_STARTUP\n"
       "  If set to any value other than '' or '0'/'N'/'n', starts the\n"
       "  profiler immediately on start-up.\n"
       "  Useful if you want profile code that runs very early.\n"
       "\n"
-      "  MOZ_BASE_PROFILER_STARTUP_ENTRIES=<1..>\n"
-      "  If MOZ_BASE_PROFILER_STARTUP is set, specifies the number of entries\n"
+      "  MOZ_PROFILER_STARTUP_ENTRIES=<%u..%u>\n"
+      "  If MOZ_PROFILER_STARTUP is set, specifies the number of entries\n"
       "  per process in the profiler's circular buffer when the profiler is\n"
       "  first started.\n"
       "  If unset, the platform default is used:\n"
-      "  %u entries per process, or %u when MOZ_BASE_PROFILER_STARTUP is set.\n"
-      "  (8 bytes per entry -> %u or %u total bytes per process)\n"
+      "  %u entries per process, or %u when MOZ_PROFILER_STARTUP is set.\n"
+      "  (%u bytes per entry -> %u or %u total bytes per process)\n"
       "\n"
-      "  MOZ_BASE_PROFILER_STARTUP_DURATION=<1..>\n"
-      "  If MOZ_BASE_PROFILER_STARTUP is set, specifies the maximum life time\n"
+      "  MOZ_PROFILER_STARTUP_DURATION=<1..>\n"
+      "  If MOZ_PROFILER_STARTUP is set, specifies the maximum life time\n"
       "  of entries in the the profiler's circular buffer when the profiler\n"
       "  is first started, in seconds.\n"
       "  If unset, the life time of the entries will only be restricted by\n"
-      "  MOZ_BASE_PROFILER_STARTUP_ENTRIES (or its default value), and no\n"
+      "  MOZ_PROFILER_STARTUP_ENTRIES (or its default value), and no\n"
       "  additional time duration restriction will be applied.\n"
       "\n"
-      "  MOZ_BASE_PROFILER_STARTUP_INTERVAL=<1..1000>\n"
-      "  If MOZ_BASE_PROFILER_STARTUP is set, specifies the sample interval,\n"
+      "  MOZ_PROFILER_STARTUP_INTERVAL=<1..1000>\n"
+      "  If MOZ_PROFILER_STARTUP is set, specifies the sample interval,\n"
       "  measured in milliseconds, when the profiler is first started.\n"
       "  If unset, the platform default is used.\n"
       "\n"
-      "  MOZ_BASE_PROFILER_STARTUP_FEATURES_BITFIELD=<Number>\n"
-      "  If MOZ_BASE_PROFILER_STARTUP is set, specifies the profiling\n"
+      "  MOZ_PROFILER_STARTUP_FEATURES_BITFIELD=<Number>\n"
+      "  If MOZ_PROFILER_STARTUP is set, specifies the profiling\n"
       "  features, as the integer value of the features bitfield.\n"
-      "  If unset, the value from MOZ_BASE_PROFILER_STARTUP_FEATURES is used.\n"
+      "  If unset, the value from MOZ_PROFILER_STARTUP_FEATURES is used.\n"
       "\n"
-      "  MOZ_BASE_PROFILER_STARTUP_FEATURES=<Features>\n"
-      "  If MOZ_BASE_PROFILER_STARTUP is set, specifies the profiling\n"
+      "  MOZ_PROFILER_STARTUP_FEATURES=<Features>\n"
+      "  If MOZ_PROFILER_STARTUP is set, specifies the profiling\n"
       "  features, as a comma-separated list of strings.\n"
-      "  Ignored if MOZ_BASE_PROFILER_STARTUP_FEATURES_BITFIELD is set.\n"
+      "  Ignored if MOZ_PROFILER_STARTUP_FEATURES_BITFIELD is set.\n"
       "  If unset, the platform default is used.\n"
       "\n"
       "    Features: (x=unavailable, D/d=default/unavailable,\n"
-      "               S/s=MOZ_BASE_PROFILER_STARTUP extra "
+      "               S/s=MOZ_PROFILER_STARTUP extra "
       "default/unavailable)\n",
+      unsigned(ActivePS::scMinimumBufferEntries),
+      unsigned(ActivePS::scMaximumBufferEntries),
       unsigned(BASE_PROFILER_DEFAULT_ENTRIES.Value()),
       unsigned(BASE_PROFILER_DEFAULT_STARTUP_ENTRIES.Value()),
-      unsigned(BASE_PROFILER_DEFAULT_ENTRIES.Value() * 8),
-      unsigned(BASE_PROFILER_DEFAULT_STARTUP_ENTRIES.Value() * 8));
+      unsigned(scBytesPerEntry),
+      unsigned(BASE_PROFILER_DEFAULT_ENTRIES.Value() * scBytesPerEntry),
+      unsigned(BASE_PROFILER_DEFAULT_STARTUP_ENTRIES.Value() *
+               scBytesPerEntry));
 
 #define PRINT_FEATURE(n_, str_, Name_, desc_)             \
-  PrintToConsole("    %c %5u: \"%s\" (%s)\n",             \
+  PrintToConsole("    %c %7u: \"%s\" (%s)\n",             \
                  FeatureCategory(ProfilerFeature::Name_), \
                  ProfilerFeature::Name_, str_, desc_);
 
@@ -1820,22 +1931,22 @@ static void PrintUsageThenExit(int aExitCode) {
   PrintToConsole(
       "    -        \"default\" (All above D+S defaults)\n"
       "\n"
-      "  MOZ_BASE_PROFILER_STARTUP_FILTERS=<Filters>\n"
-      "  If MOZ_BASE_PROFILER_STARTUP is set, specifies the thread filters, as "
+      "  MOZ_PROFILER_STARTUP_FILTERS=<Filters>\n"
+      "  If MOZ_PROFILER_STARTUP is set, specifies the thread filters, as "
       "a\n"
       "  comma-separated list of strings. A given thread will be sampled if\n"
       "  any of the filters is a case-insensitive substring of the thread\n"
       "  name. If unset, a default is used.\n"
       "\n"
-      "  MOZ_BASE_PROFILER_SHUTDOWN\n"
+      "  MOZ_PROFILER_SHUTDOWN\n"
       "  If set, the profiler saves a profile to the named file on shutdown.\n"
       "\n"
-      "  MOZ_BASE_PROFILER_SYMBOLICATE\n"
+      "  MOZ_PROFILER_SYMBOLICATE\n"
       "  If set, the profiler will pre-symbolicate profiles.\n"
       "  *Note* This will add a significant pause when gathering data, and\n"
       "  is intended mainly for local development.\n"
       "\n"
-      "  MOZ_BASE_PROFILER_LUL_TEST\n"
+      "  MOZ_PROFILER_LUL_TEST\n"
       "  If set to any value, runs LUL unit tests at startup.\n"
       "\n"
       "  This platform %s native unwinding.\n"
@@ -1984,17 +2095,17 @@ void SamplerThread::Run() {
     return ActivePS::FeatureNoStackSampling(lock);
   }();
 
-  // Use local BlocksRingBuffer&ProfileBuffer to capture the stack.
-  // (This is to avoid touching the CorePS::BlocksRingBuffer lock while
+  // Use local ProfileBuffer to capture the stack.
+  // (This is to avoid touching the CorePS::CoreBuffer lock while
   // a thread is suspended, because that thread could be working with
-  // the CorePS::BlocksRingBuffer as well.)
-  BlocksRingBuffer localBlocksRingBuffer(
-      BlocksRingBuffer::ThreadSafety::WithoutMutex);
-  ProfileBuffer localProfileBuffer(localBlocksRingBuffer,
-                                   MakePowerOfTwo32<65536>());
+  // the CorePS::CoreBuffer as well.)
+  ProfileBufferChunkManagerSingle localChunkManager(scExpectedMaximumStackSize);
+  ProfileChunkedBuffer localBuffer(
+      ProfileChunkedBuffer::ThreadSafety::WithoutMutex, localChunkManager);
+  ProfileBuffer localProfileBuffer(localBuffer);
 
   // Will be kept between collections, to know what each collection does.
-  auto previousState = localBlocksRingBuffer.GetState();
+  auto previousState = localBuffer.GetState();
 
   // This will be positive if we are running behind schedule (sampling less
   // frequently than desired) and negative if we are ahead of schedule.
@@ -2094,28 +2205,21 @@ void SamplerThread::Run() {
                 });
 
             // If data is complete, copy it into the global buffer.
-            auto state = localBlocksRingBuffer.GetState();
+            auto state = localBuffer.GetState();
             if (state.mClearedBlockCount != previousState.mClearedBlockCount) {
               LOG("Stack sample too big for local storage, needed %u bytes",
-                  unsigned(
-                      state.mRangeEnd.ConvertToProfileBufferIndex() -
-                      previousState.mRangeEnd.ConvertToProfileBufferIndex()));
-            } else if (state.mRangeEnd.ConvertToProfileBufferIndex() -
-                           previousState.mRangeEnd
-                               .ConvertToProfileBufferIndex() >=
-                       CorePS::CoreBlocksRingBuffer().BufferLength()->Value()) {
+                  unsigned(state.mRangeEnd - previousState.mRangeEnd));
+            } else if (state.mRangeEnd - previousState.mRangeEnd >=
+                       *CorePS::CoreBuffer().BufferLength()) {
               LOG("Stack sample too big for profiler storage, needed %u bytes",
-                  unsigned(
-                      state.mRangeEnd.ConvertToProfileBufferIndex() -
-                      previousState.mRangeEnd.ConvertToProfileBufferIndex()));
+                  unsigned(state.mRangeEnd - previousState.mRangeEnd));
             } else {
-              CorePS::CoreBlocksRingBuffer().AppendContents(
-                  localBlocksRingBuffer);
+              CorePS::CoreBuffer().AppendContents(localBuffer);
             }
 
             // Clean up for the next run.
-            localBlocksRingBuffer.Clear();
-            previousState = localBlocksRingBuffer.GetState();
+            localBuffer.Clear();
+            previousState = localBuffer.GetState();
           }
         }
 
@@ -2128,6 +2232,11 @@ void SamplerThread::Run() {
         CorePS::Lul(lock)->MaybeShowStats();
 #endif
         TimeStamp threadsSampled = TimeStamp::NowUnfuzzed();
+
+        {
+          AUTO_PROFILER_STATS(Sampler_FulfillChunkRequests);
+          ActivePS::FulfillChunkRequests(lock);
+        }
 
         buffer.CollectOverheadStats(delta, lockAcquired - sampleStart,
                                     expiredMarkersCleaned - lockAcquired,
@@ -2204,7 +2313,8 @@ static uint32_t ParseFeature(const char* aFeature, bool aIsStartup) {
 #undef PARSE_FEATURE_BIT
 
   PrintToConsole("\nUnrecognized feature \"%s\".\n\n", aFeature);
-  PrintUsageThenExit(1);
+  // Since we may have an old feature we don't implement anymore, don't exit
+  PrintUsageThenExit(0);
   return 0;
 }
 
@@ -2336,7 +2446,7 @@ void profiler_init(void* aStackTop) {
     // startup, even if no profiling is actually to be done. So, instead, it is
     // created on demand at the first call to PlatformStart().
 
-    const char* startupEnv = getenv("MOZ_BASE_PROFILER_STARTUP");
+    const char* startupEnv = getenv("MOZ_PROFILER_STARTUP");
     if (!startupEnv || startupEnv[0] == '\0' ||
         ((startupEnv[0] == '0' || startupEnv[0] == 'N' ||
           startupEnv[0] == 'n') &&
@@ -2344,12 +2454,12 @@ void profiler_init(void* aStackTop) {
       return;
     }
 
-    LOG("- MOZ_BASE_PROFILER_STARTUP is set");
+    LOG("- MOZ_PROFILER_STARTUP is set");
 
     // Startup default capacity may be different.
     capacity = BASE_PROFILER_DEFAULT_STARTUP_ENTRIES;
 
-    const char* startupCapacity = getenv("MOZ_BASE_PROFILER_STARTUP_ENTRIES");
+    const char* startupCapacity = getenv("MOZ_PROFILER_STARTUP_ENTRIES");
     if (startupCapacity && startupCapacity[0] != '\0') {
       errno = 0;
       long capacityLong = strtol(startupCapacity, nullptr, 10);
@@ -2359,18 +2469,17 @@ void profiler_init(void* aStackTop) {
       if (errno == 0 && capacityLong > 0 &&
           static_cast<uint64_t>(capacityLong) <=
               static_cast<uint64_t>(INT32_MAX)) {
-        capacity = PowerOfTwo32(static_cast<uint32_t>(capacityLong));
-        LOG("- MOZ_BASE_PROFILER_STARTUP_ENTRIES = %u",
-            unsigned(capacity.Value()));
+        capacity = PowerOfTwo32(ActivePS::ClampToAllowedEntries(
+            static_cast<uint32_t>(capacityLong)));
+        LOG("- MOZ_PROFILER_STARTUP_ENTRIES = %u", unsigned(capacity.Value()));
       } else {
-        PrintToConsole(
-            "- MOZ_BASE_PROFILER_STARTUP_ENTRIES not a valid integer: %s",
-            startupCapacity);
+        PrintToConsole("- MOZ_PROFILER_STARTUP_ENTRIES not a valid integer: %s",
+                       startupCapacity);
         PrintUsageThenExit(1);
       }
     }
 
-    const char* startupDuration = getenv("MOZ_BASE_PROFILER_STARTUP_DURATION");
+    const char* startupDuration = getenv("MOZ_PROFILER_STARTUP_DURATION");
     if (startupDuration && startupDuration[0] != '\0') {
       // The duration is a floating point number. Use StringToDouble rather than
       // strtod, so that "." is used as the decimal separator regardless of OS
@@ -2380,16 +2489,15 @@ void profiler_init(void* aStackTop) {
         if (*durationVal > 0.0) {
           duration = Some(*durationVal);
         }
-        LOG("- MOZ_BASE_PROFILER_STARTUP_DURATION = %f", *durationVal);
+        LOG("- MOZ_PROFILER_STARTUP_DURATION = %f", *durationVal);
       } else {
-        PrintToConsole(
-            "- MOZ_BASE_PROFILER_STARTUP_DURATION not a valid float: %s",
-            startupDuration);
+        PrintToConsole("- MOZ_PROFILER_STARTUP_DURATION not a valid float: %s",
+                       startupDuration);
         PrintUsageThenExit(1);
       }
     }
 
-    const char* startupInterval = getenv("MOZ_BASE_PROFILER_STARTUP_INTERVAL");
+    const char* startupInterval = getenv("MOZ_PROFILER_STARTUP_INTERVAL");
     if (startupInterval && startupInterval[0] != '\0') {
       // The interval is a floating point number. Use StringToDouble rather than
       // strtod, so that "." is used as the decimal separator regardless of OS
@@ -2397,11 +2505,10 @@ void profiler_init(void* aStackTop) {
       auto intervalValue = StringToDouble(MakeStringSpan(startupInterval));
       if (intervalValue && *intervalValue > 0.0 && *intervalValue <= 1000.0) {
         interval = *intervalValue;
-        LOG("- MOZ_BASE_PROFILER_STARTUP_INTERVAL = %f", interval);
+        LOG("- MOZ_PROFILER_STARTUP_INTERVAL = %f", interval);
       } else {
-        PrintToConsole(
-            "- MOZ_BASE_PROFILER_STARTUP_INTERVAL not a valid float: %s",
-            startupInterval);
+        PrintToConsole("- MOZ_PROFILER_STARTUP_INTERVAL not a valid float: %s",
+                       startupInterval);
         PrintUsageThenExit(1);
       }
     }
@@ -2409,22 +2516,20 @@ void profiler_init(void* aStackTop) {
     features |= StartupExtraDefaultFeatures() & AvailableFeatures();
 
     const char* startupFeaturesBitfield =
-        getenv("MOZ_BASE_PROFILER_STARTUP_FEATURES_BITFIELD");
+        getenv("MOZ_PROFILER_STARTUP_FEATURES_BITFIELD");
     if (startupFeaturesBitfield && startupFeaturesBitfield[0] != '\0') {
       errno = 0;
       features = strtol(startupFeaturesBitfield, nullptr, 10);
       if (errno == 0 && features != 0) {
-        LOG("- MOZ_BASE_PROFILER_STARTUP_FEATURES_BITFIELD = %d", features);
+        LOG("- MOZ_PROFILER_STARTUP_FEATURES_BITFIELD = %d", features);
       } else {
         PrintToConsole(
-            "- MOZ_BASE_PROFILER_STARTUP_FEATURES_BITFIELD not a valid "
-            "integer: %s",
+            "- MOZ_PROFILER_STARTUP_FEATURES_BITFIELD not a valid integer: %s",
             startupFeaturesBitfield);
         PrintUsageThenExit(1);
       }
     } else {
-      const char* startupFeatures =
-          getenv("MOZ_BASE_PROFILER_STARTUP_FEATURES");
+      const char* startupFeatures = getenv("MOZ_PROFILER_STARTUP_FEATURES");
       if (startupFeatures && startupFeatures[0] != '\0') {
         // Interpret startupFeatures as a list of feature strings, separated by
         // commas.
@@ -2434,14 +2539,14 @@ void profiler_init(void* aStackTop) {
         features = ParseFeaturesFromStringArray(featureStringArray.begin(),
                                                 featureStringArray.length(),
                                                 /* aIsStartup */ true);
-        LOG("- MOZ_BASE_PROFILER_STARTUP_FEATURES = %d", features);
+        LOG("- MOZ_PROFILER_STARTUP_FEATURES = %d", features);
       }
     }
 
-    const char* startupFilters = getenv("MOZ_BASE_PROFILER_STARTUP_FILTERS");
+    const char* startupFilters = getenv("MOZ_PROFILER_STARTUP_FILTERS");
     if (startupFilters && startupFilters[0] != '\0') {
       filters = SplitAtCommas(startupFilters, filterStorage);
-      LOG("- MOZ_BASE_PROFILER_STARTUP_FILTERS = %s", startupFilters);
+      LOG("- MOZ_PROFILER_STARTUP_FILTERS = %s", startupFilters);
     }
 
     locked_profiler_start(lock, capacity, interval, features, filters.begin(),
@@ -2479,7 +2584,7 @@ void profiler_shutdown() {
 
     // Save the profile on shutdown if requested.
     if (ActivePS::Exists(lock)) {
-      const char* filename = getenv("MOZ_BASE_PROFILER_SHUTDOWN");
+      const char* filename = getenv("MOZ_PROFILER_SHUTDOWN");
       if (filename) {
         locked_profiler_save_profile_to_file(lock, filename,
                                              /* aIsShuttingDown */ true);
@@ -2603,24 +2708,24 @@ void GetProfilerEnvVarsForChildProcess(
   PSAutoLock lock;
 
   if (!ActivePS::Exists(lock)) {
-    aSetEnv("MOZ_BASE_PROFILER_STARTUP", "");
+    aSetEnv("MOZ_PROFILER_STARTUP", "");
     return;
   }
 
-  aSetEnv("MOZ_BASE_PROFILER_STARTUP", "1");
+  aSetEnv("MOZ_PROFILER_STARTUP", "1");
   auto capacityString =
       Smprintf("%u", unsigned(ActivePS::Capacity(lock).Value()));
-  aSetEnv("MOZ_BASE_PROFILER_STARTUP_ENTRIES", capacityString.get());
+  aSetEnv("MOZ_PROFILER_STARTUP_ENTRIES", capacityString.get());
 
   // Use AppendFloat instead of Smprintf with %f because the decimal
   // separator used by %f is locale-dependent. But the string we produce needs
   // to be parseable by strtod, which only accepts the period character as a
   // decimal separator. AppendFloat always uses the period character.
   std::string intervalString = std::to_string(ActivePS::Interval(lock));
-  aSetEnv("MOZ_BASE_PROFILER_STARTUP_INTERVAL", intervalString.c_str());
+  aSetEnv("MOZ_PROFILER_STARTUP_INTERVAL", intervalString.c_str());
 
   auto featuresString = Smprintf("%d", ActivePS::Features(lock));
-  aSetEnv("MOZ_BASE_PROFILER_STARTUP_FEATURES_BITFIELD", featuresString.get());
+  aSetEnv("MOZ_PROFILER_STARTUP_FEATURES_BITFIELD", featuresString.get());
 
   std::string filtersString;
   const Vector<std::string>& filters = ActivePS::Filters(lock);
@@ -2630,7 +2735,7 @@ void GetProfilerEnvVarsForChildProcess(
       filtersString += ",";
     }
   }
-  aSetEnv("MOZ_BASE_PROFILER_STARTUP_FILTERS", filtersString.c_str());
+  aSetEnv("MOZ_PROFILER_STARTUP_FILTERS", filtersString.c_str());
 }
 
 void profiler_received_exit_profile(const std::string& aExitProfile) {
@@ -2886,7 +2991,7 @@ void profiler_ensure_started(PowerOfTwo32 aCapacity, double aInterval,
   }
 }
 
-static MOZ_MUST_USE SamplerThread* locked_profiler_stop(PSLockRef aLock) {
+[[nodiscard]] static SamplerThread* locked_profiler_stop(PSLockRef aLock) {
   LOG("locked_profiler_stop");
 
   MOZ_RELEASE_ASSERT(CorePS::Exists() && ActivePS::Exists(aLock));
@@ -3213,11 +3318,10 @@ UniqueProfilerBacktrace profiler_get_backtrace() {
   regs.Clear();
 #endif
 
-  // 65536 bytes should be plenty for a single backtrace.
-  auto bufferManager = MakeUnique<BlocksRingBuffer>(
-      BlocksRingBuffer::ThreadSafety::WithoutMutex);
-  auto buffer =
-      MakeUnique<ProfileBuffer>(*bufferManager, MakePowerOfTwo32<65536>());
+  auto bufferManager = MakeUnique<ProfileChunkedBuffer>(
+      ProfileChunkedBuffer::ThreadSafety::WithoutMutex,
+      MakeUnique<ProfileBufferChunkManagerSingle>(scExpectedMaximumStackSize));
+  auto buffer = MakeUnique<ProfileBuffer>(*bufferManager);
 
   DoSyncSample(lock, *registeredThread, now, regs, *buffer.get());
 
@@ -3227,6 +3331,18 @@ UniqueProfilerBacktrace profiler_get_backtrace() {
 
 void ProfilerBacktraceDestructor::operator()(ProfilerBacktrace* aBacktrace) {
   delete aBacktrace;
+}
+
+bool profiler_is_locked_on_current_thread() {
+  // This function is used to help users avoid calling `profiler_...` functions
+  // when the profiler may already have a lock in place, which would prevent a
+  // 2nd recursive lock (resulting in a crash or a never-ending wait).
+  // So we must return `true` for any of:
+  // - The main profiler mutex, used by most functions, and/or
+  // - The buffer mutex, used directly in some functions without locking the
+  //   main mutex, e.g., marker-related functions.
+  return PSAutoLock::IsLockedOnCurrentThread() ||
+         CorePS::CoreBuffer().IsThreadSafeAndLockedOnCurrentThread();
 }
 
 static void racy_profiler_add_marker(const char* aMarkerName,
@@ -3253,9 +3369,9 @@ static void racy_profiler_add_marker(const char* aMarkerName,
                          ? aPayload->GetStartTime()
                          : TimeStamp::NowUnfuzzed();
   TimeDuration delta = origin - CorePS::ProcessStartTime();
-  CorePS::CoreBlocksRingBuffer().PutObjects(
+  CorePS::CoreBuffer().PutObjects(
       ProfileBufferEntry::Kind::MarkerData, racyRegisteredThread->ThreadId(),
-      WrapBlocksRingBufferUnownedCString(aMarkerName),
+      WrapProfileBufferUnownedCString(aMarkerName),
       static_cast<uint32_t>(aCategoryPair), aPayload, delta.ToMilliseconds());
 }
 
@@ -3316,16 +3432,25 @@ void profiler_add_marker_for_thread(int aThreadId,
                          ? aPayload.GetStartTime()
                          : TimeStamp::NowUnfuzzed();
   TimeDuration delta = origin - CorePS::ProcessStartTime();
-  CorePS::CoreBlocksRingBuffer().PutObjects(
+  CorePS::CoreBuffer().PutObjects(
       ProfileBufferEntry::Kind::MarkerData, aThreadId,
-      WrapBlocksRingBufferUnownedCString(aMarkerName),
+      WrapProfileBufferUnownedCString(aMarkerName),
       static_cast<uint32_t>(aCategoryPair), &aPayload, delta.ToMilliseconds());
 }
 
-void profiler_tracing(const char* aCategoryString, const char* aMarkerName,
-                      ProfilingCategoryPair aCategoryPair, TracingKind aKind,
-                      const Maybe<std::string>& aDocShellId,
-                      const Maybe<uint32_t>& aDocShellHistoryId) {
+void profiler_add_marker_for_mainthread(ProfilingCategoryPair aCategoryPair,
+                                        const char* aMarkerName,
+                                        const ProfilerMarkerPayload& aPayload) {
+  profiler_add_marker_for_thread(CorePS::MainThreadId(), aCategoryPair,
+                                 aMarkerName, aPayload);
+}
+
+void profiler_tracing_marker(const char* aCategoryString,
+                             const char* aMarkerName,
+                             ProfilingCategoryPair aCategoryPair,
+                             TracingKind aKind,
+                             const Maybe<std::string>& aDocShellId,
+                             const Maybe<uint32_t>& aDocShellHistoryId) {
   MOZ_RELEASE_ASSERT(CorePS::Exists());
 
   VTUNE_TRACING(aMarkerName, aKind);
@@ -3341,11 +3466,12 @@ void profiler_tracing(const char* aCategoryString, const char* aMarkerName,
                                            aDocShellHistoryId));
 }
 
-void profiler_tracing(const char* aCategoryString, const char* aMarkerName,
-                      ProfilingCategoryPair aCategoryPair, TracingKind aKind,
-                      UniqueProfilerBacktrace aCause,
-                      const Maybe<std::string>& aDocShellId,
-                      const Maybe<uint32_t>& aDocShellHistoryId) {
+void profiler_tracing_marker(const char* aCategoryString,
+                             const char* aMarkerName,
+                             ProfilingCategoryPair aCategoryPair,
+                             TracingKind aKind, UniqueProfilerBacktrace aCause,
+                             const Maybe<std::string>& aDocShellId,
+                             const Maybe<uint32_t>& aDocShellHistoryId) {
   MOZ_RELEASE_ASSERT(CorePS::Exists());
 
   VTUNE_TRACING(aMarkerName, aKind);

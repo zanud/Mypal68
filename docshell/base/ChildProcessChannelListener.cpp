@@ -4,6 +4,8 @@
 
 #include "mozilla/dom/ChildProcessChannelListener.h"
 
+#include "nsDocShellLoadState.h"
+
 namespace mozilla {
 namespace dom {
 

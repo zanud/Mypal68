@@ -30,11 +30,11 @@ NS_IMPL_ISUPPORTS_INHERITED(ExternalHelperAppParent, nsHashPropertyBag,
                             nsIStreamListener, nsIExternalHelperAppParent)
 
 ExternalHelperAppParent::ExternalHelperAppParent(
-    const Maybe<URIParams>& uri, const int64_t& aContentLength,
-    const bool& aWasFileChannel, const nsCString& aContentDispositionHeader,
+    nsIURI* uri, const int64_t& aContentLength, const bool& aWasFileChannel,
+    const nsCString& aContentDispositionHeader,
     const uint32_t& aContentDispositionHint,
     const nsString& aContentDispositionFilename)
-    : mURI(DeserializeURI(uri)),
+    : mURI(uri),
       mPending(false)
 #ifdef DEBUG
       ,
@@ -84,7 +84,7 @@ void UpdateContentContext(nsIStreamListener* aListener,
 void ExternalHelperAppParent::Init(
     const Maybe<mozilla::net::LoadInfoArgs>& aLoadInfoArgs,
     const nsCString& aMimeContentType, const bool& aForceSave,
-    const Maybe<URIParams>& aReferrer, PBrowserParent* aBrowser) {
+    nsIURI* aReferrer, PBrowserParent* aBrowser) {
   mozilla::ipc::LoadInfoArgsToLoadInfo(aLoadInfoArgs,
                                        getter_AddRefs(mLoadInfo));
 
@@ -92,10 +92,10 @@ void ExternalHelperAppParent::Init(
       do_GetService(NS_EXTERNALHELPERAPPSERVICE_CONTRACTID);
   NS_ASSERTION(helperAppService, "No Helper App Service!");
 
-  nsCOMPtr<nsIURI> referrer = DeserializeURI(aReferrer);
-  if (referrer)
+  if (aReferrer) {
     SetPropertyAsInterface(NS_LITERAL_STRING("docshell.internalReferrer"),
-                           referrer);
+                           aReferrer);
+  }
 
   nsCOMPtr<nsIInterfaceRequestor> window;
   if (aBrowser) {
@@ -139,7 +139,9 @@ mozilla::ipc::IPCResult ExternalHelperAppParent::RecvOnStartRequest(
 
 mozilla::ipc::IPCResult ExternalHelperAppParent::RecvOnDataAvailable(
     const nsCString& data, const uint64_t& offset, const uint32_t& count) {
-  if (NS_FAILED(mStatus)) return IPC_OK();
+  if (NS_FAILED(mStatus)) {
+    return IPC_OK();
+  }
 
   MOZ_ASSERT(!mDiverted,
              "child forwarding callbacks after request was diverted");
@@ -388,7 +390,9 @@ ExternalHelperAppParent::SetContentDisposition(uint32_t aContentDisposition) {
 NS_IMETHODIMP
 ExternalHelperAppParent::GetContentDispositionFilename(
     nsAString& aContentDispositionFilename) {
-  if (mContentDispositionFilename.IsEmpty()) return NS_ERROR_NOT_AVAILABLE;
+  if (mContentDispositionFilename.IsEmpty()) {
+    return NS_ERROR_NOT_AVAILABLE;
+  }
 
   aContentDispositionFilename = mContentDispositionFilename;
   return NS_OK;
@@ -404,7 +408,9 @@ ExternalHelperAppParent::SetContentDispositionFilename(
 NS_IMETHODIMP
 ExternalHelperAppParent::GetContentDispositionHeader(
     nsACString& aContentDispositionHeader) {
-  if (mContentDispositionHeader.IsEmpty()) return NS_ERROR_NOT_AVAILABLE;
+  if (mContentDispositionHeader.IsEmpty()) {
+    return NS_ERROR_NOT_AVAILABLE;
+  }
 
   aContentDispositionHeader = mContentDispositionHeader;
   return NS_OK;
@@ -412,10 +418,11 @@ ExternalHelperAppParent::GetContentDispositionHeader(
 
 NS_IMETHODIMP
 ExternalHelperAppParent::GetContentLength(int64_t* aContentLength) {
-  if (mContentLength < 0)
+  if (mContentLength < 0) {
     *aContentLength = -1;
-  else
+  } else {
     *aContentLength = mContentLength;
+  }
   return NS_OK;
 }
 

@@ -34,7 +34,7 @@ class nsCryptoHash final : public nsICryptoHash {
   nsCryptoHash();
 
  private:
-  virtual ~nsCryptoHash() {}
+  virtual ~nsCryptoHash() = default;
 
   mozilla::UniqueHASHContext mHashContext;
   bool mInitialized;
@@ -48,7 +48,7 @@ class nsCryptoHMAC : public nsICryptoHMAC {
   nsCryptoHMAC();
 
  private:
-  virtual ~nsCryptoHMAC() {}
+  virtual ~nsCryptoHMAC() = default;
 
   mozilla::UniquePK11Context mHMACContext;
 };

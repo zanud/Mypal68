@@ -5,13 +5,14 @@
 #ifndef mozilla_ConditionVariable_h
 #define mozilla_ConditionVariable_h
 
+#include <stdint.h>
+
+#include <utility>
+
 #include "mozilla/Attributes.h"
-#include "mozilla/Move.h"
 #include "mozilla/PlatformMutex.h"
 #include "mozilla/TimeStamp.h"
-
-#include <stdint.h>
-#ifndef XP_WIN
+#if !defined(XP_WIN) && !defined(__wasi__)
 #  include <pthread.h>
 #endif
 
@@ -49,7 +50,7 @@ class ConditionVariableImpl {
   ConditionVariableImpl(const ConditionVariableImpl&) = delete;
   ConditionVariableImpl& operator=(const ConditionVariableImpl&) = delete;
 
-#ifndef XP_WIN
+#if !defined(XP_WIN) && !defined(__wasi__)
   PlatformData* platformData();
   void* platformData_[sizeof(pthread_cond_t) / sizeof(void*)];
   static_assert(sizeof(pthread_cond_t) / sizeof(void*) != 0 &&

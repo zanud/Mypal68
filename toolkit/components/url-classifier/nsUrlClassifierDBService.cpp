@@ -38,7 +38,9 @@
 #include "Classifier.h"
 #include "ProtocolParser.h"
 #include "mozilla/Attributes.h"
+#include "nsIHttpChannel.h"
 #include "nsIPrincipal.h"
+#include "nsIStreamListener.h" //MY
 #include "nsIUrlListManager.h"
 #include "Classifier.h"
 #include "ProtocolParser.h"
@@ -1432,13 +1434,7 @@ nsresult nsUrlClassifierLookupCallback::HandleResults() {
   mDBService->CacheCompletions(mCacheResults);
   mCacheResults.Clear();
 
-  nsAutoCString tableStr;
-  for (uint32_t i = 0; i < tables.Length(); i++) {
-    if (i != 0) tableStr.Append(',');
-    tableStr.Append(tables[i]);
-  }
-
-  return mCallback->HandleEvent(tableStr);
+  return mCallback->HandleEvent(StringJoin(","_ns, tables));
 }
 
 nsresult nsUrlClassifierLookupCallback::CacheMisses() {
@@ -2457,9 +2453,6 @@ nsUrlClassifierDBService::AsyncClassifyLocalWithFeatures(
         mozilla::SystemGroup::EventTargetFor(mozilla::TaskCategory::Other);
     content->SetEventTargetForActor(actor, systemGroupEventTarget);
 
-    URIParams uri;
-    SerializeURI(aURI, uri);
-
     nsTArray<IPCURLClassifierFeature> ipcFeatures;
     for (nsIUrlClassifierFeature* feature : aFeatures) {
       nsAutoCString name;
@@ -2484,7 +2477,8 @@ nsUrlClassifierDBService::AsyncClassifyLocalWithFeatures(
           IPCURLClassifierFeature(name, tables, skipHostList));
     }
 
-    if (!content->SendPURLClassifierLocalConstructor(actor, uri, ipcFeatures)) {
+    if (!content->SendPURLClassifierLocalConstructor(actor, aURI,
+                                                     ipcFeatures)) {
       return NS_ERROR_FAILURE;
     }
 

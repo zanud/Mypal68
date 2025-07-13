@@ -37,7 +37,11 @@
           "jstracer",
           "jsallocations",
           "nostacksampling",
-          "nativeallocations"
+          "nativeallocations",
+          "ipcmessages",
+          "fileio",
+          "fileioall",
+          "noiostacks"
         ]
       },
       {

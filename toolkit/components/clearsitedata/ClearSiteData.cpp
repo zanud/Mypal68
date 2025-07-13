@@ -160,8 +160,7 @@ void ClearSiteData::ClearDataFromChannel(nsIHttpChannel* aChannel) {
     return;
   }
 
-  bool secure;
-  rv = principal->GetIsOriginPotentiallyTrustworthy(&secure);
+  bool secure = principal->GetIsOriginPotentiallyTrustworthy();
   if (NS_WARN_IF(NS_FAILED(rv)) || !secure) {
     return;
   }

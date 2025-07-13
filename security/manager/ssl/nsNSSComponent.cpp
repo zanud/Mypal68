@@ -56,6 +56,7 @@
 #include "ssl.h"
 #include "sslerr.h"
 #include "sslproto.h"
+#include "SSLTokensCache.h"
 #include "prmem.h"
 
 #if defined(XP_LINUX) && !defined(ANDROID)
@@ -192,7 +193,7 @@ static void GetRevocationBehaviorFromPrefs(
       std::min(hardTimeoutMillis, OCSP_TIMEOUT_MILLISECONDS_HARD_MAX);
   hardTimeout = TimeDuration::FromMilliseconds(hardTimeoutMillis);
 
-  SSL_ClearSessionCache();
+  nsNSSComponent::ClearSSLExternalAndInternalSessionCacheNative();
 }
 
 nsNSSComponent::nsNSSComponent()
@@ -693,9 +694,9 @@ nsNSSComponent::HasUserCertsInstalled(bool* result) {
 
   BlockUntilLoadableRootsLoaded();
 
-  // FindNonCACertificatesWithPrivateKeys won't ever return an empty list, so
+  // FindClientCertificatesWithPrivateKeys won't ever return an empty list, so
   // all we need to do is check if this is null or not.
-  UniqueCERTCertList certList(FindNonCACertificatesWithPrivateKeys());
+  UniqueCERTCertList certList(FindClientCertificatesWithPrivateKeys());
   *result = !!certList;
 
   return NS_OK;
@@ -1011,11 +1012,11 @@ class CipherSuiteChangeObserver : public nsIObserver {
   static nsresult StartObserve();
 
  protected:
-  virtual ~CipherSuiteChangeObserver() {}
+  virtual ~CipherSuiteChangeObserver() = default;
 
  private:
   static StaticRefPtr<CipherSuiteChangeObserver> sObserver;
-  CipherSuiteChangeObserver() {}
+  CipherSuiteChangeObserver() = default;
 };
 
 NS_IMPL_ISUPPORTS(CipherSuiteChangeObserver, nsIObserver)
@@ -1062,7 +1063,7 @@ nsresult CipherSuiteChangeObserver::Observe(nsISupports* /*aSubject*/,
         bool cipherEnabled =
             Preferences::GetBool(cp[i].pref, cp[i].enabledByDefault);
         SSL_CipherPrefSetDefault(cp[i].id, cipherEnabled);
-        SSL_ClearSessionCache();
+        nsNSSComponent::ClearSSLExternalAndInternalSessionCacheNative();
         break;
       }
     }
@@ -1771,9 +1772,8 @@ nsresult nsNSSComponent::InitializeNSS() {
 
   mozilla::pkix::RegisterErrorTable();
 
-  if (PK11_IsFIPS()) {
-    Telemetry::Accumulate(Telemetry::FIPS_ENABLED, true);
-  }
+  nsCOMPtr<nsIClientAuthRemember> cars =
+      do_GetService(NS_CLIENTAUTHREMEMBER_CONTRACTID);
 
   MOZ_LOG(gPIPNSSLog, LogLevel::Debug, ("NSS Initialization done\n"));
 
@@ -1995,7 +1995,9 @@ nsNSSComponent::Observe(nsISupports* aSubject, const char* aTopic,
     } else {
       clearSessionCache = false;
     }
-    if (clearSessionCache) SSL_ClearSessionCache();
+    if (clearSessionCache) {
+      ClearSSLExternalAndInternalSessionCacheNative();
+    }
   }
 
   return NS_OK;
@@ -2030,7 +2032,14 @@ nsresult nsNSSComponent::LogoutAuthenticatedPK11() {
         NS_LITERAL_CSTRING("all:temporary-certificates"), 0);
   }
 
-  nsClientAuthRememberService::ClearAllRememberedDecisions();
+  nsCOMPtr<nsIClientAuthRemember> svc =
+      do_GetService(NS_CLIENTAUTHREMEMBER_CONTRACTID);
+
+  if (svc) {
+    nsresult rv = svc->ClearRememberedDecisions();
+
+    Unused << NS_WARN_IF(NS_FAILED(rv));
+  }
 
   nsCOMPtr<nsIObserverService> os = mozilla::services::GetObserverService();
   if (os) {
@@ -2128,7 +2137,7 @@ nsNSSComponent::IssuerMatchesMitmCanary(const char* aCertIssuer) {
   return NS_ERROR_FAILURE;
 }
 
-SharedCertVerifier::~SharedCertVerifier() {}
+SharedCertVerifier::~SharedCertVerifier() = default;
 
 NS_IMETHODIMP
 nsNSSComponent::GetDefaultCertVerifier(SharedCertVerifier** result) {
@@ -2136,6 +2145,18 @@ nsNSSComponent::GetDefaultCertVerifier(SharedCertVerifier** result) {
   NS_ENSURE_ARG_POINTER(result);
   RefPtr<SharedCertVerifier> certVerifier(mDefaultCertVerifier);
   certVerifier.forget(result);
+  return NS_OK;
+}
+
+// static
+void nsNSSComponent::ClearSSLExternalAndInternalSessionCacheNative() {
+  SSL_ClearSessionCache();
+  mozilla::net::SSLTokensCache::Clear();
+}
+
+NS_IMETHODIMP
+nsNSSComponent::ClearSSLExternalAndInternalSessionCache() {
+  ClearSSLExternalAndInternalSessionCacheNative();
   return NS_OK;
 }
 
@@ -2162,12 +2183,13 @@ already_AddRefed<SharedCertVerifier> GetDefaultCertVerifier() {
 }
 
 // Lists all private keys on all modules and returns a list of any corresponding
-// certificates. Returns null if no such certificates can be found. Also returns
-// null if an error is encountered, because this is called as part of the client
-// auth data callback, and NSS ignores any errors returned by the callback.
-UniqueCERTCertList FindNonCACertificatesWithPrivateKeys() {
+// client certificates. Returns null if no such certificates can be found. Also
+// returns null if an error is encountered, because this is called as part of
+// the client auth data callback, and NSS ignores any errors returned by the
+// callback.
+UniqueCERTCertList FindClientCertificatesWithPrivateKeys() {
   MOZ_LOG(gPIPNSSLog, LogLevel::Debug,
-          ("FindNonCACertificatesWithPrivateKeys"));
+          ("FindClientCertificatesWithPrivateKeys"));
   UniqueCERTCertList certsWithPrivateKeys(CERT_NewCertList());
   if (!certsWithPrivateKeys) {
     return nullptr;
@@ -2209,23 +2231,38 @@ UniqueCERTCertList FindNonCACertificatesWithPrivateKeys() {
         }
         for (CERTCertListNode* n = CERT_LIST_HEAD(certs);
              !CERT_LIST_END(n, certs); n = CERT_LIST_NEXT(n)) {
-          if (!CERT_IsCACert(n->cert, nullptr)) {
-            MOZ_LOG(gPIPNSSLog, LogLevel::Debug,
-                    ("      found '%s'", n->cert->subjectName));
-            UniqueCERTCertificate cert(CERT_DupCertificate(n->cert));
-            if (CERT_AddCertToListTail(certsWithPrivateKeys.get(),
-                                       cert.get()) == SECSuccess) {
-              Unused << cert.release();
-            }
+          UniqueCERTCertificate cert(CERT_DupCertificate(n->cert));
+          MOZ_LOG(gPIPNSSLog, LogLevel::Debug,
+                  ("      provisionally adding '%s'", n->cert->subjectName));
+          if (CERT_AddCertToListTail(certsWithPrivateKeys.get(), cert.get()) ==
+              SECSuccess) {
+            Unused << cert.release();
           }
         }
       }
     }
     list = list->next;
   }
+
+  if (CERT_FilterCertListByUsage(certsWithPrivateKeys.get(), certUsageSSLClient,
+                                 false) != SECSuccess) {
+    MOZ_LOG(gPIPNSSLog, LogLevel::Debug,
+            ("  CERT_FilterCertListByUsage encountered an error - returning"));
+    return nullptr;
+  }
+
+  if (MOZ_UNLIKELY(MOZ_LOG_TEST(gPIPNSSLog, LogLevel::Debug))) {
+    MOZ_LOG(gPIPNSSLog, LogLevel::Debug, ("  returning:"));
+    for (CERTCertListNode* n = CERT_LIST_HEAD(certsWithPrivateKeys);
+         !CERT_LIST_END(n, certsWithPrivateKeys); n = CERT_LIST_NEXT(n)) {
+      MOZ_LOG(gPIPNSSLog, LogLevel::Debug, ("    %s", n->cert->subjectName));
+    }
+  }
+
   if (CERT_LIST_EMPTY(certsWithPrivateKeys)) {
     return nullptr;
   }
+
   return certsWithPrivateKeys;
 }
 
@@ -2234,9 +2271,9 @@ UniqueCERTCertList FindNonCACertificatesWithPrivateKeys() {
 
 NS_IMPL_ISUPPORTS(PipUIContext, nsIInterfaceRequestor)
 
-PipUIContext::PipUIContext() {}
+PipUIContext::PipUIContext() = default;
 
-PipUIContext::~PipUIContext() {}
+PipUIContext::~PipUIContext() = default;
 
 NS_IMETHODIMP
 PipUIContext::GetInterface(const nsIID& uuid, void** result) {

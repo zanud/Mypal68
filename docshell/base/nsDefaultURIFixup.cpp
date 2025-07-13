@@ -383,7 +383,7 @@ nsDefaultURIFixup::KeywordToURI(const nsACString& aKeyword,
     }
 
     RefPtr<nsIInputStream> postData;
-    Maybe<ipc::URIParams> uri;
+    RefPtr<nsIURI> uri;
     nsAutoString providerName;
     if (!contentChild->SendKeywordToURI(keyword, &providerName, &postData,
                                         &uri)) {
@@ -397,8 +397,7 @@ nsDefaultURIFixup::KeywordToURI(const nsACString& aKeyword,
       postData.forget(aPostData);
     }
 
-    nsCOMPtr<nsIURI> temp = DeserializeURI(uri);
-    info->mPreferredURI = temp.forget();
+    info->mPreferredURI = uri.forget();
     return NS_OK;
   }
 

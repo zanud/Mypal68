@@ -382,8 +382,7 @@ void DocManager::AddListeners(Document* aDocument,
   nsPIDOMWindowOuter* window = aDocument->GetWindow();
   EventTarget* target = window->GetChromeEventHandler();
   EventListenerManager* elm = target->GetOrCreateListenerManager();
-  elm->AddEventListenerByType(this, NS_LITERAL_STRING("pagehide"),
-                              TrustedEventsAtCapture());
+  elm->AddEventListenerByType(this, u"pagehide"_ns, TrustedEventsAtCapture());
 
 #ifdef A11Y_LOG
   if (logging::IsEnabled(logging::eDocCreate))
@@ -391,7 +390,7 @@ void DocManager::AddListeners(Document* aDocument,
 #endif
 
   if (aAddDOMContentLoadedListener) {
-    elm->AddEventListenerByType(this, NS_LITERAL_STRING("DOMContentLoaded"),
+    elm->AddEventListenerByType(this, u"DOMContentLoaded"_ns,
                                 TrustedEventsAtCapture());
 #ifdef A11Y_LOG
     if (logging::IsEnabled(logging::eDocCreate))
@@ -408,10 +407,10 @@ void DocManager::RemoveListeners(Document* aDocument) {
   if (!target) return;
 
   EventListenerManager* elm = target->GetOrCreateListenerManager();
-  elm->RemoveEventListenerByType(this, NS_LITERAL_STRING("pagehide"),
+  elm->RemoveEventListenerByType(this, u"pagehide"_ns,
                                  TrustedEventsAtCapture());
 
-  elm->RemoveEventListenerByType(this, NS_LITERAL_STRING("DOMContentLoaded"),
+  elm->RemoveEventListenerByType(this, u"DOMContentLoaded"_ns,
                                  TrustedEventsAtCapture());
 }
 
@@ -536,4 +535,10 @@ void DocManager::RemoteDocAdded(DocAccessibleParent* aDoc) {
              "How did we already have the doc!");
   sRemoteDocuments->AppendElement(aDoc);
   ProxyCreated(aDoc, Interfaces::DOCUMENT | Interfaces::HYPERTEXT);
+}
+
+DocAccessible* mozilla::a11y::GetExistingDocAccessible(
+    const dom::Document* aDocument) {
+  PresShell* presShell = aDocument->GetPresShell();
+  return presShell ? presShell->GetDocAccessible() : nullptr;
 }

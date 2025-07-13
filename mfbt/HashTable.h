@@ -30,7 +30,7 @@
 //   - |MallocAllocPolicy| is the default and is usually appropriate; note that
 //     operations (such as insertions) that might cause allocations are
 //     fallible and must be checked for OOM. These checks are enforced by the
-//     use of MOZ_MUST_USE.
+//     use of [[nodiscard]].
 //
 //   - |InfallibleAllocPolicy| is another possibility; it allows the
 //     abovementioned OOM checks to be done with MOZ_ALWAYS_TRUE().
@@ -73,6 +73,7 @@
 #define mozilla_HashTable_h
 
 #include <type_traits>
+#include <utility>
 
 #include "mozilla/AllocPolicy.h"
 #include "mozilla/Assertions.h"
@@ -83,7 +84,6 @@
 #include "mozilla/Maybe.h"
 #include "mozilla/MemoryChecking.h"
 #include "mozilla/MemoryReporting.h"
-#include "mozilla/Move.h"
 #include "mozilla/Opaque.h"
 #include "mozilla/OperatorNewExtensions.h"
 #include "mozilla/ReentrancyGuard.h"
@@ -92,7 +92,7 @@
 
 namespace mozilla {
 
-template <class>
+template <class, class = void>
 struct DefaultHasher;
 
 template <class, class>
@@ -210,7 +210,7 @@ class HashMap {
 
   // Attempt to reserve enough space to fit at least |aLen| elements. Does
   // nothing if the map already has sufficient capacity.
-  MOZ_MUST_USE bool reserve(uint32_t aLen) { return mImpl.reserve(aLen); }
+  [[nodiscard]] bool reserve(uint32_t aLen) { return mImpl.reserve(aLen); }
 
   // -- Lookups --------------------------------------------------------------
 
@@ -245,7 +245,7 @@ class HashMap {
   // Overwrite existing value with |aValue|, or add it if not present. Returns
   // false on OOM.
   template <typename KeyInput, typename ValueInput>
-  MOZ_MUST_USE bool put(KeyInput&& aKey, ValueInput&& aValue) {
+  [[nodiscard]] bool put(KeyInput&& aKey, ValueInput&& aValue) {
     AddPtr p = lookupForAdd(aKey);
     if (p) {
       p->value() = std::forward<ValueInput>(aValue);
@@ -258,14 +258,14 @@ class HashMap {
   // Like put(), but slightly faster. Must only be used when the given key is
   // not already present. (In debug builds, assertions check this.)
   template <typename KeyInput, typename ValueInput>
-  MOZ_MUST_USE bool putNew(KeyInput&& aKey, ValueInput&& aValue) {
+  [[nodiscard]] bool putNew(KeyInput&& aKey, ValueInput&& aValue) {
     return mImpl.putNew(aKey, std::forward<KeyInput>(aKey),
                         std::forward<ValueInput>(aValue));
   }
 
   template <typename KeyInput, typename ValueInput>
-  MOZ_MUST_USE bool putNew(const Lookup& aLookup, KeyInput&& aKey,
-                           ValueInput&& aValue) {
+  [[nodiscard]] bool putNew(const Lookup& aLookup, KeyInput&& aKey,
+                            ValueInput&& aValue) {
     return mImpl.putNew(aLookup, std::forward<KeyInput>(aKey),
                         std::forward<ValueInput>(aValue));
   }
@@ -329,15 +329,15 @@ class HashMap {
 
   // Add a key/value. Returns false on OOM.
   template <typename KeyInput, typename ValueInput>
-  MOZ_MUST_USE bool add(AddPtr& aPtr, KeyInput&& aKey, ValueInput&& aValue) {
+  [[nodiscard]] bool add(AddPtr& aPtr, KeyInput&& aKey, ValueInput&& aValue) {
     return mImpl.add(aPtr, std::forward<KeyInput>(aKey),
                      std::forward<ValueInput>(aValue));
   }
 
   // See the comment above lookupForAdd() for details.
   template <typename KeyInput, typename ValueInput>
-  MOZ_MUST_USE bool relookupOrAdd(AddPtr& aPtr, KeyInput&& aKey,
-                                  ValueInput&& aValue) {
+  [[nodiscard]] bool relookupOrAdd(AddPtr& aPtr, KeyInput&& aKey,
+                                   ValueInput&& aValue) {
     return mImpl.relookupOrAdd(aPtr, aKey, std::forward<KeyInput>(aKey),
                                std::forward<ValueInput>(aValue));
   }
@@ -499,7 +499,7 @@ class HashSet {
 
   // Attempt to reserve enough space to fit at least |aLen| elements. Does
   // nothing if the map already has sufficient capacity.
-  MOZ_MUST_USE bool reserve(uint32_t aLen) { return mImpl.reserve(aLen); }
+  [[nodiscard]] bool reserve(uint32_t aLen) { return mImpl.reserve(aLen); }
 
   // -- Lookups --------------------------------------------------------------
 
@@ -532,7 +532,7 @@ class HashSet {
 
   // Add |aU| if it is not present already. Returns false on OOM.
   template <typename U>
-  MOZ_MUST_USE bool put(U&& aU) {
+  [[nodiscard]] bool put(U&& aU) {
     AddPtr p = lookupForAdd(aU);
     return p ? true : add(p, std::forward<U>(aU));
   }
@@ -540,13 +540,13 @@ class HashSet {
   // Like put(), but slightly faster. Must only be used when the given element
   // is not already present. (In debug builds, assertions check this.)
   template <typename U>
-  MOZ_MUST_USE bool putNew(U&& aU) {
+  [[nodiscard]] bool putNew(U&& aU) {
     return mImpl.putNew(aU, std::forward<U>(aU));
   }
 
   // Like the other putNew(), but for when |Lookup| is different to |T|.
   template <typename U>
-  MOZ_MUST_USE bool putNew(const Lookup& aLookup, U&& aU) {
+  [[nodiscard]] bool putNew(const Lookup& aLookup, U&& aU) {
     return mImpl.putNew(aLookup, std::forward<U>(aU));
   }
 
@@ -608,13 +608,14 @@ class HashSet {
 
   // Add an element. Returns false on OOM.
   template <typename U>
-  MOZ_MUST_USE bool add(AddPtr& aPtr, U&& aU) {
+  [[nodiscard]] bool add(AddPtr& aPtr, U&& aU) {
     return mImpl.add(aPtr, std::forward<U>(aU));
   }
 
   // See the comment above lookupForAdd() for details.
   template <typename U>
-  MOZ_MUST_USE bool relookupOrAdd(AddPtr& aPtr, const Lookup& aLookup, U&& aU) {
+  [[nodiscard]] bool relookupOrAdd(AddPtr& aPtr, const Lookup& aLookup,
+                                   U&& aU) {
     return mImpl.relookupOrAdd(aPtr, aLookup, std::forward<U>(aU));
   }
 
@@ -661,12 +662,16 @@ class HashSet {
   // Specifically, both HashPolicy::hash and HashPolicy::match must return
   // identical results for the new and old key when applied against all
   // possible matching values.
-  void replaceKey(Ptr aPtr, const T& aNewValue) {
+  void replaceKey(Ptr aPtr, const Lookup& aLookup, const T& aNewValue) {
     MOZ_ASSERT(aPtr.found());
     MOZ_ASSERT(*aPtr != aNewValue);
-    MOZ_ASSERT(HashPolicy::hash(*aPtr) == HashPolicy::hash(aNewValue));
-    MOZ_ASSERT(HashPolicy::match(*aPtr, aNewValue));
+    MOZ_ASSERT(HashPolicy::match(*aPtr, aLookup));
+    MOZ_ASSERT(HashPolicy::match(aNewValue, aLookup));
     const_cast<T&>(*aPtr) = aNewValue;
+    MOZ_ASSERT(*lookup(aLookup) == aNewValue);
+  }
+  void replaceKey(Ptr aPtr, const T& aNewValue) {
+    replaceKey(aPtr, aNewValue, aNewValue);
   }
 
   // -- Iteration ------------------------------------------------------------
@@ -749,7 +754,7 @@ struct PointerHasher {
 };
 
 // The default hash policy, which only works with integers.
-template <class Key>
+template <class Key, typename>
 struct DefaultHasher {
   using Lookup = Key;
 
@@ -763,6 +768,22 @@ struct DefaultHasher {
   static bool match(const Key& aKey, const Lookup& aLookup) {
     // Use builtin or overloaded operator==.
     return aKey == aLookup;
+  }
+
+  static void rekey(Key& aKey, const Key& aNewKey) { aKey = aNewKey; }
+};
+
+// A DefaultHasher specialization for enums.
+template <class T>
+struct DefaultHasher<T, std::enable_if_t<std::is_enum_v<T>>> {
+  using Key = T;
+  using Lookup = Key;
+
+  static HashNumber hash(const Lookup& aLookup) { return HashGeneric(aLookup); }
+
+  static bool match(const Key& aKey, const Lookup& aLookup) {
+    // Use builtin or overloaded operator==.
+    return aKey == static_cast<Key>(aLookup);
   }
 
   static void rekey(Key& aKey, const Key& aNewKey) { aKey = aNewKey; }
@@ -2001,7 +2022,7 @@ class HashTable : private AllocPolicy {
     compact();
   }
 
-  MOZ_MUST_USE bool reserve(uint32_t aLen) {
+  [[nodiscard]] bool reserve(uint32_t aLen) {
     if (aLen == 0) {
       return true;
     }
@@ -2076,7 +2097,7 @@ class HashTable : private AllocPolicy {
   }
 
   template <typename... Args>
-  MOZ_MUST_USE bool add(AddPtr& aPtr, Args&&... aArgs) {
+  [[nodiscard]] bool add(AddPtr& aPtr, Args&&... aArgs) {
     ReentrancyGuard g(*this);
     MOZ_ASSERT_IF(aPtr.isValid(), mTable);
     MOZ_ASSERT_IF(aPtr.isValid(), aPtr.mTable == this);
@@ -2148,7 +2169,7 @@ class HashTable : private AllocPolicy {
   // Note: |aLookup| may be alias arguments in |aArgs|, so this function must
   // take care not to use |aLookup| after moving |aArgs|.
   template <typename... Args>
-  MOZ_MUST_USE bool putNew(const Lookup& aLookup, Args&&... aArgs) {
+  [[nodiscard]] bool putNew(const Lookup& aLookup, Args&&... aArgs) {
     if (!this->checkSimulatedOOM()) {
       return false;
     }
@@ -2165,8 +2186,8 @@ class HashTable : private AllocPolicy {
   // Note: |aLookup| may be a reference to a piece of |u|, so this function
   // must take care not to use |aLookup| after moving |u|.
   template <typename... Args>
-  MOZ_MUST_USE bool relookupOrAdd(AddPtr& aPtr, const Lookup& aLookup,
-                                  Args&&... aArgs) {
+  [[nodiscard]] bool relookupOrAdd(AddPtr& aPtr, const Lookup& aLookup,
+                                   Args&&... aArgs) {
     // Check for error from ensureHash() here.
     if (!aPtr.isLive()) {
       return false;

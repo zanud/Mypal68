@@ -1078,7 +1078,7 @@ bool mozInlineSpellChecker::ShouldSpellCheckNode(TextEditor* aTextEditor,
     // Make sure that we can always turn on spell checking for inputs/textareas.
     // Note that because of the previous check, at this point we know that the
     // node is editable.
-    if (content->IsInAnonymousSubtree()) {
+    if (content->IsInNativeAnonymousSubtree()) {
       nsIContent* node = content->GetParent();
       while (node && node->IsInNativeAnonymousSubtree()) {
         node = node->GetParent();
@@ -1396,11 +1396,8 @@ nsresult mozInlineSpellChecker::DoSpellCheck(
 class MOZ_RAII AutoChangeNumPendingSpellChecks final {
  public:
   explicit AutoChangeNumPendingSpellChecks(mozInlineSpellChecker* aSpellChecker,
-                                           int32_t aDelta
-                                               MOZ_GUARD_OBJECT_NOTIFIER_PARAM)
-      : mSpellChecker(aSpellChecker), mDelta(aDelta) {
-    MOZ_GUARD_OBJECT_NOTIFIER_INIT;
-  }
+                                           int32_t aDelta)
+      : mSpellChecker(aSpellChecker), mDelta(aDelta) {}
 
   ~AutoChangeNumPendingSpellChecks() {
     mSpellChecker->ChangeNumPendingSpellChecks(mDelta);
@@ -1409,7 +1406,6 @@ class MOZ_RAII AutoChangeNumPendingSpellChecks final {
  private:
   RefPtr<mozInlineSpellChecker> mSpellChecker;
   int32_t mDelta;
-  MOZ_DECL_USE_GUARD_OBJECT_NOTIFIER
 };
 
 void mozInlineSpellChecker::CheckCurrentWordsNoSuggest(

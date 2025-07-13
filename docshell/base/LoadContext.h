@@ -37,7 +37,6 @@ class LoadContext final : public nsILoadContext, public nsIInterfaceRequestor {
         mNestedFrameId(0),
         mIsContent(aToCopy.mIsContent),
         mUseRemoteTabs(aToCopy.mUseRemoteTabs),
-        mUseRemoteSubframes(aToCopy.mUseRemoteSubframes),
         mUseTrackingProtection(aToCopy.mUseTrackingProtection),
 #ifdef DEBUG
         mIsNotNull(aToCopy.mIsNotNull),
@@ -51,7 +50,6 @@ class LoadContext final : public nsILoadContext, public nsIInterfaceRequestor {
         mNestedFrameId(aNestedFrameId),
         mIsContent(aToCopy.mIsContent),
         mUseRemoteTabs(aToCopy.mUseRemoteTabs),
-        mUseRemoteSubframes(aToCopy.mUseRemoteSubframes),
         mUseTrackingProtection(aToCopy.mUseTrackingProtection),
 #ifdef DEBUG
         mIsNotNull(aToCopy.mIsNotNull),
@@ -61,13 +59,11 @@ class LoadContext final : public nsILoadContext, public nsIInterfaceRequestor {
 
   LoadContext(dom::Element* aTopFrameElement, bool aIsContent,
               bool aUsePrivateBrowsing, bool aUseRemoteTabs,
-              bool aUseRemoteSubframes, bool aUseTrackingProtection,
-              const OriginAttributes& aAttrs)
+              bool aUseTrackingProtection, const OriginAttributes& aAttrs)
       : mTopFrameElement(do_GetWeakReference(aTopFrameElement)),
         mNestedFrameId(0),
         mIsContent(aIsContent),
         mUseRemoteTabs(aUseRemoteTabs),
-        mUseRemoteSubframes(aUseRemoteSubframes),
         mUseTrackingProtection(aUseTrackingProtection),
 #ifdef DEBUG
         mIsNotNull(true),
@@ -83,7 +79,6 @@ class LoadContext final : public nsILoadContext, public nsIInterfaceRequestor {
         mNestedFrameId(0),
         mIsContent(false),
         mUseRemoteTabs(false),
-        mUseRemoteSubframes(false),
         mUseTrackingProtection(false),
 #ifdef DEBUG
         mIsNotNull(true),
@@ -102,7 +97,6 @@ class LoadContext final : public nsILoadContext, public nsIInterfaceRequestor {
   uint64_t mNestedFrameId;
   bool mIsContent;
   bool mUseRemoteTabs;
-  bool mUseRemoteSubframes;
   bool mUseTrackingProtection;
 #ifdef DEBUG
   bool mIsNotNull;

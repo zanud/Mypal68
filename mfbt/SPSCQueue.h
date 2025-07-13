@@ -119,8 +119,9 @@ class SPSCRingBufferBase {
    * @param count The number of elements to enqueue.
    * @return The number of element enqueued.
    */
-  MOZ_MUST_USE
-  int EnqueueDefault(int aCount) { return Enqueue(nullptr, aCount); }
+  [[nodiscard]] int EnqueueDefault(int aCount) {
+    return Enqueue(nullptr, aCount);
+  }
   /**
    * @brief Put an element in the queue.
    *
@@ -130,8 +131,7 @@ class SPSCRingBufferBase {
    *
    * @return 1 if the element was inserted, 0 otherwise.
    */
-  MOZ_MUST_USE
-  int Enqueue(T& aElement) { return Enqueue(&aElement, 1); }
+  [[nodiscard]] int Enqueue(T& aElement) { return Enqueue(&aElement, 1); }
   /**
    * Push `aCount` elements in the ring buffer.
    *
@@ -143,8 +143,7 @@ class SPSCRingBufferBase {
    * @return The number of elements successfully coped from `elements` and
    * inserted into the ring buffer.
    */
-  MOZ_MUST_USE
-  int Enqueue(T* aElements, int aCount) {
+  [[nodiscard]] int Enqueue(T* aElements, int aCount) {
 #ifdef DEBUG
     AssertCorrectThread(mProducerId);
 #endif
@@ -190,8 +189,7 @@ class SPSCRingBufferBase {
    * @param count The maximum number of elements to Dequeue.
    * @return The number of elements written to `elements`.
    */
-  MOZ_MUST_USE
-  int Dequeue(T* elements, int count) {
+  [[nodiscard]] int Dequeue(T* elements, int count) {
 #ifdef DEBUG
     AssertCorrectThread(mConsumerId);
 #endif

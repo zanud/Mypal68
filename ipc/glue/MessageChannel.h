@@ -36,6 +36,17 @@ class MessageChannel;
 class IToplevelProtocol;
 class ActorLifecycleProxy;
 
+enum class MessageDirection {
+  eSending,
+  eReceiving,
+};
+
+enum class MessagePhase {
+  Endpoint,
+  TransferStart,
+  TransferEnd,
+};
+
 enum class SyncSendError {
   SendSuccess,
   PreviousTimeout,
@@ -440,6 +451,9 @@ class MessageChannel : HasResultCodes, MessageLoop::DestructionObserver {
   // This method is only safe to call on the worker thread, or in a
   // debugger with all threads paused.
   void DumpInterruptStack(const char* const pfx = "") const;
+
+  void AddProfilerMarker(const IPC::Message& aMessage,
+                         MessageDirection aDirection);
 
  private:
   // Called from both threads

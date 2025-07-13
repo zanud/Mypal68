@@ -348,26 +348,6 @@ var PageActions = {
     }
   },
 
-  logTelemetry(type, action, node = null) {
-    if (type == "used") {
-      type =
-        node && node.closest("#urlbar-container")
-          ? "urlbar_used"
-          : "panel_used";
-    }
-    let histogramID = "FX_PAGE_ACTION_" + type.toUpperCase();
-    try {
-      let histogram = Services.telemetry.getHistogramById(histogramID);
-      if (action._isMozillaAction) {
-        histogram.add(action.labelForHistogram);
-      } else {
-        histogram.add("other");
-      }
-    } catch (ex) {
-      Cu.reportError(ex);
-    }
-  },
-
   // For tests.  See Bug 1413692.
   _reset() {
     PageActions._purgeUnregisteredPersistedActions();
@@ -566,7 +546,6 @@ function Action(options) {
     extensionID: false,
     iconURL: false,
     isBadged: false,
-    labelForHistogram: false,
     onBeforePlacedInWindow: false,
     onCommand: false,
     onIframeHiding: false,
@@ -853,16 +832,6 @@ Action.prototype = {
 
   get isBadged() {
     return this._isBadged || false;
-  },
-
-  get labelForHistogram() {
-    // The histogram label value has a length limit of 20 and restricted to a
-    // pattern. See MAX_LABEL_LENGTH and CPP_IDENTIFIER_PATTERN in
-    // toolkit/components/telemetry/parse_histograms.py
-    return (
-      this._labelForHistogram ||
-      this._id.replace(/_\w{1}/g, match => match[1].toUpperCase()).substr(0, 20)
-    );
   },
 
   /**

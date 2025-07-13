@@ -87,8 +87,6 @@ static const uint8_t kRollingLoadOffset = 12;
 static const int32_t kMaxPrefetchRollingLoadCount = 20;
 static const uint32_t kFlagsMask = ((1 << kRollingLoadOffset) - 1);
 
-static bool sEsniEnabled = false;
-
 // ID Extensions for cache entries
 #define PREDICTOR_ORIGIN_EXTENSION "predictor-origin"
 
@@ -390,8 +388,6 @@ nsresult Predictor::Init() {
 
   mDnsService = do_GetService("@mozilla.org/network/dns-service;1", &rv);
   NS_ENSURE_SUCCESS(rv, rv);
-
-  Preferences::AddBoolVarCache(&sEsniEnabled, "network.security.esni.enabled");
 
   mInitialized = true;
 
@@ -1202,7 +1198,8 @@ bool Predictor::RunPredictions(nsIURI* referrer,
                                     getter_AddRefs(tmpCancelable));
 
     // Fetch esni keys if needed.
-    if (sEsniEnabled && uri->SchemeIs("https")) {
+    if (StaticPrefs::network_security_esni_enabled() &&
+        uri->SchemeIs("https")) {
       nsAutoCString esniHost;
       esniHost.Append("_esni.");
       esniHost.Append(hostname);

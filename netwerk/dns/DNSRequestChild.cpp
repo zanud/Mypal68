@@ -27,30 +27,30 @@ namespace net {
 //-----------------------------------------------------------------------------
 
 class ChildDNSRecord : public nsIDNSRecord {
-public:
+ public:
   NS_DECL_THREADSAFE_ISUPPORTS
   NS_DECL_NSIDNSRECORD
 
-  ChildDNSRecord(const DNSRecord &reply, uint16_t flags);
+  ChildDNSRecord(const DNSRecord& reply, uint16_t flags);
 
-private:
+ private:
   virtual ~ChildDNSRecord() = default;
 
   nsCString mCanonicalName;
   nsTArray<NetAddr> mAddresses;
-  uint32_t mCurrent; // addr iterator
-  uint32_t mLength;  // number of addrs
+  uint32_t mCurrent;  // addr iterator
+  uint32_t mLength;   // number of addrs
   uint16_t mFlags;
 };
 
 NS_IMPL_ISUPPORTS(ChildDNSRecord, nsIDNSRecord)
 
-ChildDNSRecord::ChildDNSRecord(const DNSRecord &reply, uint16_t flags)
+ChildDNSRecord::ChildDNSRecord(const DNSRecord& reply, uint16_t flags)
     : mCurrent(0), mFlags(flags) {
   mCanonicalName = reply.canonicalName();
 
   // A shame IPDL gives us no way to grab ownership of array: so copy it.
-  const nsTArray<NetAddr> &addrs = reply.addrs();
+  const nsTArray<NetAddr>& addrs = reply.addrs();
   uint32_t i = 0;
   mLength = addrs.Length();
   for (; i < mLength; i++) {
@@ -63,7 +63,7 @@ ChildDNSRecord::ChildDNSRecord(const DNSRecord &reply, uint16_t flags)
 //-----------------------------------------------------------------------------
 
 NS_IMETHODIMP
-ChildDNSRecord::GetCanonicalName(nsACString &result) {
+ChildDNSRecord::GetCanonicalName(nsACString& result) {
   if (!(mFlags & nsHostResolver::RES_CANON_NAME)) {
     return NS_ERROR_NOT_AVAILABLE;
   }
@@ -73,13 +73,13 @@ ChildDNSRecord::GetCanonicalName(nsACString &result) {
 }
 
 NS_IMETHODIMP
-ChildDNSRecord::IsTRR(bool *retval) {
+ChildDNSRecord::IsTRR(bool* retval) {
   *retval = false;
   return NS_ERROR_NOT_AVAILABLE;
 }
 
 NS_IMETHODIMP
-ChildDNSRecord::GetNextAddr(uint16_t port, NetAddr *addr) {
+ChildDNSRecord::GetNextAddr(uint16_t port, NetAddr* addr) {
   if (mCurrent >= mLength) {
     return NS_ERROR_NOT_AVAILABLE;
   }
@@ -93,18 +93,17 @@ ChildDNSRecord::GetNextAddr(uint16_t port, NetAddr *addr) {
 }
 
 NS_IMETHODIMP
-ChildDNSRecord::GetAddresses(nsTArray<NetAddr> &aAddressArray) {
+ChildDNSRecord::GetAddresses(nsTArray<NetAddr>& aAddressArray) {
   aAddressArray = mAddresses;
   return NS_OK;
 }
 
 // shamelessly copied from nsDNSRecord
 NS_IMETHODIMP
-ChildDNSRecord::GetScriptableNextAddr(uint16_t port, nsINetAddr **result) {
+ChildDNSRecord::GetScriptableNextAddr(uint16_t port, nsINetAddr** result) {
   NetAddr addr;
   nsresult rv = GetNextAddr(port, &addr);
-  if (NS_FAILED(rv))
-    return rv;
+  if (NS_FAILED(rv)) return rv;
 
   RefPtr<nsNetAddr> netaddr = new nsNetAddr(&addr);
   netaddr.forget(result);
@@ -114,7 +113,7 @@ ChildDNSRecord::GetScriptableNextAddr(uint16_t port, nsINetAddr **result) {
 
 // also copied from nsDNSRecord
 NS_IMETHODIMP
-ChildDNSRecord::GetNextAddrAsString(nsACString &result) {
+ChildDNSRecord::GetNextAddrAsString(nsACString& result) {
   NetAddr addr;
   nsresult rv = GetNextAddr(0, &addr);
   if (NS_FAILED(rv)) {
@@ -127,11 +126,11 @@ ChildDNSRecord::GetNextAddrAsString(nsACString &result) {
     return NS_OK;
   }
   NS_ERROR("NetAddrToString failed unexpectedly");
-  return NS_ERROR_FAILURE; // conversion failed for some reason
+  return NS_ERROR_FAILURE;  // conversion failed for some reason
 }
 
 NS_IMETHODIMP
-ChildDNSRecord::HasMore(bool *result) {
+ChildDNSRecord::HasMore(bool* result) {
   *result = mCurrent < mLength;
   return NS_OK;
 }
@@ -150,13 +149,13 @@ ChildDNSRecord::ReportUnusable(uint16_t aPort) {
 }
 
 class ChildDNSByTypeRecord : public nsIDNSByTypeRecord {
-public:
+ public:
   NS_DECL_THREADSAFE_ISUPPORTS
   NS_DECL_NSIDNSBYTYPERECORD
 
-  explicit ChildDNSByTypeRecord(const nsTArray<nsCString> &reply);
+  explicit ChildDNSByTypeRecord(const nsTArray<nsCString>& reply);
 
-private:
+ private:
   virtual ~ChildDNSByTypeRecord() = default;
 
   nsTArray<nsCString> mRecords;
@@ -164,18 +163,18 @@ private:
 
 NS_IMPL_ISUPPORTS(ChildDNSByTypeRecord, nsIDNSByTypeRecord)
 
-ChildDNSByTypeRecord::ChildDNSByTypeRecord(const nsTArray<nsCString> &reply) {
+ChildDNSByTypeRecord::ChildDNSByTypeRecord(const nsTArray<nsCString>& reply) {
   mRecords = reply;
 }
 
 NS_IMETHODIMP
-ChildDNSByTypeRecord::GetRecords(nsTArray<nsCString> &aRecords) {
+ChildDNSByTypeRecord::GetRecords(nsTArray<nsCString>& aRecords) {
   aRecords = mRecords;
   return NS_OK;
 }
 
 NS_IMETHODIMP
-ChildDNSByTypeRecord::GetRecordsAsOneString(nsACString &aRecords) {
+ChildDNSByTypeRecord::GetRecordsAsOneString(nsACString& aRecords) {
   // deep copy
   for (uint32_t i = 0; i < mRecords.Length(); i++) {
     aRecords.Append(mRecords[i]);
@@ -188,13 +187,14 @@ ChildDNSByTypeRecord::GetRecordsAsOneString(nsACString &aRecords) {
 //-----------------------------------------------------------------------------
 
 class CancelDNSRequestEvent : public Runnable {
-public:
-  CancelDNSRequestEvent(DNSRequestChild *aDnsReq, nsresult aReason)
-      : Runnable("net::CancelDNSRequestEvent"), mDnsRequest(aDnsReq),
+ public:
+  CancelDNSRequestEvent(DNSRequestChild* aDnsReq, nsresult aReason)
+      : Runnable("net::CancelDNSRequestEvent"),
+        mDnsRequest(aDnsReq),
         mReasonForCancel(aReason) {}
 
   NS_IMETHOD Run() override {
-    if (mDnsRequest->mIPCOpen) {
+    if (mDnsRequest->CanSend()) {
       // Send request to Parent process.
       mDnsRequest->SendCancelDNSRequest(mDnsRequest->mHost, mDnsRequest->mType,
                                         mDnsRequest->mOriginAttributes,
@@ -203,7 +203,7 @@ public:
     return NS_OK;
   }
 
-private:
+ private:
   RefPtr<DNSRequestChild> mDnsRequest;
   nsresult mReasonForCancel;
 };
@@ -212,14 +212,18 @@ private:
 // DNSRequestChild
 //-----------------------------------------------------------------------------
 
-DNSRequestChild::DNSRequestChild(const nsACString &aHost, const uint16_t &aType,
-                                 const OriginAttributes &aOriginAttributes,
-                                 const uint32_t &aFlags,
-                                 nsIDNSListener *aListener,
-                                 nsIEventTarget *target)
-    : mListener(aListener), mTarget(target), mResultStatus(NS_OK), mHost(aHost),
-      mType(aType), mOriginAttributes(aOriginAttributes), mFlags(aFlags),
-      mIPCOpen(false) {}
+DNSRequestChild::DNSRequestChild(const nsACString& aHost, const uint16_t& aType,
+                                 const OriginAttributes& aOriginAttributes,
+                                 const uint32_t& aFlags,
+                                 nsIDNSListener* aListener,
+                                 nsIEventTarget* target)
+    : mListener(aListener),
+      mTarget(target),
+      mResultStatus(NS_OK),
+      mHost(aHost),
+      mType(aType),
+      mOriginAttributes(aOriginAttributes),
+      mFlags(aFlags) {}
 
 void DNSRequestChild::StartRequest() {
   // we can only do IPDL on the main thread
@@ -236,8 +240,8 @@ void DNSRequestChild::StartRequest() {
         SystemGroup::EventTargetFor(TaskCategory::Other);
     gNeckoChild->SetEventTargetForActor(this, systemGroupEventTarget);
 
-    mozilla::dom::ContentChild *cc =
-        static_cast<mozilla::dom::ContentChild *>(gNeckoChild->Manager());
+    mozilla::dom::ContentChild* cc =
+        static_cast<mozilla::dom::ContentChild*>(gNeckoChild->Manager());
     if (cc->IsShuttingDown()) {
       return;
     }
@@ -246,7 +250,7 @@ void DNSRequestChild::StartRequest() {
     gNeckoChild->SendPDNSRequestConstructor(this, mHost, mOriginAttributes,
                                             mFlags);
   } else if (XRE_IsSocketProcess()) {
-    SocketProcessChild *child = SocketProcessChild::GetSingleton();
+    SocketProcessChild* child = SocketProcessChild::GetSingleton();
     if (!child->CanSend()) {
       return;
     }
@@ -256,11 +260,6 @@ void DNSRequestChild::StartRequest() {
     MOZ_ASSERT(false, "Wrong process");
     return;
   }
-
-  mIPCOpen = true;
-
-  // IPDL holds a reference until IPDL channel gets destroyed
-  AddIPDLReference();
 }
 
 void DNSRequestChild::CallOnLookupComplete() {
@@ -274,29 +273,28 @@ void DNSRequestChild::CallOnLookupByTypeComplete() {
   mListener->OnLookupByTypeComplete(this, mResultByTypeRecords, mResultStatus);
 }
 
-mozilla::ipc::IPCResult
-DNSRequestChild::RecvLookupCompleted(const DNSRequestResponse &reply) {
-  mIPCOpen = false;
+mozilla::ipc::IPCResult DNSRequestChild::RecvLookupCompleted(
+    const DNSRequestResponse& reply) {
   MOZ_ASSERT(mListener);
 
   switch (reply.type()) {
-  case DNSRequestResponse::TDNSRecord: {
-    mResultRecord = new ChildDNSRecord(reply.get_DNSRecord(), mFlags);
-    break;
-  }
-  case DNSRequestResponse::Tnsresult: {
-    mResultStatus = reply.get_nsresult();
-    break;
-  }
-  case DNSRequestResponse::TArrayOfnsCString: {
-    MOZ_ASSERT(mType != nsIDNSService::RESOLVE_TYPE_DEFAULT);
-    mResultByTypeRecords =
-        new ChildDNSByTypeRecord(reply.get_ArrayOfnsCString());
-    break;
-  }
-  default:
-    MOZ_ASSERT_UNREACHABLE("unknown type");
-    return IPC_FAIL_NO_REASON(this);
+    case DNSRequestResponse::TDNSRecord: {
+      mResultRecord = new ChildDNSRecord(reply.get_DNSRecord(), mFlags);
+      break;
+    }
+    case DNSRequestResponse::Tnsresult: {
+      mResultStatus = reply.get_nsresult();
+      break;
+    }
+    case DNSRequestResponse::TArrayOfnsCString: {
+      MOZ_ASSERT(mType != nsIDNSService::RESOLVE_TYPE_DEFAULT);
+      mResultByTypeRecords =
+          new ChildDNSByTypeRecord(reply.get_ArrayOfnsCString());
+      break;
+    }
+    default:
+      MOZ_ASSERT_UNREACHABLE("unknown type");
+      return IPC_FAIL_NO_REASON(this);
   }
 
   MOZ_ASSERT(NS_IsMainThread());
@@ -333,16 +331,12 @@ DNSRequestChild::RecvLookupCompleted(const DNSRequestResponse &reply) {
   return IPC_OK();
 }
 
-void DNSRequestChild::ReleaseIPDLReference() {
+void DNSRequestChild::ActorDestroy(ActorDestroyReason why) {
   // Request is done or destroyed. Remove it from the hash table.
   RefPtr<ChildDNSService> dnsServiceChild =
       dont_AddRef(ChildDNSService::GetSingleton());
   dnsServiceChild->NotifyRequestDone(this);
-
-  Release();
 }
-
-void DNSRequestChild::ActorDestroy(ActorDestroyReason why) { mIPCOpen = false; }
 
 //-----------------------------------------------------------------------------
 // DNSRequestChild::nsISupports
@@ -356,7 +350,7 @@ NS_IMPL_ISUPPORTS(DNSRequestChild, nsICancelable)
 
 NS_IMETHODIMP
 DNSRequestChild::Cancel(nsresult reason) {
-  if (mIPCOpen) {
+  if (CanSend()) {
     // We can only do IPDL on the main thread
     nsCOMPtr<nsIRunnable> runnable = new CancelDNSRequestEvent(this, reason);
     SystemGroup::Dispatch(TaskCategory::Other, runnable.forget());
@@ -365,5 +359,5 @@ DNSRequestChild::Cancel(nsresult reason) {
 }
 
 //------------------------------------------------------------------------------
-} // namespace net
-} // namespace mozilla
+}  // namespace net
+}  // namespace mozilla

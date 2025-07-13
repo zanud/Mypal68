@@ -21,7 +21,9 @@
 #include "mozilla/dom/PBackgroundLSSimpleRequestChild.h"
 #include "mozilla/dom/PBackgroundSDBConnectionChild.h"
 #include "mozilla/dom/PFileSystemRequestChild.h"
+#ifdef THE_REPORTING
 #include "mozilla/dom/EndpointForReportChild.h"
+#endif
 #include "mozilla/dom/FileSystemTaskBase.h"
 #include "mozilla/dom/IPCBlobInputStreamChild.h"
 #include "mozilla/dom/PMediaTransportChild.h"
@@ -678,6 +680,7 @@ bool BackgroundChildImpl::DeallocPServiceWorkerRegistrationChild(
   return dom::DeallocServiceWorkerRegistrationChild(aActor);
 }
 
+#ifdef THE_REPORTING
 dom::PEndpointForReportChild* BackgroundChildImpl::AllocPEndpointForReportChild(
     const nsString& aGroupName, const PrincipalInfo& aPrincipalInfo) {
   return new dom::EndpointForReportChild();
@@ -689,6 +692,8 @@ bool BackgroundChildImpl::DeallocPEndpointForReportChild(
   delete static_cast<dom::EndpointForReportChild*>(aActor);
   return true;
 }
+#endif
+
 
 dom::PMediaTransportChild* BackgroundChildImpl::AllocPMediaTransportChild() {
   // We don't allocate here: MediaTransportHandlerIPC is in charge of that,

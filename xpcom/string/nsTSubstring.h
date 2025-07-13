@@ -6,6 +6,7 @@
 #ifndef nsTSubstring_h
 #define nsTSubstring_h
 
+#include <iterator>
 #include <type_traits>
 
 #include "mozilla/Casting.h"
@@ -637,7 +638,7 @@ class nsTSubstring : public mozilla::detail::nsTStringRepr<T> {
    * this with floating-point values as a result.
    */
   void AppendPrintf(const char* aFormat, ...) MOZ_FORMAT_PRINTF(2, 3);
-  void AppendPrintf(const char* aFormat, va_list aAp) MOZ_FORMAT_PRINTF(2, 0);
+  void AppendVprintf(const char* aFormat, va_list aAp) MOZ_FORMAT_PRINTF(2, 0);
   void AppendInt(int32_t aInteger) { AppendIntDec(aInteger); }
   void AppendInt(int32_t aInteger, int aRadix) {
     if (aRadix == 10) {
@@ -1253,6 +1254,11 @@ class nsTSubstring : public mozilla::detail::nsTStringRepr<T> {
       size_type aOldSuffixStart = 0, size_type aNewSuffixStart = 0);
 
  private:
+  void AssignOwned(self_type&& aStr);
+  bool AssignNonDependent(const substring_tuple_type& aTuple,
+                          size_type aTupleLength,
+                          const mozilla::fallible_t& aFallible);
+
   /**
    * Do not call this except from within FinishBulkWriteImpl() and
    * SetCapacity().
@@ -1372,14 +1378,27 @@ class nsTSubstringSplitter {
 
   class nsTSubstringSplit_Iter {
    public:
-    nsTSubstringSplit_Iter(const nsTSubstringSplitter<T>& aObj, size_type aPos)
+    using value_type = const nsTDependentSubstring<T>;
+    using pointer = value_type*;
+    using reference = value_type&;
+    using iterator_category = std::forward_iterator_tag;
+    using difference_type = ptrdiff_t;
+
+    nsTSubstringSplit_Iter() : mObj(nullptr), mPos(0) {}
+
+    nsTSubstringSplit_Iter(const nsTSubstringSplitter<T>* aObj, size_type aPos)
         : mObj(aObj), mPos(aPos) {}
 
+    bool operator==(const nsTSubstringSplit_Iter& other) const {
+      MOZ_ASSERT(mObj == other.mObj);
+      return mPos == other.mPos;
+    }
     bool operator!=(const nsTSubstringSplit_Iter& other) const {
-      return mPos != other.mPos;
+      return !(*this == other);
     }
 
     const nsTDependentSubstring<T>& operator*() const;
+    const nsTDependentSubstring<T>* operator->() const;
 
     const nsTSubstringSplit_Iter& operator++() {
       ++mPos;
@@ -1387,7 +1406,7 @@ class nsTSubstringSplitter {
     }
 
    private:
-    const nsTSubstringSplitter<T>& mObj;
+    const nsTSubstringSplitter<T>* mObj;
     size_type mPos;
   };
 
@@ -1401,11 +1420,11 @@ class nsTSubstringSplitter {
   nsTSubstringSplitter(const nsTSubstring<T>* aStr, char_type aDelim);
 
   nsTSubstringSplit_Iter begin() const {
-    return nsTSubstringSplit_Iter(*this, 0);
+    return nsTSubstringSplit_Iter(this, 0);
   }
 
   nsTSubstringSplit_Iter end() const {
-    return nsTSubstringSplit_Iter(*this, mArraySize);
+    return nsTSubstringSplit_Iter(this, mArraySize);
   }
 
   const nsTDependentSubstring<T>& Get(const size_type index) const {

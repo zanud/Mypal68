@@ -137,11 +137,7 @@ var TabCrashHandler = {
         let childID = aSubject.get("childID");
         let dumpID = aSubject.get("dumpID");
 
-        if (!dumpID) {
-          Services.telemetry
-            .getHistogramById("FX_CONTENT_CRASH_DUMP_UNAVAILABLE")
-            .add(1);
-        } else if (AppConstants.MOZ_CRASHREPORTER) {
+        if (AppConstants.MOZ_CRASHREPORTER) {
           this.childMap.set(childID, dumpID);
         }
 
@@ -356,12 +352,6 @@ var TabCrashHandler = {
 
     browser.docShell.displayLoadError(Cr.NS_ERROR_BUILDID_MISMATCH, uri, null);
     tab.setAttribute("crashed", true);
-
-    // Make sure to only count once even if there are multiple windows
-    // that will all show about:restartrequired.
-    if (this._crashedTabCount == 1) {
-      Services.telemetry.scalarAdd("dom.contentprocess.buildID_mismatch", 1);
-    }
   },
 
   /**
@@ -439,9 +429,6 @@ var TabCrashHandler = {
     }
 
     if (!message.data.sendReport) {
-      Services.telemetry
-        .getHistogramById("FX_CONTENT_CRASH_NOT_SUBMITTED")
-        .add(1);
       this.prefs.setBoolPref("sendReport", false);
       return;
     }
@@ -567,12 +554,6 @@ var TabCrashHandler = {
       data.email = this.prefs.getCharPref("email");
     }
 
-    // Make sure to only count once even if there are multiple windows
-    // that will all show about:tabcrashed.
-    if (this._crashedTabCount == 1) {
-      Services.telemetry.getHistogramById("FX_CONTENT_CRASH_PRESENTED").add(1);
-    }
-
     message.target.sendAsyncMessage("SetCrashReportAvailable", data);
   },
 
@@ -590,17 +571,6 @@ var TabCrashHandler = {
     this.pageListener.sendAsyncMessage("UpdateCount", {
       count: this._crashedTabCount,
     });
-
-    let browser = message.target.browser;
-    let childID = this.browserMap.get(browser);
-
-    // Make sure to only count once even if there are multiple windows
-    // that will all show about:tabcrashed.
-    if (this._crashedTabCount == 0 && childID) {
-      Services.telemetry
-        .getHistogramById("FX_CONTENT_CRASH_NOT_SUBMITTED")
-        .add(1);
-    }
   },
 
   /**

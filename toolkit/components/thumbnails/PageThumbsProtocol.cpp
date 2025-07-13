@@ -14,10 +14,9 @@
 #include "nsIChannel.h"
 #include "nsComponentManagerUtils.h"
 #include "nsNetUtil.h"
-#include "mozilla/dom/URLSearchParams.h"
 #include "nsStandardURL.h"
+#include "nsURLHelper.h"
 
-using mozilla::dom::URLParams;
 using mozilla::net::nsStandardURL;
 
 NS_IMPL_ISUPPORTS(PageThumbsProtocol, nsIProtocolHandler);
@@ -113,8 +112,8 @@ nsresult PageThumbsProtocol::ParseProtocolURL(nsIURI* aURI,
     return NS_ERROR_MALFORMED_URI;
   }
 
-  URLParams::Extract(Substring(path, queryBegins + 1), NS_LITERAL_STRING("url"),
-                     aParsedURL);
+  mozilla::URLParams::Extract(Substring(path, queryBegins + 1),
+                              NS_LITERAL_STRING("url"), aParsedURL);
 
   // If there's no URL as part of the query params, there will be no thumbnail
   if (aParsedURL.IsVoid()) {

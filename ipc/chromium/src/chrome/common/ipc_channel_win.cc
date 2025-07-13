@@ -13,12 +13,15 @@
 #include "base/rand_util.h"
 #include "base/string_util.h"
 #include "base/win_util.h"
+#include "chrome/common/ipc_channel_utils.h"
 #include "chrome/common/ipc_message_utils.h"
 #include "mozilla/ipc/ProtocolUtils.h"
 
 #ifdef FUZZING
 #  include "mozilla/ipc/Faulty.h"
 #endif
+
+using namespace mozilla::ipc;
 
 // ChannelImpl is used on the IPC thread, but constructed on a different thread,
 // so it has to hold the nsAutoOwningThread as a pointer, and we need a slightly
@@ -100,7 +103,7 @@ void Channel::ChannelImpl::Init(Mode mode, Listener* listener) {
 }
 
 void Channel::ChannelImpl::OutputQueuePush(mozilla::UniquePtr<Message> msg) {
-  output_queue_.push(msg.release());
+  output_queue_.push(std::move(msg));
   output_queue_length_++;
 }
 
@@ -132,9 +135,7 @@ void Channel::ChannelImpl::Close() {
   }
 
   while (!output_queue_.empty()) {
-    Message* m = output_queue_.front();
     OutputQueuePop();
-    delete m;
   }
 
 #ifdef DEBUG
@@ -418,6 +419,12 @@ bool Channel::ChannelImpl::ProcessIncomingMessages(
 
       Message& m = incoming_message_.ref();
 
+      // Note: We set other_pid_ below when we receive a Hello message (which
+      // has no routing ID), but we only emit a profiler marker for messages
+      // with a routing ID, so there's no conflict here.
+      AddIPCProfilerMarker(m, other_pid_, MessageDirection::eReceiving,
+                           MessagePhase::TransferStart);
+
 #ifdef IPC_MESSAGE_DEBUG_EXTRA
       DLOG(INFO) << "received message on channel @" << this << " with type "
                  << m.type();
@@ -427,7 +434,7 @@ bool Channel::ChannelImpl::ProcessIncomingMessages(
         // The Hello message contains the process id and must include the
         // shared secret, if we are waiting for it.
         MessageIterator it = MessageIterator(m);
-        int32_t claimed_pid = it.NextInt();
+        other_pid_ = it.NextInt();
         if (waiting_for_shared_secret_ && (it.NextInt() != shared_secret_)) {
           NOTREACHED();
           // Something went wrong. Abort connection.
@@ -436,7 +443,7 @@ bool Channel::ChannelImpl::ProcessIncomingMessages(
           return false;
         }
         waiting_for_shared_secret_ = false;
-        listener_->OnChannelConnected(claimed_pid);
+        listener_->OnChannelConnected(other_pid_);
       } else {
         listener_->OnMessageReceived(std::move(m));
       }
@@ -468,15 +475,19 @@ bool Channel::ChannelImpl::ProcessOutgoingMessages(
     }
     // Message was sent.
     DCHECK(!output_queue_.empty());
-    Message* m = output_queue_.front();
+    Message* m = output_queue_.front().get();
 
     MOZ_RELEASE_ASSERT(partial_write_iter_.isSome());
     Pickle::BufferList::IterImpl& iter = partial_write_iter_.ref();
     iter.Advance(m->Buffers(), bytes_written);
     if (iter.Done()) {
+      AddIPCProfilerMarker(*m, other_pid_, MessageDirection::eSending,
+                           MessagePhase::TransferEnd);
+
       partial_write_iter_.reset();
       OutputQueuePop();
-      delete m;
+      // m has been destroyed, so clear the dangling reference.
+      m = nullptr;
     }
   }
 
@@ -485,7 +496,7 @@ bool Channel::ChannelImpl::ProcessOutgoingMessages(
   if (INVALID_HANDLE_VALUE == pipe_) return false;
 
   // Write to pipe...
-  Message* m = output_queue_.front();
+  Message* m = output_queue_.front().get();
 
   if (partial_write_iter_.isNothing()) {
     Pickle::BufferList::IterImpl iter(m->Buffers());
@@ -493,6 +504,10 @@ bool Channel::ChannelImpl::ProcessOutgoingMessages(
   }
 
   Pickle::BufferList::IterImpl& iter = partial_write_iter_.ref();
+
+  AddIPCProfilerMarker(*m, other_pid_, MessageDirection::eSending,
+                       MessagePhase::TransferStart);
+
   BOOL ok = WriteFile(pipe_, iter.Data(), iter.RemainingInSegment(),
                       &bytes_written, &output_state_.context.overlapped);
   if (!ok) {

@@ -10,10 +10,6 @@ ChromeUtils.defineModuleGetter(
   "resource://gre/modules/Services.jsm"
 );
 
-XPCOMUtils.defineLazyModuleGetters(this, {
-  BrowserUsageTelemetry: "resource:///modules/BrowserUsageTelemetry.jsm",
-});
-
 XPCOMUtils.defineLazyPreferenceGetter(
   this,
   "searchLoadInBackground",
@@ -101,11 +97,6 @@ this.search = class extends ExtensionAPI {
             tab.linkedBrowser.loadURI(submission.uri.spec, options);
             tabbrowser = tab.linkedBrowser.getTabBrowser();
           }
-          BrowserUsageTelemetry.recordSearch(
-            tabbrowser,
-            engine,
-            "webextension"
-          );
         },
       },
     };

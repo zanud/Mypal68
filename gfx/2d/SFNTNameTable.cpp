@@ -4,9 +4,10 @@
 
 #include "SFNTNameTable.h"
 
+#include <utility>
+
 #include "BigEndianInts.h"
 #include "Logging.h"
-#include "mozilla/Move.h"
 
 #if defined(XP_MACOSX)
 #  include <CoreFoundation/CoreFoundation.h>

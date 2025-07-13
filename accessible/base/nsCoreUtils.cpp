@@ -378,10 +378,14 @@ bool nsCoreUtils::IsErrorPage(Document* aDocument) {
   nsAutoCString path;
   uri->GetPathQueryRef(path);
 
-  NS_NAMED_LITERAL_CSTRING(neterror, "neterror");
-  NS_NAMED_LITERAL_CSTRING(certerror, "certerror");
+  constexpr auto neterror = "neterror"_ns;
+  constexpr auto certerror = "certerror"_ns;
 
   return StringBeginsWith(path, neterror) || StringBeginsWith(path, certerror);
+}
+
+PresShell* nsCoreUtils::GetPresShellFor(nsINode* aNode) {
+  return aNode->OwnerDoc()->GetPresShell();
 }
 
 bool nsCoreUtils::GetID(nsIContent* aContent, nsAString& aID) {
@@ -434,8 +438,8 @@ XULTreeElement* nsCoreUtils::GetTree(nsIContent* aContent) {
 }
 
 already_AddRefed<nsTreeColumn> nsCoreUtils::GetFirstSensibleColumn(
-    XULTreeElement* aTree) {
-  RefPtr<nsTreeColumns> cols = aTree->GetColumns();
+    XULTreeElement* aTree, FlushType aFlushType) {
+  RefPtr<nsTreeColumns> cols = aTree->GetColumns(aFlushType);
   if (!cols) return nullptr;
 
   RefPtr<nsTreeColumn> column = cols->GetFirstColumn();
@@ -510,6 +514,12 @@ void nsCoreUtils::ScrollTo(PresShell* aPresShell, nsIContent* aContent,
   ConvertScrollTypeToPercents(aScrollType, &vertical, &horizontal);
   aPresShell->ScrollContentIntoView(aContent, vertical, horizontal,
                                     ScrollFlags::ScrollOverflowHidden);
+}
+
+bool nsCoreUtils::IsHTMLTableHeader(nsIContent* aContent) {
+  return aContent->NodeInfo()->Equals(nsGkAtoms::th) ||
+         (aContent->IsElement() &&
+          aContent->AsElement()->HasAttr(kNameSpaceID_None, nsGkAtoms::scope));
 }
 
 bool nsCoreUtils::IsWhitespaceString(const nsAString& aString) {

@@ -43,8 +43,6 @@ policy-DisableBuiltinPDFViewer = Disable PDF.js, the built-in PDF viewer in { -b
 
 policy-DisableDeveloperTools = Block access to the developer tools.
 
-policy-DisableFeedbackCommands = Disable commands to send feedback from the Help menu (Submit Feedback and Report Deceptive Site).
-
 policy-DisableFirefoxAccounts = Disable { -fxaccount-brand-name } based services, including Sync.
 
 # Firefox Screenshots is the name of the feature, and should not be translated.

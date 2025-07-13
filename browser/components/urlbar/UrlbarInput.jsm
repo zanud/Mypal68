@@ -357,7 +357,6 @@ class UrlbarInput {
         selectedOneOff.engine,
         searchString
       );
-      this._recordSearch(selectedOneOff.engine, event);
     } else {
       // Use the current value if we don't have a UrlbarResult e.g. because the
       // view is closed.
@@ -368,11 +367,6 @@ class UrlbarInput {
     if (!url) {
       return;
     }
-
-    this.controller.recordSelectedResult(
-      event,
-      result || this.view.selectedResult
-    );
 
     let where = openWhere || this._whereToOpen(event);
     openParams.allowInheritPrincipal = false;
@@ -425,8 +419,6 @@ class UrlbarInput {
     if (!result.payload.keywordOffer) {
       this.view.close();
     }
-
-    this.controller.recordSelectedResult(event, result);
 
     if (isCanonized) {
       this._loadURL(this.value, where, openParams);
@@ -547,7 +539,6 @@ class UrlbarInput {
           alias: result.payload.keyword,
         };
         const engine = Services.search.getEngineByName(result.payload.engine);
-        this._recordSearch(engine, event, actionDetails);
         break;
       }
       case UrlbarUtils.RESULT_TYPE.OMNIBOX: {
@@ -1203,42 +1194,6 @@ class UrlbarInput {
     this._actionOverrideKeyCount = 0;
     this.removeAttribute("actionoverride");
     this.view.panel.removeAttribute("actionoverride");
-  }
-
-  /**
-   * Get the url to load for the search query and records in telemetry that it
-   * is being loaded.
-   *
-   * @param {nsISearchEngine} engine
-   *   The engine to generate the query for.
-   * @param {Event} event
-   *   The event that triggered this query.
-   * @param {object} searchActionDetails
-   *   The details associated with this search query.
-   * @param {boolean} searchActionDetails.isSuggestion
-   *   True if this query was initiated from a suggestion from the search engine.
-   * @param {alias} searchActionDetails.alias
-   *   True if this query was initiated via a search alias.
-   */
-  _recordSearch(engine, event, searchActionDetails = {}) {
-    const isOneOff = this.view.oneOffSearchButtons.maybeRecordTelemetry(event);
-    // Infer the type of the event which triggered the search.
-    let eventType = "unknown";
-    if (event instanceof KeyboardEvent) {
-      eventType = "key";
-    } else if (event instanceof MouseEvent) {
-      eventType = "mouse";
-    }
-    // Augment the search action details object.
-    let details = searchActionDetails;
-    details.isOneOff = isOneOff;
-    details.type = eventType;
-
-    this.window.BrowserSearch.recordSearchInTelemetry(
-      engine,
-      "urlbar",
-      details
-    );
   }
 
   /**

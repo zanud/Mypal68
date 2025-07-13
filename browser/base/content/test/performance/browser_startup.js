@@ -61,7 +61,6 @@ const startupPhases = {
         "chrome://webcompat/content/data/ua_overrides.jsm",
         "chrome://webcompat/content/lib/ua_overrider.jsm",
         "resource:///modules/AboutNewTab.jsm",
-        "resource:///modules/BrowserUsageTelemetry.jsm",
         "resource:///modules/ContentCrashHandlers.jsm",
         "resource:///modules/ShellService.jsm",
         "resource://gre/modules/NewTabUtils.jsm",

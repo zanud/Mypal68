@@ -7,6 +7,14 @@
 
 var sidebar;
 
+function pushPref(name, val) {
+  return SpecialPowers.pushPrefEnv({ set: [[name, val]] });
+}
+
+function popPref() {
+  return SpecialPowers.popPrefEnv();
+}
+
 add_task(async function test_sidebarpanels_click() {
   ignoreAllUncaughtExceptions();
 
@@ -86,15 +94,13 @@ add_task(async function test_sidebarpanels_click() {
 
   for (let test of tests) {
     gBrowser.selectedTab = BrowserTestUtils.addTab(gBrowser);
-    await testPlacesPanel(test, () => {
-      changeSidebarDirection("ltr");
-      info("Running " + test.desc + " in LTR mode");
-    });
+    info("Running " + test.desc + " in LTR mode");
+    await testPlacesPanel(test);
 
-    await testPlacesPanel(test, () => {
-      changeSidebarDirection("rtl");
-      info("Running " + test.desc + " in RTL mode");
-    });
+    await pushPref("intl.l10n.pseudo", "bidi");
+    info("Running " + test.desc + " in RTL mode");
+    await testPlacesPanel(test);
+    await popPref();
 
     // Remove tabs created by sub-tests.
     while (gBrowser.tabs.length > 1) {
@@ -103,7 +109,7 @@ add_task(async function test_sidebarpanels_click() {
   }
 });
 
-async function testPlacesPanel(testInfo, preFunc) {
+async function testPlacesPanel(testInfo) {
   await testInfo.init();
 
   let promise = new Promise(resolve => {
@@ -112,8 +118,6 @@ async function testPlacesPanel(testInfo, preFunc) {
       function() {
         executeSoon(async function() {
           testInfo.prepare();
-
-          preFunc();
 
           let tree = sidebar.contentDocument.getElementById(testInfo.treeName);
 
@@ -165,8 +169,4 @@ function promiseAlertDialogObserved() {
     Services.obs.addObserver(observer, "common-dialog-loaded");
     Services.obs.addObserver(observer, "tabmodal-dialog-loaded");
   });
-}
-
-function changeSidebarDirection(aDirection) {
-  sidebar.contentDocument.documentElement.style.direction = aDirection;
 }

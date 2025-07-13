@@ -5,6 +5,7 @@
 LIBRARY mozglue.dll
 
 EXPORTS
+  ; symbols that are actually useful
   malloc=je_malloc
   calloc=je_calloc
   realloc=je_realloc

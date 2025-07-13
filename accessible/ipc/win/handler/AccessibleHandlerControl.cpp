@@ -8,11 +8,10 @@
 
 #include "AccessibleHandlerControl.h"
 
-#include "AccessibleHandler.h"
+#include <utility>
 
 #include "AccessibleEventId.h"
-
-#include "mozilla/Move.h"
+#include "AccessibleHandler.h"
 #include "mozilla/RefPtr.h"
 
 namespace mozilla {

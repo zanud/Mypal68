@@ -5,6 +5,8 @@
 #include "AntiTrackingCommon.h"
 
 #include "mozilla/dom/ContentChild.h"
+#include "mozilla/dom/Document.h" //MY
+#include "mozilla/net/UrlClassifierCommon.h"
 #include "mozilla/ipc/MessageChannel.h"
 #include "mozilla/AbstractThread.h"
 #include "mozilla/HashFunctions.h"
@@ -21,6 +23,7 @@
 #include "nsIClassifiedChannel.h"
 #include "nsICookiePermission.h"
 #include "nsICookieService.h"
+#include "nsICookieSettings.h" //MY
 #include "nsIHttpChannelInternal.h"
 #include "nsIOService.h"
 #include "nsIParentChannel.h"
@@ -1587,15 +1590,19 @@ bool AntiTrackingCommon::IsFirstPartyStorageAccessGrantedFor(
       nsIWebProgressListener::STATE_COOKIES_BLOCKED_TRACKER;
 
   // Not a tracker.
+  nsCOMPtr<nsIClassifiedChannel> classifiedChannel =
+      do_QueryInterface(aChannel);
   if (behavior == nsICookieService::BEHAVIOR_REJECT_TRACKER) {
-    if (httpChannel && !httpChannel->IsThirdPartyTrackingResource()) {
+    if (classifiedChannel &&
+        !classifiedChannel->IsThirdPartyTrackingResource()) {
       LOG(("Our channel isn't a third-party tracking channel"));
       return true;
     }
   } else {
     MOZ_ASSERT(behavior ==
                nsICookieService::BEHAVIOR_REJECT_TRACKER_AND_PARTITION_FOREIGN);
-    if (httpChannel && httpChannel->IsThirdPartyTrackingResource()) {
+    if (classifiedChannel &&
+        classifiedChannel->IsThirdPartyTrackingResource()) {
       // fall through
     } else if (nsContentUtils::IsThirdPartyWindowOrChannel(nullptr, aChannel,
                                                            aURI)) {
@@ -2184,7 +2191,14 @@ void AntiTrackingCommon::RedirectHeuristic(nsIChannel* aOldChannel,
 
   bool allowedByPreviousRedirect =
       oldLoadInfo->GetAllowListFutureDocumentsCreatedFromThisRedirectChain();
-  /*if (classifiedNewChannel->IsTrackingResource()) {
+
+  // We're looking at the first-party classification flags because we're
+  // interested in first-party redirects.
+  uint32_t newClassificationFlags =
+      classifiedNewChannel->GetFirstPartyClassificationFlags();
+
+  if (net::UrlClassifierCommon::IsTrackingClassificationFlag(
+          newClassificationFlags)) {
     // This is not a tracking -> non-tracking redirect.
     LOG_SPEC2(("Redirect for %s to %s because it's not tracking to "
                "non-tracking. Part of a chain of granted redirects: %d",
@@ -2193,9 +2207,13 @@ void AntiTrackingCommon::RedirectHeuristic(nsIChannel* aOldChannel,
     newLoadInfo->SetAllowListFutureDocumentsCreatedFromThisRedirectChain(
         allowedByPreviousRedirect);
     return;
-  }*/
+  }
 
-  if (//!classifiedOldChannel->IsTrackingResource() &&
+  uint32_t oldClassificationFlags =
+      classifiedOldChannel->GetFirstPartyClassificationFlags();
+
+  if (!net::UrlClassifierCommon::IsTrackingClassificationFlag(
+          oldClassificationFlags) &&
       !allowedByPreviousRedirect) {
     // This is not a tracking -> non-tracking redirect.
     LOG_SPEC2(

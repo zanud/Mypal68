@@ -20,13 +20,14 @@
 #endif
 #include "nsRemoteService.h"
 
-#include "nsAutoPtr.h"
 #include "nsIObserverService.h"
 #include "nsString.h"
 #include "nsServiceManagerUtils.h"
 #include "mozilla/ModuleUtils.h"
 #include "SpecialSystemDirectory.h"
 #include "mozilla/CmdLineAndEnvUtils.h"
+#include "mozilla/TimeStamp.h"
+#include "mozilla/UniquePtr.h"
 
 // Time to wait for the remoting service to start
 #define START_TIMEOUT_SEC 5
@@ -75,10 +76,10 @@ void nsRemoteService::LockStartup() {
 }
 
 void nsRemoteService::UnlockStartup() {
-  mRemoteLock.Unlock();
-  mRemoteLock.Cleanup();
-
   if (mRemoteLockDir) {
+    mRemoteLock.Unlock();
+    mRemoteLock.Cleanup();
+
     mRemoteLockDir->Remove(false);
     mRemoteLockDir = nullptr;
   }
@@ -89,21 +90,21 @@ RemoteResult nsRemoteService::StartClient(const char* aDesktopStartupID) {
     return REMOTE_NOT_FOUND;
   }
 
-  nsAutoPtr<nsRemoteClient> client;
+  UniquePtr<nsRemoteClient> client;
 
 #ifdef MOZ_WIDGET_GTK
   bool useX11Remote = GDK_IS_X11_DISPLAY(gdk_display_get_default());
 
 #  if defined(MOZ_ENABLE_DBUS)
   if (!useX11Remote) {
-    client = new nsDBusRemoteClient();
+    client = MakeUnique<nsDBusRemoteClient>();
   }
 #  endif
   if (useX11Remote) {
-    client = new nsXRemoteClient();
+    client = MakeUnique<nsXRemoteClient>();
   }
 #elif defined(XP_WIN)
-  client = new nsWinRemoteClient();
+  client = MakeUnique<nsWinRemoteClient>();
 #else
   return REMOTE_NOT_FOUND;
 #endif
@@ -172,7 +173,10 @@ void nsRemoteService::StartupServer() {
 
 void nsRemoteService::ShutdownServer() { mRemoteServer = nullptr; }
 
-nsRemoteService::~nsRemoteService() { ShutdownServer(); }
+nsRemoteService::~nsRemoteService() {
+  UnlockStartup();
+  ShutdownServer();
+}
 
 NS_IMETHODIMP
 nsRemoteService::Observe(nsISupports* aSubject, const char* aTopic,

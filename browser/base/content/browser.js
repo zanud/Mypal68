@@ -16,7 +16,6 @@ ChromeUtils.import("resource://gre/modules/NotificationDB.jsm");
 XPCOMUtils.defineLazyModuleGetters(this, {
   AddonManager: "resource://gre/modules/AddonManager.jsm",
   NewTabPagePreloading: "resource:///modules/NewTabPagePreloading.jsm",
-  BrowserUsageTelemetry: "resource:///modules/BrowserUsageTelemetry.jsm",
   BrowserUtils: "resource://gre/modules/BrowserUtils.jsm",
   BrowserWindowTracker: "resource:///modules/BrowserWindowTracker.jsm",
   CharsetMenu: "resource://gre/modules/CharsetMenu.jsm",
@@ -68,7 +67,6 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   SubframeCrashHandler: "resource:///modules/ContentCrashHandlers.jsm",
   TabModalPrompt: "chrome://global/content/tabprompts.jsm",
   TabCrashHandler: "resource:///modules/ContentCrashHandlers.jsm",
-  TelemetryEnvironment: "resource://gre/modules/TelemetryEnvironment.jsm",
   Translation: "resource:///modules/translation/Translation.jsm",
   UpdateUtils: "resource://gre/modules/UpdateUtils.jsm",
   UrlbarInput: "resource:///modules/UrlbarInput.jsm",
@@ -535,8 +533,6 @@ function showFxaToolbarMenu(enable) {
   mainWindowEl.setAttribute("fxastatus", "not_configured");
   fxaPanelEl.addEventListener("ViewShowing", gSync.updateSendToDeviceTitle);
 
-  Services.telemetry.setEventRecordingEnabled("fxa_app_menu", true);
-
   if (enable && syncEnabled) {
     mainWindowEl.setAttribute("fxatoolbarmenu", "visible");
 
@@ -544,8 +540,6 @@ function showFxaToolbarMenu(enable) {
     // because it could show an invalid icon if the user is logged in and no sync
     // event was performed yet.
     gSync.maybeUpdateUIState();
-
-    Services.telemetry.setEventRecordingEnabled("fxa_avatar_menu", true);
 
     // We set an attribute here so that we can toggle the custom
     // badge depending on whether the FxA menu was ever accessed.
@@ -1313,7 +1307,6 @@ function handleUriInChrome(aBrowser, aUri) {
       if (mimeType == "application/x-xpinstall") {
         let systemPrincipal = Services.scriptSecurityManager.getSystemPrincipal();
         AddonManager.getInstallForURL(aUri.spec, {
-          telemetryInfo: { source: "file-url" },
         }).then(install => {
           AddonManager.installAddonFromWebpage(
             mimeType,
@@ -1601,19 +1594,6 @@ var gBrowserInit = {
         if (!windowFrameColor.isContrastRatioAcceptable(new Color(0, 0, 0))) {
           document.documentElement.setAttribute("darkwindowframe", "true");
         }
-      } else if (AppConstants.isPlatformAndVersionAtLeast("win", "10")) {
-        TelemetryEnvironment.onInitialized().then(() => {
-          // 17763 is the build number of Windows 10 version 1809
-          if (
-            TelemetryEnvironment.currentEnvironment.system.os
-              .windowsBuildNumber < 17763
-          ) {
-            document.documentElement.setAttribute(
-              "always-use-accent-color-for-window-border",
-              ""
-            );
-          }
-        });
       }
     }
 
@@ -1689,10 +1669,6 @@ var gBrowserInit = {
     let mm = window.getGroupMessageManager("browsers");
     mm.loadFrameScript("chrome://browser/content/tab-content.js", true, true);
     mm.loadFrameScript("chrome://browser/content/content.js", true, true);
-    mm.loadFrameScript(
-      "chrome://global/content/content-HybridContentTelemetry.js",
-      true
-    );
 
     window.messageManager.addMessageListener("Browser:LoadURI", RedirectLoad);
 
@@ -1791,11 +1767,6 @@ var gBrowserInit = {
   },
 
   _delayedStartup() {
-    let { TelemetryTimestamps } = ChromeUtils.import(
-      "resource://gre/modules/TelemetryTimestamps.jsm"
-    );
-    TelemetryTimestamps.add("delayedStartupStarted");
-
     this._cancelDelayedStartup();
 
     // Bug 1531854 - The hidden window is force-created here
@@ -1975,7 +1946,6 @@ var gBrowserInit = {
     });
 
     Services.obs.notifyObservers(window, "browser-delayed-startup-finished");
-    TelemetryTimestamps.add("delayedStartupFinished");
 
     if (!Services.policies.isAllowed("hideShowMenuBar")) {
       document.getElementById("toolbar-menubar").removeAttribute("toolbarname");
@@ -2201,29 +2171,6 @@ var gBrowserInit = {
       scheduleIdleTask(() => Win7Features.onOpenWindow());
     }
 
-    scheduleIdleTask(() => {
-      if (Services.prefs.getBoolPref("privacy.resistFingerprinting")) {
-        return;
-      }
-
-      setTimeout(() => {
-        if (window.closed) {
-          return;
-        }
-
-        let browser = gBrowser.selectedBrowser;
-        let browserBounds = window.windowUtils.getBoundsWithoutFlushing(
-          browser
-        );
-
-        Services.telemetry.keyedScalarAdd(
-          "resistfingerprinting.content_window_size",
-          `${browserBounds.width}x${browserBounds.height}`,
-          1
-        );
-      }, 300 * 1000);
-    });
-
     scheduleIdleTask(async () => {
       NewTabPagePreloading.maybeCreatePreloadedBrowser(window);
     });
@@ -2341,8 +2288,6 @@ var gBrowserInit = {
     BookmarkingUI.uninit();
 
     TabletModeUpdater.uninit();
-
-    gTabletModePageCounter.finish();
 
     BrowserOnClick.uninit();
 
@@ -3358,10 +3303,6 @@ function PageProxyClickHandler(aEvent) {
   }
 }
 
-// Values for telemtery bins: see TLS_ERROR_REPORT_UI in Histograms.json
-const TLS_ERROR_REPORT_TELEMETRY_AUTO_CHECKED = 2;
-const TLS_ERROR_REPORT_TELEMETRY_AUTO_UNCHECKED = 3;
-
 const SEC_ERROR_BASE = Ci.nsINSSErrorsService.NSS_SEC_ERROR_BASE;
 const SEC_ERROR_UNKNOWN_ISSUER = SEC_ERROR_BASE + 13;
 
@@ -3378,7 +3319,6 @@ var BrowserOnClick = {
     mm.addMessageListener("Browser:CertExceptionError", this);
     mm.addMessageListener("Browser:EnableOnlineMode", this);
     mm.addMessageListener("Browser:ResetSSLPreferences", this);
-    mm.addMessageListener("Browser:SSLErrorReportTelemetry", this);
     mm.addMessageListener("Browser:SSLErrorGoBack", this);
     mm.addMessageListener("Browser:PrimeMitm", this);
     mm.addMessageListener("Browser:ResetEnterpriseRootsPref", this);
@@ -3389,7 +3329,6 @@ var BrowserOnClick = {
     mm.removeMessageListener("Browser:CertExceptionError", this);
     mm.removeMessageListener("Browser:EnableOnlineMode", this);
     mm.removeMessageListener("Browser:ResetSSLPreferences", this);
-    mm.removeMessageListener("Browser:SSLErrorReportTelemetry", this);
     mm.removeMessageListener("Browser:SSLErrorGoBack", this);
     mm.removeMessageListener("Browser:PrimeMitm", this);
     mm.removeMessageListener("Browser:ResetEnterpriseRootsPref", this);
@@ -3422,12 +3361,6 @@ var BrowserOnClick = {
           Services.prefs.clearUserPref(prefName);
         }
         msg.target.reload();
-        break;
-      case "Browser:SSLErrorReportTelemetry":
-        let reportStatus = msg.data.reportStatus;
-        Services.telemetry
-          .getHistogramById("TLS_ERROR_REPORT_UI")
-          .add(reportStatus);
         break;
       case "Browser:SSLErrorGoBack":
         goBackFromErrorPage();
@@ -4743,9 +4676,6 @@ const BrowserSearch = {
       ),
       csp
     );
-    if (engine) {
-      BrowserSearch.recordSearchInTelemetry(engine, "contextmenu");
-    }
   },
 
   pasteAndSearch(event) {
@@ -4771,53 +4701,6 @@ const BrowserSearch = {
     );
     var where = newWindowPref == 3 ? "tab" : "window";
     openTrustedLinkIn(this.searchEnginesURL, where);
-  },
-
-  /**
-   * Helper to record a search with Telemetry.
-   *
-   * Telemetry records only search counts and nothing pertaining to the search itself.
-   *
-   * @param engine
-   *        (nsISearchEngine) The engine handling the search.
-   * @param source
-   *        (string) Where the search originated from. See BrowserUsageTelemetry for
-   *        allowed values.
-   * @param details [optional]
-   *        An optional parameter passed to |BrowserUsageTelemetry.recordSearch|.
-   *        See its documentation for allowed options.
-   *        Additionally, if the search was a suggested search, |details.selection|
-   *        indicates where the item was in the suggestion list and how the user
-   *        selected it: {selection: {index: The selected index, kind: "key" or "mouse"}}
-   */
-  recordSearchInTelemetry(engine, source, details = {}) {
-    try {
-      BrowserUsageTelemetry.recordSearch(gBrowser, engine, source, details);
-    } catch (ex) {
-      Cu.reportError(ex);
-    }
-  },
-
-  /**
-   * Helper to record a one-off search with Telemetry.
-   *
-   * Telemetry records only search counts and nothing pertaining to the search itself.
-   *
-   * @param engine
-   *        (nsISearchEngine) The engine handling the search.
-   * @param source
-   *        (string) Where the search originated from. See BrowserUsageTelemetry for
-   *        allowed values.
-   * @param type
-   *        (string) Indicates how the user selected the search item.
-   */
-  recordOneoffSearchInTelemetry(engine, source, type) {
-    try {
-      const details = { type, isOneOff: true };
-      BrowserUsageTelemetry.recordSearch(gBrowser, engine, source, details);
-    } catch (ex) {
-      Cu.reportError(ex);
-    }
   },
 };
 
@@ -4997,16 +4880,10 @@ function toOpenWindowByType(inType, uri, features) {
  *          remote:  A boolean indicating if the window should run
  *                   remote browser tabs or not. If omitted, the window
  *                   will choose the profile default state.
- *          fission: A boolean indicating if the window should run
- *                   with fission enabled or not. If omitted, the window
- *                   will choose the profile default state.
  *        }
  * @return a reference to the new window.
  */
 function OpenBrowserWindow(options) {
-  var telemetryObj = {};
-  TelemetryStopwatch.start("FX_NEW_WINDOW_MS", telemetryObj);
-
   var handler = Cc["@mozilla.org/browser/clh;1"].getService(
     Ci.nsIBrowserHandler
   );
@@ -5028,12 +4905,6 @@ function OpenBrowserWindow(options) {
     extraFeatures += ",remote";
   } else if (options && options.remote === false) {
     extraFeatures += ",non-remote";
-  }
-
-  if (options && options.fission) {
-    extraFeatures += ",fission";
-  } else if (options && options.fission === false) {
-    extraFeatures += ",non-fission";
   }
 
   // If the window is maximized, we want to skip the animation, since we're
@@ -5077,7 +4948,6 @@ function OpenBrowserWindow(options) {
   win.addEventListener(
     "MozAfterPaint",
     () => {
-      TelemetryStopwatch.finish("FX_NEW_WINDOW_MS", telemetryObj);
       if (
         Services.prefs.getIntPref("browser.startup.page") == 1 &&
         defaultArgs == HomePage.get()
@@ -6192,41 +6062,6 @@ var TabsProgressListener = {
     }
   },
 
-  onStateChange(aBrowser, aWebProgress, aRequest, aStateFlags, aStatus) {
-    // Collect telemetry data about tab load times.
-    if (
-      aWebProgress.isTopLevel &&
-      (!aRequest.originalURI || aRequest.originalURI.scheme != "about")
-    ) {
-      let stopwatchRunning = TelemetryStopwatch.running(
-        "FX_PAGE_LOAD_MS_2",
-        aBrowser
-      );
-
-      if (aStateFlags & Ci.nsIWebProgressListener.STATE_IS_WINDOW) {
-        if (aStateFlags & Ci.nsIWebProgressListener.STATE_START) {
-          if (stopwatchRunning) {
-            // Oops, we're seeing another start without having noticed the previous stop.
-            TelemetryStopwatch.cancel("FX_PAGE_LOAD_MS_2", aBrowser);
-          }
-          TelemetryStopwatch.start("FX_PAGE_LOAD_MS_2", aBrowser);
-          Services.telemetry.getHistogramById("FX_TOTAL_TOP_VISITS").add(true);
-        } else if (
-          aStateFlags & Ci.nsIWebProgressListener.STATE_STOP &&
-          stopwatchRunning /* we won't see STATE_START events for pre-rendered tabs */
-        ) {
-          TelemetryStopwatch.finish("FX_PAGE_LOAD_MS_2", aBrowser);
-        }
-      } else if (
-        aStateFlags & Ci.nsIWebProgressListener.STATE_STOP &&
-        aStatus == Cr.NS_BINDING_ABORTED &&
-        stopwatchRunning /* we won't see STATE_START events for pre-rendered tabs */
-      ) {
-        TelemetryStopwatch.cancel("FX_PAGE_LOAD_MS_2", aBrowser);
-      }
-    }
-  },
-
   onLocationChange(aBrowser, aWebProgress, aRequest, aLocationURI, aFlags) {
     // Filter out location changes caused by anchor navigation
     // or history.push/pop/replaceState.
@@ -6840,16 +6675,6 @@ var gTabletModePageCounter = {
   _realInc() {
     let inTabletMode = document.documentElement.hasAttribute("tabletmode");
     this[inTabletMode ? "_tabletCount" : "_desktopCount"]++;
-  },
-
-  finish() {
-    if (this.enabled) {
-      let histogram = Services.telemetry.getKeyedHistogramById(
-        "FX_TABLETMODE_PAGE_LOAD"
-      );
-      histogram.add("tablet", this._tabletCount);
-      histogram.add("desktop", this._desktopCount);
-    }
   },
 };
 
@@ -8233,8 +8058,8 @@ function warnAboutClosingWindow() {
   // closing multiple tabs.
   return (
     AppConstants.platform != "macosx" ||
-    (isPBWindow ||
-      gBrowser.warnAboutClosingTabs(closingTabs, gBrowser.closingTabsEnum.ALL))
+    isPBWindow ||
+    gBrowser.warnAboutClosingTabs(closingTabs, gBrowser.closingTabsEnum.ALL)
   );
 }
 
@@ -8508,20 +8333,22 @@ const gAccessibilityServiceIndicator = {
     if (this.enabled && accessibilityEnabled) {
       this._active = true;
       document.documentElement.setAttribute("accessibilitymode", "true");
-      [...document.querySelectorAll(".accessibility-indicator")].forEach(
-        indicator =>
-          ["click", "keypress"].forEach(type =>
-            indicator.addEventListener(type, this)
-          )
+      [
+        ...document.querySelectorAll(".accessibility-indicator"),
+      ].forEach(indicator =>
+        ["click", "keypress"].forEach(type =>
+          indicator.addEventListener(type, this)
+        )
       );
     } else if (this._active) {
       this._active = false;
       document.documentElement.removeAttribute("accessibilitymode");
-      [...document.querySelectorAll(".accessibility-indicator")].forEach(
-        indicator =>
-          ["click", "keypress"].forEach(type =>
-            indicator.removeEventListener(type, this)
-          )
+      [
+        ...document.querySelectorAll(".accessibility-indicator"),
+      ].forEach(indicator =>
+        ["click", "keypress"].forEach(type =>
+          indicator.removeEventListener(type, this)
+        )
       );
     }
   },
@@ -8553,7 +8380,6 @@ const gAccessibilityServiceIndicator = {
       );
       // This is a known URL coming from trusted UI
       openTrustedLinkIn(a11yServicesSupportURL, "tab");
-      Services.telemetry.scalarSet("a11y.indicator_acted_on", true);
     }
   },
 

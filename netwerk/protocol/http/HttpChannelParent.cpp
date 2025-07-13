@@ -15,6 +15,7 @@
 #include "mozilla/net/NeckoParent.h"
 #include "mozilla/InputStreamLengthHelper.h"
 #include "mozilla/IntegerPrintfMacros.h"
+#include "mozilla/StoragePrincipalHelper.h"
 #include "mozilla/UniquePtr.h"
 #include "mozilla/Unused.h"
 #include "HttpBackgroundChannelParent.h"
@@ -124,32 +125,30 @@ bool HttpChannelParent::Init(const HttpChannelCreationArgs& aArgs) {
   switch (aArgs.type()) {
     case HttpChannelCreationArgs::THttpChannelOpenArgs: {
       const HttpChannelOpenArgs& a = aArgs.get_HttpChannelOpenArgs();
-      PrincipalInfo contentBlockingAllowListPrincipal;
-      if (a.contentBlockingAllowListPrincipal().type() ==
-          OptionalPrincipalInfo::TPrincipalInfo) {
-        contentBlockingAllowListPrincipal =
-            a.contentBlockingAllowListPrincipal();
-      }
       return DoAsyncOpen(
           a.uri(), a.original(), a.doc(), a.referrerInfo(), a.apiRedirectTo(),
-          a.topWindowURI(), contentBlockingAllowListPrincipal, a.loadFlags(),
-          a.requestHeaders(), a.requestMethod(), a.uploadStream(),
-          a.uploadStreamHasHeaders(), a.priority(), a.classOfService(),
-          a.redirectionLimit(), a.allowSTS(), a.thirdPartyFlags(), a.resumeAt(),
-          a.startPos(), a.entityID(), a.chooseApplicationCache(),
-          a.appCacheClientID(), a.allowSpdy(), a.allowAltSvc(),
-          a.beConservative(), a.tlsFlags(), a.loadInfo(),
+          a.topWindowURI(),
+          a.contentBlockingAllowListPrincipal()
+              .valueOr(RefPtr<nsIPrincipal>())
+              .get(),
+          a.loadFlags(), a.requestHeaders(), a.requestMethod(),
+          a.uploadStream(), a.uploadStreamHasHeaders(), a.priority(),
+          a.classOfService(), a.redirectionLimit(), a.allowSTS(),
+          a.thirdPartyFlags(), a.resumeAt(), a.startPos(), a.entityID(),
+          a.chooseApplicationCache(), a.appCacheClientID(), a.allowSpdy(),
+          a.allowAltSvc(), a.beConservative(), a.tlsFlags(), a.loadInfo(),
           a.synthesizedResponseHead(), a.synthesizedSecurityInfoSerialization(),
           a.cacheKey(), a.requestContextID(), a.preflightArgs(),
           a.initialRwin(), a.blockAuthPrompt(),
           a.suspendAfterSynthesizeResponse(), a.allowStaleCacheContent(),
-          a.contentTypeHint(), a.corsMode(), a.redirectMode(), a.channelId(),
-          a.integrityMetadata(), a.contentWindowId(),
-          a.preferredAlternativeTypes(), a.topLevelOuterContentWindowId(),
-          a.launchServiceWorkerStart(), a.launchServiceWorkerEnd(),
-          a.dispatchFetchEventStart(), a.dispatchFetchEventEnd(),
-          a.handleFetchEventStart(), a.handleFetchEventEnd(),
-          a.forceMainDocumentChannel(), a.navigationStartTimeStamp());
+          a.preferCacheLoadOverBypass(), a.contentTypeHint(), a.corsMode(),
+          a.redirectMode(), a.channelId(), a.integrityMetadata(),
+          a.contentWindowId(), a.preferredAlternativeTypes(),
+          a.topLevelOuterContentWindowId(), a.launchServiceWorkerStart(),
+          a.launchServiceWorkerEnd(), a.dispatchFetchEventStart(),
+          a.dispatchFetchEventEnd(), a.handleFetchEventStart(),
+          a.handleFetchEventEnd(), a.forceMainDocumentChannel(),
+          a.navigationStartTimeStamp());
     }
     case HttpChannelCreationArgs::THttpChannelConnectArgs: {
       const HttpChannelConnectArgs& cArgs = aArgs.get_HttpChannelConnectArgs();
@@ -378,7 +377,7 @@ bool HttpChannelParent::DoAsyncOpen(
     const Maybe<URIParams>& aDocURI, nsIReferrerInfo* aReferrerInfo,
     const Maybe<URIParams>& aAPIRedirectToURI,
     const Maybe<URIParams>& aTopWindowURI,
-    const PrincipalInfo& aContentBlockingAllowListPrincipal,
+    nsIPrincipal* aContentBlockingAllowListPrincipal,
     const uint32_t& aLoadFlags, const RequestHeaderTuples& requestHeaders,
     const nsCString& requestMethod, const Maybe<IPCStream>& uploadStream,
     const bool& uploadStreamHasHeaders, const int16_t& priority,
@@ -394,10 +393,10 @@ bool HttpChannelParent::DoAsyncOpen(
     const Maybe<CorsPreflightArgs>& aCorsPreflightArgs,
     const uint32_t& aInitialRwin, const bool& aBlockAuthPrompt,
     const bool& aSuspendAfterSynthesizeResponse,
-    const bool& aAllowStaleCacheContent, const nsCString& aContentTypeHint,
-    const uint32_t& aCorsMode, const uint32_t& aRedirectMode,
-    const uint64_t& aChannelId, const nsString& aIntegrityMetadata,
-    const uint64_t& aContentWindowId,
+    const bool& aAllowStaleCacheContent, const bool& aPreferCacheLoadOverBypass,
+    const nsCString& aContentTypeHint, const uint32_t& aCorsMode,
+    const uint32_t& aRedirectMode, const uint64_t& aChannelId,
+    const nsString& aIntegrityMetadata, const uint64_t& aContentWindowId,
     const nsTArray<PreferredAlternativeDataTypeParams>&
         aPreferredAlternativeTypes,
     const uint64_t& aTopLevelOuterContentWindowId,
@@ -419,10 +418,6 @@ bool HttpChannelParent::DoAsyncOpen(
   nsCOMPtr<nsIURI> docUri = DeserializeURI(aDocURI);
   nsCOMPtr<nsIURI> apiRedirectToUri = DeserializeURI(aAPIRedirectToURI);
   nsCOMPtr<nsIURI> topWindowUri = DeserializeURI(aTopWindowURI);
-  nsCOMPtr<nsIPrincipal> contentBlockingAllowListPrincipal =
-      (aContentBlockingAllowListPrincipal.type() != PrincipalInfo::T__None)
-          ? PrincipalInfoToPrincipal(aContentBlockingAllowListPrincipal)
-          : nullptr;
 
   LOG(("HttpChannelParent RecvAsyncOpen [this=%p uri=%s, gid=%" PRIu64
        " topwinid=%" PRIx64 "]\n",
@@ -489,9 +484,9 @@ bool HttpChannelParent::DoAsyncOpen(
     httpChannel->SetTopWindowURI(topWindowUri);
   }
 
-  if (contentBlockingAllowListPrincipal) {
+  if (aContentBlockingAllowListPrincipal) {
     httpChannel->SetContentBlockingAllowListPrincipal(
-        contentBlockingAllowListPrincipal);
+        aContentBlockingAllowListPrincipal);
   }
 
   if (aLoadFlags != nsIRequest::LOAD_NORMAL)
@@ -570,6 +565,7 @@ bool HttpChannelParent::DoAsyncOpen(
     }
 
     cacheChannel->SetAllowStaleCacheContent(aAllowStaleCacheContent);
+    cacheChannel->SetPreferCacheLoadOverBypass(aPreferCacheLoadOverBypass);
 
     // This is to mark that the results are going to the content process.
     if (httpChannelImpl) {
@@ -627,7 +623,8 @@ bool HttpChannelParent::DoAsyncOpen(
 
     if (setChooseApplicationCache) {
       OriginAttributes attrs;
-      NS_GetOriginAttributes(httpChannel, attrs);
+      StoragePrincipalHelper::GetOriginAttributes(
+          httpChannel, attrs, StoragePrincipalHelper::eRegularPrincipal);
 
       nsCOMPtr<nsIPrincipal> principal =
           BasePrincipal::CreateCodebasePrincipal(uri, attrs);
@@ -917,7 +914,8 @@ mozilla::ipc::IPCResult HttpChannelParent::RecvRedirect2Verify(
           newHttpChannel->GetURI(getter_AddRefs(uri));
 
           OriginAttributes attrs;
-          NS_GetOriginAttributes(newHttpChannel, attrs);
+          StoragePrincipalHelper::GetOriginAttributes(
+              newHttpChannel, attrs, StoragePrincipalHelper::eRegularPrincipal);
 
           nsCOMPtr<nsIPrincipal> principal =
               BasePrincipal::CreateCodebasePrincipal(uri, attrs);

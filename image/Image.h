@@ -7,8 +7,9 @@
 
 #include "mozilla/Maybe.h"
 #include "mozilla/MemoryReporting.h"
-#include "mozilla/Tuple.h"
+#include "mozilla/SizeOfState.h"
 #include "mozilla/TimeStamp.h"
+#include "mozilla/Tuple.h"
 #include "gfx2DGlue.h"
 #include "imgIContainer.h"
 #include "ImageContainer.h"

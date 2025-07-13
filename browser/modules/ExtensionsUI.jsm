@@ -69,15 +69,10 @@ var ExtensionsUI = {
   sideloaded: new Set(),
   updates: new Set(),
   sideloadListener: null,
-  histogram: null,
 
   pendingNotifications: new WeakMap(),
 
   async init() {
-    this.histogram = Services.telemetry.getHistogramById(
-      "EXTENSION_INSTALL_PROMPT_RESULT"
-    );
-
     Services.obs.addObserver(this, "webextension-permission-prompt");
     Services.obs.addObserver(this, "webextension-update-permissions");
     Services.obs.addObserver(this, "webextension-install-notify");
@@ -421,9 +416,6 @@ var ExtensionsUI = {
         label: strings.acceptText,
         accessKey: strings.acceptKey,
         callback: () => {
-          if (histkey) {
-            this.histogram.add(histkey + "Accepted");
-          }
           resolve(true);
         },
       };
@@ -432,9 +424,6 @@ var ExtensionsUI = {
           label: strings.cancelText,
           accessKey: strings.cancelKey,
           callback: () => {
-            if (histkey) {
-              this.histogram.add(histkey + "Rejected");
-            }
             resolve(false);
           },
         },

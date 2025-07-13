@@ -27,14 +27,10 @@ add_task(async function() {
 });
 
 add_task(async function() {
-  await Services.search.addEngineWithDetails(
-    "SearchEngine",
-    "",
-    "",
-    "",
-    "GET",
-    "http://s.example.com/search"
-  );
+  await Services.search.addEngineWithDetails("SearchEngine", {
+    method: "GET",
+    template: "http://s.example.com/search",
+  });
   gEngine = Services.search.getEngineByName("SearchEngine");
   gEngine.addParam("q", "{searchTerms}", null);
   gOriginalEngine = await Services.search.getDefault();

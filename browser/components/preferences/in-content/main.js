@@ -229,7 +229,8 @@ function getBundleForLocales(newLocales) {
   }
   return new Localization(
     ["browser/preferences/preferences.ftl", "branding/brand.ftl"],
-    generateBundles
+    false,
+    { generateBundles }
   );
 }
 

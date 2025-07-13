@@ -6,6 +6,7 @@
 #define ProfilerChild_h
 
 #include "mozilla/PProfilerChild.h"
+#include "mozilla/ProfileBufferControlledChunkManager.h"
 #include "mozilla/RefPtr.h"
 
 class nsIThread;
@@ -39,6 +40,10 @@ class ProfilerChild final : public PProfilerChild,
   mozilla::ipc::IPCResult RecvStop() override;
   mozilla::ipc::IPCResult RecvPause() override;
   mozilla::ipc::IPCResult RecvResume() override;
+  mozilla::ipc::IPCResult RecvAwaitNextChunkManagerUpdate(
+      AwaitNextChunkManagerUpdateResolver&& aResolve) override;
+  mozilla::ipc::IPCResult RecvDestroyReleasedChunksAtOrBefore(
+      const TimeStamp& aTimeStamp) override;
   mozilla::ipc::IPCResult RecvGatherProfile(
       GatherProfileResolver&& aResolve) override;
   mozilla::ipc::IPCResult RecvClearAllPages() override;
@@ -47,8 +52,19 @@ class ProfilerChild final : public PProfilerChild,
 
   FORWARD_SHMEM_ALLOCATOR_TO(PProfilerChild)
 
+  void SetupChunkManager();
+  void ResetChunkManager();
+  void ResolveChunkUpdate(
+      PProfilerChild::AwaitNextChunkManagerUpdateResolver& aResolve);
+  void ChunkManagerUpdateCallback(
+      ProfileBufferControlledChunkManager::Update&& aUpdate);
+
   nsCOMPtr<nsIThread> mThread;
   bool mDestroyed;
+
+  ProfileBufferControlledChunkManager* mChunkManager = nullptr;
+  AwaitNextChunkManagerUpdateResolver mAwaitNextChunkManagerUpdateResolver;
+  ProfileBufferControlledChunkManager::Update mChunkManagerUpdate;
 };
 
 }  // namespace mozilla

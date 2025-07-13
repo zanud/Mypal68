@@ -950,6 +950,7 @@ var ActivityStreamProvider = {
     return Promise.all(
       aLinks.map(
         link =>
+          // eslint-disable-next-line no-async-promise-executor
           new Promise(async resolve => {
             let iconData;
             try {

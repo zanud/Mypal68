@@ -606,7 +606,6 @@ with modules["DOM"]:
     errors["NS_ERROR_DOM_DATA_CLONE_ERR"] = FAILURE(25)
     # StringEncoding API errors from http://wiki.whatwg.org/wiki/StringEncoding
     errors["NS_ERROR_DOM_ENCODING_NOT_SUPPORTED_ERR"] = FAILURE(28)
-    errors["NS_ERROR_DOM_INVALID_POINTER_ERR"] = FAILURE(29)
     # WebCrypto API errors from http://www.w3.org/TR/WebCryptoAPI/
     errors["NS_ERROR_DOM_UNKNOWN_ERR"] = FAILURE(30)
     errors["NS_ERROR_DOM_DATA_ERR"] = FAILURE(31)
@@ -660,6 +659,9 @@ with modules["DOM"]:
     errors["NS_ERROR_DOM_INVALID_STATE_DOCUMENT_QUERY_COMMAND_STATE"] = FAILURE(1033)
     errors["NS_ERROR_DOM_INVALID_STATE_DOCUMENT_QUERY_COMMAND_SUPPORTED"] = FAILURE(1034)
     errors["NS_ERROR_DOM_INVALID_STATE_DOCUMENT_QUERY_COMMAND_VALUE"] = FAILURE(1035)
+
+    # WebExtension content script may not load this URL.
+    errors["NS_ERROR_DOM_WEBEXT_CONTENT_SCRIPT_URI"] = FAILURE(1036)
 
     # May be used to indicate when e.g. setting a property value didn't
     # actually change the value, like for obj.foo = "bar"; obj.foo = "bar";
@@ -754,7 +756,6 @@ with modules["XPCONNECT"]:
     errors["NS_ERROR_XPC_SECURITY_MANAGER_VETO"] = FAILURE(39)
     errors["NS_ERROR_XPC_INTERFACE_NOT_SCRIPTABLE"] = FAILURE(40)
     errors["NS_ERROR_XPC_INTERFACE_NOT_FROM_NSISUPPORTS"] = FAILURE(41)
-    errors["NS_ERROR_XPC_CANT_GET_JSOBJECT_OF_DOM_OBJECT"] = FAILURE(42)
     errors["NS_ERROR_XPC_CANT_SET_READ_ONLY_CONSTANT"] = FAILURE(43)
     errors["NS_ERROR_XPC_CANT_SET_READ_ONLY_ATTRIBUTE"] = FAILURE(44)
     errors["NS_ERROR_XPC_CANT_SET_READ_ONLY_METHOD"] = FAILURE(45)

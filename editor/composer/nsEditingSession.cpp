@@ -1211,7 +1211,7 @@ nsresult nsEditingSession::ReattachToWindow(nsPIDOMWindowOuter* aWindow) {
                "mComposerCommandsUpdater should exist.");
 
   // Imitate nsEditorDocShell::MakeEditable() to reattach the
-  // old editor ot the window.
+  // old editor to the window.
   nsresult rv;
 
   nsIDocShell* docShell = aWindow->GetDocShell();

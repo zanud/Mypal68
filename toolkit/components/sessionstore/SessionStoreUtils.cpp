@@ -4,6 +4,7 @@
 
 #include "js/Array.h"  // JS::GetArrayLength, JS::IsArrayObject
 #include "js/JSON.h"
+#include "js/PropertyAndElement.h"  // JS_GetElement
 #include "jsapi.h"
 #include "mozilla/PresShell.h"
 #include "mozilla/dom/Document.h"
@@ -11,12 +12,14 @@
 #include "mozilla/dom/HTMLInputElement.h"
 #include "mozilla/dom/HTMLSelectElement.h"
 #include "mozilla/dom/HTMLTextAreaElement.h"
+#include "mozilla/dom/RootedDictionary.h"
 #include "mozilla/dom/SessionStoreUtils.h"
 #include "mozilla/dom/txIXPathContext.h"
 #include "mozilla/dom/WindowProxyHolder.h"
 #include "mozilla/dom/XPathResult.h"
 #include "mozilla/dom/XPathEvaluator.h"
 #include "mozilla/dom/XPathExpression.h"
+#include "mozilla/UniquePtr.h"
 #include "nsCharSeparatedTokenizer.h"
 #include "nsContentList.h"
 #include "nsContentUtils.h"
@@ -991,7 +994,7 @@ static Element* FindNodeByXPath(JSContext* aCx, Document& aDocument,
                                 const nsAString& aExpression) {
   FormDataParseContext parsingContext(aDocument.IsHTMLDocument());
   IgnoredErrorResult rv;
-  nsAutoPtr<XPathExpression> expression(
+  UniquePtr<XPathExpression> expression(
       aDocument.XPathEvaluator()->CreateExpression(aExpression, &parsingContext,
                                                    &aDocument, rv));
   if (rv.Failed()) {

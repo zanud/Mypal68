@@ -505,6 +505,24 @@ void nsTSubstring<T>::Assign(self_type&& aStr) {
 }
 
 template <typename T>
+void nsTSubstring<T>::AssignOwned(self_type&& aStr) {
+  NS_ASSERTION(aStr.mDataFlags & (DataFlags::REFCOUNTED | DataFlags::OWNED),
+               "neither shared nor owned");
+
+  // If they have a REFCOUNTED or OWNED buffer, we can avoid a copy - so steal
+  // their buffer and reset them to the empty string.
+
+  // |aStr| should be null-terminated
+  NS_ASSERTION(aStr.mDataFlags & DataFlags::TERMINATED,
+               "shared or owned, but not terminated");
+
+  ::ReleaseData(this->mData, this->mDataFlags);
+
+  SetData(aStr.mData, aStr.mLength, aStr.mDataFlags);
+  aStr.SetToEmptyBuffer();
+}
+
+template <typename T>
 bool nsTSubstring<T>::Assign(self_type&& aStr, const fallible_t& aFallible) {
   // We're moving |aStr| in this method, so we need to try to steal the data,
   // and in the fallback perform a copy-assignment followed by a truncation of
@@ -516,17 +534,7 @@ bool nsTSubstring<T>::Assign(self_type&& aStr, const fallible_t& aFallible) {
   }
 
   if (aStr.mDataFlags & (DataFlags::REFCOUNTED | DataFlags::OWNED)) {
-    // If they have a REFCOUNTED or OWNED buffer, we can avoid a copy - so steal
-    // their buffer and reset them to the empty string.
-
-    // |aStr| should be null-terminated
-    NS_ASSERTION(aStr.mDataFlags & DataFlags::TERMINATED,
-                 "shared or owned, but not terminated");
-
-    ::ReleaseData(this->mData, this->mDataFlags);
-
-    SetData(aStr.mData, aStr.mLength, aStr.mDataFlags);
-    aStr.SetToEmptyBuffer();
+    AssignOwned(std::move(aStr));
     return true;
   }
 
@@ -547,24 +555,38 @@ void nsTSubstring<T>::Assign(const substring_tuple_type& aTuple) {
 }
 
 template <typename T>
-bool nsTSubstring<T>::Assign(const substring_tuple_type& aTuple,
-                             const fallible_t& aFallible) {
-  if (aTuple.IsDependentOn(this->mData, this->mData + this->mLength)) {
-    // take advantage of sharing here...
-    return Assign(string_type(aTuple), aFallible);
-  }
+bool nsTSubstring<T>::AssignNonDependent(const substring_tuple_type& aTuple,
+                                         size_type aTupleLength,
+                                         const mozilla::fallible_t& aFallible) {
+  NS_ASSERTION(aTuple.Length() == aTupleLength, "wrong length passed");
 
-  size_type length = aTuple.Length();
-
-  mozilla::Result<uint32_t, nsresult> r = StartBulkWriteImpl(length);
+  mozilla::Result<uint32_t, nsresult> r = StartBulkWriteImpl(aTupleLength);
   if (r.isErr()) {
     return false;
   }
 
-  aTuple.WriteTo(this->mData, length);
+  aTuple.WriteTo(this->mData, aTupleLength);
 
-  FinishBulkWriteImpl(length);
+  FinishBulkWriteImpl(aTupleLength);
   return true;
+}
+
+template <typename T>
+bool nsTSubstring<T>::Assign(const substring_tuple_type& aTuple,
+                             const fallible_t& aFallible) {
+  const auto [isDependentOnThis, tupleLength] =
+      aTuple.IsDependentOnWithLength(this->mData, this->mData + this->mLength);
+  if (isDependentOnThis) {
+    string_type temp;
+    self_type& tempSubstring = temp;
+    if (!tempSubstring.AssignNonDependent(aTuple, tupleLength, aFallible)) {
+      return false;
+    }
+    AssignOwned(std::move(temp));
+    return true;
+  }
+
+  return AssignNonDependent(aTuple, tupleLength, aFallible);
 }
 
 template <typename T>
@@ -657,18 +679,22 @@ bool nsTSubstring<T>::Replace(index_type aCutStart, size_type aCutLength,
 template <typename T>
 void nsTSubstring<T>::Replace(index_type aCutStart, size_type aCutLength,
                               const substring_tuple_type& aTuple) {
-  if (aTuple.IsDependentOn(this->mData, this->mData + this->mLength)) {
-    nsTAutoString<T> temp(aTuple);
+  const auto [isDependentOnThis, tupleLength] =
+      aTuple.IsDependentOnWithLength(this->mData, this->mData + this->mLength);
+
+  if (isDependentOnThis) {
+    nsTAutoString<T> temp;
+    if (!temp.AssignNonDependent(aTuple, tupleLength, mozilla::fallible)) {
+      AllocFailed(tupleLength);
+    }
     Replace(aCutStart, aCutLength, temp);
     return;
   }
 
-  size_type length = aTuple.Length();
-
   aCutStart = XPCOM_MIN(aCutStart, this->Length());
 
-  if (ReplacePrep(aCutStart, aCutLength, length) && length > 0) {
-    aTuple.WriteTo(this->mData + aCutStart, length);
+  if (ReplacePrep(aCutStart, aCutLength, tupleLength) && tupleLength > 0) {
+    aTuple.WriteTo(this->mData + aCutStart, tupleLength);
   }
 }
 
@@ -824,7 +850,8 @@ void nsTSubstring<T>::Append(const substring_tuple_type& aTuple) {
 template <typename T>
 bool nsTSubstring<T>::Append(const substring_tuple_type& aTuple,
                              const fallible_t& aFallible) {
-  size_type tupleLength = aTuple.Length();
+  const auto [isDependentOnThis, tupleLength] =
+      aTuple.IsDependentOnWithLength(this->mData, this->mData + this->mLength);
 
   if (MOZ_UNLIKELY(!tupleLength)) {
     // Avoid undoing the effect of SetCapacity() if both
@@ -832,8 +859,7 @@ bool nsTSubstring<T>::Append(const substring_tuple_type& aTuple,
     return true;
   }
 
-  if (MOZ_UNLIKELY(
-          aTuple.IsDependentOn(this->mData, this->mData + this->mLength))) {
+  if (MOZ_UNLIKELY(isDependentOnThis)) {
     return Append(string_type(aTuple), aFallible);
   }
 
@@ -1184,7 +1210,7 @@ void nsTSubstring<T>::AppendPrintf(const char* aFormat, ...) {
 }
 
 template <typename T>
-void nsTSubstring<T>::AppendPrintf(const char* aFormat, va_list aAp) {
+void nsTSubstring<T>::AppendVprintf(const char* aFormat, va_list aAp) {
   PrintfAppend<T> appender(this);
   bool r = appender.vprint(aFormat, aAp);
   if (!r) {
@@ -1379,8 +1405,14 @@ nsTSubstringSplitter<T> nsTSubstring<T>::Split(const char_type aChar) const {
 
 template <typename T>
 const nsTDependentSubstring<T>&
-    nsTSubstringSplitter<T>::nsTSubstringSplit_Iter::operator*() const {
-  return mObj.Get(mPos);
+nsTSubstringSplitter<T>::nsTSubstringSplit_Iter::operator*() const {
+  return mObj->Get(mPos);
+}
+
+template <typename T>
+const nsTDependentSubstring<T>*
+nsTSubstringSplitter<T>::nsTSubstringSplit_Iter::operator->() const {
+  return &mObj->Get(mPos);
 }
 
 // Common logic for nsTSubstring<T>::ToInteger and nsTSubstring<T>::ToInteger64.

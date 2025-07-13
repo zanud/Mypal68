@@ -62,7 +62,7 @@ class DataStorageSharedThread final {
   static nsresult Shutdown();
   static nsresult Dispatch(nsIRunnable* event);
 
-  virtual ~DataStorageSharedThread() {}
+  virtual ~DataStorageSharedThread() = default;
 
  private:
   DataStorageSharedThread() : mThread(nullptr) {}

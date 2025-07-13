@@ -5,7 +5,6 @@
 #ifndef nsSHEntryShared_h__
 #define nsSHEntryShared_h__
 
-#include "nsAutoPtr.h"
 #include "nsCOMArray.h"
 #include "nsCOMPtr.h"
 #include "nsExpirationTracker.h"
@@ -16,6 +15,7 @@
 #include "nsStubMutationObserver.h"
 
 #include "mozilla/Attributes.h"
+#include "mozilla/UniquePtr.h"
 
 class nsSHEntry;
 class nsISHEntry;
@@ -95,7 +95,7 @@ class nsSHEntryShared final : public nsIBFCacheEntry,
   nsIntRect mViewerBounds;
   nsCOMPtr<nsIMutableArray> mRefreshURIList;
   nsExpirationState mExpirationState;
-  nsAutoPtr<nsDocShellEditorData> mEditorData;
+  mozilla::UniquePtr<nsDocShellEditorData> mEditorData;
   nsWeakPtr mSHistory;
 
   bool mIsFrameNavigation;

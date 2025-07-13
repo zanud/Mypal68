@@ -13,6 +13,7 @@
 #include "mozilla/Result.h"
 #include "mozilla/TextEditor.h"
 #include "mozilla/UniquePtr.h"
+#include "mozilla/dom/BlobImpl.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/File.h"
 

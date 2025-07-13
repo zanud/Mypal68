@@ -133,7 +133,6 @@ nsNSSSocketInfo::nsNSSSocketInfo(SharedSSLState& aState, uint32_t providerFlags,
       mKEAKeyBits(0),
       mSSLVersionUsed(nsISSLSocketControl::SSL_VERSION_UNKNOWN),
       mMACAlgorithmUsed(nsISSLSocketControl::SSL_MAC_UNKNOWN),
-      mBypassAuthentication(false),
       mProviderFlags(providerFlags),
       mProviderTlsFlags(providerTlsFlags),
       mSocketCreationTimestamp(TimeStamp::Now()),
@@ -143,7 +142,7 @@ nsNSSSocketInfo::nsNSSSocketInfo(SharedSSLState& aState, uint32_t providerFlags,
   mTLSVersionRange.max = 0;
 }
 
-nsNSSSocketInfo::~nsNSSSocketInfo() {}
+nsNSSSocketInfo::~nsNSSSocketInfo() = default;
 
 NS_IMPL_ISUPPORTS_INHERITED(nsNSSSocketInfo, TransportSecurityInfo,
                             nsISSLSocketControl)
@@ -207,12 +206,6 @@ nsNSSSocketInfo::SetClientCert(nsIX509Cert* aClientCert) {
 NS_IMETHODIMP
 nsNSSSocketInfo::GetClientCertSent(bool* arg) {
   *arg = mSentClientCert;
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-nsNSSSocketInfo::GetBypassAuthentication(bool* arg) {
-  *arg = mBypassAuthentication;
   return NS_OK;
 }
 
@@ -461,15 +454,10 @@ nsNSSSocketInfo::IsAcceptableForHost(const nsACString& hostname,
   }
   CertVerifier::Flags flags = CertVerifier::FLAG_LOCAL_ONLY;
   UniqueCERTCertList unusedBuiltChain;
-  mozilla::pkix::Result result = certVerifier->VerifySSLServerCert(
-      nssCert,
-      Maybe<nsTArray<uint8_t>>(),  // stapledOCSPResponse
-      Maybe<nsTArray<uint8_t>>(),  // sctsFromTLSExtension
-      mozilla::pkix::Now(),
-      nullptr,  // pinarg
-      hostname, unusedBuiltChain,
-      false,  // save intermediates
-      flags);
+  mozilla::pkix::Result result =
+      certVerifier->VerifySSLServerCert(nssCert, mozilla::pkix::Now(),
+                                        nullptr,  // pinarg
+                                        hostname, unusedBuiltChain, flags);
   if (result != mozilla::pkix::Success) {
     return NS_OK;
   }
@@ -490,12 +478,6 @@ nsNSSSocketInfo::TestJoinConnection(const nsACString& npnProtocol,
 
   // Make sure NPN has been completed and matches requested npnProtocol
   if (!mNPNCompleted || !mNegotiatedNPN.Equals(npnProtocol)) return NS_OK;
-
-  if (mBypassAuthentication) {
-    // An unauthenticated connection does not know whether or not it
-    // is acceptable for a particular hostname
-    return NS_OK;
-  }
 
   IsAcceptableForHost(hostname, _retval);  // sets _retval
   return NS_OK;
@@ -1474,7 +1456,7 @@ class PrefObserver : public nsIObserver {
   explicit PrefObserver(nsSSLIOLayerHelpers* aOwner) : mOwner(aOwner) {}
 
  protected:
-  virtual ~PrefObserver() {}
+  virtual ~PrefObserver() = default;
 
  private:
   nsSSLIOLayerHelpers* mOwner;
@@ -2010,7 +1992,7 @@ void ClientAuthDataRunnable::RunOnTargetThread() {
     return;
   }
 
-  UniqueCERTCertList certList(FindNonCACertificatesWithPrivateKeys());
+  UniqueCERTCertList certList(FindClientCertificatesWithPrivateKeys());
   if (!certList) {
     return;
   }
@@ -2020,10 +2002,6 @@ void ClientAuthDataRunnable::RunOnTargetThread() {
   mRV = CERT_FilterCertListByCANames(
       certList.get(), caNamesStringPointers.Length(),
       caNamesStringPointers.Elements(), certUsageSSLClient);
-  if (mRV != SECSuccess) {
-    return;
-  }
-  mRV = CERT_FilterCertListByUsage(certList.get(), certUsageSSLClient, false);
   if (mRV != SECSuccess) {
     return;
   }
@@ -2073,8 +2051,11 @@ void ClientAuthDataRunnable::RunOnTargetThread() {
 
     const nsACString& hostname = mSocketInfo->GetHostName();
 
-    RefPtr<nsClientAuthRememberService> cars =
-        mSocketInfo->SharedState().GetClientAuthRememberService();
+    nsCOMPtr<nsIClientAuthRemember> cars = nullptr;
+
+    if (mSocketInfo->GetProviderTlsFlags() == 0) {
+      cars = do_GetService(NS_CLIENTAUTHREMEMBER_CONTRACTID);
+    }
 
     bool hasRemembered = false;
     nsCString rememberedDBKey;
@@ -2168,8 +2149,10 @@ void ClientAuthDataRunnable::RunOnTargetThread() {
       }
 
       if (cars && wantRemember) {
-        cars->RememberDecision(hostname, mSocketInfo->GetOriginAttributes(),
-                               mServerCert, certChosen ? cert.get() : nullptr);
+        rv = cars->RememberDecision(
+            hostname, mSocketInfo->GetOriginAttributes(), mServerCert,
+            certChosen ? cert.get() : nullptr);
+        Unused << NS_WARN_IF(NS_FAILED(rv));
       }
     }
 
@@ -2222,11 +2205,7 @@ static PRFileDesc* nsSSLIOLayerImportFD(PRFileDesc* fd,
     SSL_GetClientAuthDataHook(
         sslSock, (SSLGetClientAuthData)nsNSS_SSLGetClientAuthData, infoObject);
   }
-  if (flags & nsISocketProvider::MITM_OK) {
-    MOZ_LOG(gPIPNSSLog, LogLevel::Debug,
-            ("[%p] nsSSLIOLayerImportFD: bypass authentication flag\n", fd));
-    infoObject->SetBypassAuthentication(true);
-  }
+
   if (SECSuccess !=
       SSL_AuthCertificateHook(sslSock, AuthCertificateHook, infoObject)) {
     MOZ_ASSERT_UNREACHABLE("Failed to configure AuthCertificateHook");

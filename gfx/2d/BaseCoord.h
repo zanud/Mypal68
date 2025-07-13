@@ -5,6 +5,8 @@
 #ifndef MOZILLA_GFX_BASECOORD_H_
 #define MOZILLA_GFX_BASECOORD_H_
 
+#include <ostream>
+
 #include "mozilla/Attributes.h"
 
 namespace mozilla {
@@ -83,6 +85,11 @@ struct BaseCoord {
   friend constexpr T operator-(T aA, Sub aB) { return aA - aB.value; }
 
   constexpr Sub operator-() const { return Sub(-value); }
+
+  friend std::ostream& operator<<(std::ostream& aStream,
+                                  const BaseCoord<T, Sub>& aCoord) {
+    return aStream << aCoord.value;
+  }
 };
 
 }  // namespace gfx

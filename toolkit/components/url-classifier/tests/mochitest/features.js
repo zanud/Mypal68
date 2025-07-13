@@ -214,7 +214,7 @@ async function runTest(test, expectedFlag, expectedTrackingResource, prefs) {
     if (test.annotationExpected) {
       is(data.classificationFlags, expectedFlag, "Correct flag");
       is(
-        data.isTrackingResource,
+        data.isThirdPartyTrackingResource,
         expectedTrackingResource,
         "Tracking resource flag matches"
       );
@@ -232,8 +232,10 @@ function runTests(flag, prefs, trackingResource) {
 
     function onExamResp(subject, topic, data) {
       let channel = subject.QueryInterface(Ci.nsIHttpChannel);
+      let classifiedChannel = subject.QueryInterface(Ci.nsIClassifiedChannel);
       if (
         !channel ||
+        !classifiedChannel ||
         !channel.URI.spec.startsWith(
           "http://example.com/tests/toolkit/components/url-classifier/tests/mochitest/raptor.jpg"
         )
@@ -243,8 +245,8 @@ function runTests(flag, prefs, trackingResource) {
 
       // eslint-disable-next-line no-undef
       sendAsyncMessage("last-channel-flags", {
-        classificationFlags: channel.classificationFlags,
-        isTrackingResource: channel.isTrackingResource(),
+        classificationFlags: classifiedChannel.classificationFlags,
+        isThirdPartyTrackingResource: classifiedChannel.isThirdPartyTrackingResource(),
       });
     }
 

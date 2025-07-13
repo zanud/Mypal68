@@ -43,13 +43,6 @@ const BufferedOutputStream = Components.Constructor(
   "init"
 );
 
-const SIZES_TELEMETRY_ENUM = {
-  NO_SIZES: 0,
-  ANY: 1,
-  DIMENSION: 2,
-  INVALID: 3,
-};
-
 const FAVICON_PARSING_TIMEOUT = 100;
 const FAVICON_RICH_ICON_MIN_WIDTH = 96;
 const PREFERRED_WIDTH = 16;
@@ -320,8 +313,7 @@ class FaviconLoad {
 }
 
 /*
- * Extract the icon width from the size attribute. It also sends the telemetry
- * about the size type and size dimension info.
+ * Extract the icon width from the size attribute.
  *
  * @param {Array} aSizes An array of strings about size.
  * @return {Number} A width of the icon in pixel.
@@ -334,35 +326,18 @@ function extractIconSize(aSizes) {
   if (aSizes.length) {
     for (let size of aSizes) {
       if (size.toLowerCase() == "any") {
-        sizesType = SIZES_TELEMETRY_ENUM.ANY;
         break;
       } else {
         let values = re.exec(size);
         if (values && values.length > 1) {
-          sizesType = SIZES_TELEMETRY_ENUM.DIMENSION;
           width = parseInt(values[1]);
           break;
         } else {
-          sizesType = SIZES_TELEMETRY_ENUM.INVALID;
           break;
         }
       }
     }
-  } else {
-    sizesType = SIZES_TELEMETRY_ENUM.NO_SIZES;
   }
-
-  // Telemetry probes for measuring the sizes attribute
-  // usage and available dimensions.
-  Services.telemetry
-    .getHistogramById("LINK_ICON_SIZES_ATTR_USAGE")
-    .add(sizesType);
-  if (width > 0) {
-    Services.telemetry
-      .getHistogramById("LINK_ICON_SIZES_ATTR_DIMENSION")
-      .add(width);
-  }
-
   return width;
 }
 

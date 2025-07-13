@@ -11,7 +11,7 @@ async function test_theme_property(property) {
   );
 
   if (property === "unrecognized_key") {
-    const expectedWarning = `Error processing theme.${property}`;
+    const expectedWarning = `Warning processing theme.${property}`;
     ok(
       normalized.errors[0].includes(expectedWarning),
       `The manifest warning ${JSON.stringify(

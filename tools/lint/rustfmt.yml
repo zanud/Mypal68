@@ -27,9 +27,6 @@ rust:
         - js/src/
         - js/src/frontend/binast/
         - js/src/wasm/cranelift/
-        - media/mp4parse-rust/mp4parse/
-        - media/mp4parse-rust/mp4parse_capi/
-        - media/mp4parse-rust/mp4parse_fallible/
         - modules/libpref/init/static_prefs/
         - servo/components/derive_common/
         - servo/components/selectors/

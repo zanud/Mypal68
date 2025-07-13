@@ -33,9 +33,9 @@ class nsNativeThemeWin : private nsNativeTheme, public nsITheme {
                                   const nsRect& aRect,
                                   const nsRect& aDirtyRect) override;
 
-  MOZ_MUST_USE LayoutDeviceIntMargin
-  GetWidgetBorder(nsDeviceContext* aContext, nsIFrame* aFrame,
-                  StyleAppearance aAppearance) override;
+  [[nodiscard]] LayoutDeviceIntMargin GetWidgetBorder(
+      nsDeviceContext* aContext, nsIFrame* aFrame,
+      StyleAppearance aAppearance) override;
 
   bool GetWidgetPadding(nsDeviceContext* aContext, nsIFrame* aFrame,
                         StyleAppearance aAppearance,
@@ -92,7 +92,7 @@ class nsNativeThemeWin : private nsNativeTheme, public nsITheme {
                                        StyleAppearance aAppearance,
                                        const nsRect& aRect,
                                        const nsRect& aClipRect);
-  MOZ_MUST_USE LayoutDeviceIntMargin ClassicGetWidgetBorder(
+  [[nodiscard]] LayoutDeviceIntMargin ClassicGetWidgetBorder(
       nsDeviceContext* aContext, nsIFrame* aFrame, StyleAppearance aAppearance);
   bool ClassicGetWidgetPadding(nsDeviceContext* aContext, nsIFrame* aFrame,
                                StyleAppearance aAppearance,
@@ -120,7 +120,7 @@ class nsNativeThemeWin : private nsNativeTheme, public nsITheme {
                                RECT* aWidgetRect, RECT* aClipRect,
                                gfxFloat aAppUnits);
 
-  MOZ_MUST_USE LayoutDeviceIntMargin GetCachedWidgetBorder(
+  [[nodiscard]] LayoutDeviceIntMargin GetCachedWidgetBorder(
       HANDLE aTheme, nsUXThemeClass aThemeClass, StyleAppearance aAppearance,
       int32_t aPart, int32_t aState);
 

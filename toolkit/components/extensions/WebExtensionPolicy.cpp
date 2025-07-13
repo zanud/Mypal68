@@ -315,6 +315,12 @@ void WebExtensionPolicy::UnregisterContentScript(
   WebExtensionPolicy_Binding::ClearCachedContentScriptsValue(this);
 }
 
+bool WebExtensionPolicy::CanAccessURI(const URLInfo& aURI, bool aExplicit,
+                                      bool aAllowFilePermission) const {
+  return mHostPermissions && mHostPermissions->Matches(aURI, aExplicit) &&
+         (aURI.Scheme() != nsGkAtoms::file || aAllowFilePermission);
+}
+
 void WebExtensionPolicy::InjectContentScripts(ErrorResult& aRv) {
   nsresult rv = EPS().InjectContentScripts(this);
   if (NS_FAILED(rv)) {
@@ -435,6 +441,11 @@ JSObject* WebExtensionPolicy::WrapObject(JSContext* aCx,
 void WebExtensionPolicy::GetContentScripts(
     nsTArray<RefPtr<WebExtensionContentScript>>& aScripts) const {
   aScripts.AppendElements(mContentScripts);
+}
+
+bool WebExtensionPolicy::PrivateBrowsingAllowed() const {
+  return mAllowPrivateBrowsingByDefault ||
+         HasPermission(nsGkAtoms::privateBrowsingAllowedPermission);
 }
 
 bool WebExtensionPolicy::CanAccessContext(nsILoadContext* aContext) const {

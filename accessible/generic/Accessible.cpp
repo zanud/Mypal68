@@ -34,6 +34,7 @@
 #include "nsPIDOMWindow.h"
 
 #include "mozilla/dom/Document.h"
+#include "mozilla/dom/HTMLFormElement.h"
 #include "nsIContent.h"
 #include "nsIForm.h"
 #include "nsIFormControl.h"
@@ -711,8 +712,7 @@ void Accessible::TakeFocus() const {
   if (fm) {
     dom::AutoHandlingUserInputStatePusher inputStatePusher(true);
     // XXXbz: Can we actually have a non-element content here?
-    RefPtr<Element> element =
-        focusContent->IsElement() ? focusContent->AsElement() : nullptr;
+    RefPtr<dom::Element> element = dom::Element::FromNodeOrNull(focusContent);
     fm->SetFocus(element, 0);
   }
 }
@@ -1676,8 +1676,7 @@ Relation Accessible::RelationByType(RelationType aType) const {
         // HTML form controls implements nsIFormControl interface.
         nsCOMPtr<nsIFormControl> control(do_QueryInterface(mContent));
         if (control) {
-          nsCOMPtr<nsIForm> form(do_QueryInterface(control->GetFormElement()));
-          if (form) {
+          if (dom::HTMLFormElement* form = control->GetFormElement()) {
             nsCOMPtr<nsIContent> formContent =
                 do_QueryInterface(form->GetDefaultSubmitElement());
             return Relation(mDoc, formContent);
@@ -2029,6 +2028,10 @@ nsIFrame* Accessible::GetFrame() const {
 }
 
 nsINode* Accessible::GetNode() const { return mContent; }
+
+dom::Element* Accessible::Elm() const {
+  return dom::Element::FromNodeOrNull(mContent);
+}
 
 void Accessible::Language(nsAString& aLanguage) {
   aLanguage.Truncate();

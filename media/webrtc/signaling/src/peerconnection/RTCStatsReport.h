@@ -30,7 +30,7 @@ class RTCStatsTimestampMaker {
 
  private:
   uint64_t mRandomTimelineSeed = 0;
-  DOMHighResTimeStamp mStartWallClock = (double)PR_Now() / PR_USEC_PER_MSEC;
+  DOMHighResTimeStamp mStartWallClockRaw = (double)PR_Now() / PR_USEC_PER_MSEC;
   TimeStamp mStartMonotonic = TimeStamp::NowUnfuzzed();
 };
 

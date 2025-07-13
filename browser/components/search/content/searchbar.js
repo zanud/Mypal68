@@ -130,7 +130,6 @@
           // Some accessibility tests create their own <searchbar> that doesn't
           // use the popup binding below, so null-check oneOffButtons.
           if (oneOffButtons) {
-            oneOffButtons.telemetryOrigin = "searchbar";
             // Set .textbox first, since the popup setter will cause
             // a _rebuild call that uses it.
             oneOffButtons.textbox = this.textbox;
@@ -316,53 +315,14 @@
       let textBox = this._textbox;
       let textValue = textBox.value;
 
-      let selection = this.telemetrySearchDetails;
-      let oneOffRecorded = false;
-
-      BrowserUsageTelemetry.recordSearchbarSelectedResultMethod(
-        aEvent,
-        selection ? selection.index : -1
-      );
-
-      if (!selection || selection.index == -1) {
-        oneOffRecorded = this.textbox.popup.oneOffButtons.maybeRecordTelemetry(
-          aEvent
-        );
-        if (!oneOffRecorded) {
-          let source = "unknown";
-          let type = "unknown";
-          let target = aEvent.originalTarget;
-          if (aEvent instanceof KeyboardEvent) {
-            type = "key";
-          } else if (aEvent instanceof MouseEvent) {
-            type = "mouse";
-            if (
-              target.classList.contains("search-panel-header") ||
-              target.parentNode.classList.contains("search-panel-header")
-            ) {
-              source = "header";
-            }
-          } else if (aEvent instanceof XULCommandEvent) {
-            if (target.getAttribute("anonid") == "paste-and-search") {
-              source = "paste";
-            }
-          }
-          if (!aEngine) {
-            aEngine = this.currentEngine;
-          }
-          BrowserSearch.recordOneoffSearchInTelemetry(aEngine, source, type);
-        }
-      }
-
-      // This is a one-off search only if oneOffRecorded is true.
-      this.doSearch(textValue, aWhere, aEngine, aParams, oneOffRecorded);
+      this.doSearch(textValue, aWhere, aEngine, aParams);
 
       if (aWhere == "tab" && aParams && aParams.inBackground) {
         this.focus();
       }
     }
 
-    doSearch(aData, aWhere, aEngine, aParams, aOneOff) {
+    doSearch(aData, aWhere, aEngine, aParams) {
       let textBox = this._textbox;
 
       // Save the current value in the form history
@@ -389,18 +349,7 @@
 
       let engine = aEngine || this.currentEngine;
       let submission = engine.getSubmission(aData, null, "searchbar");
-      let telemetrySearchDetails = this.telemetrySearchDetails;
-      this.telemetrySearchDetails = null;
-      if (telemetrySearchDetails && telemetrySearchDetails.index == -1) {
-        telemetrySearchDetails = null;
-      }
-      // If we hit here, we come either from a one-off, a plain search or a suggestion.
-      const details = {
-        isOneOff: aOneOff,
-        isSuggestion: !aOneOff && telemetrySearchDetails,
-        selection: telemetrySearchDetails,
-      };
-      BrowserSearch.recordSearchInTelemetry(engine, "searchbar", details);
+
       // null parameter below specifies HTML response for search
       let params = {
         postData: submission.postData,
@@ -818,7 +767,6 @@
           engine = oneOff.engine;
         }
         if (this.textbox._selectionDetails) {
-          BrowserSearch.searchBar.telemetrySearchDetails = this.textbox._selectionDetails;
           this.textbox._selectionDetails = null;
         }
         this.handleSearchCommand(event, engine);

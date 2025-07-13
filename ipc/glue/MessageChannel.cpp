@@ -34,6 +34,10 @@
 using namespace mozilla::tasktracer;
 #endif
 
+#ifdef MOZ_GECKO_PROFILER
+#  include "ProfilerMarkerPayload.h"
+#endif
+
 // Undo the damage done by mozzconf.h
 #undef compress
 
@@ -967,11 +971,17 @@ bool MessageChannel::Send(UniquePtr<Message> aMsg) {
     return false;
   }
 
+  if (aMsg->seqno() == 0) {
+    aMsg->set_seqno(NextSeqno());
+  }
+
   Monitor2AutoLock lock(*mMonitor);
   if (!Connected()) {
     ReportConnectionError("MessageChannel", aMsg.get());
     return false;
   }
+
+  AddProfilerMarker(*aMsg, MessageDirection::eSending);
   SendMessageToLink(std::move(aMsg));
   return true;
 }
@@ -1493,6 +1503,7 @@ bool MessageChannel::Send(UniquePtr<Message> aMsg, Message* aReply) {
   // aMsg will be destroyed soon, but name() is not owned by aMsg.
   const char* msgName = aMsg->name();
 
+  AddProfilerMarker(*aMsg, MessageDirection::eSending);
   SendMessageToLink(std::move(aMsg));
 
   while (true) {
@@ -1580,6 +1591,8 @@ bool MessageChannel::Send(UniquePtr<Message> aMsg, Message* aReply) {
   MOZ_RELEASE_ASSERT(reply->type() == replyType, "wrong reply type");
   MOZ_RELEASE_ASSERT(reply->is_sync());
 
+  AddProfilerMarker(*reply, MessageDirection::eReceiving);
+
   *aReply = std::move(*reply);
   if (aReply->size() >= kMinTelemetryMessageSize) {
     Telemetry::Accumulate(Telemetry::IPC_REPLY_SIZE,
@@ -1629,6 +1642,9 @@ bool MessageChannel::Call(UniquePtr<Message> aMsg, Message* aReply) {
   aMsg->set_interrupt_remote_stack_depth_guess(mRemoteStackDepthGuess);
   aMsg->set_interrupt_local_stack_depth(1 + InterruptStackDepth());
   mInterruptStack.push(MessageInfo(*aMsg));
+
+  AddProfilerMarker(*aMsg, MessageDirection::eSending);
+
   mLink->SendMessage(std::move(aMsg));
 
   while (true) {
@@ -1735,6 +1751,8 @@ bool MessageChannel::Call(UniquePtr<Message> aMsg, Message* aReply) {
       // We received a reply to our most recent outstanding call. Pop
       // this frame and return the reply.
       mInterruptStack.pop();
+
+      AddProfilerMarker(recvd, MessageDirection::eReceiving);
 
       bool is_reply_error = recvd.is_reply_error();
       if (!is_reply_error) {
@@ -2030,6 +2048,7 @@ void MessageChannel::DispatchMessage(Message&& aMsg) {
 
   IPC_LOG("DispatchMessage: seqno=%d, xid=%d", aMsg.seqno(),
           aMsg.transaction_id());
+  AddProfilerMarker(aMsg, MessageDirection::eReceiving);
 
   {
     AutoEnterTransaction transaction(this, aMsg);
@@ -2068,6 +2087,8 @@ void MessageChannel::DispatchMessage(Message&& aMsg) {
   if (reply && ChannelConnected == mChannelState) {
     IPC_LOG("Sending reply seqno=%d, xid=%d", aMsg.seqno(),
             aMsg.transaction_id());
+    AddProfilerMarker(*reply, MessageDirection::eSending);
+
     mLink->SendMessage(std::move(reply));
   }
 }
@@ -2167,6 +2188,7 @@ void MessageChannel::DispatchInterruptMessage(ActorLifecycleProxy* aProxy,
 
   Monitor2AutoLock lock(*mMonitor);
   if (ChannelConnected == mChannelState) {
+    AddProfilerMarker(*reply, MessageDirection::eSending);
     mLink->SendMessage(std::move(reply));
   }
 }
@@ -2749,6 +2771,23 @@ void MessageChannel::DumpInterruptStack(const char* const pfx) const {
     printf_stderr("%s[(%u) %s %s %s(actor=%d) ]\n", pfx, i, dir, sems, name,
                   id);
   }
+}
+
+void MessageChannel::AddProfilerMarker(const IPC::Message& aMessage,
+                                       MessageDirection aDirection) {
+  mMonitor->AssertCurrentThreadOwns();
+#ifdef MOZ_GECKO_PROFILER
+  if (profiler_feature_active(ProfilerFeature::IPCMessages)) {
+    int32_t pid = mListener->OtherPidMaybeInvalid();
+    if (pid != kInvalidProcessId) {
+      PROFILER_ADD_MARKER_WITH_PAYLOAD(
+          "IPC", IPC, IPCMarkerPayload,
+          (pid, aMessage.seqno(), aMessage.type(), mSide, aDirection,
+           MessagePhase::Endpoint, aMessage.is_sync(),
+           TimeStamp::NowUnfuzzed()));
+    }
+  }
+#endif
 }
 
 int32_t MessageChannel::GetTopmostMessageRoutingId() const {

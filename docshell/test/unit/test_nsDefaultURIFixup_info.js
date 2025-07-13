@@ -621,14 +621,10 @@ add_task(async function setup() {
       Services.io.newURI("chrome://mozapps/locale/searchextensions/")
     );
 
-  await Services.search.addEngineWithDetails(
-    kSearchEngineID,
-    "",
-    "",
-    "",
-    "get",
-    kSearchEngineURL
-  );
+  await Services.search.addEngineWithDetails(kSearchEngineID, {
+    method: "get",
+    template: kSearchEngineURL,
+  });
 
   var oldCurrentEngine = await Services.search.getDefault();
   await Services.search.setDefault(

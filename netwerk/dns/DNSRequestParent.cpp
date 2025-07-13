@@ -16,7 +16,7 @@ using namespace mozilla::ipc;
 namespace mozilla {
 namespace net {
 
-DNSRequestParent::DNSRequestParent() : mFlags(0), mIPCClosed(false) {}
+DNSRequestParent::DNSRequestParent() : mFlags(0) {}
 
 void DNSRequestParent::DoAsyncResolve(const nsACString& hostname,
                                       const OriginAttributes& originAttributes,
@@ -31,8 +31,7 @@ void DNSRequestParent::DoAsyncResolve(const nsACString& hostname,
                                  getter_AddRefs(unused));
   }
 
-  if (NS_FAILED(rv) && !mIPCClosed) {
-    mIPCClosed = true;
+  if (NS_FAILED(rv) && CanSend()) {
     Unused << SendLookupCompleted(DNSRequestResponse(rv));
   }
 }
@@ -55,17 +54,6 @@ mozilla::ipc::IPCResult DNSRequestParent::RecvCancelDNSRequest(
   return IPC_OK();
 }
 
-mozilla::ipc::IPCResult DNSRequestParent::Recv__delete__() {
-  mIPCClosed = true;
-  return IPC_OK();
-}
-
-void DNSRequestParent::ActorDestroy(ActorDestroyReason why) {
-  // We may still have refcount>0 if DNS hasn't called our OnLookupComplete
-  // yet, but child process has crashed.  We must not send any more msgs
-  // to child, or IPDL will kill chrome process, too.
-  mIPCClosed = true;
-}
 //-----------------------------------------------------------------------------
 // DNSRequestParent::nsISupports
 //-----------------------------------------------------------------------------
@@ -79,7 +67,7 @@ NS_IMPL_ISUPPORTS(DNSRequestParent, nsIDNSListener)
 NS_IMETHODIMP
 DNSRequestParent::OnLookupComplete(nsICancelable* request, nsIDNSRecord* rec,
                                    nsresult status) {
-  if (mIPCClosed) {
+  if (!CanSend()) {
     // nothing to do: child probably crashed
     return NS_OK;
   }
@@ -104,7 +92,6 @@ DNSRequestParent::OnLookupComplete(nsICancelable* request, nsIDNSRecord* rec,
     Unused << SendLookupCompleted(DNSRequestResponse(status));
   }
 
-  mIPCClosed = true;
   return NS_OK;
 }
 
@@ -112,7 +99,7 @@ NS_IMETHODIMP
 DNSRequestParent::OnLookupByTypeComplete(nsICancelable* aRequest,
                                          nsIDNSByTypeRecord* aRes,
                                          nsresult aStatus) {
-  if (mIPCClosed) {
+  if (!CanSend()) {
     // nothing to do: child probably crashed
     return NS_OK;
   }
@@ -124,7 +111,6 @@ DNSRequestParent::OnLookupByTypeComplete(nsICancelable* aRequest,
   } else {
     Unused << SendLookupCompleted(DNSRequestResponse(aStatus));
   }
-  mIPCClosed = true;
   return NS_OK;
 }
 

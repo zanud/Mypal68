@@ -63,7 +63,7 @@
 #include "nsMemoryReporterManager.h"
 #include "nsMessageLoop.h"
 #include "nss.h"
-#include "ssl.h"
+#include "nsNSSComponent.h"
 
 #include <locale.h>
 #include "mozilla/Services.h"
@@ -97,6 +97,7 @@
 
 #include "jsapi.h"
 #include "js/Initialization.h"
+#include "XPCSelfHostedShmem.h"
 
 #include "gfxPlatform.h"
 
@@ -256,8 +257,6 @@ NS_InitXPCOM(nsIServiceManager** aResult, nsIFile* aBinDirectory,
   }
 
   sInitialized = true;
-
-  mozPoisonValueInit();
 
   NS_LogInit();
 
@@ -475,6 +474,7 @@ NS_InitXPCOM(nsIServiceManager** aResult, nsIFile* aBinDirectory,
   // The memory reporter manager is up and running -- register our reporters.
   RegisterStrongMemoryReporter(new ICUReporter());
   RegisterStrongMemoryReporter(new OggReporter());
+  xpc::SelfHostedShmem::GetSingleton().InitMemoryReporter();
 
   mozilla::Telemetry::Init();
 
@@ -496,7 +496,6 @@ NS_InitXPCOM(nsIServiceManager** aResult, nsIFile* aBinDirectory,
 
 EXPORT_XPCOM_API(nsresult)
 NS_InitMinimalXPCOM() {
-  mozPoisonValueInit();
   NS_SetMainThread();
   mozilla::TimeStamp::Startup();
   NS_LogInit();
@@ -748,24 +747,34 @@ nsresult ShutdownXPCOM(nsIServiceManager* aServMgr) {
     sInitializedJS = false;
   }
 
+  // Release shared memory which might be borrowed by the JS engine.
+  xpc::SelfHostedShmem::Shutdown();
+
   // After all threads have been joined and the component manager has been shut
   // down, any remaining objects that could be holding NSS resources (should)
   // have been released, so we can safely shut down NSS.
   if (NSS_IsInitialized()) {
-    SSL_ClearSessionCache();
+    nsNSSComponent::ClearSSLExternalAndInternalSessionCacheNative();
     if (NSS_Shutdown() != SECSuccess) {
       // If you're seeing this crash and/or warning, some NSS resources are
       // still in use (see bugs 1417680 and 1230312). Set the environment
       // variable 'MOZ_IGNORE_NSS_SHUTDOWN_LEAKS' to some value to ignore this.
+      // Also, if leak checking is enabled, report this as a fake leak instead
+      // of crashing.
 #if defined(DEBUG) && !defined(ANDROID)
-      if (!getenv("MOZ_IGNORE_NSS_SHUTDOWN_LEAKS")) {
+      if (!getenv("MOZ_IGNORE_NSS_SHUTDOWN_LEAKS") &&
+          !getenv("XPCOM_MEM_BLOAT_LOG")) {
         MOZ_CRASH("NSS_Shutdown failed");
       } else {
+#  ifdef NS_BUILD_REFCNT_LOGGING
+        // Create a fake leak.
+        NS_LogCtor((void*)0x100, "NSSShutdownFailed", 100);
+#  endif  // NS_BUILD_REFCNT_LOGGING
         NS_WARNING("NSS_Shutdown failed");
       }
 #else
       NS_WARNING("NSS_Shutdown failed");
-#endif
+#endif  // defined(DEBUG) && !defined(ANDROID)
     }
   }
 

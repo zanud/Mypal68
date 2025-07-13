@@ -445,15 +445,9 @@
 #else
                           />
 #endif
-                <menuitem id="menu_keyboardShortcuts"
-                          oncommand="openHelpLink('')"
-                          onclick="checkForMiddleClick(this, event);" data-l10n-id="menu-help-keyboard-shortcuts"/>
                 <menuitem id="troubleShooting"
                           oncommand="openTroubleshootingPage()"
                           onclick="checkForMiddleClick(this, event);" data-l10n-id="menu-help-troubleshooting-info"/>
-                <menuitem id="feedbackPage"
-                          oncommand="openFeedbackPage()"
-                          onclick="checkForMiddleClick(this, event);" data-l10n-id="menu-help-feedback-page"/>
                 <menuitem id="helpSafeMode"
                           oncommand="safeModeRestart();" data-l10n-id="menu-help-safe-mode-without-addons"/>
                 <menuseparator id="helpPolicySeparator"

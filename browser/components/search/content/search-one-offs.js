@@ -44,12 +44,6 @@ class SearchOneOffs {
 
     this._textboxWidth = 0;
 
-    /**
-     * Set this to a string that identifies your one-offs consumer.  It'll
-     * be appended to telemetry recorded with maybeRecordTelemetry().
-     */
-    this.telemetryOrigin = "";
-
     this._query = "";
 
     this._selectedButton = null;
@@ -460,7 +454,7 @@ class SearchOneOffs {
     let headerText = this.header.querySelector(
       ".search-panel-one-offs-header-label"
     );
-    headerText.id = this.telemetryOrigin + "-one-offs-header-label";
+    headerText.id = "-one-offs-header-label";
     this.buttons.setAttribute("aria-labelledby", headerText.id);
 
     let engines = await this.getEngines();
@@ -520,10 +514,8 @@ class SearchOneOffs {
       let height = rowCount * this.buttonHeight;
       this.buttons.style.setProperty("height", `${height}px`);
     }
-    // Ensure we can refer to the settings buttons by ID:
-    let origin = this.telemetryOrigin;
-    this.settingsButton.id = origin + "-anon-search-settings";
-    this.settingsButtonCompact.id = origin + "-anon-search-settings-compact";
+    this.settingsButton.id = "-anon-search-settings";
+    this.settingsButtonCompact.id = "-anon-search-settings-compact";
 
     for (let i = 0; i < engines.length; ++i) {
       let engine = engines[i];
@@ -619,7 +611,6 @@ class SearchOneOffs {
         button.setAttribute("badged", "true");
       }
       button.id =
-        this.telemetryOrigin +
         "-add-engine-" +
         this._fixUpEngineNameForID(engine.title);
       let label = this.bundle.formatStringFromName(
@@ -645,7 +636,6 @@ class SearchOneOffs {
 
   _buttonIDForEngine(engine) {
     return (
-      this.telemetryOrigin +
       "-engine-one-off-item-" +
       this._fixUpEngineNameForID(engine.name)
     );
@@ -986,57 +976,6 @@ class SearchOneOffs {
     }
 
     return false;
-  }
-
-  /**
-   * If the given event is related to the one-offs, this method records
-   * one-off telemetry for it.  this.telemetryOrigin will be appended to the
-   * computed source, so make sure you set that first.
-   *
-   * @param {Event} aEvent
-   *        An event, like a click on a one-off button.
-   * @returns {boolean} True if telemetry was recorded and false if not.
-   */
-  maybeRecordTelemetry(aEvent) {
-    if (!aEvent) {
-      return false;
-    }
-
-    let source = null;
-    let type = "unknown";
-    let engine = null;
-    let target = aEvent.originalTarget;
-
-    if (aEvent instanceof KeyboardEvent) {
-      type = "key";
-      if (this.selectedButton) {
-        source = "oneoff";
-        engine = this.selectedButton.engine;
-      }
-    } else if (aEvent instanceof MouseEvent) {
-      type = "mouse";
-      if (target.classList.contains("searchbar-engine-one-off-item")) {
-        source = "oneoff";
-        engine = target.engine;
-      }
-    } else if (
-      aEvent instanceof XULCommandEvent &&
-      target.classList.contains("search-one-offs-context-open-in-new-tab")
-    ) {
-      source = "oneoff-context";
-      engine = this._contextEngine;
-    }
-
-    if (!source) {
-      return false;
-    }
-
-    if (this.telemetryOrigin) {
-      source += "-" + this.telemetryOrigin;
-    }
-
-    BrowserSearch.recordOneoffSearchInTelemetry(engine, source, type);
-    return true;
   }
 
   _resetAddEngineMenuTimeout() {

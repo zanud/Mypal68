@@ -694,7 +694,6 @@ class InstallableWrapper extends AOMExtensionWrapper {
     this.file = xpiFile;
     this.addonData = addonData;
     this.installType = addonData.useAddonManager || "temporary";
-    this.installTelemetryInfo = addonData.amInstallTelemetryInfo;
 
     this.cleanupFiles = [xpiFile];
   }
@@ -760,7 +759,6 @@ class InstallableWrapper extends AOMExtensionWrapper {
       return AddonManager.getInstallForFile(
         xpiFile,
         null,
-        this.installTelemetryInfo
       ).then(install => {
         let listener = {
           onInstallFailed: () => {

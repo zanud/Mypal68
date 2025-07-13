@@ -3,6 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "mozilla/PresShell.h"
+#include "mozilla/dom/AutocompleteInfoBinding.h" //MY
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/SessionStoreListener.h"
 #include "mozilla/dom/SessionStoreUtils.h"

@@ -73,10 +73,7 @@ class WebExtensionPolicy final : public nsISupports,
   void InjectContentScripts(ErrorResult& aRv);
 
   bool CanAccessURI(const URLInfo& aURI, bool aExplicit = false,
-                    bool aAllowFilePermission = false) const {
-    return mHostPermissions && mHostPermissions->Matches(aURI, aExplicit) &&
-           (aURI.Scheme() != nsGkAtoms::file || aAllowFilePermission);
-  }
+                    bool aAllowFilePermission = false) const;
 
   bool IsPathWebAccessible(const nsAString& aPath) const {
     return mWebAccessiblePaths.Matches(aPath);
@@ -125,10 +122,7 @@ class WebExtensionPolicy final : public nsISupports,
   bool Active() const { return mActive; }
   void SetActive(bool aActive, ErrorResult& aRv);
 
-  bool PrivateBrowsingAllowed() const {
-    return mAllowPrivateBrowsingByDefault ||
-           HasPermission(nsGkAtoms::privateBrowsingAllowedPermission);
-  }
+  bool PrivateBrowsingAllowed() const;
 
   bool CanAccessContext(nsILoadContext* aContext) const;
 

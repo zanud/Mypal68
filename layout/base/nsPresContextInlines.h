@@ -5,6 +5,7 @@
 #ifndef nsPresContextInlines_h
 #define nsPresContextInlines_h
 
+#include "mozilla/dom/Document.h"
 #include "mozilla/PresShell.h"
 #include "nsCSSFrameConstructor.h"
 

@@ -15,7 +15,7 @@ template <typename MMPolicy, uint32_t kChunkSize>
 class VMSharingPolicyUnique : public MMPolicy {
  public:
   template <typename... Args>
-  explicit VMSharingPolicyUnique(Args... aArgs)
+  explicit VMSharingPolicyUnique(Args&&... aArgs)
       : MMPolicy(std::forward<Args>(aArgs)...), mNextChunkIndex(0) {}
 
   bool Reserve(uint32_t aCount, const ReservationFlags aFlags) {

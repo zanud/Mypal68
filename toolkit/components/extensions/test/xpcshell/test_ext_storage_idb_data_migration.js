@@ -14,10 +14,6 @@ AddonTestUtils.createAppInfo(
 const { ExtensionStorage } = ChromeUtils.import(
   "resource://gre/modules/ExtensionStorage.jsm"
 );
-const { TelemetryController } = ChromeUtils.import(
-  "resource://gre/modules/TelemetryController.jsm"
-);
-
 const { ExtensionStorageIDB } = ChromeUtils.import(
   "resource://gre/modules/ExtensionStorageIDB.jsm"
 );
@@ -30,7 +26,6 @@ const { promiseShutdownManager, promiseStartupManager } = AddonTestUtils;
 
 const {
   IDB_MIGRATED_PREF_BRANCH,
-  IDB_MIGRATE_RESULT_HISTOGRAM,
 } = ExtensionStorageIDB;
 const CATEGORIES = ["success", "failure"];
 const EVENT_CATEGORY = "extensions.data";
@@ -53,78 +48,10 @@ async function createExtensionJSONFileWithData(extensionId, data) {
   return { jsonFile, oldStorageFilename };
 }
 
-function clearMigrationHistogram() {
-  const histogram = Services.telemetry.getHistogramById(
-    IDB_MIGRATE_RESULT_HISTOGRAM
-  );
-  histogram.clear();
-  equal(
-    histogram.snapshot().sum,
-    0,
-    `No data recorded for histogram ${IDB_MIGRATE_RESULT_HISTOGRAM}`
-  );
-}
-
-function assertMigrationHistogramCount(category, expectedCount) {
-  const histogram = Services.telemetry.getHistogramById(
-    IDB_MIGRATE_RESULT_HISTOGRAM
-  );
-
-  equal(
-    histogram.snapshot().values[CATEGORIES.indexOf(category)],
-    expectedCount,
-    `Got the expected count on category "${category}" for histogram ${IDB_MIGRATE_RESULT_HISTOGRAM}`
-  );
-}
-
-function assertTelemetryEvents(extensionId, expectedEvents) {
-  const snapshot = Services.telemetry.snapshotEvents(
-    Ci.nsITelemetry.DATASET_PRERELEASE_CHANNELS,
-    true
-  );
-
-  ok(
-    snapshot.parent && snapshot.parent.length > 0,
-    "Got parent telemetry events in the snapshot"
-  );
-
-  const migrateEvents = snapshot.parent
-    .filter(([timestamp, category, method, object, value]) => {
-      return (
-        category === EVENT_CATEGORY &&
-        EVENT_METHODS.includes(method) &&
-        object === EVENT_OBJECT &&
-        value === extensionId
-      );
-    })
-    .map(event => {
-      return { method: event[2], extra: event[5] };
-    });
-
-  Assert.deepEqual(
-    migrateEvents,
-    expectedEvents,
-    "Got the expected telemetry events"
-  );
-}
-
 add_task(async function setup() {
   Services.prefs.setBoolPref(ExtensionStorageIDB.BACKEND_ENABLED_PREF, true);
 
   await promiseStartupManager();
-
-  // Telemetry test setup needed to ensure that the builtin events are defined
-  // and they can be collected and verified.
-  await TelemetryController.testSetup();
-
-  // This is actually only needed on Android, because it does not properly support unified telemetry
-  // and so, if not enabled explicitly here, it would make these tests to fail when running on a
-  // non-Nightly build.
-  const oldCanRecordBase = Services.telemetry.canRecordBase;
-  Services.telemetry.canRecordBase = true;
-  registerCleanupFunction(() => {
-    Services.telemetry.canRecordBase = oldCanRecordBase;
-  });
 });
 
 // Test that the old data is migrated successfully to the new storage backend
@@ -172,8 +99,6 @@ add_task(async function test_storage_local_data_migration() {
 
     browser.test.sendMessage("storage-local-data-migrated");
   }
-
-  clearMigrationHistogram();
 
   let extensionDefinition = {
     useAddonManager: "temporary",
@@ -227,21 +152,6 @@ add_task(async function test_storage_local_data_migration() {
     `Got the ${IDB_MIGRATED_PREF_BRANCH} preference set to true as expected`
   );
 
-  assertMigrationHistogramCount("success", 1);
-  assertMigrationHistogramCount("failure", 0);
-
-  assertTelemetryEvents(EXTENSION_ID, [
-    {
-      method: "migrateResult",
-      extra: {
-        backend: "IndexedDB",
-        data_migrated: "y",
-        has_jsonfile: "y",
-        has_olddata: "y",
-      },
-    },
-  ]);
-
   await extension.unload();
 
   equal(
@@ -261,15 +171,6 @@ add_task(async function test_storage_local_data_migration() {
 
   await extension.awaitMessage("storage-local-data-migrated");
 
-  // The histogram values are unmodified.
-  assertMigrationHistogramCount("success", 1);
-  assertMigrationHistogramCount("failure", 0);
-
-  // No new telemetry events recorded for the extension.
-  const snapshot = Services.telemetry.snapshotEvents(
-    Ci.nsITelemetry.DATASET_PRERELEASE_CHANNELS,
-    true
-  );
   const filterByCategory = ([timestamp, category]) =>
     category === EVENT_CATEGORY;
 
@@ -288,70 +189,6 @@ add_task(async function test_storage_local_data_migration() {
     Services.prefs.PREF_INVALID,
     `Got the ${IDB_MIGRATED_PREF_BRANCH} preference has been cleared on addon uninstall`
   );
-});
-
-// Test that the extensionId included in the telemetry event is being trimmed down to 80 chars
-// as expected.
-add_task(async function test_extensionId_trimmed_in_telemetry_event() {
-  // Generated extensionId in email-like format, longer than 80 chars.
-  const EXTENSION_ID = `long.extension.id@${Array(80)
-    .fill("a")
-    .join("")}`;
-
-  const data = { test_key_string: "test_value" };
-
-  // Store some fake data in the storage.local file backend before starting the extension.
-  await createExtensionJSONFileWithData(EXTENSION_ID, data);
-
-  async function background() {
-    const storedData = await browser.storage.local.get("test_key_string");
-
-    browser.test.assertEq(
-      "test_value",
-      storedData.test_key_string,
-      "Got the expected data after the storage.local data migration"
-    );
-
-    browser.test.sendMessage("storage-local-data-migrated");
-  }
-
-  let extension = ExtensionTestUtils.loadExtension({
-    manifest: {
-      permissions: ["storage"],
-      applications: {
-        gecko: {
-          id: EXTENSION_ID,
-        },
-      },
-    },
-    background,
-  });
-
-  await extension.startup();
-
-  await extension.awaitMessage("storage-local-data-migrated");
-
-  const expectedTrimmedExtensionId = getTrimmedString(EXTENSION_ID);
-
-  equal(
-    expectedTrimmedExtensionId.length,
-    80,
-    "The trimmed version of the extensionId should be 80 chars long"
-  );
-
-  assertTelemetryEvents(expectedTrimmedExtensionId, [
-    {
-      method: "migrateResult",
-      extra: {
-        backend: "IndexedDB",
-        data_migrated: "y",
-        has_jsonfile: "y",
-        has_olddata: "y",
-      },
-    },
-  ]);
-
-  await extension.unload();
 });
 
 // Test that if the old JSONFile data file is corrupted and the old data
@@ -395,8 +232,6 @@ add_task(async function test_storage_local_corrupted_data_migration() {
 
     browser.test.sendMessage("storage-local-data-migrated-and-set");
   }
-
-  clearMigrationHistogram();
 
   let extension = ExtensionTestUtils.loadExtension({
     manifest: {
@@ -444,21 +279,6 @@ add_task(async function test_storage_local_corrupted_data_migration() {
     `Got the ${IDB_MIGRATED_PREF_BRANCH} preference set to true as expected`
   );
 
-  assertMigrationHistogramCount("success", 1);
-  assertMigrationHistogramCount("failure", 0);
-
-  assertTelemetryEvents(EXTENSION_ID, [
-    {
-      method: "migrateResult",
-      extra: {
-        backend: "IndexedDB",
-        data_migrated: "y",
-        has_jsonfile: "y",
-        has_olddata: "n",
-      },
-    },
-  ]);
-
   await extension.unload();
 });
 
@@ -485,8 +305,6 @@ add_task(async function test_storage_local_data_migration_failure() {
     });
     browser.test.sendMessage("storage-local-data-migrated-and-set");
   }
-
-  clearMigrationHistogram();
 
   let extension = ExtensionTestUtils.loadExtension({
     manifest: {
@@ -521,22 +339,6 @@ add_task(async function test_storage_local_data_migration_failure() {
   );
 
   await extension.unload();
-
-  assertTelemetryEvents(EXTENSION_ID, [
-    {
-      method: "migrateResult",
-      extra: {
-        backend: "JSONFile",
-        data_migrated: "n",
-        error_name: "DataCloneError",
-        has_jsonfile: "y",
-        has_olddata: "y",
-      },
-    },
-  ]);
-
-  assertMigrationHistogramCount("success", 0);
-  assertMigrationHistogramCount("failure", 1);
 });
 
 add_task(async function test_storage_local_data_migration_clear_pref() {
@@ -544,5 +346,4 @@ add_task(async function test_storage_local_data_migration_clear_pref() {
   Services.prefs.clearUserPref(LEAVE_UUID_PREF);
   Services.prefs.clearUserPref(ExtensionStorageIDB.BACKEND_ENABLED_PREF);
   await promiseShutdownManager();
-  await TelemetryController.testShutdown();
 });

@@ -34,126 +34,12 @@ const WEBEXT_STORAGE_USER_CONTEXT_ID = -1 >>> 0;
 const IDB_NAME = "webExtensions-storage-local";
 const IDB_DATA_STORENAME = "storage-local-data";
 const IDB_VERSION = 1;
-const IDB_MIGRATE_RESULT_HISTOGRAM =
-  "WEBEXT_STORAGE_LOCAL_IDB_MIGRATE_RESULT_COUNT";
 
 // Whether or not the installed extensions should be migrated to the storage.local IndexedDB backend.
 const BACKEND_ENABLED_PREF =
   "extensions.webextensions.ExtensionStorageIDB.enabled";
 const IDB_MIGRATED_PREF_BRANCH =
   "extensions.webextensions.ExtensionStorageIDB.migrated";
-
-var DataMigrationTelemetry = {
-  initialized: false,
-
-  lazyInit() {
-    if (this.initialized) {
-      return;
-    }
-    this.initialized = true;
-
-    // Ensure that these telemetry events category is enabled.
-    Services.telemetry.setEventRecordingEnabled("extensions.data", true);
-
-    this.resultHistogram = Services.telemetry.getHistogramById(
-      IDB_MIGRATE_RESULT_HISTOGRAM
-    );
-  },
-
-  /**
-   * Get the DOMException error name for a given error object.
-   *
-   * @param {Error | undefined} error
-   *        The Error object to convert into a string, or undefined if there was no error.
-   *
-   * @returns {string | undefined}
-   *          The DOMException error name (sliced to a maximum of 80 chars),
-   *          "OtherError" if the error object is not a DOMException instance,
-   *          or `undefined` if there wasn't an error.
-   */
-  getErrorName(error) {
-    if (!error) {
-      return undefined;
-    }
-
-    if (error instanceof DOMException) {
-      if (error.name.length > 80) {
-        return getTrimmedString(error.name);
-      }
-
-      return error.name;
-    }
-
-    return "OtherError";
-  },
-
-  /**
-   * Record telemetry related to a data migration result.
-   *
-   * @param {object} telemetryData
-   * @param {string} telemetryData.backend
-   *        The backend selected ("JSONFile" or "IndexedDB").
-   * @param {boolean} telemetryData.dataMigrated
-   *        Old extension data has been migrated successfully.
-   * @param {string} telemetryData.extensionId
-   *        The id of the extension migrated.
-   * @param {Error | undefined} telemetryData.error
-   *        The error raised during the data migration, if any.
-   * @param {boolean} telemetryData.hasJSONFile
-   *        The extension has an existing JSONFile to migrate.
-   * @param {boolean} telemetryData.hasOldData
-   *        The extension's JSONFile wasn't empty.
-   * @param {string} telemetryData.histogramCategory
-   *        The histogram category for the result ("success" or "failure").
-   */
-  recordResult(telemetryData) {
-    try {
-      const {
-        backend,
-        dataMigrated,
-        extensionId,
-        error,
-        hasJSONFile,
-        hasOldData,
-        histogramCategory,
-      } = telemetryData;
-
-      this.lazyInit();
-      this.resultHistogram.add(histogramCategory);
-
-      const extra = { backend };
-
-      if (dataMigrated != null) {
-        extra.data_migrated = dataMigrated ? "y" : "n";
-      }
-
-      if (hasJSONFile != null) {
-        extra.has_jsonfile = hasJSONFile ? "y" : "n";
-      }
-
-      if (hasOldData != null) {
-        extra.has_olddata = hasOldData ? "y" : "n";
-      }
-
-      if (error) {
-        extra.error_name = this.getErrorName(error);
-      }
-
-      Services.telemetry.recordEvent(
-        "extensions.data",
-        "migrateResult",
-        "storageLocal",
-        getTrimmedString(extensionId),
-        extra
-      );
-    } catch (err) {
-      // Report any telemetry error on the browser console, but
-      // we treat it as a non-fatal error and we don't re-throw
-      // it to the caller.
-      Cu.reportError(err);
-    }
-  },
-};
 
 class ExtensionStorageLocalIDB extends IndexedDB {
   onupgradeneeded(event) {
@@ -410,13 +296,6 @@ async function migrateJSONFileData(extension, storagePrincipal) {
       }::${err.stack}`
     );
 
-    DataMigrationTelemetry.recordResult({
-      backend: "JSONFile",
-      extensionId: extension.id,
-      error: err,
-      histogramCategory: "failure",
-    });
-
     throw err;
   }
 
@@ -469,16 +348,6 @@ async function migrateJSONFileData(extension, storagePrincipal) {
       // from being enabled for this session).
       Services.qms.clearStoragesForPrincipal(storagePrincipal);
 
-      DataMigrationTelemetry.recordResult({
-        backend: "JSONFile",
-        dataMigrated: dataMigrateCompleted,
-        extensionId: extension.id,
-        error: err,
-        hasJSONFile: oldStorageExists,
-        hasOldData,
-        histogramCategory: "failure",
-      });
-
       throw err;
     }
 
@@ -513,16 +382,6 @@ async function migrateJSONFileData(extension, storagePrincipal) {
   }
 
   ExtensionStorageIDB.setMigratedExtensionPref(extension, true);
-
-  DataMigrationTelemetry.recordResult({
-    backend: "IndexedDB",
-    dataMigrated: dataMigrateCompleted,
-    extensionId: extension.id,
-    error: nonFatalError,
-    hasJSONFile: oldStorageExists,
-    hasOldData,
-    histogramCategory: "success",
-  });
 }
 
 /**
@@ -532,7 +391,6 @@ async function migrateJSONFileData(extension, storagePrincipal) {
 this.ExtensionStorageIDB = {
   BACKEND_ENABLED_PREF,
   IDB_MIGRATED_PREF_BRANCH,
-  IDB_MIGRATE_RESULT_HISTOGRAM,
 
   // Map<extension-id, Set<Function>>
   listeners: new Map(),

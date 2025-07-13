@@ -6,6 +6,7 @@
 #include "mozilla/PerformanceUtils.h"
 #include "mozilla/dom/DocGroup.h"
 #include "mozilla/dom/BrowserChild.h"
+#include "mozilla/dom/Document.h"
 #include "mozilla/dom/WorkerDebugger.h"
 #include "mozilla/dom/WorkerDebuggerManager.h"
 
@@ -15,6 +16,7 @@
 #include "js/MemoryMetrics.h"
 #include "nsWindowMemoryReporter.h"
 #include "nsDOMWindowList.h"
+#include "nsWindowSizes.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;

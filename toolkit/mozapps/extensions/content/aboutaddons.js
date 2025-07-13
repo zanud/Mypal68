@@ -1194,7 +1194,6 @@ class AddonPageOptions extends HTMLElement {
 
   openAboutDebugging() {
     let mainWindow = window.windowRoot.ownerGlobal;
-    this.recordLinkEvent({ value: "about:debugging" });
     if ("switchToTabHavingURI" in mainWindow) {
       let principal = Services.scriptSecurityManager.getSystemPrincipal();
       mainWindow.switchToTabHavingURI(
@@ -2585,6 +2584,9 @@ class AddonList extends HTMLElement {
     message.append(addonName);
     const undo = document.createElement("button");
     undo.setAttribute("action", "undo");
+    undo.addEventListener("click", () => {
+      addon.cancelUninstall();
+    });
 
     document.l10n.setAttributes(message, "pending-uninstall-description", {
       addon: addon.name,

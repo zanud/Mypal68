@@ -432,7 +432,8 @@ already_AddRefed<nsIURI> ChannelWrapper::GetOriginURI() const {
   if (nsCOMPtr<nsILoadInfo> loadInfo = GetLoadInfo()) {
     if (nsIPrincipal* prin = loadInfo->TriggeringPrincipal()) {
       if (prin->GetIsCodebasePrincipal()) {
-        Unused << prin->GetURI(getter_AddRefs(uri));
+        auto* basePrin = BasePrincipal::Cast(prin);
+        Unused << basePrin->GetURI(getter_AddRefs(uri));
       }
     }
   }
@@ -444,7 +445,8 @@ already_AddRefed<nsIURI> ChannelWrapper::GetDocumentURI() const {
   if (nsCOMPtr<nsILoadInfo> loadInfo = GetLoadInfo()) {
     if (nsIPrincipal* prin = loadInfo->GetLoadingPrincipal()) {
       if (prin->GetIsCodebasePrincipal()) {
-        Unused << prin->GetURI(getter_AddRefs(uri));
+        auto* basePrin = BasePrincipal::Cast(prin);
+        Unused << basePrin->GetURI(getter_AddRefs(uri));
       }
     }
   }
@@ -640,12 +642,7 @@ nsresult ChannelWrapper::GetFrameAncestors(
 
   for (uint32_t i = 0; i < size; ++i) {
     auto ancestor = aFrameAncestors.AppendElement();
-    nsCOMPtr<nsIURI> uri;
-    MOZ_TRY(ancestorPrincipals[i]->GetURI(getter_AddRefs(uri)));
-    if (!uri) {
-      return NS_ERROR_UNEXPECTED;
-    }
-    MOZ_TRY(uri->GetSpec(ancestor->mUrl));
+    MOZ_TRY(ancestorPrincipals[i]->GetAsciiSpec(ancestor->mUrl));
     ancestor->mFrameId =
         NormalizeWindowID(aLoadInfo, ancestorOuterWindowIDs[i]);
   }

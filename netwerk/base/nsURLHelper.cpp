@@ -2,6 +2,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "nsURLHelper.h"
+
+#include "mozilla/Encoding.h"
 #include "mozilla/RangedPtr.h"
 #include "mozilla/TextUtils.h"
 
@@ -9,7 +12,6 @@
 #include <iterator>
 
 #include "nsASCIIMask.h"
-#include "nsURLHelper.h"
 #include "nsIFile.h"
 #include "nsIURLParser.h"
 #include "nsCOMPtr.h"
@@ -17,9 +19,11 @@
 #include "nsNetCID.h"
 #include "mozilla/Preferences.h"
 #include "prnetdb.h"
+#include "mozilla/StaticPrefs_network.h"
 #include "mozilla/Tokenizer.h"
 #include "nsEscape.h"
-#include "rust-helper/src/helper.h"
+#include "nsDOMString.h"
+#include "mozilla/net/rust_helper.h"
 
 using namespace mozilla;
 
@@ -31,7 +35,6 @@ static bool gInitialized = false;
 static nsIURLParser* gNoAuthURLParser = nullptr;
 static nsIURLParser* gAuthURLParser = nullptr;
 static nsIURLParser* gStdURLParser = nullptr;
-static int32_t gMaxLength = 1048576;  // Default: 1MB
 
 static void InitGlobals() {
   nsCOMPtr<nsIURLParser> parser;
@@ -58,8 +61,6 @@ static void InitGlobals() {
   }
 
   gInitialized = true;
-  Preferences::AddIntVarCache(&gMaxLength, "network.standard-url.max-length",
-                              1048576);
 }
 
 void net_ShutdownURLHelper() {
@@ -70,8 +71,6 @@ void net_ShutdownURLHelper() {
     gInitialized = false;
   }
 }
-
-int32_t net_GetURLMaxLength() { return gMaxLength; }
 
 //----------------------------------------------------------------------------
 // nsIURLParser getters
@@ -137,7 +136,8 @@ nsresult net_ParseFileURL(const nsACString& inURL, nsACString& outDirectory,
                           nsACString& outFileExtension) {
   nsresult rv;
 
-  if (inURL.Length() > (uint32_t)gMaxLength) {
+  if (inURL.Length() >
+      (uint32_t)StaticPrefs::network_standard_url_max_length()) {
     return NS_ERROR_MALFORMED_URI;
   }
 
@@ -413,11 +413,7 @@ nsresult net_ResolveRelativePath(const nsACString& relativePath,
 //----------------------------------------------------------------------------
 
 static bool net_IsValidSchemeChar(const char aChar) {
-  if (IsAsciiAlpha(aChar) || IsAsciiDigit(aChar) || aChar == '+' ||
-      aChar == '.' || aChar == '-') {
-    return true;
-  }
-  return false;
+  return mozilla::net::rust_net_is_valid_scheme_char(aChar);
 }
 
 /* Extract URI-Scheme if possible */
@@ -455,18 +451,8 @@ nsresult net_ExtractURLScheme(const nsACString& inURI, nsACString& scheme) {
   return NS_OK;
 }
 
-bool net_IsValidScheme(const char* scheme, uint32_t schemeLen) {
-  // first char must be alpha
-  if (!IsAsciiAlpha(*scheme)) return false;
-
-  // nsCStrings may have embedded nulls -- reject those too
-  for (; schemeLen; ++scheme, --schemeLen) {
-    if (!(IsAsciiAlpha(*scheme) || IsAsciiDigit(*scheme) || *scheme == '+' ||
-          *scheme == '.' || *scheme == '-'))
-      return false;
-  }
-
-  return true;
+bool net_IsValidScheme(const nsACString& scheme) {
+  return mozilla::net::rust_net_is_valid_scheme(&scheme);
 }
 
 bool net_IsAbsoluteURL(const nsACString& uri) {
@@ -964,9 +950,248 @@ bool net_IsValidHostName(const nsACString& host) {
 }
 
 bool net_IsValidIPv4Addr(const nsACString& aAddr) {
-  return rust_net_is_valid_ipv4_addr(aAddr);
+  return mozilla::net::rust_net_is_valid_ipv4_addr(&aAddr);
 }
 
 bool net_IsValidIPv6Addr(const nsACString& aAddr) {
-  return rust_net_is_valid_ipv6_addr(aAddr);
+  return mozilla::net::rust_net_is_valid_ipv6_addr(&aAddr);
 }
+
+namespace mozilla {
+static auto MakeNameMatcher(const nsAString& aName) {
+  return [&aName](const auto& param) { return param.mKey.Equals(aName); };
+}
+
+bool URLParams::Has(const nsAString& aName) {
+  return std::any_of(mParams.cbegin(), mParams.cend(), MakeNameMatcher(aName));
+}
+
+void URLParams::Get(const nsAString& aName, nsString& aRetval) {
+  SetDOMStringToNull(aRetval);
+
+  const auto end = mParams.cend();
+  const auto it = std::find_if(mParams.cbegin(), end, MakeNameMatcher(aName));
+  if (it != end) {
+    aRetval.Assign(it->mValue);
+  }
+}
+
+void URLParams::GetAll(const nsAString& aName, nsTArray<nsString>& aRetval) {
+  aRetval.Clear();
+
+  for (uint32_t i = 0, len = mParams.Length(); i < len; ++i) {
+    if (mParams[i].mKey.Equals(aName)) {
+      aRetval.AppendElement(mParams[i].mValue);
+    }
+  }
+}
+
+void URLParams::Append(const nsAString& aName, const nsAString& aValue) {
+  Param* param = mParams.AppendElement();
+  param->mKey = aName;
+  param->mValue = aValue;
+}
+
+void URLParams::Set(const nsAString& aName, const nsAString& aValue) {
+  Param* param = nullptr;
+  for (uint32_t i = 0, len = mParams.Length(); i < len;) {
+    if (!mParams[i].mKey.Equals(aName)) {
+      ++i;
+      continue;
+    }
+    if (!param) {
+      param = &mParams[i];
+      ++i;
+      continue;
+    }
+    // Remove duplicates.
+    mParams.RemoveElementAt(i);
+    --len;
+  }
+
+  if (!param) {
+    param = mParams.AppendElement();
+    param->mKey = aName;
+  }
+
+  param->mValue = aValue;
+}
+
+void URLParams::Delete(const nsAString& aName) {
+  mParams.RemoveElementsBy(
+      [&aName](const auto& param) { return param.mKey.Equals(aName); });
+}
+
+/* static */
+void URLParams::ConvertString(const nsACString& aInput, nsAString& aOutput) {
+  if (NS_FAILED(UTF_8_ENCODING->DecodeWithoutBOMHandling(aInput, aOutput))) {
+    MOZ_CRASH("Out of memory when converting URL params.");
+  }
+}
+
+/* static */
+void URLParams::DecodeString(const nsACString& aInput, nsAString& aOutput) {
+  const char* const end = aInput.EndReading();
+
+  nsAutoCString unescaped;
+
+  for (const char* iter = aInput.BeginReading(); iter != end;) {
+    // replace '+' with U+0020
+    if (*iter == '+') {
+      unescaped.Append(' ');
+      ++iter;
+      continue;
+    }
+
+    // Percent decode algorithm
+    if (*iter == '%') {
+      const char* const first = iter + 1;
+      const char* const second = first + 1;
+
+      const auto asciiHexDigit = [](char x) {
+        return (x >= 0x41 && x <= 0x46) || (x >= 0x61 && x <= 0x66) ||
+               (x >= 0x30 && x <= 0x39);
+      };
+
+      const auto hexDigit = [](char x) {
+        return x >= 0x30 && x <= 0x39
+                   ? x - 0x30
+                   : (x >= 0x41 && x <= 0x46 ? x - 0x37 : x - 0x57);
+      };
+
+      if (first != end && second != end && asciiHexDigit(*first) &&
+          asciiHexDigit(*second)) {
+        unescaped.Append(hexDigit(*first) * 16 + hexDigit(*second));
+        iter = second + 1;
+      } else {
+        unescaped.Append('%');
+        ++iter;
+      }
+
+      continue;
+    }
+
+    unescaped.Append(*iter);
+    ++iter;
+  }
+
+  // XXX It seems rather wasteful to first decode into a UTF-8 nsCString and
+  // then convert the whole string to UTF-16, at least if we exceed the inline
+  // storage size.
+  ConvertString(unescaped, aOutput);
+}
+
+/* static */
+bool URLParams::ParseNextInternal(const char*& aStart, const char* const aEnd,
+                                  nsAString* aOutDecodedName,
+                                  nsAString* aOutDecodedValue) {
+  nsDependentCSubstring string;
+
+  const char* const iter = std::find(aStart, aEnd, '&');
+  if (iter != aEnd) {
+    string.Rebind(aStart, iter);
+    aStart = iter + 1;
+  } else {
+    string.Rebind(aStart, aEnd);
+    aStart = aEnd;
+  }
+
+  if (string.IsEmpty()) {
+    return false;
+  }
+
+  const auto* const eqStart = string.BeginReading();
+  const auto* const eqEnd = string.EndReading();
+  const auto* const eqIter = std::find(eqStart, eqEnd, '=');
+
+  nsDependentCSubstring name;
+  nsDependentCSubstring value;
+
+  if (eqIter != eqEnd) {
+    name.Rebind(eqStart, eqIter);
+    value.Rebind(eqIter + 1, eqEnd);
+  } else {
+    name.Rebind(string, 0);
+  }
+
+  DecodeString(name, *aOutDecodedName);
+  DecodeString(value, *aOutDecodedValue);
+
+  return true;
+}
+
+/* static */
+bool URLParams::Extract(const nsACString& aInput, const nsAString& aName,
+                        nsAString& aValue) {
+  aValue.SetIsVoid(true);
+  return !URLParams::Parse(
+      aInput, [&aName, &aValue](const nsAString& name, nsString&& value) {
+        if (aName == name) {
+          aValue = std::move(value);
+          return false;
+        }
+        return true;
+      });
+}
+
+void URLParams::ParseInput(const nsACString& aInput) {
+  // Remove all the existing data before parsing a new input.
+  DeleteAll();
+
+  URLParams::Parse(aInput, [this](nsString&& name, nsString&& value) {
+    mParams.AppendElement(Param{std::move(name), std::move(value)});
+    return true;
+  });
+}
+
+namespace {
+
+void SerializeString(const nsCString& aInput, nsAString& aValue) {
+  const unsigned char* p = (const unsigned char*)aInput.get();
+  const unsigned char* end = p + aInput.Length();
+
+  while (p != end) {
+    // ' ' to '+'
+    if (*p == 0x20) {
+      aValue.Append(0x2B);
+      // Percent Encode algorithm
+    } else if (*p == 0x2A || *p == 0x2D || *p == 0x2E ||
+               (*p >= 0x30 && *p <= 0x39) || (*p >= 0x41 && *p <= 0x5A) ||
+               *p == 0x5F || (*p >= 0x61 && *p <= 0x7A)) {
+      aValue.Append(*p);
+    } else {
+      aValue.AppendPrintf("%%%.2X", *p);
+    }
+
+    ++p;
+  }
+}
+
+}  // namespace
+
+void URLParams::Serialize(nsAString& aValue) const {
+  aValue.Truncate();
+  bool first = true;
+
+  for (uint32_t i = 0, len = mParams.Length(); i < len; ++i) {
+    if (first) {
+      first = false;
+    } else {
+      aValue.Append('&');
+    }
+
+    // XXX Actually, it's not necessary to build a new string object. Generally,
+    // such cases could just convert each codepoint one-by-one.
+    SerializeString(NS_ConvertUTF16toUTF8(mParams[i].mKey), aValue);
+    aValue.Append('=');
+    SerializeString(NS_ConvertUTF16toUTF8(mParams[i].mValue), aValue);
+  }
+}
+
+void URLParams::Sort() {
+  mParams.StableSort([](const Param& lhs, const Param& rhs) {
+    return Compare(lhs.mKey, rhs.mKey);
+  });
+}
+
+}  // namespace mozilla

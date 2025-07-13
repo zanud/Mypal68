@@ -138,15 +138,14 @@ class NeckoParent : public PNeckoParent {
       PUDPSocketParent*, nsIPrincipal* aPrincipal,
       const nsCString& aFilter) override;
   bool DeallocPUDPSocketParent(PUDPSocketParent*);
-  PDNSRequestParent* AllocPDNSRequestParent(
+  already_AddRefed<PDNSRequestParent> AllocPDNSRequestParent(
       const nsCString& aHost, const OriginAttributes& aOriginAttributes,
       const uint32_t& aFlags);
   virtual mozilla::ipc::IPCResult RecvPDNSRequestConstructor(
       PDNSRequestParent* actor, const nsCString& hostName,
       const OriginAttributes& aOriginAttributes,
       const uint32_t& flags) override;
-  bool DeallocPDNSRequestParent(PDNSRequestParent*);
-  mozilla::ipc::IPCResult RecvSpeculativeConnect(const URIParams& aURI,
+  mozilla::ipc::IPCResult RecvSpeculativeConnect(nsIURI* aURI,
                                                  nsIPrincipal* aPrincipal,
                                                  const bool& aAnonymous);
   mozilla::ipc::IPCResult RecvHTMLDNSPrefetch(
@@ -213,9 +212,9 @@ class NeckoParent : public PNeckoParent {
 
   /* WebExtensions */
   mozilla::ipc::IPCResult RecvGetExtensionStream(
-      const URIParams& aURI, GetExtensionStreamResolver&& aResolve);
+      nsIURI* aURI, GetExtensionStreamResolver&& aResolve);
 
-  mozilla::ipc::IPCResult RecvGetExtensionFD(const URIParams& aURI,
+  mozilla::ipc::IPCResult RecvGetExtensionFD(nsIURI* aURI,
                                              GetExtensionFDResolver&& aResolve);
 
   PClassifierDummyChannelParent* AllocPClassifierDummyChannelParent(

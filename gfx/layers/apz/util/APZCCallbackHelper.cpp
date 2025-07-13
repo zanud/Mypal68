@@ -794,8 +794,8 @@ void APZCCallbackHelper::NotifyMozMouseScrollEvent(
     return;
   }
 
-  nsContentUtils::DispatchTrustedEvent(ownerDoc, targetContent, aEvent,
-                                       CanBubble::eYes, Cancelable::eYes);
+  nsContentUtils::DispatchEventOnlyToChrome(ownerDoc, targetContent, aEvent,
+                                            CanBubble::eYes, Cancelable::eYes);
 }
 
 void APZCCallbackHelper::NotifyFlushComplete(PresShell* aPresShell) {

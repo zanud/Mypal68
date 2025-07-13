@@ -334,6 +334,14 @@ void DocAccessible::URL(nsAString& aURL) const {
   CopyUTF8toUTF16(theURL, aURL);
 }
 
+void DocAccessible::Title(nsString& aTitle) const {
+  mDocumentNode->GetTitle(aTitle);
+}
+
+void DocAccessible::MimeType(nsAString& aType) const {
+  mDocumentNode->GetContentType(aType);
+}
+
 void DocAccessible::DocType(nsAString& aType) const {
   dom::DocumentType* docType = mDocumentNode->GetDoctype();
   if (docType) docType->GetPublicId(aType);
@@ -444,6 +452,8 @@ nsIFrame* DocAccessible::GetFrame() const {
 
   return root;
 }
+
+nsINode* DocAccessible::GetNode() const { return mDocumentNode; }
 
 // DocAccessible protected member
 nsRect DocAccessible::RelativeBounds(nsIFrame** aRelativeFrame) const {
@@ -2515,4 +2525,9 @@ void DocAccessible::ARIAActiveDescendantIDMaybeMoved(dom::Element* aElm) {
   // tree yet. Therefore, schedule this async to ensure the tree is up to date.
   mNotificationController->ScheduleNotification<DocAccessible, Accessible>(
       this, &DocAccessible::ARIAActiveDescendantChanged, acc);
+}
+
+Accessible* DocAccessible::GetAccessible(nsINode* aNode) const {
+  return aNode == mDocumentNode ? const_cast<DocAccessible*>(this)
+                                : mNodeToAccessibleMap.Get(aNode);
 }

@@ -269,16 +269,6 @@ let LEGACY_ACTORS = {
     },
   },
 
-  SearchTelemetry: {
-    child: {
-      module: "resource:///actors/SearchTelemetryChild.jsm",
-      events: {
-        DOMContentLoaded: {},
-        pageshow: { mozSystemGroup: true },
-      },
-    },
-  },
-
   URIFixup: {
     child: {
       module: "resource:///actors/URIFixupChild.jsm",
@@ -379,11 +369,6 @@ let LEGACY_ACTORS = {
 
   // The window becomes visible after OnStopRequest, so make this happen now.
   win.stop();
-
-  let { TelemetryTimestamps } = ChromeUtils.import(
-    "resource://gre/modules/TelemetryTimestamps.jsm"
-  );
-  TelemetryTimestamps.add("blankWindowShown");
 })();
 
 XPCOMUtils.defineLazyServiceGetters(this, {
@@ -412,7 +397,6 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   Blocklist: "resource://gre/modules/Blocklist.jsm",
   BookmarkHTMLUtils: "resource://gre/modules/BookmarkHTMLUtils.jsm",
   BookmarkJSONUtils: "resource://gre/modules/BookmarkJSONUtils.jsm",
-  BrowserUsageTelemetry: "resource:///modules/BrowserUsageTelemetry.jsm",
   BrowserWindowTracker: "resource:///modules/BrowserWindowTracker.jsm",
   ContextualIdentityService:
     "resource://gre/modules/ContextualIdentityService.jsm",
@@ -420,7 +404,6 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   ExtensionsUI: "resource:///modules/ExtensionsUI.jsm",
   FxAccounts: "resource://gre/modules/FxAccounts.jsm",
   HomePage: "resource:///modules/HomePage.jsm",
-  HybridContentTelemetry: "resource://gre/modules/HybridContentTelemetry.jsm",
   Integration: "resource://gre/modules/Integration.jsm",
   LiveBookmarkMigrator: "resource:///modules/LiveBookmarkMigrator.jsm",
   NewTabUtils: "resource://gre/modules/NewTabUtils.jsm",
@@ -438,7 +421,6 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   RemoteSecuritySettings: "resource://gre/modules/psm/RemoteSecuritySettings.jsm",
   RFPHelper: "resource://gre/modules/RFPHelper.jsm",
   Sanitizer: "resource:///modules/Sanitizer.jsm",
-  SearchTelemetry: "resource:///modules/SearchTelemetry.jsm",
   SessionStartup: "resource:///modules/sessionstore/SessionStartup.jsm",
   SessionStore: "resource:///modules/sessionstore/SessionStore.jsm",
   ShellService: "resource:///modules/ShellService.jsm",
@@ -866,7 +848,6 @@ BrowserGlue.prototype = {
           Cu.reportError(ex);
         }
         let win = BrowserWindowTracker.getTopWindow();
-        win.BrowserSearch.recordSearchInTelemetry(engine, "urlbar");
         break;
       case "browser-search-engine-modified":
         // Ensure we cleanup the hiddenOneOffs pref when removing
@@ -1470,9 +1451,6 @@ BrowserGlue.prototype = {
       }
     }
 
-    BrowserUsageTelemetry.uninit();
-    SearchTelemetry.uninit();
-
     PageThumbs.uninit();
     NewTabUtils.uninit();
     AboutNetErrorHandler.uninit();
@@ -1510,9 +1488,6 @@ BrowserGlue.prototype = {
       return;
     }
     this._windowsWereRestored = true;
-
-    BrowserUsageTelemetry.init();
-    SearchTelemetry.init();
 
     // Show update notification, if needed.
     if (Services.prefs.prefHasUserValue("app.update.postupdate")) {
@@ -2145,14 +2120,6 @@ BrowserGlue.prototype = {
             let backupAge = Math.round(
               (profileLastUse - lastBackupTime) / 86400000
             );
-            // Report the age of the last available backup.
-            try {
-              Services.telemetry
-                .getHistogramById("PLACES_BACKUPS_DAYSFROMLAST")
-                .add(backupAge);
-            } catch (ex) {
-              Cu.reportError(new Error("Unable to report telemetry."));
-            }
 
             if (backupAge > BOOKMARKS_BACKUP_MAX_INTERVAL_DAYS) {
               this._bookmarksBackupIdleTime /= 2;
@@ -2776,25 +2743,6 @@ BrowserGlue.prototype = {
         );
       }
 
-      try {
-        // Report default browser status on startup to telemetry
-        // so we can track whether we are the default.
-        Services.telemetry
-          .getHistogramById("BROWSER_IS_USER_DEFAULT")
-          .add(isDefault);
-        Services.telemetry
-          .getHistogramById("BROWSER_IS_USER_DEFAULT_ERROR")
-          .add(isDefaultError);
-        Services.telemetry
-          .getHistogramById("BROWSER_SET_DEFAULT_ALWAYS_CHECK")
-          .add(shouldCheck);
-        Services.telemetry
-          .getHistogramById("BROWSER_SET_DEFAULT_DIALOG_PROMPT_RAWCOUNT")
-          .add(promptCount);
-      } catch (ex) {
-        /* Don't break the default prompt if telemetry is broken. */
-      }
-
       if (willPrompt) {
         DefaultBrowserCheck.prompt(BrowserWindowTracker.getTopWindow());
       }
@@ -2834,7 +2782,12 @@ BrowserGlue.prototype = {
     // the pref was "suggestion:4,general:5" (modulo whitespace), we're done.
     if (prefValue) {
       let buckets = PlacesUtils.convertMatchBucketsStringToArray(prefValue);
-      if (ObjectUtils.deepEqual(buckets, [["suggestion", 4], ["general", 5]])) {
+      if (
+        ObjectUtils.deepEqual(buckets, [
+          ["suggestion", 4],
+          ["general", 5],
+        ])
+      ) {
         return;
       }
     }
@@ -3222,9 +3175,6 @@ ContentPermissionPrompt.prototype = {
       throw ex;
     }
 
-    let schemeHistogram = Services.telemetry.getKeyedHistogramById(
-      "PERMISSION_REQUEST_ORIGIN_SCHEME"
-    );
     let scheme = 0;
     try {
       if (request.principal.schemeIs("http")) {
@@ -3241,12 +3191,6 @@ ContentPermissionPrompt.prototype = {
       }
       return;
     }
-    schemeHistogram.add(type, scheme);
-
-    let userInputHistogram = Services.telemetry.getKeyedHistogramById(
-      "PERMISSION_REQUEST_HANDLING_USER_INPUT"
-    );
-    userInputHistogram.add(type, request.isHandlingUserInput);
   },
 };
 
@@ -3280,16 +3224,6 @@ var DefaultBrowserCheck = {
       setAsDefaultError = true;
       Cu.reportError(ex);
     }
-    // Here BROWSER_IS_USER_DEFAULT and BROWSER_SET_USER_DEFAULT_ERROR appear
-    // to be inverse of each other, but that is only because this function is
-    // called when the browser is set as the default. During startup we record
-    // the BROWSER_IS_USER_DEFAULT value without recording BROWSER_SET_USER_DEFAULT_ERROR.
-    Services.telemetry
-      .getHistogramById("BROWSER_IS_USER_DEFAULT")
-      .add(!setAsDefaultError);
-    Services.telemetry
-      .getHistogramById("BROWSER_SET_DEFAULT_ERROR")
-      .add(setAsDefaultError);
   },
 
   _createPopup(win, notNowStrings, neverStrings) {
@@ -3437,15 +3371,6 @@ var DefaultBrowserCheck = {
       } else if (!shouldAsk.value) {
         ShellService.shouldCheckDefaultBrowser = false;
       }
-
-      try {
-        let resultEnum = rv * 2 + shouldAsk.value;
-        Services.telemetry
-          .getHistogramById("BROWSER_SET_DEFAULT_RESULT")
-          .add(resultEnum);
-      } catch (ex) {
-        /* Don't break if Telemetry is acting up. */
-      }
     }
   },
 
@@ -3555,13 +3480,3 @@ var JawsScreenReaderVersionCheck = {
     );
   },
 };
-
-// Listen for HybridContentTelemetry messages.
-// Do it here instead of HybridContentTelemetry.init() so that
-// the module can be lazily loaded on the first message.
-Services.mm.addMessageListener(
-  "HybridContentTelemetry:onTelemetryMessage",
-  aMessage => {
-    HybridContentTelemetry.onTelemetryMessage(aMessage, aMessage.data);
-  }
-);

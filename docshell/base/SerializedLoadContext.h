@@ -29,7 +29,6 @@ class SerializedLoadContext {
         mIsPrivateBitValid(false),
         mIsContent(false),
         mUseRemoteTabs(false),
-        mUseRemoteSubframes(false),
         mUseTrackingProtection(false) {
     Init(nullptr);
   }
@@ -50,7 +49,6 @@ class SerializedLoadContext {
   bool mIsPrivateBitValid;
   bool mIsContent;
   bool mUseRemoteTabs;
-  bool mUseRemoteSubframes;
   bool mUseTrackingProtection;
   mozilla::OriginAttributes mOriginAttributes;
 };
@@ -68,7 +66,6 @@ struct ParamTraits<SerializedLoadContext> {
     WriteParam(aMsg, aParam.mIsContent);
     WriteParam(aMsg, aParam.mIsPrivateBitValid);
     WriteParam(aMsg, aParam.mUseRemoteTabs);
-    WriteParam(aMsg, aParam.mUseRemoteSubframes);
     WriteParam(aMsg, aParam.mUseTrackingProtection);
     WriteParam(aMsg, suffix);
   }
@@ -80,7 +77,6 @@ struct ParamTraits<SerializedLoadContext> {
         !ReadParam(aMsg, aIter, &aResult->mIsContent) ||
         !ReadParam(aMsg, aIter, &aResult->mIsPrivateBitValid) ||
         !ReadParam(aMsg, aIter, &aResult->mUseRemoteTabs) ||
-        !ReadParam(aMsg, aIter, &aResult->mUseRemoteSubframes) ||
         !ReadParam(aMsg, aIter, &aResult->mUseTrackingProtection) ||
         !ReadParam(aMsg, aIter, &suffix)) {
       return false;

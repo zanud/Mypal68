@@ -1125,7 +1125,7 @@ class ContextMenuChild extends ActorChild {
           try {
             if (elem.download) {
               // Ignore download attribute on cross-origin links
-              context.principal.checkMayLoad(context.linkURI, false, true);
+              context.principal.checkMayLoad(context.linkURI, true);
               context.linkDownload = elem.download;
             }
           } catch (ex) {}

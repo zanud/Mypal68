@@ -476,14 +476,6 @@ var Policies = {
     },
   },
 
-  DisableFeedbackCommands: {
-    onBeforeUIStartup(manager, param) {
-      if (param) {
-        manager.disallowFeature("feedbackCommands");
-      }
-    },
-  },
-
   DisableFirefoxAccounts: {
     onBeforeAddons(manager, param) {
       if (param) {

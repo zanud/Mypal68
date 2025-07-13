@@ -72,6 +72,8 @@ namespace psm {
 const CertVerifier::Flags CertVerifier::FLAG_LOCAL_ONLY = 1;
 const CertVerifier::Flags CertVerifier::FLAG_MUST_BE_EV = 2;
 const CertVerifier::Flags CertVerifier::FLAG_TLS_IGNORE_STATUS_REQUEST = 4;
+static const unsigned int MIN_RSA_BITS = 2048;
+static const unsigned int MIN_RSA_BITS_WEAK = 1024;
 
 void CertificateTransparencyInfo::Reset() {
   enabled = false;
@@ -123,7 +125,7 @@ CertVerifier::CertVerifier(OcspDownloadConfig odc, OcspStrictConfig osc,
   }
 }
 
-CertVerifier::~CertVerifier() {}
+CertVerifier::~CertVerifier() = default;
 
 Result IsCertChainRootBuiltInRoot(const UniqueCERTCertList& chain,
                                   bool& result) {
@@ -139,6 +141,35 @@ Result IsCertChainRootBuiltInRoot(const UniqueCERTCertList& chain,
     return Result::FATAL_ERROR_LIBRARY_FAILURE;
   }
   return IsCertBuiltInRoot(root, result);
+}
+
+Result IsDelegatedCredentialAcceptable(const DelegatedCredentialInfo& dcInfo,
+                                       SECOidTag evOidPolicyTag) {
+  bool isRsa = dcInfo.scheme == ssl_sig_rsa_pss_rsae_sha256 ||
+               dcInfo.scheme == ssl_sig_rsa_pss_rsae_sha384 ||
+               dcInfo.scheme == ssl_sig_rsa_pss_rsae_sha512 ||
+               dcInfo.scheme == ssl_sig_rsa_pss_pss_sha256 ||
+               dcInfo.scheme == ssl_sig_rsa_pss_pss_sha384 ||
+               dcInfo.scheme == ssl_sig_rsa_pss_pss_sha512;
+
+  bool isEcdsa = dcInfo.scheme == ssl_sig_ecdsa_secp256r1_sha256 ||
+                 dcInfo.scheme == ssl_sig_ecdsa_secp384r1_sha384 ||
+                 dcInfo.scheme == ssl_sig_ecdsa_secp521r1_sha512;
+
+  size_t minRsaKeyBits =
+      evOidPolicyTag != SEC_OID_UNKNOWN ? MIN_RSA_BITS : MIN_RSA_BITS_WEAK;
+
+  if (isRsa && dcInfo.authKeyBits < minRsaKeyBits) {
+    return Result::ERROR_INADEQUATE_KEY_SIZE;
+  }
+
+  // Since we only support acceptable EC curves, no explicit
+  // |authKeyBits| check is needed.
+  if (!isRsa && !isEcdsa) {
+    return Result::ERROR_INVALID_KEY;
+  }
+
+  return Result::Success;
 }
 
 // The term "builtin root" traditionally refers to a root CA certificate that
@@ -200,8 +231,7 @@ Result IsCertBuiltInRoot(CERTCertificate* cert, bool& result) {
 static Result BuildCertChainForOneKeyUsage(
     NSSCertDBTrustDomain& trustDomain, Input certDER, Time time, KeyUsage ku1,
     KeyUsage ku2, KeyUsage ku3, KeyPurposeId eku,
-    const CertPolicyId& requiredPolicy, const Input* stapledOCSPResponse,
-    /*optional out*/ CertVerifier::OCSPStaplingStatus* ocspStaplingStatus) {
+    const CertPolicyId& requiredPolicy, const Input* stapledOCSPResponse) {
   trustDomain.ResetAccumulatedState();
   Result rv =
       BuildCertChain(trustDomain, certDER, time, EndEntityOrCA::MustBeEndEntity,
@@ -220,9 +250,6 @@ static Result BuildCertChainForOneKeyUsage(
         rv = Result::ERROR_INADEQUATE_KEY_USAGE;
       }
     }
-  }
-  if (ocspStaplingStatus) {
-    *ocspStaplingStatus = trustDomain.GetOCSPStaplingStatus();
   }
   return rv;
 }
@@ -438,29 +465,21 @@ bool CertVerifier::SHA1ModeMoreRestrictiveThanGivenMode(SHA1Mode mode) {
   }
 }
 
-static const unsigned int MIN_RSA_BITS = 2048;
-static const unsigned int MIN_RSA_BITS_WEAK = 1024;
-
 Result CertVerifier::VerifyCert(
     CERTCertificate* cert, SECCertificateUsage usage, Time time, void* pinArg,
     const char* hostname,
     /*out*/ UniqueCERTCertList& builtChain,
     /*optional*/ const Flags flags,
+    /*optional*/ const Maybe<nsTArray<nsTArray<uint8_t>>>& extraCertificates,
     /*optional*/ const Maybe<nsTArray<uint8_t>>& stapledOCSPResponseArg,
     /*optional*/ const Maybe<nsTArray<uint8_t>>& sctsFromTLS,
     /*optional*/ const OriginAttributes& originAttributes,
     /*optional out*/ SECOidTag* evOidPolicy,
-    /*optional out*/ OCSPStaplingStatus* ocspStaplingStatus,
-    /*optional out*/ KeySizeStatus* keySizeStatus,
-    /*optional out*/ SHA1ModeResult* sha1ModeResult,
-    /*optional out*/ PinningTelemetryInfo* pinningTelemetryInfo,
     /*optional out*/ CertificateTransparencyInfo* ctInfo) {
   MOZ_LOG(gCertVerifierLog, LogLevel::Debug, ("Top of VerifyCert\n"));
 
   MOZ_ASSERT(cert);
   MOZ_ASSERT(usage == certificateUsageSSLServer || !(flags & FLAG_MUST_BE_EV));
-  MOZ_ASSERT(usage == certificateUsageSSLServer || !keySizeStatus);
-  MOZ_ASSERT(usage == certificateUsageSSLServer || !sha1ModeResult);
 
   if (NS_FAILED(BlockUntilLoadableRootsLoaded())) {
     return Result::FATAL_ERROR_LIBRARY_FAILURE;
@@ -471,26 +490,6 @@ Result CertVerifier::VerifyCert(
 
   if (evOidPolicy) {
     *evOidPolicy = SEC_OID_UNKNOWN;
-  }
-  if (ocspStaplingStatus) {
-    if (usage != certificateUsageSSLServer) {
-      return Result::FATAL_ERROR_INVALID_ARGS;
-    }
-    *ocspStaplingStatus = OCSP_STAPLING_NEVER_CHECKED;
-  }
-
-  if (keySizeStatus) {
-    if (usage != certificateUsageSSLServer) {
-      return Result::FATAL_ERROR_INVALID_ARGS;
-    }
-    *keySizeStatus = KeySizeStatus::NeverChecked;
-  }
-
-  if (sha1ModeResult) {
-    if (usage != certificateUsageSSLServer) {
-      return Result::FATAL_ERROR_INVALID_ARGS;
-    }
-    *sha1ModeResult = SHA1ModeResult::NeverChecked;
   }
 
   if (!cert ||
@@ -543,7 +542,8 @@ Result CertVerifier::VerifyCert(
           MIN_RSA_BITS_WEAK, ValidityCheckingMode::CheckingOff,
           SHA1Mode::Allowed, NetscapeStepUpPolicy::NeverMatch,
           mDistrustedCAPolicy, originAttributes, mThirdPartyRootInputs,
-          mThirdPartyIntermediateInputs, builtChain, nullptr, nullptr);
+          mThirdPartyIntermediateInputs, extraCertificates, builtChain,
+          nullptr);
       rv = BuildCertChain(
           trustDomain, certDER, time, EndEntityOrCA::MustBeEndEntity,
           KeyUsage::digitalSignature, KeyPurposeId::id_kp_clientAuth,
@@ -566,19 +566,8 @@ Result CertVerifier::VerifyCert(
           SHA1Mode::Allowed,
       };
 
-      SHA1ModeResult sha1ModeResults[] = {
-          SHA1ModeResult::SucceededWithoutSHA1,
-          SHA1ModeResult::SucceededWithImportedRoot,
-          SHA1ModeResult::SucceededWithImportedRootOrSHA1Before2016,
-          SHA1ModeResult::SucceededWithSHA1,
-      };
-
       size_t sha1ModeConfigurationsCount =
           MOZ_ARRAY_LENGTH(sha1ModeConfigurations);
-
-      static_assert(MOZ_ARRAY_LENGTH(sha1ModeConfigurations) ==
-                        MOZ_ARRAY_LENGTH(sha1ModeResults),
-                    "digestAlgorithm array lengths differ");
 
       rv = Result::ERROR_UNKNOWN_ERROR;
 
@@ -604,27 +593,20 @@ Result CertVerifier::VerifyCert(
           continue;
         }
 
-        // Because of the try-strict and fallback approach, we have to clear any
-        // previously noted telemetry information
-        if (pinningTelemetryInfo) {
-          pinningTelemetryInfo->Reset();
-        }
-
         NSSCertDBTrustDomain trustDomain(
             trustSSL, evOCSPFetching, mOCSPCache, pinArg, mOCSPTimeoutSoft,
             mOCSPTimeoutHard, mCertShortLifetimeInDays, mPinningMode,
             MIN_RSA_BITS, ValidityCheckingMode::CheckForEV,
             sha1ModeConfigurations[i], mNetscapeStepUpPolicy,
             mDistrustedCAPolicy, originAttributes, mThirdPartyRootInputs,
-            mThirdPartyIntermediateInputs, builtChain, pinningTelemetryInfo,
+            mThirdPartyIntermediateInputs, extraCertificates, builtChain,
             hostname);
         rv = BuildCertChainForOneKeyUsage(
             trustDomain, certDER, time,
             KeyUsage::digitalSignature,  // (EC)DHE
             KeyUsage::keyEncipherment,   // RSA
             KeyUsage::keyAgreement,      // (EC)DH
-            KeyPurposeId::id_kp_serverAuth, evPolicy, stapledOCSPResponse,
-            ocspStaplingStatus);
+            KeyPurposeId::id_kp_serverAuth, evPolicy, stapledOCSPResponse);
         if (rv == Success &&
             sha1ModeConfigurations[i] == SHA1Mode::ImportedRoot) {
           bool isBuiltInRoot = false;
@@ -637,14 +619,8 @@ Result CertVerifier::VerifyCert(
           }
         }
         if (rv == Success) {
-          MOZ_LOG(gCertVerifierLog, LogLevel::Debug,
-                  ("cert is EV with status %i\n",
-                   static_cast<int>(sha1ModeResults[i])));
           if (evOidPolicy) {
             *evOidPolicy = evPolicyOidTag;
-          }
-          if (sha1ModeResult) {
-            *sha1ModeResult = sha1ModeResults[i];
           }
           rv = VerifyCertificateTransparencyPolicy(
               trustDomain, builtChain, sctsFromTLSInput, time, ctInfo);
@@ -665,14 +641,7 @@ Result CertVerifier::VerifyCert(
       // Now try non-EV.
       unsigned int keySizeOptions[] = {MIN_RSA_BITS, MIN_RSA_BITS_WEAK};
 
-      KeySizeStatus keySizeStatuses[] = {KeySizeStatus::LargeMinimumSucceeded,
-                                         KeySizeStatus::CompatibilityRisk};
-
-      static_assert(
-          MOZ_ARRAY_LENGTH(keySizeOptions) == MOZ_ARRAY_LENGTH(keySizeStatuses),
-          "keySize array lengths differ");
-
-      size_t keySizeOptionsCount = MOZ_ARRAY_LENGTH(keySizeStatuses);
+      size_t keySizeOptionsCount = MOZ_ARRAY_LENGTH(keySizeOptions);
 
       for (size_t i = 0; i < keySizeOptionsCount && rv != Success; i++) {
         for (size_t j = 0; j < sha1ModeConfigurationsCount && rv != Success;
@@ -687,26 +656,21 @@ Result CertVerifier::VerifyCert(
             continue;
           }
 
-          // invalidate any telemetry info relating to failed chains
-          if (pinningTelemetryInfo) {
-            pinningTelemetryInfo->Reset();
-          }
-
           NSSCertDBTrustDomain trustDomain(
               trustSSL, defaultOCSPFetching, mOCSPCache, pinArg,
               mOCSPTimeoutSoft, mOCSPTimeoutHard, mCertShortLifetimeInDays,
               mPinningMode, keySizeOptions[i],
               ValidityCheckingMode::CheckingOff, sha1ModeConfigurations[j],
               mNetscapeStepUpPolicy, mDistrustedCAPolicy, originAttributes,
-              mThirdPartyRootInputs, mThirdPartyIntermediateInputs, builtChain,
-              pinningTelemetryInfo, hostname);
+              mThirdPartyRootInputs, mThirdPartyIntermediateInputs,
+              extraCertificates, builtChain, hostname);
           rv = BuildCertChainForOneKeyUsage(
               trustDomain, certDER, time,
               KeyUsage::digitalSignature,  //(EC)DHE
               KeyUsage::keyEncipherment,   // RSA
               KeyUsage::keyAgreement,      //(EC)DH
               KeyPurposeId::id_kp_serverAuth, CertPolicyId::anyPolicy,
-              stapledOCSPResponse, ocspStaplingStatus);
+              stapledOCSPResponse);
           if (rv != Success && !IsFatalError(rv) &&
               rv != Result::ERROR_REVOKED_CERTIFICATE &&
               trustDomain.GetIsErrorDueToDistrustedCAPolicy()) {
@@ -728,12 +692,6 @@ Result CertVerifier::VerifyCert(
             }
           }
           if (rv == Success) {
-            if (keySizeStatus) {
-              *keySizeStatus = keySizeStatuses[i];
-            }
-            if (sha1ModeResult) {
-              *sha1ModeResult = sha1ModeResults[j];
-            }
             rv = VerifyCertificateTransparencyPolicy(
                 trustDomain, builtChain, sctsFromTLSInput, time, ctInfo);
             if (rv != Success) {
@@ -746,18 +704,6 @@ Result CertVerifier::VerifyCert(
       if (rv == Success) {
         break;
       }
-
-      if (keySizeStatus) {
-        *keySizeStatus = KeySizeStatus::AlreadyBad;
-      }
-      // The telemetry probe CERT_CHAIN_SHA1_POLICY_STATUS gives us feedback on
-      // the result of setting a specific policy. However, we don't want noise
-      // from users who have manually set the policy to something other than the
-      // default, so we only collect for ImportedRoot (which is the default).
-      if (sha1ModeResult && mSHA1Mode == SHA1Mode::ImportedRoot) {
-        *sha1ModeResult = SHA1ModeResult::Failed;
-      }
-
       break;
     }
 
@@ -768,7 +714,8 @@ Result CertVerifier::VerifyCert(
           MIN_RSA_BITS_WEAK, ValidityCheckingMode::CheckingOff,
           SHA1Mode::Allowed, mNetscapeStepUpPolicy, mDistrustedCAPolicy,
           originAttributes, mThirdPartyRootInputs,
-          mThirdPartyIntermediateInputs, builtChain, nullptr, nullptr);
+          mThirdPartyIntermediateInputs, extraCertificates, builtChain,
+          nullptr);
       rv = BuildCertChain(trustDomain, certDER, time, EndEntityOrCA::MustBeCA,
                           KeyUsage::keyCertSign, KeyPurposeId::id_kp_serverAuth,
                           CertPolicyId::anyPolicy, stapledOCSPResponse);
@@ -782,7 +729,8 @@ Result CertVerifier::VerifyCert(
           MIN_RSA_BITS_WEAK, ValidityCheckingMode::CheckingOff,
           SHA1Mode::Allowed, NetscapeStepUpPolicy::NeverMatch,
           mDistrustedCAPolicy, originAttributes, mThirdPartyRootInputs,
-          mThirdPartyIntermediateInputs, builtChain, nullptr, nullptr);
+          mThirdPartyIntermediateInputs, extraCertificates, builtChain,
+          nullptr);
       rv = BuildCertChain(
           trustDomain, certDER, time, EndEntityOrCA::MustBeEndEntity,
           KeyUsage::digitalSignature, KeyPurposeId::id_kp_emailProtection,
@@ -806,7 +754,8 @@ Result CertVerifier::VerifyCert(
           MIN_RSA_BITS_WEAK, ValidityCheckingMode::CheckingOff,
           SHA1Mode::Allowed, NetscapeStepUpPolicy::NeverMatch,
           mDistrustedCAPolicy, originAttributes, mThirdPartyRootInputs,
-          mThirdPartyIntermediateInputs, builtChain, nullptr, nullptr);
+          mThirdPartyIntermediateInputs, extraCertificates, builtChain,
+          nullptr);
       rv = BuildCertChain(trustDomain, certDER, time,
                           EndEntityOrCA::MustBeEndEntity,
                           KeyUsage::keyEncipherment,  // RSA
@@ -851,26 +800,26 @@ static bool CertIsSelfSigned(const UniqueCERTCertificate& cert, void* pinarg) {
 }
 
 Result CertVerifier::VerifySSLServerCert(
-    const UniqueCERTCertificate& peerCert,
-    /*optional*/ const Maybe<nsTArray<uint8_t>>& stapledOCSPResponse,
-    /*optional*/ const Maybe<nsTArray<uint8_t>>& sctsFromTLS, Time time,
+    const UniqueCERTCertificate& peerCert, Time time,
     /*optional*/ void* pinarg, const nsACString& hostname,
     /*out*/ UniqueCERTCertList& builtChain,
-    /*optional*/ bool saveIntermediatesInPermanentDatabase,
     /*optional*/ Flags flags,
+    /*optional*/ const Maybe<nsTArray<nsTArray<uint8_t>>>& extraCertificates,
+    /*optional*/ const Maybe<nsTArray<uint8_t>>& stapledOCSPResponse,
+    /*optional*/ const Maybe<nsTArray<uint8_t>>& sctsFromTLS,
+    /*optional*/ const Maybe<DelegatedCredentialInfo>& dcInfo,
     /*optional*/ const OriginAttributes& originAttributes,
+    /*optional*/ bool saveIntermediatesInPermanentDatabase,
     /*optional out*/ SECOidTag* evOidPolicy,
-    /*optional out*/ OCSPStaplingStatus* ocspStaplingStatus,
-    /*optional out*/ KeySizeStatus* keySizeStatus,
-    /*optional out*/ SHA1ModeResult* sha1ModeResult,
-    /*optional out*/ PinningTelemetryInfo* pinningTelemetryInfo,
     /*optional out*/ CertificateTransparencyInfo* ctInfo) {
   MOZ_ASSERT(peerCert);
   // XXX: MOZ_ASSERT(pinarg);
   MOZ_ASSERT(!hostname.IsEmpty());
 
+  SECOidTag evPolicyOidTag = SEC_OID_UNKNOWN;
+
   if (evOidPolicy) {
-    *evOidPolicy = SEC_OID_UNKNOWN;
+    *evOidPolicy = evPolicyOidTag;
   }
 
   if (hostname.IsEmpty()) {
@@ -882,9 +831,8 @@ Result CertVerifier::VerifySSLServerCert(
   Result rv =
       VerifyCert(peerCert.get(), certificateUsageSSLServer, time, pinarg,
                  PromiseFlatCString(hostname).get(), builtChain, flags,
-                 stapledOCSPResponse, sctsFromTLS, originAttributes,
-                 evOidPolicy, ocspStaplingStatus, keySizeStatus, sha1ModeResult,
-                 pinningTelemetryInfo, ctInfo);
+                 extraCertificates, stapledOCSPResponse, sctsFromTLS,
+                 originAttributes, &evPolicyOidTag, ctInfo);
   if (rv != Success) {
     if (rv == Result::ERROR_UNKNOWN_ISSUER &&
         CertIsSelfSigned(peerCert, pinarg)) {
@@ -911,6 +859,13 @@ Result CertVerifier::VerifySSLServerCert(
       }
     }
     return rv;
+  }
+
+  if (dcInfo) {
+    rv = IsDelegatedCredentialAcceptable(*dcInfo, evPolicyOidTag);
+    if (rv != Success) {
+      return rv;
+    }
   }
 
   Input peerCertInput;
@@ -965,6 +920,10 @@ Result CertVerifier::VerifySSLServerCert(
 
   if (saveIntermediatesInPermanentDatabase) {
     SaveIntermediateCerts(builtChain);
+  }
+
+  if (evOidPolicy) {
+    *evOidPolicy = evPolicyOidTag;
   }
 
   return Success;

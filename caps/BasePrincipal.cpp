@@ -9,6 +9,7 @@
 #include "ExpandedPrincipal.h"
 #include "nsNetUtil.h"
 #include "nsContentUtils.h"
+#include "nsIEffectiveTLDService.h" //MY
 #include "nsIOService.h"
 #include "nsIURIWithSpecialOrigin.h"
 #include "nsScriptSecurityManager.h"
@@ -19,10 +20,13 @@
 #include "mozilla/NullPrincipal.h"
 #include "mozilla/dom/BlobURLProtocolHandler.h"
 #include "mozilla/dom/ChromeUtils.h"
+#include "mozilla/dom/ReferrerInfo.h"
 #include "mozilla/dom/ToJSValue.h"
 #include "mozilla/dom/nsMixedContentBlocker.h"
 #include "mozilla/Components.h"
 #include "mozilla/dom/StorageUtils.h"
+#include "mozilla/dom/StorageUtils.h"
+#include "nsIURL.h"
 
 #include "json/json.h"
 #include "nsSerializationHelper.h"
@@ -308,6 +312,19 @@ nsresult BasePrincipal::ToJSON(nsACString& aResult) {
   return NS_OK;
 }
 
+bool BasePrincipal::FastSubsumesIgnoringFPD(
+    nsIPrincipal* aOther, DocumentDomainConsideration aConsideration) {
+  MOZ_ASSERT(aOther);
+
+  if (Kind() == eCodebasePrincipal &&
+      !dom::ChromeUtils::IsOriginAttributesEqualIgnoringFPD(
+          mOriginAttributes, Cast(aOther)->mOriginAttributes)) {
+    return false;
+  }
+
+  return SubsumesInternal(aOther, aConsideration);
+}
+
 bool BasePrincipal::Subsumes(nsIPrincipal* aOther,
                              DocumentDomainConsideration aConsideration) {
   MOZ_ASSERT(aOther);
@@ -383,9 +400,26 @@ BasePrincipal::SubsumesConsideringDomainIgnoringFPD(nsIPrincipal* aOther,
 }
 
 NS_IMETHODIMP
-BasePrincipal::CheckMayLoad(nsIURI* aURI, bool aReport,
-                            bool aAllowIfInheritsPrincipal) {
+BasePrincipal::CheckMayLoad(nsIURI* aURI, bool aAllowIfInheritsPrincipal) {
+  return CheckMayLoadHelper(aURI, aAllowIfInheritsPrincipal, false, 0);
+}
+
+NS_IMETHODIMP
+BasePrincipal::CheckMayLoadWithReporting(nsIURI* aURI,
+                                         bool aAllowIfInheritsPrincipal,
+                                         uint64_t aInnerWindowID) {
+  return CheckMayLoadHelper(aURI, aAllowIfInheritsPrincipal, true,
+                            aInnerWindowID);
+}
+
+nsresult BasePrincipal::CheckMayLoadHelper(nsIURI* aURI,
+                                           bool aAllowIfInheritsPrincipal,
+                                           bool aReport,
+                                           uint64_t aInnerWindowID) {
   NS_ENSURE_ARG_POINTER(aURI);
+  MOZ_ASSERT(
+      aReport || aInnerWindowID == 0,
+      "Why do we have an inner window id if we're not supposed to report?");
 
   // Check the internal method first, which allows us to quickly approve loads
   // for the System Principal.
@@ -419,7 +453,7 @@ BasePrincipal::CheckMayLoad(nsIURI* aURI, bool aReport,
     if (NS_SUCCEEDED(rv) && prinURI) {
       nsScriptSecurityManager::ReportError(
           "CheckSameOriginError", prinURI, aURI,
-          mOriginAttributes.mPrivateBrowsingId > 0);
+          mOriginAttributes.mPrivateBrowsingId > 0, aInnerWindowID);
     }
   }
 
@@ -527,7 +561,7 @@ NS_IMETHODIMP
 BasePrincipal::GetPrefLightCacheKey(nsIURI* aURI, bool aWithCredentials,
                                     nsACString& _retval) {
   _retval.Truncate();
-  NS_NAMED_LITERAL_CSTRING(space, " ");
+  constexpr auto space = " "_ns;
 
   nsCOMPtr<nsIURI> uri;
   nsresult rv = GetURI(getter_AddRefs(uri));
@@ -620,6 +654,17 @@ BasePrincipal::GetPrePath(nsACString& aPath) {
 }
 
 NS_IMETHODIMP
+BasePrincipal::GetFilePath(nsACString& aPath) {
+  aPath.Truncate();
+  nsCOMPtr<nsIURI> prinURI;
+  nsresult rv = GetURI(getter_AddRefs(prinURI));
+  if (NS_FAILED(rv) || !prinURI) {
+    return NS_OK;
+  }
+  return prinURI->GetFilePath(aPath);
+}
+
+NS_IMETHODIMP
 BasePrincipal::GetIsSystemPrincipal(bool* aResult) {
   *aResult = IsSystemPrincipal();
   return NS_OK;
@@ -644,7 +689,7 @@ NS_IMETHODIMP BasePrincipal::GetIsOnion(bool* aIsOnion) {
   if (NS_FAILED(rv)) {
     return NS_OK;
   }
-  *aIsOnion = StringEndsWith(host, NS_LITERAL_CSTRING(".onion"));
+  *aIsOnion = StringEndsWith(host, ".onion"_ns);
   return NS_OK;
 }
 
@@ -835,13 +880,13 @@ already_AddRefed<BasePrincipal> BasePrincipal::CreateCodebasePrincipal(
 
 already_AddRefed<BasePrincipal> BasePrincipal::CreateCodebasePrincipal(
     const nsACString& aOrigin) {
-  MOZ_ASSERT(!StringBeginsWith(aOrigin, NS_LITERAL_CSTRING("[")),
+  MOZ_ASSERT(!StringBeginsWith(aOrigin, "["_ns),
              "CreateCodebasePrincipal does not support System and Expanded "
              "principals");
 
-  MOZ_ASSERT(!StringBeginsWith(aOrigin,
-                               NS_LITERAL_CSTRING(NS_NULLPRINCIPAL_SCHEME ":")),
-             "CreateCodebasePrincipal does not support NullPrincipal");
+  MOZ_ASSERT(
+      !StringBeginsWith(aOrigin, nsLiteralCString(NS_NULLPRINCIPAL_SCHEME ":")),
+      "CreateCodebasePrincipal does not support NullPrincipal");
 
   nsAutoCString originNoSuffix;
   OriginAttributes attrs;
@@ -957,6 +1002,55 @@ BasePrincipal::GetLocalStorageQuotaKey(nsACString& aKey) {
   aKey.Append(':');
   aKey.Append(subdomainsDBKey);
 
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+BasePrincipal::GetStorageOriginKey(nsACString& aOriginKey) {
+  aOriginKey.Truncate();
+  nsCOMPtr<nsIURI> uri;
+  nsresult rv = GetURI(getter_AddRefs(uri));
+  NS_ENSURE_SUCCESS(rv, rv);
+  if (!uri) {
+    return NS_ERROR_UNEXPECTED;
+  }
+
+  nsAutoCString domainOrigin;
+  rv = uri->GetAsciiHost(domainOrigin);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  if (domainOrigin.IsEmpty()) {
+    // For the file:/// protocol use the exact directory as domain.
+    if (uri->SchemeIs("file")) {
+      nsCOMPtr<nsIURL> url = do_QueryInterface(uri, &rv);
+      NS_ENSURE_SUCCESS(rv, rv);
+      rv = url->GetDirectory(domainOrigin);
+      NS_ENSURE_SUCCESS(rv, rv);
+    }
+  }
+
+  // Append reversed domain
+  nsAutoCString reverseDomain;
+  rv = dom::StorageUtils::CreateReversedDomain(domainOrigin, reverseDomain);
+  if (NS_FAILED(rv)) {
+    return rv;
+  }
+
+  aOriginKey.Append(reverseDomain);
+
+  // Append scheme
+  nsAutoCString scheme;
+  rv = uri->GetScheme(scheme);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  aOriginKey.Append(':');
+  aOriginKey.Append(scheme);
+
+  // Append port if any
+  int32_t port = NS_GetRealPort(uri);
+  if (port != -1) {
+    aOriginKey.Append(nsPrintfCString(":%d", port));
+  }
   return NS_OK;
 }
 

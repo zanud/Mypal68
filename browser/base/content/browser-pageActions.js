@@ -696,7 +696,6 @@ var BrowserPageActions = {
       }
       event.stopPropagation();
     }
-    PageActions.logTelemetry("used", action, buttonNode);
     // If we're in the panel, open a subview inside the panel:
     // Note that we can't use this.panelNode.contains(buttonNode) here
     // because of XBL boundaries breaking Element.contains.
@@ -918,9 +917,6 @@ var BrowserPageActions = {
     }
     let action = this._contextAction;
     this._contextAction = null;
-
-    let telemetryType = action.pinnedToUrlbar ? "removed" : "added";
-    PageActions.logTelemetry(telemetryType, action);
 
     action.pinnedToUrlbar = !action.pinnedToUrlbar;
   },

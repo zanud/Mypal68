@@ -60,7 +60,7 @@ MARKUPMAP(
     [](Element* aElement, Accessible* aContext) -> Accessible* {
       // Never create an accessible if we're part of an anonymous
       // subtree.
-      if (aElement->IsInAnonymousSubtree()) {
+      if (aElement->IsInNativeAnonymousSubtree()) {
         return nullptr;
       }
       // Always create an accessible if the div has an id.
@@ -72,8 +72,7 @@ MARKUPMAP(
       nsAutoString displayValue;
       StyleInfo styleInfo(aElement);
       styleInfo.Display(displayValue);
-      if (displayValue != NS_LITERAL_STRING("block") &&
-          displayValue != NS_LITERAL_STRING("inline-block")) {
+      if (displayValue != u"block"_ns && displayValue != u"inline-block"_ns) {
         return nullptr;
       }
       // Check for various conditions to determine if this is a block

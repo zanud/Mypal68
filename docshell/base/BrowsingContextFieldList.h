@@ -25,5 +25,12 @@ MOZ_BC_FIELD(OpenerId, uint64_t)
 // context is currently considered to be activated by a gesture.
 MOZ_BC_FIELD_RACY(IsActivatedByUserGesture, bool)
 
+// ScreenOrientation-related APIs
+MOZ_BC_FIELD(CurrentOrientationAngle, float)
+
+MOZ_BC_FIELD(CurrentOrientationType, mozilla::dom::OrientationType)
+
+MOZ_BC_FIELD(InRDMPane, bool)
+
 #undef MOZ_BC_FIELD
 #undef MOZ_BC_FIELD_RACY

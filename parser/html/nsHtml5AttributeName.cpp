@@ -27,6 +27,7 @@
 
 #define nsHtml5AttributeName_cpp__
 
+#include "mozilla/dom/Document.h" //MY
 #include "nsAtom.h"
 #include "nsHtml5AtomTable.h"
 #include "nsHtml5String.h"

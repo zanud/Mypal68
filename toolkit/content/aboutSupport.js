@@ -559,11 +559,13 @@ var snapshotFormatters = {
       apzInfo.length
         ? [
             new Text(
-              (await document.l10n.formatValues(
-                apzInfo.map(id => {
-                  return { id };
-                })
-              )).join("; ")
+              (
+                await document.l10n.formatValues(
+                  apzInfo.map(id => {
+                    return { id };
+                  })
+                )
+              ).join("; ")
             ),
           ]
         : "apz-none"
@@ -865,10 +867,6 @@ var snapshotFormatters = {
 
     // Input devices information
     insertDeviceInfo("input", data.audioInputDevices);
-  },
-
-  javaScript(data) {
-    $("javascript-incremental-gc").textContent = data.incrementalGCEnabled;
   },
 
   accessibility(data) {

@@ -113,9 +113,9 @@ let extData = {
   },
 };
 
-function waitForRequestAdded(toolbox) {
-  return new Promise(async resolve => {
-    let netPanel = await toolbox.getNetMonitorAPI();
+async function waitForRequestAdded(toolbox) {
+  let netPanel = await toolbox.getNetMonitorAPI();
+  return new Promise(resolve => {
     netPanel.once("NetMonitor:RequestAdded", () => {
       resolve();
     });

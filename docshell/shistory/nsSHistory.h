@@ -6,6 +6,7 @@
 #define nsSHistory_h
 
 #include "nsCOMPtr.h"
+#include "nsDocShellLoadState.h"
 #include "nsExpirationTracker.h"
 #include "nsISHistory.h"
 #include "nsSHEntryShared.h"

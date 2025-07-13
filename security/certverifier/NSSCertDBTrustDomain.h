@@ -152,8 +152,8 @@ class NSSCertDBTrustDomain : public mozilla::pkix::TrustDomain {
       const OriginAttributes& originAttributes,
       const Vector<mozilla::pkix::Input>& thirdPartyRootInputs,
       const Vector<mozilla::pkix::Input>& thirdPartyIntermediateInputs,
+      const Maybe<nsTArray<nsTArray<uint8_t>>>& extraCertificates,
       /*out*/ UniqueCERTCertList& builtChain,
-      /*optional*/ PinningTelemetryInfo* pinningTelemetryInfo = nullptr,
       /*optional*/ const char* hostname = nullptr);
 
   virtual Result FindIssuer(mozilla::pkix::Input encodedIssuerName,
@@ -221,10 +221,6 @@ class NSSCertDBTrustDomain : public mozilla::pkix::TrustDomain {
   // the chain building.
   void ResetAccumulatedState();
 
-  CertVerifier::OCSPStaplingStatus GetOCSPStaplingStatus() const {
-    return mOCSPStaplingStatus;
-  }
-
   // SCT lists (see Certificate Transparency) extracted during
   // certificate verification. Note that the returned Inputs are invalidated
   // the next time a chain is built and by ResetAccumulatedState method
@@ -273,15 +269,14 @@ class NSSCertDBTrustDomain : public mozilla::pkix::TrustDomain {
   const Vector<mozilla::pkix::Input>& mThirdPartyRootInputs;  // non-owning
   const Vector<mozilla::pkix::Input>&
       mThirdPartyIntermediateInputs;  // non-owning
+  const Maybe<nsTArray<nsTArray<uint8_t>>>& mExtraCertificates;  // non-owning
   UniqueCERTCertList& mBuiltChain;    // non-owning
-  PinningTelemetryInfo* mPinningTelemetryInfo;
   const char* mHostname;  // non-owning - only used for pinning checks
 #ifdef MOZ_NEW_CERT_STORAGE
   nsCOMPtr<nsICertStorage> mCertStorage;
 #else
   nsCOMPtr<nsICertBlocklist> mCertBlocklist;
 #endif
-  CertVerifier::OCSPStaplingStatus mOCSPStaplingStatus;
   // Certificate Transparency data extracted during certificate verification
   UniqueSECItem mSCTListFromCertificate;
   UniqueSECItem mSCTListFromOCSPStapling;

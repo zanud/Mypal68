@@ -18,7 +18,7 @@
 #include "jsapi.h"
 #include "json/json.h"
 #include "mozilla/Atomics.h"
-#include "mozilla/BlocksRingBufferGeckoExtensions.h"
+#include "mozilla/ProfileBufferEntrySerializationGeckoExtensions.h"
 #include "mozilla/UniquePtrExtensions.h"
 #include "nsIThread.h"
 #include "nsThreadUtils.h"
@@ -32,53 +32,6 @@
 // (which is just an RAII wrapper for profiler_init() and profiler_shutdown()).
 
 using namespace mozilla;
-
-TEST(BaseProfiler, BlocksRingBuffer)
-{
-  constexpr uint32_t MBSize = 256;
-  uint8_t buffer[MBSize * 3];
-  for (size_t i = 0; i < MBSize * 3; ++i) {
-    buffer[i] = uint8_t('A' + i);
-  }
-  BlocksRingBuffer rb(BlocksRingBuffer::ThreadSafety::WithMutex,
-                      &buffer[MBSize], MakePowerOfTwo32<MBSize>());
-
-  {
-    nsCString cs(NS_LITERAL_CSTRING("nsCString"));
-    nsString s(NS_LITERAL_STRING("nsString"));
-    nsAutoCString acs(NS_LITERAL_CSTRING("nsAutoCString"));
-    nsAutoString as(NS_LITERAL_STRING("nsAutoString"));
-    nsAutoCStringN<8> acs8(NS_LITERAL_CSTRING("nsAutoCStringN"));
-    nsAutoStringN<8> as8(NS_LITERAL_STRING("nsAutoStringN"));
-    JS::UniqueChars jsuc = JS_smprintf("%s", "JS::UniqueChars");
-
-    rb.PutObjects(cs, s, acs, as, acs8, as8, jsuc);
-  }
-
-  rb.ReadEach([](BlocksRingBuffer::EntryReader& aER) {
-    ASSERT_EQ(aER.ReadObject<nsCString>(), NS_LITERAL_CSTRING("nsCString"));
-    ASSERT_EQ(aER.ReadObject<nsString>(), NS_LITERAL_STRING("nsString"));
-    ASSERT_EQ(aER.ReadObject<nsAutoCString>(),
-              NS_LITERAL_CSTRING("nsAutoCString"));
-    ASSERT_EQ(aER.ReadObject<nsAutoString>(),
-              NS_LITERAL_STRING("nsAutoString"));
-    ASSERT_EQ(aER.ReadObject<nsAutoCStringN<8>>(),
-              NS_LITERAL_CSTRING("nsAutoCStringN"));
-    ASSERT_EQ(aER.ReadObject<nsAutoStringN<8>>(),
-              NS_LITERAL_STRING("nsAutoStringN"));
-    auto jsuc2 = aER.ReadObject<JS::UniqueChars>();
-    ASSERT_TRUE(!!jsuc2);
-    ASSERT_TRUE(strcmp(jsuc2.get(), "JS::UniqueChars") == 0);
-  });
-
-  // Everything around the sub-buffer should be unchanged.
-  for (size_t i = 0; i < MBSize; ++i) {
-    ASSERT_EQ(buffer[i], uint8_t('A' + i));
-  }
-  for (size_t i = MBSize * 2; i < MBSize * 3; ++i) {
-    ASSERT_EQ(buffer[i], uint8_t('A' + i));
-  }
-}
 
 typedef Vector<const char*> StrVec;
 
@@ -540,12 +493,14 @@ int GTestMarkerPayload::sNumDeserialized = 0;
 int GTestMarkerPayload::sNumStreamed = 0;
 int GTestMarkerPayload::sNumDestroyed = 0;
 
-BlocksRingBuffer::Length GTestMarkerPayload::TagAndSerializationBytes() const {
-  return CommonPropsTagAndSerializationBytes() + BlocksRingBuffer::SumBytes(mN);
+ProfileBufferEntryWriter::Length GTestMarkerPayload::TagAndSerializationBytes()
+    const {
+  return CommonPropsTagAndSerializationBytes() +
+         ProfileBufferEntryWriter::SumBytes(mN);
 }
 
 void GTestMarkerPayload::SerializeTagAndPayload(
-    BlocksRingBuffer::EntryWriter& aEntryWriter) const {
+    ProfileBufferEntryWriter& aEntryWriter) const {
   static const DeserializerTag tag = TagForDeserializer(Deserialize);
   SerializeTagAndCommonProps(tag, aEntryWriter);
   aEntryWriter.WriteObject(mN);
@@ -554,7 +509,7 @@ void GTestMarkerPayload::SerializeTagAndPayload(
 
 // static
 UniquePtr<ProfilerMarkerPayload> GTestMarkerPayload::Deserialize(
-    BlocksRingBuffer::EntryReader& aEntryReader) {
+    ProfileBufferEntryReader& aEntryReader) {
   ProfilerMarkerPayload::CommonProps props =
       DeserializeCommonProps(aEntryReader);
   auto n = aEntryReader.ReadObject<int>();
@@ -580,17 +535,17 @@ TEST(GeckoProfiler, Markers)
   profiler_start(PROFILER_DEFAULT_ENTRIES, PROFILER_DEFAULT_INTERVAL, features,
                  filters, MOZ_ARRAY_LENGTH(filters));
 
-  profiler_tracing("A", "tracing event", JS::ProfilingCategoryPair::OTHER,
-                   TRACING_EVENT);
-  PROFILER_TRACING("A", "tracing start", OTHER, TRACING_INTERVAL_START);
-  PROFILER_TRACING("A", "tracing end", OTHER, TRACING_INTERVAL_END);
+  profiler_tracing_marker("A", "tracing event",
+                          JS::ProfilingCategoryPair::OTHER, TRACING_EVENT);
+  PROFILER_TRACING_MARKER("A", "tracing start", OTHER, TRACING_INTERVAL_START);
+  PROFILER_TRACING_MARKER("A", "tracing end", OTHER, TRACING_INTERVAL_END);
 
   UniqueProfilerBacktrace bt = profiler_get_backtrace();
-  profiler_tracing("B", "tracing event with stack",
-                   JS::ProfilingCategoryPair::OTHER, TRACING_EVENT,
-                   std::move(bt));
+  profiler_tracing_marker("B", "tracing event with stack",
+                          JS::ProfilingCategoryPair::OTHER, TRACING_EVENT,
+                          std::move(bt));
 
-  { AUTO_PROFILER_TRACING("C", "auto tracing", OTHER); }
+  { AUTO_PROFILER_TRACING_MARKER("C", "auto tracing", OTHER); }
 
   PROFILER_ADD_MARKER("M1", OTHER);
   PROFILER_ADD_MARKER_WITH_PAYLOAD("M2", OTHER, TracingMarkerPayload,
@@ -653,12 +608,16 @@ TEST(GeckoProfiler, Markers)
       "FileIOMarkerPayload marker", OTHER, FileIOMarkerPayload,
       ("operation", "source", "filename", ts1, ts2, nullptr));
 
+  PROFILER_ADD_MARKER_WITH_PAYLOAD(
+      "FileIOMarkerPayload marker off-MT", OTHER, FileIOMarkerPayload,
+      ("operation2", "source2", "filename2", ts1, ts2, nullptr, Some(123)));
+
   // Other markers in alphabetical order of payload class names.
 
   PROFILER_ADD_MARKER_WITH_PAYLOAD(
       "DOMEventMarkerPayload marker", OTHER, DOMEventMarkerPayload,
-      (NS_LITERAL_STRING("dom event"), ts1, "category", TRACING_EVENT,
-       mozilla::Nothing(), mozilla::Nothing()));
+      (u"dom event"_ns, ts1, "category", TRACING_EVENT, mozilla::Nothing(),
+       mozilla::Nothing()));
 
   {
     const char gcMajorJSON[] = "42";
@@ -712,32 +671,29 @@ TEST(GeckoProfiler, Markers)
   PROFILER_ADD_MARKER_WITH_PAYLOAD(
       "PrefMarkerPayload marker", OTHER, PrefMarkerPayload,
       ("preference name", mozilla::Nothing(), mozilla::Nothing(),
-       NS_LITERAL_CSTRING("preference value"), ts1));
+       "preference value"_ns, ts1));
 
-  nsCString screenshotURL = NS_LITERAL_CSTRING("url");
+  nsCString screenshotURL = "url"_ns;
   PROFILER_ADD_MARKER_WITH_PAYLOAD(
       "ScreenshotPayload marker", OTHER, ScreenshotPayload,
       (ts1, std::move(screenshotURL), mozilla::gfx::IntSize(12, 34),
        uintptr_t(0x45678u)));
 
   PROFILER_ADD_MARKER_WITH_PAYLOAD("TextMarkerPayload marker 1", OTHER,
-                                   TextMarkerPayload,
-                                   (NS_LITERAL_CSTRING("text"), ts1));
+                                   TextMarkerPayload, ("text"_ns, ts1));
 
   PROFILER_ADD_MARKER_WITH_PAYLOAD("TextMarkerPayload marker 2", OTHER,
-                                   TextMarkerPayload,
-                                   (NS_LITERAL_CSTRING("text"), ts1, ts2));
+                                   TextMarkerPayload, ("text"_ns, ts1, ts2));
 
   PROFILER_ADD_MARKER_WITH_PAYLOAD("UserTimingMarkerPayload marker mark", OTHER,
                                    UserTimingMarkerPayload,
-                                   (NS_LITERAL_STRING("mark name"), ts1,
-                                    mozilla::Nothing(), mozilla::Nothing()));
+                                   (u"mark name"_ns, ts1, mozilla::Nothing(),
+                                    mozilla::Nothing()));
 
   PROFILER_ADD_MARKER_WITH_PAYLOAD(
       "UserTimingMarkerPayload marker measure", OTHER, UserTimingMarkerPayload,
-      (NS_LITERAL_STRING("measure name"), Some(NS_LITERAL_STRING("start mark")),
-       Some(NS_LITERAL_STRING("end mark")), ts1, ts2, mozilla::Nothing(),
-       mozilla::Nothing()));
+      (u"measure name"_ns, Some(u"start mark"_ns), Some(u"end mark"_ns), ts1,
+       ts2, mozilla::Nothing(), mozilla::Nothing()));
 
   PROFILER_ADD_MARKER_WITH_PAYLOAD("VsyncMarkerPayload marker", OTHER,
                                    VsyncMarkerPayload, (ts1));
@@ -781,6 +737,7 @@ TEST(GeckoProfiler, Markers)
     S_M5_gtest8,
     S_M5_gtest9,
     S_FileIOMarkerPayload,
+    S_FileIOMarkerPayloadOffMT,
     S_DOMEventMarkerPayload,
     S_GCMajorMarkerPayload,
     S_GCMinorMarkerPayload,
@@ -1045,6 +1002,21 @@ TEST(GeckoProfiler, Markers)
                 EXPECT_EQ_JSON(payload["operation"], String, "operation");
                 EXPECT_EQ_JSON(payload["source"], String, "source");
                 EXPECT_EQ_JSON(payload["filename"], String, "filename");
+                EXPECT_FALSE(payload.isMember("threadId"));
+
+              } else if (nameString == "FileIOMarkerPayload marker off-MT") {
+                EXPECT_EQ(state, S_FileIOMarkerPayloadOffMT);
+                state = State(S_FileIOMarkerPayloadOffMT + 1);
+                EXPECT_EQ(typeString, "FileIO");
+                EXPECT_EQ_JSON(payload["startTime"], Double, ts1Double);
+                EXPECT_EQ_JSON(payload["endTime"], Double, ts2Double);
+                // Start timestamp is also stored in marker outside of payload.
+                EXPECT_EQ_JSON(marker[1], Double, ts1Double);
+                EXPECT_TRUE(payload["stack"].isNull());
+                EXPECT_EQ_JSON(payload["operation"], String, "operation2");
+                EXPECT_EQ_JSON(payload["source"], String, "source2");
+                EXPECT_EQ_JSON(payload["filename"], String, "filename2");
+                EXPECT_EQ_JSON(payload["threadId"], Int, 123);
 
               } else if (nameString == "DOMEventMarkerPayload marker") {
                 EXPECT_EQ(state, S_DOMEventMarkerPayload);
@@ -1288,6 +1260,8 @@ TEST(GeckoProfiler, Markers)
   EXPECT_EQ(GTestMarkerPayload::sNumDestroyed, 10 + 10 + 0 + 10);
 }
 
+// The duration limit will be removed from Firefox, see bug 1632365.
+#if 0
 TEST(GeckoProfiler, DurationLimit)
 {
   uint32_t features = ProfilerFeature::StackWalk;
@@ -1313,12 +1287,13 @@ TEST(GeckoProfiler, DurationLimit)
 
   // Both markers created, serialized, destroyed; Only the first marker should
   // have been deserialized, streamed, and destroyed again.
-  ASSERT_EQ(GTestMarkerPayload::sNumCreated, 2);
-  ASSERT_EQ(GTestMarkerPayload::sNumSerialized, 2);
-  ASSERT_EQ(GTestMarkerPayload::sNumDeserialized, 1);
-  ASSERT_EQ(GTestMarkerPayload::sNumStreamed, 1);
-  ASSERT_EQ(GTestMarkerPayload::sNumDestroyed, 3);
+  EXPECT_EQ(GTestMarkerPayload::sNumCreated, 2);
+  EXPECT_EQ(GTestMarkerPayload::sNumSerialized, 2);
+  EXPECT_EQ(GTestMarkerPayload::sNumDeserialized, 1);
+  EXPECT_EQ(GTestMarkerPayload::sNumStreamed, 1);
+  EXPECT_EQ(GTestMarkerPayload::sNumDestroyed, 3);
 }
+#endif
 
 #define COUNTER_NAME "TestCounter"
 #define COUNTER_DESCRIPTION "Test of counters in profiles"

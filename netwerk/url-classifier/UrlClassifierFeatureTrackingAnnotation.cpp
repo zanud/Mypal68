@@ -10,6 +10,8 @@
 #include "mozilla/StaticPrefs_privacy.h"
 #include "mozilla/StaticPtr.h"
 #include "mozilla/net/UrlClassifierCommon.h"
+#include "nsIClassifiedChannel.h"
+#include "nsIWebProgressListener.h"
 #include "nsContentUtils.h"
 
 namespace mozilla {
@@ -125,18 +127,21 @@ UrlClassifierFeatureTrackingAnnotation::ProcessChannel(
   static std::vector<UrlClassifierCommon::ClassificationData>
       sClassificationData = {
           {NS_LITERAL_CSTRING("ads-track-"),
-           nsIHttpChannel::ClassificationFlags::CLASSIFIED_TRACKING_AD},
+           nsIClassifiedChannel::ClassificationFlags::CLASSIFIED_TRACKING_AD},
           {NS_LITERAL_CSTRING("analytics-track-"),
-           nsIHttpChannel::ClassificationFlags::CLASSIFIED_TRACKING_ANALYTICS},
+           nsIClassifiedChannel::ClassificationFlags::
+               CLASSIFIED_TRACKING_ANALYTICS},
           {NS_LITERAL_CSTRING("social-track-"),
-           nsIHttpChannel::ClassificationFlags::CLASSIFIED_TRACKING_SOCIAL},
+           nsIClassifiedChannel::ClassificationFlags::
+               CLASSIFIED_TRACKING_SOCIAL},
           {NS_LITERAL_CSTRING("content-track-"),
-           nsIHttpChannel::ClassificationFlags::CLASSIFIED_TRACKING_CONTENT},
+           nsIClassifiedChannel::ClassificationFlags::
+               CLASSIFIED_TRACKING_CONTENT},
       };
 
   uint32_t flags = UrlClassifierCommon::TablesToClassificationFlags(
       aList, sClassificationData,
-      nsIHttpChannel::ClassificationFlags::CLASSIFIED_TRACKING);
+      nsIClassifiedChannel::ClassificationFlags::CLASSIFIED_TRACKING);
 
   UrlClassifierCommon::SetTrackingInfo(aChannel, aList, aHashes);
 

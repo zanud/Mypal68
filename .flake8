@@ -96,3 +96,7 @@ per-file-ignores =
     testing/firefox-ui/**/__init__.py: F401
     testing/marionette/**/__init__.py: F401
     testing/mozharness/configs/*: E124, E127, E128, E131, E231, E261, E265, E266, E501, W391
+
+builtins =
+    # For GDB extensions
+    gdb

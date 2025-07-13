@@ -355,10 +355,6 @@ OfflineCacheUpdateChild::Schedule() {
     return NS_ERROR_FAILURE;
   }
 
-  URIParams manifestURI, documentURI;
-  SerializeURI(mManifestURI, manifestURI);
-  SerializeURI(mDocumentURI, documentURI);
-
   nsresult rv = NS_OK;
   PrincipalInfo loadingPrincipalInfo;
   rv = PrincipalToPrincipalInfo(mLoadingPrincipal, &loadingPrincipalInfo);
@@ -387,7 +383,7 @@ OfflineCacheUpdateChild::Schedule() {
   }
 
   ContentChild::GetSingleton()->SendPOfflineCacheUpdateConstructor(
-      this, manifestURI, documentURI, loadingPrincipalInfo, stickDocument,
+      this, mManifestURI, mDocumentURI, loadingPrincipalInfo, stickDocument,
       csArgs);
 
   return NS_OK;

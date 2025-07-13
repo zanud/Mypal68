@@ -101,11 +101,13 @@ bool SharedMemory::IsValid() const { return mapped_file_ != NULL; }
 // static
 SharedMemoryHandle SharedMemory::NULLHandle() { return NULL; }
 
-bool SharedMemory::CreateInternal(size_t size, bool freezeable, const char* name) {
+bool SharedMemory::CreateInternal(size_t size, bool freezeable,
+                                  const char* name) {
   DCHECK(mapped_file_ == NULL);
   read_only_ = false;
   mapped_file_ = CreateFileMapping(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE,
-                                   0, static_cast<DWORD>(size), (LPCTSTR)NS_ConvertUTF8toUTF16(name).get());
+                                   0, static_cast<DWORD>(size),
+                                   (LPCTSTR)NS_ConvertUTF8toUTF16(name).get());
   if (!mapped_file_) return false;
 
   max_size_ = size;
@@ -113,19 +115,33 @@ bool SharedMemory::CreateInternal(size_t size, bool freezeable, const char* name
   return true;
 }
 
-bool SharedMemory::Freeze() {
+bool SharedMemory::ReadOnlyCopy(SharedMemory* ro_out) {
   DCHECK(!read_only_);
   CHECK(freezeable_);
-  Unmap();
 
+  if (ro_out == this) {
+    DCHECK(!memory_);
+  }
+
+  HANDLE ro_handle;
   if (!::DuplicateHandle(GetCurrentProcess(), mapped_file_, GetCurrentProcess(),
-                         &mapped_file_, GENERIC_READ | FILE_MAP_READ, false,
+                         &ro_handle, GENERIC_READ | FILE_MAP_READ, false,
                          DUPLICATE_CLOSE_SOURCE)) {
+    // DUPLICATE_CLOSE_SOURCE applies even if there is an error.
+    mapped_file_ = nullptr;
     return false;
   }
 
-  read_only_ = true;
+  mapped_file_ = nullptr;
   freezeable_ = false;
+
+  ro_out->Close();
+  ro_out->mapped_file_ = ro_handle;
+  ro_out->max_size_ = max_size_;
+  ro_out->read_only_ = true;
+  ro_out->freezeable_ = false;
+  ro_out->external_section_ = external_section_;
+
   return true;
 }
 

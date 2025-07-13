@@ -27,6 +27,8 @@ webrtc = ["gkrust-shared/webrtc"]
 
 [dependencies]
 bench-collections-gtest = { path = "../../../../xpcom/rust/gtest/bench-collections" }
+l10nregistry-ffi-gtest = { path = "../../../../intl/l10n/rust/gtest" }
+moz_task-gtest = { path = "../../../../xpcom/rust/gtest/moz_task" }
 mp4parse-gtest = { path = "../../../../dom/media/gtest" }
 nsstring-gtest = { path = "../../../../xpcom/rust/gtest/nsstring" }
 xpcom-gtest = { path = "../../../../xpcom/rust/gtest/xpcom" }

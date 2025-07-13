@@ -18,5 +18,5 @@ storage_variant = { path = "../../../../storage/variant" }
 xpcom = { path = "../../../../xpcom/rust/xpcom" }
 
 [dependencies.thin-vec]
-version = "0.1.0"
+version = "0.2.1"
 features = ["gecko-ffi"]

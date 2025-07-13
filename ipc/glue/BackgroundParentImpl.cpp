@@ -14,7 +14,10 @@
 #include "mozilla/dom/ClientManagerActors.h"
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/dom/DOMTypes.h"
+#ifdef THE_REPORTING
 #include "mozilla/dom/EndpointForReportParent.h"
+#include "mozilla/dom/ReportingHeader.h"
+#endif
 #include "mozilla/dom/FileCreatorParent.h"
 #include "mozilla/dom/FileSystemBase.h"
 #include "mozilla/dom/FileSystemRequestParent.h"
@@ -38,7 +41,6 @@
 #include "mozilla/dom/simpledb/ActorsParent.h"
 #include "mozilla/dom/RemoteWorkerParent.h"
 #include "mozilla/dom/RemoteWorkerServiceParent.h"
-#include "mozilla/dom/ReportingHeader.h"
 #include "mozilla/dom/SharedWorkerParent.h"
 #include "mozilla/dom/StorageIPC.h"
 #include "mozilla/dom/MIDIManagerParent.h"
@@ -1193,6 +1195,7 @@ BackgroundParentImpl::RecvPServiceWorkerRegistrationConstructor(
   return IPC_OK();
 }
 
+#ifdef THE_REPORTING
 dom::PEndpointForReportParent*
 BackgroundParentImpl::AllocPEndpointForReportParent(
     const nsString& aGroupName, const PrincipalInfo& aPrincipalInfo) {
@@ -1228,6 +1231,7 @@ mozilla::ipc::IPCResult BackgroundParentImpl::RecvRemoveEndpoint(
 
   return IPC_OK();
 }
+#endif
 
 dom::PMediaTransportParent* BackgroundParentImpl::AllocPMediaTransportParent() {
 #ifdef MOZ_WEBRTC

@@ -5,27 +5,27 @@
 #ifndef NS_WINDOWS_DLL_INTERCEPTOR_H_
 #define NS_WINDOWS_DLL_INTERCEPTOR_H_
 
+#include <wchar.h>
+#include <windows.h>
+
+#include <utility>
+
+#include "mozilla/ArrayUtils.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/Attributes.h"
-#include "mozilla/ArrayUtils.h"
 #include "mozilla/CheckedInt.h"
 #include "mozilla/DebugOnly.h"
-#include "mozilla/Move.h"
 #include "mozilla/Tuple.h"
 #include "mozilla/TypeTraits.h"
 #include "mozilla/Types.h"
 #include "mozilla/UniquePtr.h"
 #include "mozilla/Vector.h"
-#include "nsWindowsHelpers.h"
 #include "InitOnceExecOnceXP.h"
-
-#include <wchar.h>
-#include <windows.h>
-
 #include "mozilla/interceptor/MMPolicies.h"
 #include "mozilla/interceptor/PatcherDetour.h"
 #include "mozilla/interceptor/PatcherNopSpace.h"
 #include "mozilla/interceptor/VMSharingPolicies.h"
+#include "nsWindowsHelpers.h"
 
 /*
  * Simple function interception.
@@ -136,7 +136,7 @@ class FuncHook final {
   explicit operator bool() const { return !!mOrigFunc; }
 
   template <typename... ArgsType>
-  ReturnType operator()(ArgsType... aArgs) const {
+  ReturnType operator()(ArgsType&&... aArgs) const {
     return mOrigFunc(std::forward<ArgsType>(aArgs)...);
   }
 
@@ -237,7 +237,7 @@ class MOZ_ONLY_USED_TO_AVOID_STATIC_CONSTRUCTORS FuncHookCrossProcess final {
    * NB: This operator is only meaningful when invoked in the target process!
    */
   template <typename... ArgsType>
-  ReturnType operator()(ArgsType... aArgs) const {
+  ReturnType operator()(ArgsType&&... aArgs) const {
     return mOrigFunc(std::forward<ArgsType>(aArgs)...);
   }
 
@@ -288,7 +288,7 @@ class WindowsDllInterceptor final
 
  public:
   template <typename... Args>
-  explicit WindowsDllInterceptor(Args... aArgs)
+  explicit WindowsDllInterceptor(Args&&... aArgs)
       : mDetourPatcher(std::forward<Args>(aArgs)...)
 #if defined(_M_IX86)
         ,

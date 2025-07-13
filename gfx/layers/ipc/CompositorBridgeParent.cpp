@@ -961,7 +961,7 @@ void CompositorBridgeParent::SetShadowProperties(Layer* aLayer) {
 
 void CompositorBridgeParent::CompositeToTarget(VsyncId aId, DrawTarget* aTarget,
                                                const gfx::IntRect* aRect) {
-  AUTO_PROFILER_TRACING("Paint", "Composite", GRAPHICS);
+  AUTO_PROFILER_TRACING_MARKER("Paint", "Composite", GRAPHICS);
   AUTO_PROFILER_LABEL("CompositorBridgeParent::CompositeToTarget", GRAPHICS);
 
   MOZ_ASSERT(CompositorThreadHolder::IsInCompositorThread(),
@@ -1623,7 +1623,8 @@ PLayerTransactionParent* CompositorBridgeParent::AllocPLayerTransactionParent(
 #ifdef XP_WIN
   // This is needed to avoid freezing the window on a device crash on double
   // buffering, see bug 1549674.
-  if (gfxVars::UseDoubleBufferingWithCompositor() && XRE_IsGPUProcess()) {
+  if (gfxVars::UseDoubleBufferingWithCompositor() && XRE_IsGPUProcess() &&
+      aBackendHints.Contains(LayersBackend::LAYERS_D3D11)) {
     mWidget->AsWindows()->EnsureCompositorWindow();
   }
 #endif
@@ -2646,12 +2647,12 @@ int32_t RecordContentFrameTime(const VsyncId& aTxnId,
       ContentFramePayload(const mozilla::TimeStamp& aStartTime,
                           const mozilla::TimeStamp& aEndTime)
           : ProfilerMarkerPayload(aStartTime, aEndTime) {}
-      mozilla::BlocksRingBuffer::Length TagAndSerializationBytes()
+      mozilla::ProfileBufferEntryWriter::Length TagAndSerializationBytes()
           const override {
         return CommonPropsTagAndSerializationBytes();
       }
       void SerializeTagAndPayload(
-          mozilla::BlocksRingBuffer::EntryWriter& aEntryWriter) const override {
+          mozilla::ProfileBufferEntryWriter& aEntryWriter) const override {
         static const DeserializerTag tag = TagForDeserializer(Deserialize);
         SerializeTagAndCommonProps(tag, aEntryWriter);
       }
@@ -2666,7 +2667,7 @@ int32_t RecordContentFrameTime(const VsyncId& aTxnId,
       explicit ContentFramePayload(CommonProps&& aCommonProps)
           : ProfilerMarkerPayload(std::move(aCommonProps)) {}
       static mozilla::UniquePtr<ProfilerMarkerPayload> Deserialize(
-          mozilla::BlocksRingBuffer::EntryReader& aEntryReader) {
+          mozilla::ProfileBufferEntryReader& aEntryReader) {
         ProfilerMarkerPayload::CommonProps props =
             DeserializeCommonProps(aEntryReader);
         return UniquePtr<ProfilerMarkerPayload>(

@@ -79,7 +79,7 @@ void ClearPrivateSSLState() {
   // If NSS isn't initialized, this throws an assertion. We guard it by checking
   // if the session cache might even have anything worth clearing.
   if (runnable->mShouldClearSessionCache) {
-    SSL_ClearSessionCache();
+    nsNSSComponent::ClearSSLExternalAndInternalSessionCacheNative();
   }
 }
 
@@ -93,7 +93,7 @@ class PrivateBrowsingObserver : public nsIObserver {
   explicit PrivateBrowsingObserver(SharedSSLState* aOwner) : mOwner(aOwner) {}
 
  protected:
-  virtual ~PrivateBrowsingObserver() {}
+  virtual ~PrivateBrowsingObserver() = default;
 
  private:
   SharedSSLState* mOwner;
@@ -122,13 +122,9 @@ SharedSSLState::SharedSSLState(uint32_t aTlsFlags)
       mOCSPMustStapleEnabled(false),
       mSignedCertTimestampsEnabled(false) {
   mIOLayerHelpers.Init();
-  if (!aTlsFlags) {  // the per socket flags don't need memory
-    mClientAuthRemember = new nsClientAuthRememberService();
-    mClientAuthRemember->Init();
-  }
 }
 
-SharedSSLState::~SharedSSLState() {}
+SharedSSLState::~SharedSSLState() = default;
 
 void SharedSSLState::NotePrivateBrowsingStatus() {
   MOZ_ASSERT(NS_IsMainThread(), "Not on main thread");
@@ -138,11 +134,7 @@ void SharedSSLState::NotePrivateBrowsingStatus() {
 }
 
 void SharedSSLState::ResetStoredData() {
-  if (!mClientAuthRemember) {
-    return;
-  }
   MOZ_ASSERT(NS_IsMainThread(), "Not on main thread");
-  mClientAuthRemember->ClearRememberedDecisions();
   mIOLayerHelpers.clearStoredData();
 }
 

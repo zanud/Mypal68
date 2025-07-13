@@ -357,23 +357,19 @@ var Sanitizer = {
     cache: {
       async clear(range) {
         let refObj = {};
-        TelemetryStopwatch.start("FX_SANITIZE_CACHE", refObj);
         await clearData(range, Ci.nsIClearDataService.CLEAR_ALL_CACHES);
-        TelemetryStopwatch.finish("FX_SANITIZE_CACHE", refObj);
       },
     },
 
     cookies: {
       async clear(range) {
         let refObj = {};
-        TelemetryStopwatch.start("FX_SANITIZE_COOKIES_2", refObj);
         await clearData(
           range,
           Ci.nsIClearDataService.CLEAR_COOKIES |
             Ci.nsIClearDataService.CLEAR_PLUGIN_DATA |
             Ci.nsIClearDataService.CLEAR_MEDIA_DEVICES
         );
-        TelemetryStopwatch.finish("FX_SANITIZE_COOKIES_2", refObj);
       },
     },
 
@@ -386,14 +382,12 @@ var Sanitizer = {
     history: {
       async clear(range) {
         let refObj = {};
-        TelemetryStopwatch.start("FX_SANITIZE_HISTORY", refObj);
         await clearData(
           range,
           Ci.nsIClearDataService.CLEAR_HISTORY |
             Ci.nsIClearDataService.CLEAR_SESSION_HISTORY |
             Ci.nsIClearDataService.CLEAR_STORAGE_ACCESS
         );
-        TelemetryStopwatch.finish("FX_SANITIZE_HISTORY", refObj);
       },
     },
 
@@ -401,7 +395,6 @@ var Sanitizer = {
       async clear(range) {
         let seenException;
         let refObj = {};
-        TelemetryStopwatch.start("FX_SANITIZE_FORMDATA", refObj);
         try {
           // Clear undo history of all search bars.
           for (let currentWindow of Services.wm.getEnumerator(
@@ -460,7 +453,6 @@ var Sanitizer = {
           seenException = ex;
         }
 
-        TelemetryStopwatch.finish("FX_SANITIZE_FORMDATA", refObj);
         if (seenException) {
           throw seenException;
         }
@@ -470,29 +462,24 @@ var Sanitizer = {
     downloads: {
       async clear(range) {
         let refObj = {};
-        TelemetryStopwatch.start("FX_SANITIZE_DOWNLOADS", refObj);
         await clearData(range, Ci.nsIClearDataService.CLEAR_DOWNLOADS);
-        TelemetryStopwatch.finish("FX_SANITIZE_DOWNLOADS", refObj);
       },
     },
 
     sessions: {
       async clear(range) {
         let refObj = {};
-        TelemetryStopwatch.start("FX_SANITIZE_SESSIONS", refObj);
         await clearData(
           range,
           Ci.nsIClearDataService.CLEAR_AUTH_TOKENS |
             Ci.nsIClearDataService.CLEAR_AUTH_CACHE
         );
-        TelemetryStopwatch.finish("FX_SANITIZE_SESSIONS", refObj);
       },
     },
 
     siteSettings: {
       async clear(range) {
         let refObj = {};
-        TelemetryStopwatch.start("FX_SANITIZE_SITESETTINGS", refObj);
         await clearData(
           range,
           Ci.nsIClearDataService.CLEAR_PERMISSIONS |
@@ -501,7 +488,6 @@ var Sanitizer = {
             Ci.nsIClearDataService.CLEAR_SECURITY_SETTINGS |
             Ci.nsIClearDataService.CLEAR_CERT_EXCEPTIONS
         );
-        TelemetryStopwatch.finish("FX_SANITIZE_SITESETTINGS", refObj);
       },
     },
 
@@ -558,7 +544,6 @@ var Sanitizer = {
         // If/once we get here, we should actually be able to close all windows.
 
         let refObj = {};
-        TelemetryStopwatch.start("FX_SANITIZE_OPENWINDOWS", refObj);
 
         // First create a new window. We do this first so that on non-mac, we don't
         // accidentally close the app by closing all the windows.
@@ -614,7 +599,6 @@ var Sanitizer = {
             newWindowOpened = true;
             // If we're the last thing to happen, invoke callback.
             if (numWindowsClosing == 0) {
-              TelemetryStopwatch.finish("FX_SANITIZE_OPENWINDOWS", refObj);
               resolve();
             }
           };
@@ -629,7 +613,6 @@ var Sanitizer = {
               );
               // If we're the last thing to happen, invoke callback.
               if (newWindowOpened) {
-                TelemetryStopwatch.finish("FX_SANITIZE_OPENWINDOWS", refObj);
                 resolve();
               }
             }
@@ -704,7 +687,6 @@ async function sanitizeInternal(items, aItemsToClear, progress, options = {}) {
   // Callers should check returned errors and give user feedback
   // about items that could not be sanitized
   let refObj = {};
-  TelemetryStopwatch.start("FX_SANITIZE_TOTAL", refObj);
 
   let annotateError = (name, ex) => {
     progress[name] = "failed";
@@ -722,12 +704,10 @@ async function sanitizeInternal(items, aItemsToClear, progress, options = {}) {
       // Catch errors here, so later we can just loop through these.
       handles.push({
         name,
-        promise: item
-          .clear(range, options)
-          .then(
-            () => (progress[name] = "cleared"),
-            ex => annotateError(name, ex)
-          ),
+        promise: item.clear(range, options).then(
+          () => (progress[name] = "cleared"),
+          ex => annotateError(name, ex)
+        ),
       });
     } catch (ex) {
       annotateError(name, ex);
@@ -739,7 +719,6 @@ async function sanitizeInternal(items, aItemsToClear, progress, options = {}) {
   }
 
   // Sanitization is complete.
-  TelemetryStopwatch.finish("FX_SANITIZE_TOTAL", refObj);
   if (!progress.isShutdown) {
     removePendingSanitization(uid);
   }

@@ -11,6 +11,7 @@
 #include "MainThreadUtils.h"
 #include "mozilla/ClearOnShutdown.h"
 #include "mozilla/DebugOnly.h"
+#include "mozilla/IntegerRange.h"
 #include "mozilla/Mutex.h"
 #include "mozilla/Services.h"
 #include "mozilla/StaticPtr.h"
@@ -26,6 +27,7 @@
 #include "nsIOutputStream.h"
 #include "nsNetUtil.h"
 #include "nsPrintfCString.h"
+#include "nsReadableUtils.h"
 #include "nsTArray.h"
 #include "nsThreadUtils.h"
 #include "nsXPCOMPrivate.h"
@@ -373,12 +375,11 @@ void Logger::CaptureFrame(ICallFrame* aCallFrame, IUnknown* aTargetInterface,
         hr = aCallFrame->GetParam(arrayData->mLengthParamIndex, &lengthParam);
         if (SUCCEEDED(hr)) {
           line.AppendLiteral("{ ");
-          for (LONG i = 0; i < *lengthParam.plVal; ++i) {
-            VariantToString(paramValue, line, i);
-            if (i < *lengthParam.plVal - 1) {
-              line.AppendLiteral(", ");
-            }
-          }
+          StringJoinAppend(line, ", "_ns,
+                           mozilla::IntegerRange<LONG>(0, *lengthParam.plVal),
+                           [this, &paramValue](nsACString& line, const LONG i) {
+                             VariantToString(paramValue, line, i);
+                           });
           line.AppendLiteral(" }");
         } else {
           line.AppendPrintf("(GetParam failed with HRESULT 0x%08X)", hr);

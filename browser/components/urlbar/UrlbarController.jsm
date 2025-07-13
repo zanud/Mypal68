@@ -12,16 +12,12 @@ const { XPCOMUtils } = ChromeUtils.import(
 const { Services } = ChromeUtils.import("resource://gre/modules/Services.jsm");
 XPCOMUtils.defineLazyModuleGetters(this, {
   AppConstants: "resource://gre/modules/AppConstants.jsm",
-  BrowserUsageTelemetry: "resource:///modules/BrowserUsageTelemetry.jsm",
   PlacesUtils: "resource://gre/modules/PlacesUtils.jsm",
   UrlbarPrefs: "resource:///modules/UrlbarPrefs.jsm",
   UrlbarProvidersManager: "resource:///modules/UrlbarProvidersManager.jsm",
   UrlbarUtils: "resource:///modules/UrlbarUtils.jsm",
-  URLBAR_SELECTED_RESULT_TYPES: "resource:///modules/BrowserUsageTelemetry.jsm",
 });
 
-const TELEMETRY_1ST_RESULT = "PLACES_AUTOCOMPLETE_1ST_RESULT_TIME_MS";
-const TELEMETRY_6_FIRST_RESULTS = "PLACES_AUTOCOMPLETE_6_FIRST_RESULTS_TIME_MS";
 const NOTIFICATIONS = {
   QUERY_STARTED: "onQueryStarted",
   QUERY_RESULTS: "onQueryResults",
@@ -120,8 +116,6 @@ class UrlbarController {
     let contextWrapper = (this._lastQueryContextWrapper = { queryContext });
 
     queryContext.lastResultCount = 0;
-    TelemetryStopwatch.start(TELEMETRY_1ST_RESULT, queryContext);
-    TelemetryStopwatch.start(TELEMETRY_6_FIRST_RESULTS, queryContext);
 
     // For proper functionality we must ensure this notification is fired
     // synchronously, as soon as startQuery is invoked, but after any
@@ -155,8 +149,6 @@ class UrlbarController {
     this._lastQueryContextWrapper.done = true;
 
     let { queryContext } = this._lastQueryContextWrapper;
-    TelemetryStopwatch.cancel(TELEMETRY_1ST_RESULT, queryContext);
-    TelemetryStopwatch.cancel(TELEMETRY_6_FIRST_RESULTS, queryContext);
     this.manager.cancelQuery(queryContext);
     this.notify(NOTIFICATIONS.QUERY_CANCELLED, queryContext);
     this.notify(NOTIFICATIONS.QUERY_FINISHED, queryContext);
@@ -168,13 +160,6 @@ class UrlbarController {
    * @param {UrlbarQueryContext} queryContext The query details.
    */
   receiveResults(queryContext) {
-    if (queryContext.lastResultCount < 1 && queryContext.results.length >= 1) {
-      TelemetryStopwatch.finish(TELEMETRY_1ST_RESULT, queryContext);
-    }
-    if (queryContext.lastResultCount < 6 && queryContext.results.length >= 6) {
-      TelemetryStopwatch.finish(TELEMETRY_6_FIRST_RESULTS, queryContext);
-    }
-
     if (queryContext.lastResultCount == 0 && queryContext.results.length) {
       if (queryContext.results[0].autofill) {
         this.input.autofillFirstResult(queryContext.results[0]);
@@ -460,92 +445,6 @@ class UrlbarController {
       return;
     }
     this._userSelectionBehavior = behavior;
-  }
-
-  /**
-   * Records details of the selected result in telemetry. We only record the
-   * selection behavior, type and index.
-   *
-   * @param {Event} event
-   *   The event which triggered the result to be selected.
-   * @param {UrlbarResult} result
-   *   The selected result.
-   */
-  recordSelectedResult(event, result) {
-    let resultIndex = result ? result.uiIndex : -1;
-    let selectedResult = -1;
-    if (resultIndex >= 0) {
-      // Except for the history popup, the urlbar always has a selection.  The
-      // first result at index 0 is the "heuristic" result that indicates what
-      // will happen when you press the Enter key.  Treat it as no selection.
-      selectedResult = resultIndex > 0 || !result.heuristic ? resultIndex : -1;
-    }
-    BrowserUsageTelemetry.recordUrlbarSelectedResultMethod(
-      event,
-      selectedResult,
-      this._userSelectionBehavior
-    );
-
-    if (!result) {
-      return;
-    }
-
-    let telemetryType;
-    switch (result.type) {
-      case UrlbarUtils.RESULT_TYPE.TAB_SWITCH:
-        telemetryType = "switchtab";
-        break;
-      case UrlbarUtils.RESULT_TYPE.SEARCH:
-        telemetryType = result.payload.suggestion
-          ? "searchsuggestion"
-          : "searchengine";
-        break;
-      case UrlbarUtils.RESULT_TYPE.URL:
-        if (result.autofill) {
-          telemetryType = "autofill";
-        } else if (
-          result.source == UrlbarUtils.RESULT_SOURCE.OTHER_LOCAL &&
-          result.heuristic
-        ) {
-          telemetryType = "visiturl";
-        } else {
-          telemetryType =
-            result.source == UrlbarUtils.RESULT_SOURCE.BOOKMARKS
-              ? "bookmark"
-              : "history";
-        }
-        break;
-      case UrlbarUtils.RESULT_TYPE.KEYWORD:
-        telemetryType = "keyword";
-        break;
-      case UrlbarUtils.RESULT_TYPE.OMNIBOX:
-        telemetryType = "extension";
-        break;
-      case UrlbarUtils.RESULT_TYPE.REMOTE_TAB:
-        telemetryType = "remotetab";
-        break;
-      default:
-        Cu.reportError(`Unknown Result Type ${result.type}`);
-        return;
-    }
-
-    Services.telemetry
-      .getHistogramById("FX_URLBAR_SELECTED_RESULT_INDEX")
-      .add(resultIndex);
-    // You can add values but don't change any of the existing values.
-    // Otherwise you'll break our data.
-    if (telemetryType in URLBAR_SELECTED_RESULT_TYPES) {
-      Services.telemetry
-        .getHistogramById("FX_URLBAR_SELECTED_RESULT_TYPE")
-        .add(URLBAR_SELECTED_RESULT_TYPES[telemetryType]);
-      Services.telemetry
-        .getKeyedHistogramById("FX_URLBAR_SELECTED_RESULT_INDEX_BY_TYPE")
-        .add(telemetryType, resultIndex);
-    } else {
-      Cu.reportError(
-        "Unknown FX_URLBAR_SELECTED_RESULT_TYPE type: " + telemetryType
-      );
-    }
   }
 
   /**

@@ -170,6 +170,8 @@ module.exports = {
     Flex: false,
     FlexItemValues: false,
     FlexLineValues: false,
+    FluentBundle: false,
+    FluentResource: false,
     FocusEvent: false,
     FontFace: false,
     FontFaceSet: false,

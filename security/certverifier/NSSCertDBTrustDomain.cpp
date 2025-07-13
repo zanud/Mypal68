@@ -67,8 +67,8 @@ NSSCertDBTrustDomain::NSSCertDBTrustDomain(
     const OriginAttributes& originAttributes,
     const Vector<Input>& thirdPartyRootInputs,
     const Vector<Input>& thirdPartyIntermediateInputs,
+    const Maybe<nsTArray<nsTArray<uint8_t>>>& extraCertificates,
     /*out*/ UniqueCERTCertList& builtChain,
-    /*optional*/ PinningTelemetryInfo* pinningTelemetryInfo,
     /*optional*/ const char* hostname)
     : mCertDBTrustType(certDBTrustType),
       mOCSPFetching(ocspFetching),
@@ -87,15 +87,14 @@ NSSCertDBTrustDomain::NSSCertDBTrustDomain(
       mOriginAttributes(originAttributes),
       mThirdPartyRootInputs(thirdPartyRootInputs),
       mThirdPartyIntermediateInputs(thirdPartyIntermediateInputs),
+      mExtraCertificates(extraCertificates),
       mBuiltChain(builtChain),
-      mPinningTelemetryInfo(pinningTelemetryInfo),
       mHostname(hostname),
 #ifdef MOZ_NEW_CERT_STORAGE
       mCertStorage(do_GetService(NS_CERT_STORAGE_CID)),
 #else
       mCertBlocklist(do_GetService(NS_CERTBLOCKLIST_CONTRACTID)),
 #endif
-      mOCSPStaplingStatus(CertVerifier::OCSP_STAPLING_NEVER_CHECKED),
       mSCTListFromCertificate(),
       mSCTListFromOCSPStapling(),
       mBuiltInRootsModule(SECMOD_FindModule(kRootModuleName)) {
@@ -306,6 +305,32 @@ Result NSSCertDBTrustDomain::FindIssuer(Input encodedIssuerName,
     }
   }
 
+  if (mExtraCertificates.isSome()) {
+    for (const auto& extraCert : *mExtraCertificates) {
+      Input certInput;
+      Result rv = certInput.Init(extraCert.Elements(), extraCert.Length());
+      if (rv != Success) {
+        continue;
+      }
+      BackCert cert(certInput, EndEntityOrCA::MustBeCA, nullptr);
+      rv = cert.Init();
+      if (rv != Success) {
+        continue;
+      }
+      // Filter out certificates that can't be issuers we're looking for because
+      // the subject distinguished name doesn't match. This prevents
+      // mozilla::pkix from accumulating spurious errors during path building.
+      if (!InputsAreEqual(encodedIssuerName, cert.GetSubject())) {
+        continue;
+      }
+      // We assume that extra certificates (presumably from the TLS handshake)
+      // are intermediates, since sending trust anchors would be superfluous.
+      if (!geckoIntermediateCandidates.append(certInput)) {
+        return Result::FATAL_ERROR_NO_MEMORY;
+      }
+    }
+  }
+
   // Try all root certs first and then all (presumably) intermediates.
   if (!geckoRootCandidates.appendAll(std::move(geckoIntermediateCandidates))) {
     return Result::FATAL_ERROR_NO_MEMORY;
@@ -324,10 +349,10 @@ Result NSSCertDBTrustDomain::FindIssuer(Input encodedIssuerName,
   // NSS seems not to differentiate between "no potential issuers found" and
   // "there was an error trying to retrieve the potential issuers." We assume
   // there was no error if CERT_CreateSubjectCertList returns nullptr.
-  Vector<Input> nssRootCandidates;
-  Vector<Input> nssIntermediateCandidates;
   UniqueCERTCertList candidates(CERT_CreateSubjectCertList(
       nullptr, CERT_GetDefaultCertDB(), &encodedIssuerNameItem, 0, false));
+  Vector<Input> nssRootCandidates;
+  Vector<Input> nssIntermediateCandidates;
   if (candidates) {
     for (CERTCertListNode* n = CERT_LIST_HEAD(candidates);
          !CERT_LIST_END(n, candidates); n = CERT_LIST_NEXT(n)) {
@@ -608,7 +633,6 @@ Result NSSCertDBTrustDomain::CheckRevocation(
         ResponseWasStapled, expired);
     if (stapledOCSPResponseResult == Success) {
       // stapled OCSP response present and good
-      mOCSPStaplingStatus = CertVerifier::OCSP_STAPLING_GOOD;
       MOZ_LOG(gCertVerifierLog, LogLevel::Debug,
               ("NSSCertDBTrustDomain: stapled OCSP response: good"));
       return Success;
@@ -616,7 +640,6 @@ Result NSSCertDBTrustDomain::CheckRevocation(
     if (stapledOCSPResponseResult == Result::ERROR_OCSP_OLD_RESPONSE ||
         expired) {
       // stapled OCSP response present but expired
-      mOCSPStaplingStatus = CertVerifier::OCSP_STAPLING_EXPIRED;
       MOZ_LOG(gCertVerifierLog, LogLevel::Debug,
               ("NSSCertDBTrustDomain: expired stapled OCSP response"));
     } else if (stapledOCSPResponseResult ==
@@ -626,20 +649,17 @@ Result NSSCertDBTrustDomain::CheckRevocation(
       // Stapled OCSP response present but invalid for a small number of reasons
       // CAs/servers commonly get wrong. This will be treated similarly to an
       // expired stapled response.
-      mOCSPStaplingStatus = CertVerifier::OCSP_STAPLING_INVALID;
       MOZ_LOG(gCertVerifierLog, LogLevel::Debug,
               ("NSSCertDBTrustDomain: stapled OCSP response: "
                "failure (whitelisted for compatibility)"));
     } else {
       // stapled OCSP response present but invalid for some reason
-      mOCSPStaplingStatus = CertVerifier::OCSP_STAPLING_INVALID;
       MOZ_LOG(gCertVerifierLog, LogLevel::Debug,
               ("NSSCertDBTrustDomain: stapled OCSP response: failure"));
       return stapledOCSPResponseResult;
     }
   } else if (endEntityOrCA == EndEntityOrCA::MustBeEndEntity) {
     // no stapled OCSP response
-    mOCSPStaplingStatus = CertVerifier::OCSP_STAPLING_NONE;
     MOZ_LOG(gCertVerifierLog, LogLevel::Debug,
             ("NSSCertDBTrustDomain: no stapled OCSP response"));
   }
@@ -1030,7 +1050,7 @@ Result NSSCertDBTrustDomain::IsChainValid(const DERArray& certArray, Time time,
     bool chainHasValidPins;
     nsrv = PublicKeyPinningService::ChainHasValidPins(
         nssCertList, mHostname, time, enforceTestMode, mOriginAttributes,
-        chainHasValidPins, mPinningTelemetryInfo);
+        chainHasValidPins);
     if (NS_FAILED(nsrv)) {
       return Result::FATAL_ERROR_LIBRARY_FAILURE;
     }
@@ -1219,7 +1239,6 @@ Result NSSCertDBTrustDomain::NetscapeStepUpMatchesServerAuth(
 }
 
 void NSSCertDBTrustDomain::ResetAccumulatedState() {
-  mOCSPStaplingStatus = CertVerifier::OCSP_STAPLING_NEVER_CHECKED;
   mSCTListFromOCSPStapling = nullptr;
   mSCTListFromCertificate = nullptr;
   mSawDistrustedCAByPolicyError = false;

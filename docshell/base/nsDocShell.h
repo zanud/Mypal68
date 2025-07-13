@@ -5,21 +5,32 @@
 #ifndef nsDocShell_h__
 #define nsDocShell_h__
 
+#include <utility>
+
+#include "GeckoProfiler.h"
+#include "Units.h"
+#include "jsapi.h"
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/HalScreenConfiguration.h"
 #include "mozilla/LinkedList.h"
 #include "mozilla/Maybe.h"
-#include "mozilla/Move.h"
+#include "mozilla/ObservedDocShell.h"
+#include "mozilla/ScrollbarPreferences.h"
 #include "mozilla/StaticPrefs_browser.h"
 #include "mozilla/TimeStamp.h"
+#include "mozilla/TimelineConsumers.h"
+#include "mozilla/TimelineMarker.h"
 #include "mozilla/UniquePtr.h"
 #include "mozilla/WeakPtr.h"
-
 #include "mozilla/dom/BrowsingContext.h"
+#include "mozilla/dom/ChildSHistory.h"
 #include "mozilla/dom/ProfileTimelineMarkerBinding.h"
 #include "mozilla/gfx/Matrix.h"
-#include "mozilla/dom/ChildSHistory.h"
-
+#include "nsCOMPtr.h"
+#include "nsCRT.h"
+#include "nsCharsetSource.h"
+#include "nsContentUtils.h"
+#include "nsDocLoader.h"
 #include "nsIAuthPromptProvider.h"
 #include "nsIBaseWindow.h"
 #include "nsIDeprecationWarner.h"
@@ -35,28 +46,11 @@
 #include "nsIWebNavigation.h"
 #include "nsIWebPageDescriptor.h"
 #include "nsIWebProgressListener.h"
-
-#include "nsAutoPtr.h"
-#include "nsCharsetSource.h"
-#include "nsCOMPtr.h"
-#include "nsContentPolicyUtils.h"
-#include "nsContentUtils.h"
-#include "nsCRT.h"
-#include "nsDocLoader.h"
 #include "nsPoint.h"  // mCurrent/mDefaultScrollbarPreferences
 #include "nsRect.h"
 #include "nsString.h"
 #include "nsThreadUtils.h"
-
-#include "GeckoProfiler.h"
-#include "jsapi.h"
 #include "prtime.h"
-#include "Units.h"
-
-#include "mozilla/ObservedDocShell.h"
-#include "mozilla/ScrollbarPreferences.h"
-#include "mozilla/TimelineConsumers.h"
-#include "mozilla/TimelineMarker.h"
 
 // Interfaces Needed
 
@@ -312,8 +306,6 @@ class nsDocShell final : public nsDocLoader,
   NS_IMETHOD SetPrivateBrowsing(bool) override;
   NS_IMETHOD GetUseRemoteTabs(bool*) override;
   NS_IMETHOD SetRemoteTabs(bool) override;
-  NS_IMETHOD GetUseRemoteSubframes(bool*) override;
-  NS_IMETHOD SetRemoteSubframes(bool) override;
   NS_IMETHOD GetScriptableOriginAttributes(
       JSContext*, JS::MutableHandle<JS::Value>) override;
   NS_IMETHOD_(void)
@@ -832,37 +824,6 @@ class nsDocShell final : public nsDocLoader,
   bool CanSavePresentation(uint32_t aLoadType, nsIRequest* aNewRequest,
                            mozilla::dom::Document* aNewDocument);
 
-  // There are 11 possible reasons to make a request fails to use BFCache
-  // (see BFCacheStatus in dom/base/Document.h), and we'd like to record
-  // the common combinations for reasons which make requests fail to use
-  // BFCache. These combinations are generated based on some local browsings,
-  // we need to adjust them when necessary.
-  enum BFCacheStatusCombo : uint16_t {
-    BFCACHE_SUCCESS,
-    UNLOAD = mozilla::dom::BFCacheStatus::UNLOAD_LISTENER,
-    UNLOAD_REQUEST = mozilla::dom::BFCacheStatus::UNLOAD_LISTENER |
-                     mozilla::dom::BFCacheStatus::REQUEST,
-    REQUEST = mozilla::dom::BFCacheStatus::REQUEST,
-    UNLOAD_REQUEST_PEER = mozilla::dom::BFCacheStatus::UNLOAD_LISTENER |
-                          mozilla::dom::BFCacheStatus::REQUEST |
-                          mozilla::dom::BFCacheStatus::ACTIVE_PEER_CONNECTION,
-    UNLOAD_REQUEST_PEER_MSE =
-        mozilla::dom::BFCacheStatus::UNLOAD_LISTENER |
-        mozilla::dom::BFCacheStatus::REQUEST |
-        mozilla::dom::BFCacheStatus::ACTIVE_PEER_CONNECTION |
-        mozilla::dom::BFCacheStatus::CONTAINS_MSE_CONTENT,
-    UNLOAD_REQUEST_MSE = mozilla::dom::BFCacheStatus::UNLOAD_LISTENER |
-                         mozilla::dom::BFCacheStatus::REQUEST |
-                         mozilla::dom::BFCacheStatus::CONTAINS_MSE_CONTENT,
-    SUSPENDED_UNLOAD_REQUEST_PEER =
-        mozilla::dom::BFCacheStatus::SUSPENDED |
-        mozilla::dom::BFCacheStatus::UNLOAD_LISTENER |
-        mozilla::dom::BFCacheStatus::REQUEST |
-        mozilla::dom::BFCacheStatus::ACTIVE_PEER_CONNECTION,
-  };
-
-  void ReportBFCacheComboTelemetry(uint16_t aCombo);
-
   // Captures the state of the supporting elements of the presentation
   // (the "window" object, docshell tree, meta-refresh loads, and security
   // state) and stores them on |mOSHE|.
@@ -1000,12 +961,6 @@ class nsDocShell final : public nsDocLoader,
 
   already_AddRefed<mozilla::dom::ChildSHistory> GetRootSessionHistory();
 
-  inline bool UseErrorPages() {
-    return (mObserveErrorPages
-                ? mozilla::StaticPrefs::browser_xul_error_pages_enabled()
-                : mUseErrorPages);
-  }
-
   bool CSSErrorReportingEnabled() const { return mCSSErrorReportingEnabled; }
 
   // Handles retrieval of subframe session history for nsDocShell::LoadURI. If a
@@ -1117,7 +1072,7 @@ class nsDocShell final : public nsDocLoader,
   nsRevocableEventPtr<RestorePresentationEvent> mRestorePresentationEvent;
 
   // Editor data, if this document is designMode or contentEditable.
-  nsAutoPtr<nsDocShellEditorData> mEditorData;
+  mozilla::UniquePtr<nsDocShellEditorData> mEditorData;
 
   // Secure browser UI object
   nsCOMPtr<nsISecureBrowserUI> mSecurityUI;
@@ -1249,8 +1204,6 @@ class nsDocShell final : public nsDocLoader,
   bool mAllowContentRetargeting : 1;
   bool mAllowContentRetargetingOnChildren : 1;
   bool mUseErrorPages : 1;
-  bool mUseStrictSecurityChecks : 1;
-  bool mObserveErrorPages : 1;
   bool mCSSErrorReportingEnabled : 1;
   bool mAllowAuth : 1;
   bool mAllowKeywordFixup : 1;
@@ -1260,7 +1213,6 @@ class nsDocShell final : public nsDocLoader,
   bool mIsAppTab : 1;
   bool mUseGlobalHistory : 1;
   bool mUseRemoteTabs : 1;
-  bool mUseRemoteSubframes : 1;
   bool mUseTrackingProtection : 1;
   bool mDeviceSizeIsPageSize : 1;
   bool mWindowDraggingAllowed : 1;

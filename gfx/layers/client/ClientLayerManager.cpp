@@ -278,7 +278,7 @@ bool ClientLayerManager::EndTransactionInternal(
   }
 
   PaintTelemetry::AutoRecord record(PaintTelemetry::Metric::Rasterization);
-  AUTO_PROFILER_TRACING("Paint", "Rasterize", GRAPHICS);
+  AUTO_PROFILER_TRACING_MARKER("Paint", "Rasterize", GRAPHICS);
 
   Maybe<TimeStamp> startTime;
   if (StaticPrefs::layers_acceleration_draw_fps()) {
@@ -665,7 +665,7 @@ void ClientLayerManager::StopFrameTimeRecording(
 }
 
 void ClientLayerManager::ForwardTransaction(bool aScheduleComposite) {
-  AUTO_PROFILER_TRACING("Paint", "ForwardTransaction", GRAPHICS);
+  AUTO_PROFILER_TRACING_MARKER("Paint", "ForwardTransaction", GRAPHICS);
   TimeStamp start = TimeStamp::Now();
 
   // Skip the synchronization for buffer since we also skip the painting during

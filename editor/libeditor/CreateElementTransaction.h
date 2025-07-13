@@ -8,7 +8,6 @@
 #include "mozilla/EditorDOMPoint.h"
 #include "mozilla/EditTransactionBase.h"
 #include "mozilla/RefPtr.h"
-#include "mozilla/dom/Element.h"
 #include "nsCycleCollectionParticipant.h"
 #include "nsISupportsImpl.h"
 
@@ -18,6 +17,9 @@ class nsAtom;
  * A transaction that creates a new node in the content tree.
  */
 namespace mozilla {
+namespace dom {
+class Element;
+}
 
 class EditorBase;
 

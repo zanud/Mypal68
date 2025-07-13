@@ -10,7 +10,6 @@
 #include "EnterpriseRoots.h"
 #include "ScopedNSSTypes.h"
 #include "SharedCertVerifier.h"
-#include "mozilla/Attributes.h"
 #include "mozilla/Monitor2.h"
 #include "mozilla/Mutex.h"
 #include "mozilla/RefPtr.h"
@@ -33,9 +32,9 @@ class SmartCardThreadList;
 namespace mozilla {
 namespace psm {
 
-MOZ_MUST_USE
-::already_AddRefed<mozilla::psm::SharedCertVerifier> GetDefaultCertVerifier();
-UniqueCERTCertList FindNonCACertificatesWithPrivateKeys();
+[[nodiscard]] ::already_AddRefed<mozilla::psm::SharedCertVerifier>
+GetDefaultCertVerifier();
+UniqueCERTCertList FindClientCertificatesWithPrivateKeys();
 
 }  // namespace psm
 }  // namespace mozilla
@@ -72,6 +71,8 @@ class nsNSSComponent final : public nsINSSComponent, public nsIObserver {
   static void FillTLSVersionRange(SSLVersionRange& rangeOut,
                                   uint32_t minFromPrefs, uint32_t maxFromPrefs,
                                   SSLVersionRange defaults);
+
+  static void ClearSSLExternalAndInternalSessionCacheNative();
 
  protected:
   virtual ~nsNSSComponent();

@@ -26,6 +26,10 @@ class nsIFrame;
 class nsAtom;
 class nsIPersistentProperties;
 
+namespace mozilla::dom {
+class Element;
+}
+
 namespace mozilla {
 namespace a11y {
 
@@ -161,7 +165,7 @@ class Accessible : public nsISupports {
   virtual nsINode* GetNode() const;
 
   nsIContent* GetContent() const { return mContent; }
-  dom::Element* Elm() const { return dom::Element::FromNodeOrNull(mContent); }
+  dom::Element* Elm() const;
 
   /**
    * Return node type information of DOM node associated with the accessible.

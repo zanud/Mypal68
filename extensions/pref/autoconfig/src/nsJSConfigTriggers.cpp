@@ -12,9 +12,11 @@
 #include "mozilla/Attributes.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/NullPrincipal.h"
+#include "mozilla/dom/ScriptSettings.h"
 #include "nsContentUtils.h"
 #include "nsJSPrincipals.h"
 #include "nsIScriptError.h"
+#include "js/PropertyAndElement.h"  // JS_DefineProperty
 #include "js/Wrapper.h"
 #include "mozilla/Utf8.h"
 

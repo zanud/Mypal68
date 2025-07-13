@@ -206,13 +206,8 @@ this.management = class extends ExtensionAPI {
             },
           };
 
-          let telemetryInfo = {
-            source: "extension",
-            method: "management-webext-api",
-          };
           let install = await AddonManager.getInstallForURL(url, {
             hash,
-            telemetryInfo,
             triggeringPrincipal: extension.principal,
           });
           install.addListener(listener);

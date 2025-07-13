@@ -39,12 +39,4 @@ void StartupTimeline::RecordOnce(Event ev) {
   }
 
   Record(ev);
-
-  // Record first paint timestamp as a scalar.
-  if (ev == FIRST_PAINT) {
-    bool error = false;
-    uint32_t firstPaintTime =
-        (uint32_t)(Get(ev) - TimeStamp::ProcessCreation(&error))
-            .ToMilliseconds();
-  }
 }

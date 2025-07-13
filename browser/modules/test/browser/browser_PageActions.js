@@ -1512,8 +1512,6 @@ add_task(async function removeRetainState() {
 // Opens the context menu on a non-built-in action.  (The context menu for
 // built-in actions is tested in browser_page_action_menu.js.)
 add_task(async function contextMenu() {
-  Services.telemetry.clearEvents();
-
   // Add a test action.
   let action = PageActions.addAction(
     new PageActions.Action({
@@ -1748,11 +1746,6 @@ add_task(async function contextMenu() {
   // Done, clean up.
   action.remove();
 
-  // Check the telemetry was collected properly.
-  let snapshot = Services.telemetry.snapshotEvents(
-    Ci.nsITelemetry.DATASET_PRERELEASE_CHANNELS,
-    true
-  );
   ok(
     snapshot.parent && snapshot.parent.length > 0,
     "Got parent telemetry events in the snapshot"

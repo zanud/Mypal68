@@ -397,10 +397,6 @@ var AddonTestUtils = {
       "extensions.blocklist.url",
       "http://127.0.0.1/blocklistURL"
     );
-    Services.prefs.setCharPref(
-      "services.settings.server",
-      "http://localhost/dummy-kinto/v1"
-    );
 
     // By default ignore bundled add-ons
     Services.prefs.setBoolPref("extensions.installDistroAddons", false);

@@ -227,7 +227,7 @@ class MOZ_STACK_CLASS gfxOTSContext : public ots::OTSContext {
     va_start(va, format);
 
     nsCString msg;
-    msg.AppendPrintf(format, va);
+    msg.AppendVprintf(format, va);
 
     va_end(va);
 

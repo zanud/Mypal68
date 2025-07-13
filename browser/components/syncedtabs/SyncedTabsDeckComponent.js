@@ -105,7 +105,7 @@ SyncedTabsDeckComponent.prototype = {
 
     // Add app locale change support for HTML sidebar
     Services.obs.addObserver(this, "intl:app-locales-changed");
-    Services.prefs.addObserver("intl.uidirection", this);
+    Services.prefs.addObserver("intl.l10n.pseudo", this);
     this.updateDir();
 
     // Go ahead and trigger sync
@@ -132,7 +132,7 @@ SyncedTabsDeckComponent.prototype = {
     Services.obs.removeObserver(this, "weave:service:login:change");
     Services.obs.removeObserver(this, "weave:service:ready");
     Services.obs.removeObserver(this, "intl:app-locales-changed");
-    Services.prefs.removeObserver("intl.uidirection", this);
+    Services.prefs.removeObserver("intl.l10n.pseudo", this);
     this._deckView.destroy();
   },
 
@@ -153,7 +153,7 @@ SyncedTabsDeckComponent.prototype = {
         this.updateDir();
         break;
       case "nsPref:changed":
-        if (data == "intl.uidirection") {
+        if (data == "intl.l10n.pseudo") {
           this.updateDir();
         }
         break;

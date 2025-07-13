@@ -47,6 +47,7 @@ class ContentParent;
 class Element;
 template <typename>
 struct Nullable;
+enum class OrientationType : uint8_t; //MY
 template <typename T>
 class Sequence;
 struct WindowPostMessageOptions;
@@ -180,6 +181,20 @@ class BrowsingContext : public nsWrapperCache, public BrowsingContextBase {
   void GetChildren(Children& aChildren);
 
   BrowsingContextGroup* Group() { return mGroup; }
+
+  bool InRDMPane() { return mInRDMPane; }
+
+  // ScreenOrientation related APIs
+  void SetCurrentOrientation(OrientationType aType, float aAngle) {
+    SetCurrentOrientationType(aType);
+    SetCurrentOrientationAngle(aAngle);
+  }
+
+  void SetRDMPaneOrientation(OrientationType aType, float aAngle) {
+    if (mInRDMPane) {
+      SetCurrentOrientation(aType, aAngle);
+    }
+  }
 
   // Using the rules for choosing a browsing context we try to find
   // the browsing context with the given name in the set of
@@ -363,6 +378,9 @@ class BrowsingContext : public nsWrapperCache, public BrowsingContextBase {
       IPCInitializer&& aInitializer, BrowsingContextGroup* aGroup,
       ContentParent* aOriginProcess);
 
+  // Performs access control to check that 'this' can access 'aTarget'.
+  bool CanAccess(BrowsingContext* aTarget, bool aConsiderOpener = true);
+
  protected:
   virtual ~BrowsingContext();
   BrowsingContext(BrowsingContext* aParent, BrowsingContextGroup* aGroup,
@@ -379,9 +397,6 @@ class BrowsingContext : public nsWrapperCache, public BrowsingContextBase {
   // 'aRequestingContext'.
   BrowsingContext* FindWithNameInSubtree(const nsAString& aName,
                                          BrowsingContext* aRequestingContext);
-
-  // Performs access control to check that 'this' can access 'aContext'.
-  bool CanAccess(BrowsingContext* aContext);
 
   bool IsActive() const;
 

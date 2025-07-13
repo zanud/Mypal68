@@ -12,14 +12,10 @@ const kSearchEngineURL = "http://example.com/?search={searchTerms}";
 
 add_task(async function setup() {
   // Add a new fake search engine.
-  await Services.search.addEngineWithDetails(
-    kSearchEngineID,
-    "",
-    "",
-    "",
-    "get",
-    kSearchEngineURL
-  );
+  await Services.search.addEngineWithDetails(kSearchEngineID, {
+    method: "get",
+    template: kSearchEngineURL,
+  });
 
   let oldDefaultEngine = await Services.search.getDefault();
   await Services.search.setDefault(

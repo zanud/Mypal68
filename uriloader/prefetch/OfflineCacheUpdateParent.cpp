@@ -69,7 +69,7 @@ void OfflineCacheUpdateParent::ActorDestroy(ActorDestroyReason why) {
 }
 
 nsresult OfflineCacheUpdateParent::Schedule(
-    const URIParams& aManifestURI, const URIParams& aDocumentURI,
+    nsIURI* aManifestURI, nsIURI* aDocumentURI,
     const PrincipalInfo& aLoadingPrincipalInfo, const bool& stickDocument,
     const CookieSettingsArgs& aCookieSettingsArgs) {
   LOG(("OfflineCacheUpdateParent::RecvSchedule [%p]", this));
@@ -77,41 +77,48 @@ nsresult OfflineCacheUpdateParent::Schedule(
   nsresult rv;
 
   RefPtr<nsOfflineCacheUpdate> update;
-  nsCOMPtr<nsIURI> manifestURI = DeserializeURI(aManifestURI);
-  if (!manifestURI) return NS_ERROR_FAILURE;
+  if (!aManifestURI) {
+    return NS_ERROR_FAILURE;
+  }
 
   mLoadingPrincipal = PrincipalInfoToPrincipal(aLoadingPrincipalInfo, &rv);
   NS_ENSURE_SUCCESS(rv, rv);
 
   nsOfflineCacheUpdateService* service =
       nsOfflineCacheUpdateService::EnsureService();
-  if (!service) return NS_ERROR_FAILURE;
+  if (!service) {
+    return NS_ERROR_FAILURE;
+  }
 
   bool offlinePermissionAllowed = false;
 
   rv = service->OfflineAppAllowed(mLoadingPrincipal, &offlinePermissionAllowed);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  if (!offlinePermissionAllowed) return NS_ERROR_DOM_SECURITY_ERR;
-
-  nsCOMPtr<nsIURI> documentURI = DeserializeURI(aDocumentURI);
-  if (!documentURI) return NS_ERROR_FAILURE;
-
-  if (!NS_SecurityCompareURIs(manifestURI, documentURI, false))
+  if (!offlinePermissionAllowed) {
     return NS_ERROR_DOM_SECURITY_ERR;
+  }
+
+  if (!aDocumentURI) {
+    return NS_ERROR_FAILURE;
+  }
+
+  if (!NS_SecurityCompareURIs(aManifestURI, aDocumentURI, false)) {
+    return NS_ERROR_DOM_SECURITY_ERR;
+  }
 
   nsAutoCString originSuffix;
   rv = mLoadingPrincipal->GetOriginSuffix(originSuffix);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  service->FindUpdate(manifestURI, originSuffix, nullptr,
+  service->FindUpdate(aManifestURI, originSuffix, nullptr,
                       getter_AddRefs(update));
   if (!update) {
     update = new nsOfflineCacheUpdate();
 
     // Leave aDocument argument null. Only glues and children keep
     // document instances.
-    rv = update->Init(manifestURI, documentURI, mLoadingPrincipal, nullptr,
+    rv = update->Init(aManifestURI, aDocumentURI, mLoadingPrincipal, nullptr,
                       nullptr);
     NS_ENSURE_SUCCESS(rv, rv);
 
@@ -128,7 +135,7 @@ nsresult OfflineCacheUpdateParent::Schedule(
   }
 
   if (stickDocument) {
-    update->StickDocument(documentURI);
+    update->StickDocument(aDocumentURI);
   }
 
   return NS_OK;
@@ -137,7 +144,9 @@ nsresult OfflineCacheUpdateParent::Schedule(
 NS_IMETHODIMP
 OfflineCacheUpdateParent::UpdateStateChanged(nsIOfflineCacheUpdate* aUpdate,
                                              uint32_t state) {
-  if (mIPCClosed) return NS_ERROR_UNEXPECTED;
+  if (mIPCClosed) {
+    return NS_ERROR_UNEXPECTED;
+  }
 
   LOG(("OfflineCacheUpdateParent::StateEvent [%p]", this));
 
@@ -163,7 +172,9 @@ OfflineCacheUpdateParent::UpdateStateChanged(nsIOfflineCacheUpdate* aUpdate,
 NS_IMETHODIMP
 OfflineCacheUpdateParent::ApplicationCacheAvailable(
     nsIApplicationCache* aApplicationCache) {
-  if (mIPCClosed) return NS_ERROR_UNEXPECTED;
+  if (mIPCClosed) {
+    return NS_ERROR_UNEXPECTED;
+  }
 
   NS_ENSURE_ARG(aApplicationCache);
 
@@ -227,16 +238,6 @@ OfflineCacheUpdateParent::GetUseRemoteTabs(bool* aUseRemoteTabs) {
 
 NS_IMETHODIMP
 OfflineCacheUpdateParent::SetRemoteTabs(bool aUseRemoteTabs) {
-  return NS_ERROR_NOT_IMPLEMENTED;
-}
-
-NS_IMETHODIMP
-OfflineCacheUpdateParent::GetUseRemoteSubframes(bool* aUseRemoteSubframes) {
-  return NS_ERROR_NOT_IMPLEMENTED;
-}
-
-NS_IMETHODIMP
-OfflineCacheUpdateParent::SetRemoteSubframes(bool aUseRemoteSubframes) {
   return NS_ERROR_NOT_IMPLEMENTED;
 }
 

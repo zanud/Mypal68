@@ -487,15 +487,32 @@ function add_simple_tests() {
       ),
       "IDN certificate should have matching override using ascii host"
     );
-    Assert.ok(
-      !certOverrideService.hasMatchingOverride(
-        uri.displayHost,
-        8443,
-        cert,
-        {},
-        {}
-      ),
+    Assert.throws(
+      () =>
+        !certOverrideService.hasMatchingOverride(
+          uri.displayHost,
+          8443,
+          cert,
+          {},
+          {}
+        ),
+      /NS_ERROR_ILLEGAL_VALUE/,
       "IDN certificate should not have matching override using (non-ascii) host"
+    );
+    let invalidHost = uri.asciiHost.replace(/./g, c =>
+      String.fromCharCode(c.charCodeAt(0) | 0x100)
+    );
+    Assert.throws(
+      () =>
+        !certOverrideService.hasMatchingOverride(
+          invalidHost,
+          8443,
+          cert,
+          {},
+          {}
+        ),
+      /NS_ERROR_ILLEGAL_VALUE/,
+      "hasMatchingOverride should not truncate high-bytes"
     );
     run_next_test();
   });

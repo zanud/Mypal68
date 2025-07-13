@@ -4,6 +4,8 @@
 
 #include "Variant.h"
 
+#include "nsCOMPtr.h"
+
 extern "C" {
 
 using namespace mozilla::storage;

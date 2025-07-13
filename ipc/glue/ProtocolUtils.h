@@ -512,9 +512,9 @@ class IToplevelProtocol : public IProtocol {
   already_AddRefed<nsISerialEventTarget> GetMessageEventTarget(
       const Message& aMsg);
 
- private:
   base::ProcessId OtherPidMaybeInvalid() const { return mOtherPid; }
 
+ private:
   int32_t NextId();
 
   template <class T>
@@ -582,11 +582,6 @@ inline bool LoggingEnabledFor(const char* aTopLevelProtocol) {
   return false;
 #endif
 }
-
-enum class MessageDirection {
-  eSending,
-  eReceiving,
-};
 
 MOZ_NEVER_INLINE void LogMessageForProtocol(const char* aTopLevelProtocol,
                                             base::ProcessId aOtherPid,

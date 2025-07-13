@@ -20,7 +20,7 @@ class nsPKCS11Slot : public nsIPKCS11Slot {
   explicit nsPKCS11Slot(PK11SlotInfo* slot);
 
  protected:
-  virtual ~nsPKCS11Slot() {}
+  virtual ~nsPKCS11Slot() = default;
 
  private:
   mozilla::UniquePK11SlotInfo mSlot;
@@ -47,7 +47,7 @@ class nsPKCS11Module : public nsIPKCS11Module {
   explicit nsPKCS11Module(SECMODModule* module);
 
  protected:
-  virtual ~nsPKCS11Module() {}
+  virtual ~nsPKCS11Module() = default;
 
  private:
   mozilla::UniqueSECMODModule mModule;

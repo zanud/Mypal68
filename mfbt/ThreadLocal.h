@@ -21,14 +21,15 @@ __declspec(dllimport) int __stdcall TlsSetValue(unsigned long, void*);
 __declspec(dllimport) unsigned long __stdcall TlsAlloc();
 }
 #else
+#  if !defined(__wasi__)
 #  include <pthread.h>
+#  endif
 #endif
 
 #include <type_traits>
 
 #include "mozilla/Assertions.h"
 #include "mozilla/Attributes.h"
-#include "mozilla/TypeTraits.h"
 
 namespace mozilla {
 
@@ -132,6 +133,28 @@ class ThreadLocalKeyStorage {
   unsigned long mKey;
 };
 //#  endif
+#elif defined(__wasi__)
+// There are no threads on WASI, so we just use a global variable.
+template <typename T>
+class ThreadLocalKeyStorage {
+ public:
+  constexpr ThreadLocalKeyStorage() : mInited(false) {}
+
+  inline bool initialized() const { return mInited; }
+
+  inline void init() { mInited = true; }
+
+  inline T get() const { return mVal; }
+
+  inline bool set(const T aValue) {
+    mVal = aValue;
+    return true;
+  }
+
+ private:
+  bool mInited;
+  T mVal;
+};
 #else
 template <typename T>
 class ThreadLocalKeyStorage {
@@ -182,7 +205,7 @@ class ThreadLocalNativeStorage {
 template <typename T, template <typename U> class Storage>
 class ThreadLocal : public Storage<T> {
  public:
-  MOZ_MUST_USE inline bool init();
+  [[nodiscard]] inline bool init();
 
   void infallibleInit() {
     MOZ_RELEASE_ASSERT(init(), "Infallible TLS initialization failed");

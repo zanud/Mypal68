@@ -4,14 +4,10 @@
 add_task(async function() {
   const kSearchEngineID = "test_urifixup_search_engine";
   const kSearchEngineURL = "http://localhost/?search={searchTerms}";
-  await Services.search.addEngineWithDetails(
-    kSearchEngineID,
-    "",
-    "",
-    "",
-    "get",
-    kSearchEngineURL
-  );
+  await Services.search.addEngineWithDetails(kSearchEngineID, {
+    method: "get",
+    template: kSearchEngineURL,
+  });
 
   let oldDefaultEngine = await Services.search.getDefault();
   await Services.search.setDefault(

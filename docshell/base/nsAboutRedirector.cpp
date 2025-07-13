@@ -8,6 +8,7 @@
 #include "nsBaseChannel.h"
 #include "mozilla/ArrayUtils.h"
 #include "nsIProtocolHandler.h"
+#include "nsXULAppAPI.h"
 
 #if defined(MOZ_WIDGET_ANDROID) && defined(RELEASE_OR_BETA)
 #  define ABOUT_CONFIG_BLOCKED_GV

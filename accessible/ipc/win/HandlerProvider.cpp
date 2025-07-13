@@ -4,6 +4,10 @@
 
 #include "mozilla/a11y/HandlerProvider.h"
 
+#include <memory.h>
+
+#include <utility>
+
 #include "Accessible2_3.h"
 #include "AccessibleDocument.h"
 #include "AccessibleRelation.h"
@@ -13,10 +17,10 @@
 #include "HandlerData.h"
 #include "HandlerData_i.c"
 #include "mozilla/Assertions.h"
+#include "mozilla/UniquePtr.h"
 #include "mozilla/a11y/AccessibleWrap.h"
 #include "mozilla/a11y/HandlerDataCleanup.h"
 #include "mozilla/dom/ContentChild.h"
-#include "mozilla/Move.h"
 #include "mozilla/mscom/AgileReference.h"
 #include "mozilla/mscom/FastMarshaler.h"
 #include "mozilla/mscom/Interceptor.h"
@@ -25,11 +29,8 @@
 #include "mozilla/mscom/Ptr.h"
 #include "mozilla/mscom/StructStream.h"
 #include "mozilla/mscom/Utils.h"
-#include "mozilla/UniquePtr.h"
-#include "nsThreadUtils.h"
 #include "nsTArray.h"
-
-#include <memory.h>
+#include "nsThreadUtils.h"
 
 namespace mozilla {
 namespace a11y {

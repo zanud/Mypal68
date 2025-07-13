@@ -1,0 +1,3 @@
+#!/bin/sh
+
+echo "OpenBSD 6.2"

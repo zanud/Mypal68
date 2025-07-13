@@ -92,7 +92,7 @@ this.DateTimeInputBaseImplWidget = class {
     this.mIsRTL = false;
     let intlUtils = this.window.intlUtils;
     if (intlUtils) {
-      this.mIsRTL = intlUtils.getLocaleInfo(this.mLocales).direction === "rtl";
+      this.mIsRTL = intlUtils.isAppLocaleRTL();
     }
 
     if (this.mIsRTL) {
@@ -523,6 +523,10 @@ this.DateTimeInputBaseImplWidget = class {
     return this.mInputElement.hasAttribute("required");
   }
 
+  containingTree() {
+    return this.mInputElement.containingShadowRoot || this.document;
+  }
+
   handleEvent(aEvent) {
     this.log("handleEvent: " + aEvent.type);
 
@@ -589,7 +593,7 @@ this.DateTimeInputBaseImplWidget = class {
 
   onFocus(aEvent) {
     this.log("onFocus originalTarget: " + aEvent.originalTarget);
-    if (this.document.activeElement != this.mInputElement) {
+    if (this.containingTree().activeElement != this.mInputElement) {
       return;
     }
 

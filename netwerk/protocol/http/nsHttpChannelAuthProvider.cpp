@@ -7,6 +7,7 @@
 
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/Preferences.h"
+#include "mozilla/StoragePrincipalHelper.h"
 #include "nsHttpChannelAuthProvider.h"
 #include "nsNetUtil.h"
 #include "nsHttpHandler.h"
@@ -14,6 +15,7 @@
 #include "nsIHttpChannelInternal.h"
 #include "nsIAuthPrompt2.h"
 #include "nsIAuthPromptProvider.h"
+#include "nsIChannel.h" //MY
 #include "nsIInterfaceRequestor.h"
 #include "nsIInterfaceRequestorUtils.h"
 #include "nsEscape.h"
@@ -64,7 +66,8 @@ static void GetOriginAttributesSuffix(nsIChannel* aChan, nsACString& aSuffix) {
 
   // Deliberately ignoring the result and going with defaults
   if (aChan) {
-    NS_GetOriginAttributes(aChan, oa);
+    StoragePrincipalHelper::GetOriginAttributes(
+        aChan, oa, StoragePrincipalHelper::eRegularPrincipal);
   }
 
   oa.CreateSuffix(aSuffix);

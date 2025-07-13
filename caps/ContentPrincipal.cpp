@@ -146,7 +146,7 @@ nsresult ContentPrincipal::GenerateOriginNoSuffixFromURI(
        // sources. We check for moz-safe-about:blank since origin is an
        // innermost URI.
        !StringBeginsWith(origin->GetSpecOrDefault(),
-                         NS_LITERAL_CSTRING("moz-safe-about:blank")))) {
+                         "moz-safe-about:blank"_ns))) {
     rv = origin->GetAsciiSpec(aOriginNoSuffix);
     NS_ENSURE_SUCCESS(rv, rv);
 
@@ -330,7 +330,12 @@ bool ContentPrincipal::MayLoadInternal(nsIURI* aURI) {
 uint32_t ContentPrincipal::GetHashValue() {
   MOZ_ASSERT(mCodebase, "Need a codebase");
 
-  return nsScriptSecurityManager::HashPrincipalByOrigin(this);
+  nsCOMPtr<nsIURI> uri;
+  GetDomain(getter_AddRefs(uri));
+  if (!uri) {
+    GetURI(getter_AddRefs(uri));
+  };
+  return NS_SecurityHashURI(uri);
 }
 
 NS_IMETHODIMP

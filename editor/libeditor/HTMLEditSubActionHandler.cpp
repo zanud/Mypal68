@@ -5,6 +5,7 @@
 #include "HTMLEditor.h"
 
 #include <algorithm>
+#include <utility>
 
 #include "HTMLEditUtils.h"
 #include "WSRunObject.h"
@@ -17,7 +18,6 @@
 #include "mozilla/EditorUtils.h"
 #include "mozilla/InternalMutationEvent.h"
 #include "mozilla/MathAlgorithms.h"
-#include "mozilla/Move.h"
 #include "mozilla/OwningNonNull.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/RangeUtils.h"

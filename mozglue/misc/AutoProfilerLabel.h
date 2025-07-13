@@ -6,7 +6,7 @@
 #define mozilla_AutoProfilerLabel_h
 
 #include "mozilla/Attributes.h"
-#include "mozilla/GuardObjects.h"
+#include "mozilla/Tuple.h"
 #include "mozilla/Types.h"
 
 // The Gecko Profiler defines AutoProfilerLabel, an RAII class for
@@ -40,17 +40,26 @@ MFBT_API void RegisterProfilerLabelEnterExit(ProfilerLabelEnter aEnter,
 
 class MOZ_RAII AutoProfilerLabel {
  public:
-  AutoProfilerLabel(const char* aLabel,
-                    const char* aDynamicString MOZ_GUARD_OBJECT_NOTIFIER_PARAM);
+  AutoProfilerLabel(const char* aLabel, const char* aDynamicString);
   ~AutoProfilerLabel();
 
  private:
-  MOZ_DECL_USE_GUARD_OBJECT_NOTIFIER
   void* mEntryContext;
   // Number of RegisterProfilerLabelEnterExit calls, to avoid giving an entry
   // context from one generation to the next.
   uint32_t mGeneration;
 };
+
+using ProfilerLabel = Tuple<void*, uint32_t>;
+
+bool IsProfilerPresent();
+ProfilerLabel ProfilerLabelBegin(const char* aLabelName,
+                                 const char* aDynamicString, void* aSp);
+void ProfilerLabelEnd(const ProfilerLabel& aLabel);
+
+inline bool IsValidProfilerLabel(const ProfilerLabel& aLabel) {
+  return !!Get<0>(aLabel);
+}
 
 #endif
 

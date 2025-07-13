@@ -5,6 +5,7 @@
 #include "DelayHttpChannelQueue.h"
 #include "mozilla/Services.h"
 #include "mozilla/StaticPtr.h"
+#include "nsIObserverService.h"
 
 using namespace mozilla;
 using namespace mozilla::net;

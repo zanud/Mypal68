@@ -1,17 +1,23 @@
+# Any copyright is dedicated to the Public Domain.
+# http://creativecommons.org/publicdomain/zero/1.0/
+
+from __future__ import absolute_import, print_function
 import lldb
 from lldbutils import utils
-from __future__ import print_function
+
 
 def summarize_string(valobj, internal_dict):
     data = valobj.GetChildMemberWithName("mData")
     length = valobj.GetChildMemberWithName("mLength").GetValueAsUnsigned(0)
     return utils.format_string(data, length)
 
+
 def summarize_atom(valobj, internal_dict):
     target = lldb.debugger.GetSelectedTarget()
     length = valobj.GetChildMemberWithName("mLength").GetValueAsUnsigned()
     string = target.EvaluateExpression("(char16_t*)%s.GetUTF16String()" % valobj.GetName())
     return utils.format_string(string, length)
+
 
 class TArraySyntheticChildrenProvider:
     def __init__(self, valobj, internal_dict):
@@ -30,7 +36,9 @@ class TArraySyntheticChildrenProvider:
             index = int(name)
             if index >= self.num_children():
                 return None
-        except:
+        # Ideally we'd use the exception type, but it's unclear what that is
+        # without knowing how to trigger the original exception.
+        except:  # NOQA: E501
             pass
         return None
 
@@ -39,6 +47,7 @@ class TArraySyntheticChildrenProvider:
             return None
         addr = self.element_base_addr + index * self.element_size
         return self.valobj.CreateValueFromAddress("[%d]" % index, addr, self.element_type)
+
 
 def prefcnt(debugger, command, result, dict):
     """Displays the refcount of an object."""
@@ -65,7 +74,11 @@ def prefcnt(debugger, command, result, dict):
     elif refcnt_type == "nsCycleCollectingAutoRefCnt":
         print(field.GetChildMemberWithName("mRefCntAndFlags").GetValueAsUnsigned(0) >> 2)
     elif refcnt_type == "mozilla::ThreadSafeAutoRefCnt":
-        print(field.GetChildMemberWithName("mValue").GetChildMemberWithName("mValue").GetValueAsUnsigned(0))
+        print(
+            field.GetChildMemberWithName("mValue")
+            .GetChildMemberWithName("mValue")
+            .GetValueAsUnsigned(0)
+        )
     elif refcnt_type == "int":  # non-atomic mozilla::RefCounted object
         print(field.GetValueAsUnsigned(0))
     elif refcnt_type == "mozilla::Atomic<int>":  # atomic mozilla::RefCounted object
@@ -73,10 +86,11 @@ def prefcnt(debugger, command, result, dict):
     else:
         print("unknown mRefCnt type " + refcnt_type)
 
+
 # Used to work around http://llvm.org/bugs/show_bug.cgi?id=22211
 def callfunc(debugger, command, result, dict):
-    """Calls a function for which debugger information is unavailable by getting its address from the symbol table.
-       The function is assumed to return void."""
+    """Calls a function for which debugger information is unavailable by getting its address
+       from the symbol table.  The function is assumed to return void."""
 
     if '(' not in command:
         print('Usage: callfunc your_function(args)')
@@ -96,7 +110,10 @@ def callfunc(debugger, command, result, dict):
     arg_types = '()'
     if sym.name and sym.name.startswith(funcname + '('):
         arg_types = sym.name[len(funcname):]
-    debugger.HandleCommand('print ((void(*)%s)0x%0x)(%s' % (arg_types, sym.addr.GetLoadAddress(target), args))
+    debugger.HandleCommand(
+        "print ((void(*)%s)0x%0x)(%s" % (arg_types, sym.addr.GetLoadAddress(target), args)
+    )
+
 
 def init(debugger):
     debugger.HandleCommand("type summary add nsAString -F lldbutils.general.summarize_string")
@@ -106,8 +123,18 @@ def init(debugger):
     debugger.HandleCommand("type summary add nsAutoString -F lldbutils.general.summarize_string")
     debugger.HandleCommand("type summary add nsAutoCString -F lldbutils.general.summarize_string")
     debugger.HandleCommand("type summary add nsAtom -F lldbutils.general.summarize_atom")
-    debugger.HandleCommand("type synthetic add -x \"nsTArray<\" -l lldbutils.general.TArraySyntheticChildrenProvider")
-    debugger.HandleCommand("type synthetic add -x \"AutoTArray<\" -l lldbutils.general.TArraySyntheticChildrenProvider")
-    debugger.HandleCommand("type synthetic add -x \"FallibleTArray<\" -l lldbutils.general.TArraySyntheticChildrenProvider")
-    debugger.HandleCommand("command script add -f lldbutils.general.prefcnt -f lldbutils.general.prefcnt prefcnt")
-    debugger.HandleCommand("command script add -f lldbutils.general.callfunc -f lldbutils.general.callfunc callfunc")
+    debugger.HandleCommand(
+        "type synthetic add -x \"nsTArray<\" -l lldbutils.general.TArraySyntheticChildrenProvider"
+    )
+    debugger.HandleCommand(
+        "type synthetic add -x \"AutoTArray<\" -l lldbutils.general.TArraySyntheticChildrenProvider"  # NOQA: E501
+    )
+    debugger.HandleCommand(
+        "type synthetic add -x \"FallibleTArray<\" -l lldbutils.general.TArraySyntheticChildrenProvider"  # NOQA: E501
+    )
+    debugger.HandleCommand(
+        "command script add -f lldbutils.general.prefcnt -f lldbutils.general.prefcnt prefcnt"
+    )
+    debugger.HandleCommand(
+        "command script add -f lldbutils.general.callfunc -f lldbutils.general.callfunc callfunc"
+    )

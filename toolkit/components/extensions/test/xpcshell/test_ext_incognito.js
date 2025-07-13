@@ -134,10 +134,6 @@ add_task(async function test_extension_incognito_spanning_grandfathered() {
 
   // Turn on incognito support and update the browser.
   Services.prefs.setBoolPref("extensions.allowPrivateBrowsingByDefault", false);
-  // Disable the addonsManager telemetry event category, to ensure that it will
-  // be enabled automatically during the AddonManager/XPIProvider startup and
-  // the telemetry event recorded (See Bug 1540112 for a rationale).
-  Services.telemetry.setEventRecordingEnabled("addonsManager", false);
   await AddonTestUtils.promiseRestartManager("2");
   await wrapper.awaitStartup();
 

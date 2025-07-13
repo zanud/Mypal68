@@ -289,9 +289,6 @@ var ContentSearch = {
       };
       win.openTrustedLinkIn(submission.uri.spec, where, params);
     }
-    win.BrowserSearch.recordSearchInTelemetry(engine, data.healthReportKey, {
-      selection: data.selection,
-    });
   },
 
   async getSuggestions(engineName, searchString, browser) {

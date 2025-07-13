@@ -141,11 +141,6 @@ class AsyncTabSwitcher {
     // re-entrancy guard:
     this._processing = false;
 
-    // For telemetry, keeps track of what most recently cleared
-    // the loadTimer, which can tell us something about the cause
-    // of tab switch spinners.
-    this._loadTimerClearedBy = "none";
-
     this._useDumpForLogging = false;
     this._logInit = false;
 
@@ -487,7 +482,6 @@ class AsyncTabSwitcher {
 
   maybeClearLoadTimer(caller) {
     if (this.loadingTab) {
-      this._loadTimerClearedBy = caller;
       this.loadingTab = null;
       if (this.loadTimer) {
         this.clearTimer(this.loadTimer);
@@ -657,8 +651,6 @@ class AsyncTabSwitcher {
     if (!this.tabbrowser._switcher) {
       return;
     }
-
-    this.maybeFinishTabSwitch();
 
     if (numBackgroundCached > 0) {
       this.deactivateCachedBackgroundTabs();
@@ -1002,7 +994,6 @@ class AsyncTabSwitcher {
     let tabState = this.getTabState(tab);
 
     this.logState("requestTab " + this.tinfo(tab));
-    this.startTabSwitch();
 
     let oldBrowser = this.requestedTab.linkedBrowser;
     oldBrowser.deprioritize();
@@ -1095,34 +1086,9 @@ class AsyncTabSwitcher {
   }
 
   /*
-   * Telemetry and Profiler related helpers for recording tab switch
+   * Profiler related helpers for recording tab switch
    * timing.
    */
-
-  startTabSwitch() {
-    this.switchInProgress = true;
-  }
-
-  /**
-   * Something has occurred that might mean that we've completed
-   * the tab switch (layers are ready, paints are done, spinners
-   * are hidden). This checks to make sure all conditions are
-   * satisfied, and then records the tab switch as finished.
-   */
-  maybeFinishTabSwitch() {
-    if (
-      this.switchInProgress &&
-      this.requestedTab &&
-      (this.getTabState(this.requestedTab) == this.STATE_LOADED ||
-        this.requestedTab === this.blankTab)
-    ) {
-      if (this.requestedTab !== this.blankTab) {
-        this.maybePromoteTabInLayerCache(this.requestedTab);
-      }
-
-      this.switchInProgress = false;
-    }
-  }
 
   addMarker(marker) {
     if (Services.profiler) {

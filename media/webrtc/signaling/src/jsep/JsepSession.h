@@ -67,7 +67,7 @@ struct JsepExtmapMediaType {
 class JsepSession {
  public:
   explicit JsepSession(const std::string& name)
-      : mName(name), mState(kJsepStateStable), mNegotiations(0) {}
+      : mName(name), mState(kJsepStateStable) {}
   virtual ~JsepSession() {}
 
   virtual nsresult Init() = 0;
@@ -75,7 +75,6 @@ class JsepSession {
   // Accessors for basic properties.
   virtual const std::string& GetName() const { return mName; }
   virtual JsepSignalingState GetState() const { return mState; }
-  virtual uint32_t GetNegotiations() const { return mNegotiations; }
 
   // Set up the ICE And DTLS data.
   virtual nsresult SetBundlePolicy(JsepBundlePolicy policy) = 0;
@@ -165,7 +164,8 @@ class JsepSession {
 
   // ICE controlling or controlled
   virtual bool IsIceControlling() const = 0;
-  virtual bool IsOfferer() const = 0;
+  virtual Maybe<bool> IsPendingOfferer() const = 0;
+  virtual Maybe<bool> IsCurrentOfferer() const = 0;
   virtual bool IsIceRestarting() const = 0;
 
   virtual const std::string GetLastError() const { return "Error"; }
@@ -183,28 +183,9 @@ class JsepSession {
 
   virtual bool CheckNegotiationNeeded() const = 0;
 
-  void CountTracks(uint16_t (&receiving)[SdpMediaSection::kMediaTypes],
-                   uint16_t (&sending)[SdpMediaSection::kMediaTypes]) const {
-    memset(receiving, 0, sizeof(receiving));
-    memset(sending, 0, sizeof(sending));
-
-    for (const auto& transceiver : GetTransceivers()) {
-      if (!transceiver->mRecvTrack.GetActive() ||
-          transceiver->GetMediaType() == SdpMediaSection::kApplication) {
-        receiving[transceiver->mRecvTrack.GetMediaType()]++;
-      }
-
-      if (!transceiver->mSendTrack.GetActive() ||
-          transceiver->GetMediaType() == SdpMediaSection::kApplication) {
-        sending[transceiver->mSendTrack.GetMediaType()]++;
-      }
-    }
-  }
-
  protected:
   const std::string mName;
   JsepSignalingState mState;
-  uint32_t mNegotiations;
 };
 
 }  // namespace mozilla

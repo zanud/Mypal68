@@ -6,6 +6,8 @@
 
 #include "nsDocShell.h"
 
+using namespace mozilla;
+
 nsDocShellEnumerator::nsDocShellEnumerator(
     nsDocShellEnumerator::EnumerationDirection aDirection,
     int32_t aDocShellType, nsDocShell& aRootItem)

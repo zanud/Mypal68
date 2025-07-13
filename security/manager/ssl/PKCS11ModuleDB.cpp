@@ -168,10 +168,6 @@ PKCS11ModuleDB::ToggleFIPSMode() {
     return NS_ERROR_FAILURE;
   }
 
-  if (PK11_IsFIPS()) {
-    Telemetry::Accumulate(Telemetry::FIPS_ENABLED, true);
-  }
-
   return NS_OK;
 }
 

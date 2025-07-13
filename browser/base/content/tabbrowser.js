@@ -4695,22 +4695,12 @@
       if (includeLabel) {
         label = tab._fullLabel || tab.getAttribute("label");
       }
-      if (AppConstants.NIGHTLY_BUILD) {
-        if (
+      if (AppConstants.NIGHTLY_BUILD &&
           tab.linkedBrowser &&
           tab.linkedBrowser.isRemoteBrowser &&
-          tab.linkedBrowser.frameLoader
-        ) {
-          label +=
-            " (pid " + tab.linkedBrowser.frameLoader.remoteTab.osPid + ")";
-
-          if (
-            window.docShell.QueryInterface(Ci.nsILoadContext)
-              .useRemoteSubframes
-          ) {
-            label += " [F]";
-          }
-        }
+          tab.linkedBrowser.frameLoader) {
+        label +=
+           " (pid " + tab.linkedBrowser.frameLoader.remoteTab.osPid + ")";
       }
       if (tab.userContextId) {
         label = gTabBrowserBundle.formatStringFromName(

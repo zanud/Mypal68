@@ -13,8 +13,11 @@
 #include "nsIURLParser.h"
 #include "nsJSUtils.h"
 #include "jsfriendapi.h"
+#include "js/CallAndConstruct.h"          // JS_CallFunctionName
 #include "js/CompilationAndEvaluation.h"  // JS::Compile
 #include "js/ContextOptions.h"
+#include "js/Initialization.h"
+#include "js/PropertyAndElement.h"  // JS_DefineFunctions, JS_GetProperty
 #include "js/PropertySpec.h"
 #include "js/SourceText.h"  // JS::Source{Ownership,Text}
 #include "js/Utility.h"
@@ -30,6 +33,8 @@
 #if defined(XP_MACOSX)
 #  include "nsMacUtilsImpl.h"
 #endif
+
+#include "XPCSelfHostedShmem.h"
 
 namespace mozilla {
 namespace net {
@@ -631,8 +636,15 @@ class JSContextWrapper {
 
     JS::SetWarningReporter(mContext, PACWarningReporter);
 
-    if (!JS::InitSelfHostedCode(mContext)) {
-      return NS_ERROR_OUT_OF_MEMORY;
+    // When available, set the self-hosted shared memory to be read, so that
+    // we can decode the self-hosted content instead of parsing it.
+    {
+      auto& shm = xpc::SelfHostedShmem::GetSingleton();
+      JS::SelfHostedCache selfHostedContent = shm.Content();
+
+      if (!JS::InitSelfHostedCode(mContext, selfHostedContent)) {
+        return NS_ERROR_OUT_OF_MEMORY;
+      }
     }
 
     JS::RealmOptions options;

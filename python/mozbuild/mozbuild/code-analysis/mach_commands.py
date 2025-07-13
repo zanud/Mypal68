@@ -1811,7 +1811,7 @@ class StaticAnalysis(MachCommandBase):
         from subprocess import Popen, PIPE, check_output, CalledProcessError
 
         diff_process = Popen(self._get_clang_format_diff_command(commit), stdout=PIPE)
-        args = [sys.executable, clang_format_diff, "-p1", "-binary=%s" % clang_format]
+        args = [sys.executable, clang_format_diff, "-p1", "-binary=%s" % clang_format, '-sort-includes']
 
         if not output_file:
             args.append("-i")

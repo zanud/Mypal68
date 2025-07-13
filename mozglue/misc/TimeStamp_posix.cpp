@@ -47,7 +47,10 @@
 
 #include "mozilla/Sprintf.h"
 #include "mozilla/TimeStamp.h"
-#include <pthread.h>
+
+#if !defined(__wasi__)
+#  include <pthread.h>
+#endif
 
 // Estimate of the smallest duration of time we can measure.
 static uint64_t sResolution;

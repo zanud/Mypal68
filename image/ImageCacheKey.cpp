@@ -10,6 +10,7 @@
 #include "mozilla/HashFunctions.h"
 #include "mozilla/StorageAccess.h"
 #include "mozilla/Unused.h"
+#include "mozilla/dom/BlobImpl.h" //MY 1665343
 #include "mozilla/dom/BlobURLProtocolHandler.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/File.h"

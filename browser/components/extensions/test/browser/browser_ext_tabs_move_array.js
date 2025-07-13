@@ -36,9 +36,12 @@ add_task(async function moveMultiple() {
 
       async function move(moveIndexes, moveTo) {
         let tabs = await browser.tabs.query({ url: "http://example.com/*" });
-        await browser.tabs.move(moveIndexes.map(e => tabs[e - 1].id), {
-          index: moveTo,
-        });
+        await browser.tabs.move(
+          moveIndexes.map(e => tabs[e - 1].id),
+          {
+            index: moveTo,
+          }
+        );
       }
 
       let tests = [
@@ -62,9 +65,11 @@ add_task(async function moveMultiple() {
         await check(test.result);
       }
 
-      let firstId = (await browser.tabs.query({
-        url: "http://example.com/*",
-      }))[0].id;
+      let firstId = (
+        await browser.tabs.query({
+          url: "http://example.com/*",
+        })
+      )[0].id;
       // Assuming that tab.id of 12345 does not exist.
       await browser.test.assertRejects(
         browser.tabs.move([firstId, 12345], { index: -1 }),

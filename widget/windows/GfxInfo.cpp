@@ -20,6 +20,7 @@
 #include "nsExceptionHandler.h"
 #include "nsPrintfCString.h"
 #include "jsapi.h"
+#include "js/PropertyAndElement.h"  // JS_SetElement, JS_SetProperty
 #include <intrin.h>
 
 #define NS_CRASHREPORTER_CONTRACTID "@mozilla.org/toolkit/crash-reporter;1"

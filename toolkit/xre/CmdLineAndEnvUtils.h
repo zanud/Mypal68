@@ -16,7 +16,6 @@
 #endif
 
 #if defined(XP_WIN)
-#  include "mozilla/Move.h"
 #  include "mozilla/UniquePtr.h"
 #  include "mozilla/Vector.h"
 #  include "mozilla/WinHeaderOnlyUtils.h"

@@ -10,7 +10,6 @@
 
 #include "nsCOMArray.h"
 #include "nsCOMPtr.h"
-#include "mozilla/dom/Document.h"
 #include "nsIObserver.h"
 #include "nsIObserverService.h"
 #include "nsIURI.h"
@@ -20,6 +19,10 @@
 class nsPIDOMWindowInner;
 
 namespace mozilla {
+namespace dom {
+class Document;
+}
+
 namespace docshell {
 
 class OfflineCacheUpdateChild : public nsIOfflineCacheUpdate,

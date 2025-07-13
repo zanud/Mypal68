@@ -11,6 +11,7 @@
 #include "mozilla/FontPropertyTypes.h"
 #include "gfxUserFontSet.h"
 #include "nsICSSLoaderObserver.h"
+#include "nsIDOMEventListener.h"
 
 struct gfxFontFaceSrc;
 class gfxFontSrcPrincipal;

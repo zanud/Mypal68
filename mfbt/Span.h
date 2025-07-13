@@ -24,9 +24,9 @@
 
 #include <algorithm>
 #include <array>
-#include <cstring>
 #include <iterator>
 #include <limits>
+#include <string>
 #include <type_traits>
 #include <utility>
 
@@ -34,7 +34,6 @@
 #include "mozilla/Assertions.h"
 #include "mozilla/Casting.h"
 #include "mozilla/IntegerTypeTraits.h"
-#include "mozilla/TypeTraits.h"
 #include "mozilla/UniquePtr.h"
 
 namespace mozilla {
@@ -61,14 +60,6 @@ class Span;
 
 // implementation details
 namespace span_details {
-
-inline size_t strlen16(const char16_t* aZeroTerminated) {
-  size_t len = 0;
-  while (*(aZeroTerminated++)) {
-    len++;
-  }
-  return len;
-}
 
 template <class T>
 struct is_span_oracle : std::false_type {};
@@ -206,7 +197,12 @@ class span_iterator {
 
   constexpr friend bool operator==(const span_iterator& lhs,
                                    const span_iterator& rhs) {
-    return lhs.span_ == rhs.span_ && lhs.index_ == rhs.index_;
+    // Iterators from different spans are uncomparable. A diagnostic assertion
+    // should be enough to check this, though. To ensure that no iterators from
+    // different spans are ever considered equal, still compare them in release
+    // builds.
+    MOZ_DIAGNOSTIC_ASSERT(lhs.span_ == rhs.span_);
+    return lhs.index_ == rhs.index_ && lhs.span_ == rhs.span_;
   }
 
   constexpr friend bool operator!=(const span_iterator& lhs,
@@ -216,7 +212,7 @@ class span_iterator {
 
   constexpr friend bool operator<(const span_iterator& lhs,
                                   const span_iterator& rhs) {
-    MOZ_RELEASE_ASSERT(lhs.span_ == rhs.span_);
+    MOZ_DIAGNOSTIC_ASSERT(lhs.span_ == rhs.span_);
     return lhs.index_ < rhs.index_;
   }
 
@@ -356,6 +352,10 @@ class extent_type<dynamic_extent> {
  * Any Span<const T> can be viewed as Span<const uint8_t> using the function
  * AsBytes(). Any Span<T> can be viewed as Span<uint8_t> using the function
  * AsWritableBytes().
+ *
+ * Note that iterators from different Span instances are uncomparable, even if
+ * they refer to the same memory. This also applies to any spans derived via
+ * Subspan etc.
  */
 template <class ElementType, size_t Extent /* = dynamic_extent */>
 class Span {
@@ -916,23 +916,24 @@ inline Span<char> AsWritableChars(Span<uint8_t> s) {
  * Create span from a zero-terminated C string. nullptr is
  * treated as the empty string.
  */
-inline Span<const char> MakeStringSpan(const char* aZeroTerminated) {
+constexpr Span<const char> MakeStringSpan(const char* aZeroTerminated) {
   if (!aZeroTerminated) {
     return Span<const char>();
   }
-  return Span<const char>(aZeroTerminated, std::strlen(aZeroTerminated));
+  return Span<const char>(aZeroTerminated,
+                          std::char_traits<char>::length(aZeroTerminated));
 }
 
 /**
  * Create span from a zero-terminated UTF-16 C string. nullptr is
  * treated as the empty string.
  */
-inline Span<const char16_t> MakeStringSpan(const char16_t* aZeroTerminated) {
+constexpr Span<const char16_t> MakeStringSpan(const char16_t* aZeroTerminated) {
   if (!aZeroTerminated) {
     return Span<const char16_t>();
   }
-  return Span<const char16_t>(aZeroTerminated,
-                              span_details::strlen16(aZeroTerminated));
+  return Span<const char16_t>(
+      aZeroTerminated, std::char_traits<char16_t>::length(aZeroTerminated));
 }
 
 }  // namespace mozilla

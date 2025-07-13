@@ -29,6 +29,7 @@
 #include "mozilla/net/UrlClassifierFeatureFactory.h"
 #include "nsCRT.h"
 #include "nsContentSecurityManager.h"
+#include "nsContentSecurityUtils.h"
 #include "nsContentUtils.h"
 #include "nsEscape.h"
 #include "nsGlobalWindowOuter.h"
@@ -196,6 +197,7 @@ HttpBaseChannel::HttpBaseChannel()
       mResponseCouldBeSynthesized(false),
       mBlockAuthPrompt(false),
       mAllowStaleCacheContent(false),
+      mPreferCacheLoadOverBypass(false),
       mAddedAsNonTailRequest(false),
       mAsyncOpenWaitingForStreamLength(false),
       mUpgradableToSecure(true),
@@ -1462,17 +1464,6 @@ NS_IMETHODIMP HttpBaseChannel::SetTopLevelContentWindowId(uint64_t aWindowId) {
 }
 
 NS_IMETHODIMP
-HttpBaseChannel::IsTrackingResource(bool* aIsTrackingResource) {
-  MOZ_ASSERT(!mFirstPartyClassificationFlags ||
-             !mThirdPartyClassificationFlags);
-  *aIsTrackingResource = UrlClassifierCommon::IsTrackingClassificationFlag(
-                             mThirdPartyClassificationFlags) ||
-                         UrlClassifierCommon::IsTrackingClassificationFlag(
-                             mFirstPartyClassificationFlags);
-  return NS_OK;
-}
-
-NS_IMETHODIMP
 HttpBaseChannel::IsThirdPartyTrackingResource(bool* aIsTrackingResource) {
   MOZ_ASSERT(
       !(mFirstPartyClassificationFlags && mThirdPartyClassificationFlags));
@@ -2130,16 +2121,27 @@ HttpBaseChannel::GetResponseVersion(uint32_t* major, uint32_t* minor) {
 void HttpBaseChannel::NotifySetCookie(const nsACString& aCookie) {
   nsCOMPtr<nsIObserverService> obs = services::GetObserverService();
   if (obs) {
-    nsAutoString cookie;
     obs->NotifyObservers(static_cast<nsIChannel*>(this),
                          "http-on-response-set-cookie",
                          NS_ConvertASCIItoUTF16(aCookie).get());
   }
 }
 
+bool HttpBaseChannel::IsBrowsingContextDiscarded() const {
+  if (mLoadGroup && mLoadGroup->GetIsBrowsingContextDiscarded()) {
+    return true;
+  }
+
+  return false;
+}
+
 NS_IMETHODIMP
 HttpBaseChannel::SetCookie(const nsACString& aCookieHeader) {
   if (mLoadFlags & LOAD_ANONYMOUS) return NS_OK;
+
+  if (IsBrowsingContextDiscarded()) {
+    return NS_OK;
+  }
 
   // empty header isn't an error
   if (aCookieHeader.IsEmpty()) {
@@ -2149,11 +2151,7 @@ HttpBaseChannel::SetCookie(const nsACString& aCookieHeader) {
   nsICookieService* cs = gHttpHandler->GetCookieService();
   NS_ENSURE_TRUE(cs, NS_ERROR_FAILURE);
 
-  nsAutoCString date;
-  // empty date is not an error
-  Unused << mResponseHead->GetHeader(nsHttp::Date, date);
-  nsresult rv =
-      cs->SetCookieStringFromHttp(mURI, nullptr, aCookieHeader, date, this);
+  nsresult rv = cs->SetCookieStringFromHttp(mURI, aCookieHeader, this);
   if (NS_SUCCEEDED(rv)) {
     NotifySetCookie(aCookieHeader);
   }
@@ -2895,11 +2893,11 @@ already_AddRefed<nsILoadInfo> HttpBaseChannel::CloneLoadInfoForRedirect(
     newLoadInfo->SetPrincipalToInherit(nullPrincipalToInherit);
   }
 
-  // re-compute the origin attributes of the loadInfo if it's top-level load.
   bool isTopLevelDoc = newLoadInfo->GetExternalContentPolicyType() ==
                        nsIContentPolicy::TYPE_DOCUMENT;
 
   if (isTopLevelDoc) {
+    // re-compute the origin attributes of the loadInfo if it's top-level load.
     nsCOMPtr<nsILoadContext> loadContext;
     NS_QueryNotificationCallbacks(this, loadContext);
     OriginAttributes docShellAttrs;
@@ -2919,6 +2917,26 @@ already_AddRefed<nsILoadInfo> HttpBaseChannel::CloneLoadInfoForRedirect(
     attrs = docShellAttrs;
     attrs.SetFirstPartyDomain(true, newURI);
     newLoadInfo->SetOriginAttributes(attrs);
+
+    // re-compute the upgrade insecure requests bit for document navigations
+    // since it should only apply to same-origin navigations (redirects).
+    // we only do this if the CSP of the triggering element (the cspToInherit)
+    // uses 'upgrade-insecure-requests', otherwise UIR does not apply.
+    nsCOMPtr<nsIContentSecurityPolicy> csp = newLoadInfo->GetCspToInherit();
+    if (csp) {
+      bool upgradeInsecureRequests = false;
+      csp->GetUpgradeInsecureRequests(&upgradeInsecureRequests);
+      if (upgradeInsecureRequests) {
+        nsCOMPtr<nsIPrincipal> resultPrincipal =
+            BasePrincipal::CreateCodebasePrincipal(
+                newURI, newLoadInfo->GetOriginAttributes());
+        bool isConsideredSameOriginforUIR =
+            nsContentSecurityUtils::IsConsideredSameOriginForUIR(
+                newLoadInfo->TriggeringPrincipal(), resultPrincipal);
+        static_cast<mozilla::net::LoadInfo*>(newLoadInfo.get())
+            ->SetUpgradeInsecureRequests(isConsideredSameOriginforUIR);
+      }
+    }
   }
 
   // Leave empty, we want a 'clean ground' when creating the new channel.
@@ -3049,7 +3067,7 @@ void HttpBaseChannel::AddCookiesToRequest() {
   if (useCookieService) {
     nsICookieService* cs = gHttpHandler->GetCookieService();
     if (cs) {
-      cs->GetCookieStringFromHttp(mURI, nullptr, this, cookie);
+      cs->GetCookieStringFromHttp(mURI, this, cookie);
     }
 
     if (cookie.IsEmpty()) {

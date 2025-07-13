@@ -5,6 +5,8 @@
 #ifndef mozilla_DeferredFinalize_h
 #define mozilla_DeferredFinalize_h
 
+#include <cstdint>
+
 class nsISupports;
 
 namespace mozilla {

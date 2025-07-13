@@ -15,7 +15,7 @@ PACKAGE_DIR=$WORK/sm-package
 mkdir -p $PACKAGE_DIR
 pushd $PACKAGE_DIR
 
-tar -xjvf $UPLOAD_DIR/mozjs-*.tar.bz2
+tar -xvf $UPLOAD_DIR/mozjs-*.tar.*z*
 
 : ${PYTHON3:=python3}
 

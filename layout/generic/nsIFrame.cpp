@@ -5089,7 +5089,7 @@ static FrameContentRange GetRangeForFrame(nsIFrame* aFrame) {
     return FrameContentRange(parent, beginOffset, beginOffset);
   }
 
-  while (content->IsRootOfAnonymousSubtree()) {
+  while (content->IsRootOfNativeAnonymousSubtree()) {
     content = content->GetParent();
   }
 
@@ -7736,6 +7736,28 @@ nsAutoCString nsIFrame::ListTag() const {
   return tag;
 }
 
+std::string nsIFrame::ConvertToString(const LogicalRect& aRect,
+                                      const WritingMode aWM, ListFlags aFlags) {
+  if (aFlags.contains(ListFlag::DisplayInCSSPixels)) {
+    // Abuse CSSRect to store all LogicalRect's dimensions in CSS pixels.
+    return ToString(mozilla::CSSRect(CSSPixel::FromAppUnits(aRect.IStart(aWM)),
+                                     CSSPixel::FromAppUnits(aRect.BStart(aWM)),
+                                     CSSPixel::FromAppUnits(aRect.ISize(aWM)),
+                                     CSSPixel::FromAppUnits(aRect.BSize(aWM))));
+  }
+  return ToString(aRect);
+}
+
+std::string nsIFrame::ConvertToString(const LogicalSize& aSize,
+                                      const WritingMode aWM, ListFlags aFlags) {
+  if (aFlags.contains(ListFlag::DisplayInCSSPixels)) {
+    // Abuse CSSSize to store all LogicalSize's dimensions in CSS pixels.
+    return ToString(CSSSize(CSSPixel::FromAppUnits(aSize.ISize(aWM)),
+                            CSSPixel::FromAppUnits(aSize.BSize(aWM))));
+  }
+  return ToString(aSize);
+}
+
 // Debugging
 void nsIFrame::ListGeneric(nsACString& aTo, const char* aPrefix,
                            ListFlags aFlags) const {
@@ -7768,12 +7790,13 @@ void nsIFrame::ListGeneric(nsACString& aTo, const char* aPrefix,
   if (IBprevsibling) {
     aTo += nsPrintfCString(" IBSplitPrevSibling=%p", IBprevsibling);
   }
-  aTo += nsPrintfCString(" %s", ToString(mRect).c_str());
+  aTo += nsPrintfCString(" %s", ConvertToString(mRect, aFlags).c_str());
 
   mozilla::WritingMode wm = GetWritingMode();
   if (wm.IsVertical() || wm.IsBidiRTL()) {
-    aTo += nsPrintfCString(" wm=%s logical-size=(%s)", ToString(wm).c_str(),
-                           ToString(GetLogicalSize()).c_str());
+    aTo +=
+        nsPrintfCString(" wm=%s logical-size=(%s)", ToString(wm).c_str(),
+                        ConvertToString(GetLogicalSize(), wm, aFlags).c_str());
   }
 
   nsIFrame* parent = GetParent();
@@ -7782,27 +7805,30 @@ void nsIFrame::ListGeneric(nsACString& aTo, const char* aPrefix,
     if (pWM.IsVertical() || pWM.IsBidiRTL()) {
       nsSize containerSize = parent->mRect.Size();
       LogicalRect lr(pWM, mRect, containerSize);
-      aTo += nsPrintfCString(
-          " parent-wm=%s cs=(%s) logical-rect=%s", ToString(pWM).c_str(),
-          ToString(containerSize).c_str(), ToString(lr).c_str());
+      aTo += nsPrintfCString(" parent-wm=%s cs=(%s) logical-rect=%s",
+                             ToString(pWM).c_str(),
+                             ConvertToString(containerSize, aFlags).c_str(),
+                             ConvertToString(lr, pWM, aFlags).c_str());
     }
   }
   nsIFrame* f = const_cast<nsIFrame*>(this);
   if (f->HasOverflowAreas()) {
     nsRect vo = f->InkOverflowRect();
     if (!vo.IsEqualEdges(mRect)) {
-      aTo += nsPrintfCString(" ink-overflow=%s", ToString(vo).c_str());
+      aTo += nsPrintfCString(" ink-overflow=%s",
+                             ConvertToString(vo, aFlags).c_str());
     }
     nsRect so = f->ScrollableOverflowRect();
     if (!so.IsEqualEdges(mRect)) {
-      aTo += nsPrintfCString(" scr-overflow=%s", ToString(so).c_str());
+      aTo += nsPrintfCString(" scr-overflow=%s",
+                             ConvertToString(so, aFlags).c_str());
     }
   }
   bool hasNormalPosition;
   nsPoint normalPosition = GetNormalPosition(&hasNormalPosition);
   if (hasNormalPosition) {
     aTo += nsPrintfCString(" normal-position=%s",
-                           ToString(normalPosition).c_str());
+                           ConvertToString(normalPosition, aFlags).c_str());
   }
   if (HasProperty(BidiDataProperty())) {
     FrameBidiData bidi = GetBidiData();
@@ -7883,21 +7909,19 @@ nsresult nsIFrame::MakeFrameName(const nsAString& aType,
   return NS_OK;
 }
 
-void nsIFrame::DumpFrameTree() const { RootFrameList(PresContext(), stderr); }
+void nsIFrame::DumpFrameTree() const {
+  PresShell()->GetRootFrame()->List(stderr);
+}
+
+void nsIFrame::DumpFrameTreeInCSSPixels() const {
+  PresShell()->GetRootFrame()->List(stderr, "", ListFlag::DisplayInCSSPixels);
+}
 
 void nsIFrame::DumpFrameTreeLimited() const { List(stderr); }
-
-void nsIFrame::RootFrameList(nsPresContext* aPresContext, FILE* out,
-                             const char* aPrefix) {
-  if (!aPresContext || !out) return;
-
-  if (mozilla::PresShell* presShell = aPresContext->GetPresShell()) {
-    nsIFrame* frame = presShell->GetRootFrame();
-    if (frame) {
-      frame->List(out, aPrefix);
-    }
-  }
+void nsIFrame::DumpFrameTreeLimitedInCSSPixels() const {
+  List(stderr, "", ListFlag::DisplayInCSSPixels);
 }
+
 #endif
 
 bool nsIFrame::IsVisibleForPainting() { return StyleVisibility()->IsVisible(); }
@@ -9845,7 +9869,7 @@ static nsIFrame* GetCorrectedParent(const nsIFrame* aFrame) {
     if (element && !element->IsRootOfNativeAnonymousSubtree() &&
         element->GetPseudoElementType() == aFrame->Style()->GetPseudoType()) {
       while (parent->GetContent() &&
-             !parent->GetContent()->IsRootOfAnonymousSubtree()) {
+             !parent->GetContent()->IsRootOfNativeAnonymousSubtree()) {
         parent = parent->GetInFlowParent();
       }
       parent = parent->GetInFlowParent();

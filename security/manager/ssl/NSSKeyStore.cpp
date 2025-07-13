@@ -29,7 +29,7 @@ NSSKeyStore::NSSKeyStore() {
   Unused << EnsureNSSInitializedChromeOrContent();
   Unused << InitToken();
 }
-NSSKeyStore::~NSSKeyStore() {}
+NSSKeyStore::~NSSKeyStore() = default;
 
 nsresult NSSKeyStore::InitToken() {
   if (!mSlot) {

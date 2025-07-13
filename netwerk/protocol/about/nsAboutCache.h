@@ -10,6 +10,7 @@
 #include "nsICacheStorage.h"
 
 #include "nsString.h"
+#include "nsIChannel.h" //MY
 #include "nsIOutputStream.h"
 #include "nsILoadContextInfo.h"
 

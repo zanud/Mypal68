@@ -23,6 +23,7 @@
 #include "mozilla/RefPtr.h"
 #include "mozilla/TemplateLib.h"  // mozilla::tl::Max
 #include "nsCOMPtr.h"
+#include "nsClassHashtable.h" //MY
 #include "nsContainerFrame.h"
 #include "nsPoint.h"
 #include "nsRect.h"

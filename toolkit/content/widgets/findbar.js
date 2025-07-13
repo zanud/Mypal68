@@ -537,10 +537,12 @@
       if (typeof highlight != "boolean") {
         highlight = this._highlightAll;
       }
-      if (highlight !== this._highlightAll && !fromPrefObserver) {
-        this._prefsvc.setBoolPref("findbar.highlightAll", highlight);
+      if (highlight !== this._highlightAll) {
+        this._highlightAll = highlight;
+        if (!fromPrefObserver) {
+          Services.prefs.setBoolPref("findbar.highlightAll", highlight);
+        }
       }
-      this._highlightAll = highlight;
       let checkbox = this.getElement("highlight");
       checkbox.checked = this._highlightAll;
     }

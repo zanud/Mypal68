@@ -145,6 +145,8 @@ void ProcessLink::SendMessage(UniquePtr<Message> msg) {
   }
   mChan->mMonitor->AssertCurrentThreadOwns();
 
+  msg->AssertAsLargeAsHeader();
+
   mIOLoop->PostTask(NewNonOwningRunnableMethod<UniquePtr<Message>&&>(
       "IPC::Channel::Send", mTransport.get(), &Transport::Send,
       std::move(msg)));

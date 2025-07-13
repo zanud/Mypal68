@@ -38,7 +38,7 @@ class OfflineCacheUpdateParent : public POfflineCacheUpdateParent,
   NS_DECL_NSIOFFLINECACHEUPDATEOBSERVER
   NS_DECL_NSILOADCONTEXT
 
-  nsresult Schedule(const URIParams& manifestURI, const URIParams& documentURI,
+  nsresult Schedule(nsIURI* manifestURI, nsIURI* documentURI,
                     const PrincipalInfo& loadingPrincipalInfo,
                     const bool& stickDocument,
                     const net::CookieSettingsArgs& aCookieSettingsArgs);

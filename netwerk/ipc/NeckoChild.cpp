@@ -141,7 +141,7 @@ bool NeckoChild::DeallocPFTPChannelChild(PFTPChannelChild* channel) {
 }
 
 PCookieServiceChild* NeckoChild::AllocPCookieServiceChild() {
-  // We don't allocate here: see nsCookieService::GetSingleton()
+  // We don't allocate here: see CookieService::GetSingleton()
   MOZ_ASSERT_UNREACHABLE("AllocPCookieServiceChild should not be called");
   return nullptr;
 }
@@ -239,21 +239,6 @@ PUDPSocketChild* NeckoChild::AllocPUDPSocketChild(nsIPrincipal* aPrincipal,
 
 bool NeckoChild::DeallocPUDPSocketChild(PUDPSocketChild* child) {
   UDPSocketChild* p = static_cast<UDPSocketChild*>(child);
-  p->ReleaseIPDLReference();
-  return true;
-}
-
-PDNSRequestChild* NeckoChild::AllocPDNSRequestChild(
-    const nsCString& aHost, const OriginAttributes& aOriginAttributes,
-    const uint32_t& aFlags) {
-  // We don't allocate here: instead we always use IPDL constructor that takes
-  // an existing object
-  MOZ_ASSERT_UNREACHABLE("AllocPDNSRequestChild should not be called on child");
-  return nullptr;
-}
-
-bool NeckoChild::DeallocPDNSRequestChild(PDNSRequestChild* aChild) {
-  DNSRequestChild* p = static_cast<DNSRequestChild*>(aChild);
   p->ReleaseIPDLReference();
   return true;
 }

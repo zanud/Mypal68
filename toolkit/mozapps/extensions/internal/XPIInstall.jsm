@@ -587,9 +587,13 @@ var loadManifest = async function(aPackage, aLocation, aOldAddon) {
   }
 
   if (!addon.id) {
-    addon.id = addon.internalName.split(' ').join('') + "@noid";
     if (aLocation.isTemporary) {
       addon.id = generateTemporaryInstallID(aPackage.file);
+    } else {
+    var name = addon.internalName.replace(/[:*?!<>|]/g, function(ch) {
+        return "-";
+      }); 
+      addon.id = name.split(' ').join('') + "@noid";
     }
   }
 

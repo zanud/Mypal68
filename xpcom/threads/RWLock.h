@@ -9,7 +9,6 @@
 
 #include "mozilla/Assertions.h"
 #include "mozilla/BlockingResourceBase.h"
-#include "mozilla/GuardObjects.h"
 
 #ifndef XP_WIN
 #  include <pthread.h>
@@ -110,9 +109,7 @@ class RWLock : public BlockingResourceBase {
 // calls to ReadLock() and ReadUnlock().
 class MOZ_RAII AutoReadLock final {
  public:
-  explicit AutoReadLock(RWLock& aLock MOZ_GUARD_OBJECT_NOTIFIER_PARAM)
-      : mLock(&aLock) {
-    MOZ_GUARD_OBJECT_NOTIFIER_INIT;
+  explicit AutoReadLock(RWLock& aLock) : mLock(&aLock) {
     MOZ_ASSERT(mLock, "null lock");
     mLock->ReadLock();
   }
@@ -125,16 +122,13 @@ class MOZ_RAII AutoReadLock final {
   AutoReadLock& operator=(const AutoReadLock&) = delete;
 
   RWLock* mLock;
-  MOZ_DECL_USE_GUARD_OBJECT_NOTIFIER
 };
 
 // Write lock and unlock a RWLock with RAII semantics.  Much preferred to bare
 // calls to WriteLock() and WriteUnlock().
 class MOZ_RAII AutoWriteLock final {
  public:
-  explicit AutoWriteLock(RWLock& aLock MOZ_GUARD_OBJECT_NOTIFIER_PARAM)
-      : mLock(&aLock) {
-    MOZ_GUARD_OBJECT_NOTIFIER_INIT;
+  explicit AutoWriteLock(RWLock& aLock) : mLock(&aLock) {
     MOZ_ASSERT(mLock, "null lock");
     mLock->WriteLock();
   }
@@ -147,7 +141,6 @@ class MOZ_RAII AutoWriteLock final {
   AutoWriteLock& operator=(const AutoWriteLock&) = delete;
 
   RWLock* mLock;
-  MOZ_DECL_USE_GUARD_OBJECT_NOTIFIER
 };
 
 }  // namespace mozilla

@@ -233,7 +233,7 @@ extern void InstallSignalHandlers(const char* ProgramName);
 int gArgc;
 char** gArgv;
 
-static const char gToolkitVersion[] = "74";
+static const char gToolkitVersion[] = MOZ_STRINGIFY(GRE_MILESTONE);
 // The gToolkitBuildID global is defined to MOZ_BUILDID via gen_buildid.py
 // in toolkit/library. See related comment in toolkit/library/moz.build.
 extern const char gToolkitBuildID[];
@@ -2719,7 +2719,7 @@ int XREMain::XRE_mainInit(bool* aExitFlag) {
     mAppData->maxVersion = "1.*";
   }
 
-  /*if (mozilla::Version(mAppData->minVersion) > gToolkitVersion ||
+  if (mozilla::Version(mAppData->minVersion) > gToolkitVersion ||
       mozilla::Version(mAppData->maxVersion) < gToolkitVersion) {
     Output(true,
            "Error: Platform version '%s' is not compatible with\n"
@@ -2727,7 +2727,7 @@ int XREMain::XRE_mainInit(bool* aExitFlag) {
            (const char*)gToolkitVersion, (const char*)mAppData->minVersion,
            (const char*)mAppData->maxVersion);
     return 1;
-  }*/
+  }
 
   rv = mDirProvider.Initialize(mAppData->directory, mAppData->xreDirectory);
   if (NS_FAILED(rv)) return 1;
@@ -3384,9 +3384,11 @@ int XREMain::XRE_mainStartup(bool* aExitFlag) {
       RemoteResult rr = mRemoteService->StartClient(desktopStartupIDPtr);
       if (rr == REMOTE_FOUND) {
         *aExitFlag = true;
+        mRemoteService->UnlockStartup();
         return 0;
       }
       if (rr == REMOTE_ARG_BAD) {
+        mRemoteService->UnlockStartup();
         return 1;
       }
     }
@@ -3857,7 +3859,10 @@ nsresult XREMain::XRE_mainRun() {
   nsCOMPtr<nsIFile> workingDir;
   rv = NS_GetSpecialDirectory(NS_OS_CURRENT_WORKING_DIR,
                               getter_AddRefs(workingDir));
-  NS_ENSURE_SUCCESS(rv, NS_ERROR_FAILURE);
+  if (NS_FAILED(rv)) {
+    // No working dir? This can happen if it gets deleted before we start.
+    workingDir = nullptr;
+  }
 
   if (!mShuttingDown) {
     cmdLine = new nsCommandLine();

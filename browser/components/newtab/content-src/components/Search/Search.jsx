@@ -17,13 +17,6 @@ export class _Search extends React.PureComponent {
     this.onSearchHandoffButtonMount = this.onSearchHandoffButtonMount.bind(this);
   }
 
-  handleEvent(event) {
-    // Also track search events with our own telemetry
-    if (event.detail.type === "Search") {
-      this.props.dispatch(ac.UserEvent({event: "SEARCH"}));
-    }
-  }
-
   onSearchClick(event) {
     window.gContentSearchController.search(event);
   }

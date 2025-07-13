@@ -20,7 +20,6 @@
 #include "nsIAppWindow.h"
 #include "nsNativeCharsetUtils.h"
 #include "nsThreadUtils.h"
-#include "nsAutoPtr.h"
 #include "nsString.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/ResultExtensions.h"
@@ -36,6 +35,7 @@
 #include "mozilla/Services.h"
 #include "jsapi.h"
 #include "js/Date.h"
+#include "js/PropertyAndElement.h"  // JS_DefineProperty
 #include "prenv.h"
 #include "nsAppDirectoryServiceDefs.h"
 
@@ -508,13 +508,6 @@ nsAppStartup::CreateChromeWindow(nsIWebBrowserChrome* aParent,
   if (mAttemptingQuit &&
       (aChromeFlags & nsIWebBrowserChrome::CHROME_MODAL) == 0)
     return NS_ERROR_ILLEGAL_DURING_SHUTDOWN;
-
-  // Fission windows must also be marked as remote
-  if ((aChromeFlags & nsIWebBrowserChrome::CHROME_FISSION_WINDOW) &&
-      !(aChromeFlags & nsIWebBrowserChrome::CHROME_REMOTE_WINDOW)) {
-    NS_WARNING("Cannot create non-remote fission window!");
-    return NS_ERROR_FAILURE;
-  }
 
   nsCOMPtr<nsIAppWindow> newWindow;
 

@@ -28,11 +28,8 @@ static nsresult BroadcastDomainSetChange(DomainSetType aSetType,
     return NS_OK;
   }
 
-  Maybe<URIParams> uri;
-  SerializeURI(aDomain, uri);
-
   for (uint32_t i = 0; i < parents.Length(); i++) {
-    Unused << parents[i]->SendDomainSetChanged(aSetType, aChangeType, uri);
+    Unused << parents[i]->SendDomainSetChanged(aSetType, aChangeType, aDomain);
   }
   return NS_OK;
 }
@@ -117,10 +114,13 @@ void DomainPolicy::CloneDomainPolicy(DomainPolicyClone* aClone) {
   mSuperAllowlist->CloneSet(&aClone->superAllowlist());
 }
 
-static void CopyURIs(const nsTArray<URIParams>& aDomains, nsIDomainSet* aSet) {
+static void CopyURIs(const nsTArray<RefPtr<nsIURI>>& aDomains,
+                     nsIDomainSet* aSet) {
   for (uint32_t i = 0; i < aDomains.Length(); i++) {
-    nsCOMPtr<nsIURI> uri = DeserializeURI(aDomains[i]);
-    aSet->Add(uri);
+    if (NS_WARN_IF(!aDomains[i])) {
+      continue;
+    }
+    aSet->Add(aDomains[i]);
   }
 }
 
@@ -148,8 +148,9 @@ DomainSet::Add(nsIURI* aDomain) {
   nsCOMPtr<nsIURI> clone = GetCanonicalClone(aDomain);
   NS_ENSURE_TRUE(clone, NS_ERROR_FAILURE);
   mHashTable.PutEntry(clone);
-  if (XRE_IsParentProcess())
+  if (XRE_IsParentProcess()) {
     return BroadcastDomainSetChange(mType, ADD_DOMAIN, aDomain);
+  }
 
   return NS_OK;
 }
@@ -159,8 +160,9 @@ DomainSet::Remove(nsIURI* aDomain) {
   nsCOMPtr<nsIURI> clone = GetCanonicalClone(aDomain);
   NS_ENSURE_TRUE(clone, NS_ERROR_FAILURE);
   mHashTable.RemoveEntry(clone);
-  if (XRE_IsParentProcess())
+  if (XRE_IsParentProcess()) {
     return BroadcastDomainSetChange(mType, REMOVE_DOMAIN, aDomain);
+  }
 
   return NS_OK;
 }
@@ -168,8 +170,9 @@ DomainSet::Remove(nsIURI* aDomain) {
 NS_IMETHODIMP
 DomainSet::Clear() {
   mHashTable.Clear();
-  if (XRE_IsParentProcess())
+  if (XRE_IsParentProcess()) {
     return BroadcastDomainSetChange(mType, CLEAR_DOMAINS);
+  }
 
   return NS_OK;
 }
@@ -211,14 +214,10 @@ DomainSet::ContainsSuperDomain(nsIURI* aDomain, bool* aContains) {
   return NS_OK;
 }
 
-void DomainSet::CloneSet(nsTArray<URIParams>* aDomains) {
+void DomainSet::CloneSet(nsTArray<RefPtr<nsIURI>>* aDomains) {
   for (auto iter = mHashTable.Iter(); !iter.Done(); iter.Next()) {
     nsIURI* key = iter.Get()->GetKey();
-
-    URIParams uri;
-    SerializeURI(key, uri);
-
-    aDomains->AppendElement(uri);
+    aDomains->AppendElement(key);
   }
 }
 

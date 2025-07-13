@@ -241,12 +241,6 @@ FuzzySecurityInfo::GetClientCertSent(bool* arg) {
 }
 
 NS_IMETHODIMP
-FuzzySecurityInfo::GetBypassAuthentication(bool* arg) {
-  *arg = false;
-  return NS_OK;
-}
-
-NS_IMETHODIMP
 FuzzySecurityInfo::GetFailedVerification(bool* arg) {
   *arg = false;
   return NS_OK;

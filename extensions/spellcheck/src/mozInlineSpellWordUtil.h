@@ -18,6 +18,10 @@ class nsINode;
 
 namespace mozilla {
 class TextEditor;
+
+namespace dom {
+class Document;
+}
 }  // namespace mozilla
 
 struct NodeOffset {

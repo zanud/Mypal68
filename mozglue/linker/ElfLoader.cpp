@@ -99,8 +99,9 @@ int __wrap_dlclose(void* handle) {
   return 0;
 }
 
-int __wrap_dladdr(void* addr, Dl_info* info) {
-  RefPtr<LibHandle> handle = ElfLoader::Singleton.GetHandleByPtr(addr);
+int __wrap_dladdr(const void* addr, Dl_info* info) {
+  RefPtr<LibHandle> handle =
+      ElfLoader::Singleton.GetHandleByPtr(const_cast<void*>(addr));
   if (!handle) {
     return dladdr(addr, info);
   }
@@ -1322,5 +1323,3 @@ int SEGVHandler::__wrap_sigaction(int signum, const struct sigaction* act,
   if (act) that.action = *act;
   return 0;
 }
-
-Logging Logging::Singleton;

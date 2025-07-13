@@ -255,11 +255,13 @@ class BackgroundChildImpl : public PBackgroundChild {
   virtual bool DeallocPServiceWorkerRegistrationChild(
       PServiceWorkerRegistrationChild*) override;
 
+#ifdef THE_REPORTING
   virtual PEndpointForReportChild* AllocPEndpointForReportChild(
       const nsString& aGroupName, const PrincipalInfo& aPrincipalInfo) override;
 
   virtual bool DeallocPEndpointForReportChild(
       PEndpointForReportChild* aActor) override;
+#endif
 
   virtual dom::PMediaTransportChild* AllocPMediaTransportChild() override;
 

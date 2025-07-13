@@ -654,7 +654,6 @@ nsresult nsAppShellService::JustCreateTopWindow(
   bool isPrivateBrowsingWindow =
       Preferences::GetBool("browser.privatebrowsing.autostart");
   bool isUsingRemoteTabs = mozilla::BrowserTabsRemoteAutostart();
-  bool isUsingRemoteSubframes = Preferences::GetBool("fission.autostart");
 
   if (aChromeMask & nsIWebBrowserChrome::CHROME_PRIVATE_WINDOW) {
     // Caller requested a private window
@@ -662,9 +661,6 @@ nsresult nsAppShellService::JustCreateTopWindow(
   }
   if (aChromeMask & nsIWebBrowserChrome::CHROME_REMOTE_WINDOW) {
     isUsingRemoteTabs = true;
-  }
-  if (aChromeMask & nsIWebBrowserChrome::CHROME_FISSION_WINDOW) {
-    isUsingRemoteSubframes = true;
   }
 
   nsCOMPtr<mozIDOMWindowProxy> domWin = do_GetInterface(aParent);
@@ -680,7 +676,6 @@ nsresult nsAppShellService::JustCreateTopWindow(
 
   if (parentContext) {
     isUsingRemoteTabs = parentContext->UseRemoteTabs();
-    isUsingRemoteSubframes = parentContext->UseRemoteSubframes();
   }
 
   nsCOMPtr<mozIDOMWindowProxy> newDomWin =
@@ -690,7 +685,6 @@ nsresult nsAppShellService::JustCreateTopWindow(
   if (thisContext) {
     thisContext->SetPrivateBrowsing(isPrivateBrowsingWindow);
     thisContext->SetRemoteTabs(isUsingRemoteTabs);
-    thisContext->SetRemoteSubframes(isUsingRemoteSubframes);
   }
 
   window.forget(aResult);

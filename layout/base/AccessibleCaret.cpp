@@ -9,6 +9,7 @@
 #include "mozilla/PresShell.h"
 #include "mozilla/StaticPrefs_layout.h"
 #include "mozilla/ToString.h"
+#include "mozilla/dom/Document.h" //MY
 #include "nsCanvasFrame.h"
 #include "nsCaret.h"
 #include "nsCSSFrameConstructor.h"

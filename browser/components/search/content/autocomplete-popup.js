@@ -152,12 +152,6 @@
 
       let searchBar = BrowserSearch.searchBar;
       let popupForSearchBar = searchBar && searchBar.textbox == this.mInput;
-      if (popupForSearchBar) {
-        searchBar.telemetrySearchDetails = {
-          index: this.selectedIndex,
-          kind: "mouse",
-        };
-      }
 
       // Check for unmodified left-click, and use default behavior
       if (
@@ -173,11 +167,6 @@
 
       // Check for middle-click or modified clicks on the search bar
       if (popupForSearchBar) {
-        BrowserUsageTelemetry.recordSearchbarSelectedResultMethod(
-          aEvent,
-          this.selectedIndex
-        );
-
         // Handle search bar popup clicks
         let search = this.input.controller.getValueAt(this.selectedIndex);
 

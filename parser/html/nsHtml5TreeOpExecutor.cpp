@@ -167,21 +167,22 @@ nsHtml5TreeOpExecutor::DidBuildModel(bool aTerminated) {
   // forced termination.
   DidBuildModelImpl(aTerminated || NS_FAILED(IsBroken()));
 
-  if (!mLayoutStarted) {
-    // We never saw the body, and layout never got started. Force
-    // layout *now*, to get an initial reflow.
+  bool destroying = true;
+  if (mDocShell) {
+    mDocShell->IsBeingDestroyed(&destroying);
+  }
 
-    // NOTE: only force the layout if we are NOT destroying the
-    // docshell. If we are destroying it, then starting layout will
-    // likely cause us to crash, or at best waste a lot of time as we
-    // are just going to tear it down anyway.
-    bool destroying = true;
-    if (mDocShell) {
-      mDocShell->IsBeingDestroyed(&destroying);
-    }
+  if (!destroying) {
+    mDocument->OnParsingCompleted();
 
-    if (!destroying) {
-      mDocument->TriggerInitialDocumentTranslation();
+    if (!mLayoutStarted) {
+      // We never saw the body, and layout never got started. Force
+      // layout *now*, to get an initial reflow.
+
+      // NOTE: only force the layout if we are NOT destroying the
+      // docshell. If we are destroying it, then starting layout will
+      // likely cause us to crash, or at best waste a lot of time as we
+      // are just going to tear it down anyway.
       nsContentSink::StartLayout(false);
     }
   }
@@ -240,7 +241,7 @@ nsHtml5TreeOpExecutor::SetParser(nsParserBase* aParser) {
   return NS_OK;
 }
 
-void nsHtml5TreeOpExecutor::InitialDocumentTranslationCompleted() {
+void nsHtml5TreeOpExecutor::InitialTranslationCompleted() {
   nsContentSink::StartLayout(false);
 }
 
@@ -311,6 +312,7 @@ void nsHtml5TreeOpExecutor::ContinueInterruptedParsingAsync() {
     gBackgroundFlushRunner = IdleTaskRunner::Create(
         &BackgroundFlushCallback,
         "nsHtml5TreeOpExecutor::BackgroundFlushCallback",
+        0,    // Start looking for idle time immediately.
         250,  // The hard deadline: 250ms.
         StaticPrefs::content_sink_interactive_parse_time() /
             1000,               // Required budget.

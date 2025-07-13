@@ -20,6 +20,7 @@
 
 #include "nsCOMPtr.h"
 #include "nsCycleCollectionParticipant.h"
+#include "nsRefPtrHashtable.h" //MY
 #include "nsTArray.h"
 
 class nsCycleCollectionNoteRootCallback;

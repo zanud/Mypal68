@@ -11,7 +11,8 @@
 #include "jsfriendapi.h"
 #include "js/Array.h"  // JS::GetArrayLength, JS::IsArrayObject, JS::NewArrayObject
 #include "js/GCAPI.h"
-#include "js/Object.h"  // JS::GetClass, JS::GetPrivate, JS::SetPrivate
+#include "js/Object.h"  // JS::GetClass, JS::GetMaybePtrFromReservedSlot, JS::SetReservedSlot
+#include "js/PropertyAndElement.h"  // JS_DefineElement, JS_DefineFunction, JS_DefineProperty, JS_DefineUCProperty, JS_Enumerate, JS_GetElement, JS_GetProperty, JS_GetPropertyById
 #include "mozilla/dom/ToJSValue.h"
 #include "mozilla/gfx/GPUProcessManager.h"
 #include "mozilla/Atomics.h"
@@ -1627,6 +1628,10 @@ void internal_ClearHistogram(const StaticMutexAutoLock& aLock, HistogramID id,
 
 namespace {
 
+static constexpr uint32_t HistogramObjectDataSlot = 0;
+static constexpr uint32_t HistogramObjectSlotCount =
+    HistogramObjectDataSlot + 1;
+
 void internal_JSHistogram_finalize(JSFreeOp*, JSObject*);
 
 static const JSClassOps sJSHistogramClassOps = {nullptr, /* addProperty */
@@ -1638,8 +1643,9 @@ static const JSClassOps sJSHistogramClassOps = {nullptr, /* addProperty */
                                                 internal_JSHistogram_finalize};
 
 static const JSClass sJSHistogramClass = {
-    "JSHistogram",                                     /* name */
-    JSCLASS_HAS_PRIVATE | JSCLASS_FOREGROUND_FINALIZE, /* flags */
+    "JSHistogram", /* name */
+    JSCLASS_HAS_RESERVED_SLOTS(HistogramObjectSlotCount) |
+        JSCLASS_FOREGROUND_FINALIZE, /* flags */
     &sJSHistogramClassOps};
 
 struct JSHistogramData {
@@ -1785,6 +1791,12 @@ bool internal_JSHistogram_GetValueArray(JSContext* aCx, JS::CallArgs& args,
   return true;
 }
 
+static JSHistogramData* GetJSHistogramData(JSObject* obj) {
+  MOZ_ASSERT(JS::GetClass(obj) == &sJSHistogramClass);
+  return JS::GetMaybePtrFromReservedSlot<JSHistogramData>(
+      obj, HistogramObjectDataSlot);
+}
+
 bool internal_JSHistogram_Add(JSContext* cx, unsigned argc, JS::Value* vp) {
   JS::CallArgs args = CallArgsFromVp(argc, vp);
 
@@ -1795,7 +1807,7 @@ bool internal_JSHistogram_Add(JSContext* cx, unsigned argc, JS::Value* vp) {
   }
 
   JSObject* obj = &args.thisv().toObject();
-  JSHistogramData* data = static_cast<JSHistogramData*>(JS::GetPrivate(obj));
+  JSHistogramData* data = GetJSHistogramData(obj);
   MOZ_ASSERT(data);
   HistogramID id = data->histogramId;
   MOZ_ASSERT(internal_IsHistogramEnumId(id));
@@ -1831,7 +1843,7 @@ bool internal_JSHistogram_Name(JSContext* cx, unsigned argc, JS::Value* vp) {
   }
 
   JSObject* obj = &args.thisv().toObject();
-  JSHistogramData* data = static_cast<JSHistogramData*>(JS::GetPrivate(obj));
+  JSHistogramData* data = GetJSHistogramData(obj);
   MOZ_ASSERT(data);
   HistogramID id = data->histogramId;
   MOZ_ASSERT(internal_IsHistogramEnumId(id));
@@ -1900,7 +1912,7 @@ bool internal_JSHistogram_Snapshot(JSContext* cx, unsigned argc,
   }
 
   JSObject* obj = &args.thisv().toObject();
-  JSHistogramData* data = static_cast<JSHistogramData*>(JS::GetPrivate(obj));
+  JSHistogramData* data = GetJSHistogramData(obj);
   MOZ_ASSERT(data);
   HistogramID id = data->histogramId;
 
@@ -1963,7 +1975,7 @@ bool internal_JSHistogram_Clear(JSContext* cx, unsigned argc, JS::Value* vp) {
   }
 
   JSObject* obj = &args.thisv().toObject();
-  JSHistogramData* data = static_cast<JSHistogramData*>(JS::GetPrivate(obj));
+  JSHistogramData* data = GetJSHistogramData(obj);
   MOZ_ASSERT(data);
 
   nsAutoString storeName;
@@ -2008,7 +2020,7 @@ nsresult internal_WrapAndReturnHistogram(HistogramID id, JSContext* cx,
   }
 
   JSHistogramData* data = new JSHistogramData{id};
-  JS::SetPrivate(obj, data);
+  JS::SetReservedSlot(obj, HistogramObjectDataSlot, JS::PrivateValue(data));
   ret.setObject(*obj);
 
   return NS_OK;
@@ -2020,7 +2032,7 @@ void internal_JSHistogram_finalize(JSFreeOp*, JSObject* obj) {
     return;
   }
 
-  JSHistogramData* data = static_cast<JSHistogramData*>(JS::GetPrivate(obj));
+  JSHistogramData* data = GetJSHistogramData(obj);
   MOZ_ASSERT(data);
   delete data;
 }
@@ -2058,9 +2070,16 @@ static const JSClassOps sJSKeyedHistogramClassOps = {
     internal_JSKeyedHistogram_finalize};
 
 static const JSClass sJSKeyedHistogramClass = {
-    "JSKeyedHistogram",                                /* name */
-    JSCLASS_HAS_PRIVATE | JSCLASS_FOREGROUND_FINALIZE, /* flags */
+    "JSKeyedHistogram", /* name */
+    JSCLASS_HAS_RESERVED_SLOTS(HistogramObjectSlotCount) |
+        JSCLASS_FOREGROUND_FINALIZE, /* flags */
     &sJSKeyedHistogramClassOps};
+
+static JSHistogramData* GetJSKeyedHistogramData(JSObject* obj) {
+  MOZ_ASSERT(JS::GetClass(obj) == &sJSKeyedHistogramClass);
+  return JS::GetMaybePtrFromReservedSlot<JSHistogramData>(
+      obj, HistogramObjectDataSlot);
+}
 
 bool internal_JSKeyedHistogram_Snapshot(JSContext* cx, unsigned argc,
                                         JS::Value* vp) {
@@ -2079,7 +2098,7 @@ bool internal_JSKeyedHistogram_Snapshot(JSContext* cx, unsigned argc,
   }
 
   JSObject* obj = &args.thisv().toObject();
-  JSHistogramData* data = static_cast<JSHistogramData*>(JS::GetPrivate(obj));
+  JSHistogramData* data = GetJSKeyedHistogramData(obj);
   MOZ_ASSERT(data);
   HistogramID id = data->histogramId;
   MOZ_ASSERT(internal_IsHistogramEnumId(id));
@@ -2140,7 +2159,7 @@ bool internal_JSKeyedHistogram_Add(JSContext* cx, unsigned argc,
   }
 
   JSObject* obj = &args.thisv().toObject();
-  JSHistogramData* data = static_cast<JSHistogramData*>(JS::GetPrivate(obj));
+  JSHistogramData* data = GetJSKeyedHistogramData(obj);
   MOZ_ASSERT(data);
   HistogramID id = data->histogramId;
   MOZ_ASSERT(internal_IsHistogramEnumId(id));
@@ -2202,7 +2221,7 @@ bool internal_JSKeyedHistogram_Name(JSContext* cx, unsigned argc,
   }
 
   JSObject* obj = &args.thisv().toObject();
-  JSHistogramData* data = static_cast<JSHistogramData*>(JS::GetPrivate(obj));
+  JSHistogramData* data = GetJSKeyedHistogramData(obj);
   MOZ_ASSERT(data);
   HistogramID id = data->histogramId;
   MOZ_ASSERT(internal_IsHistogramEnumId(id));
@@ -2225,7 +2244,7 @@ bool internal_JSKeyedHistogram_Keys(JSContext* cx, unsigned argc,
   }
 
   JSObject* obj = &args.thisv().toObject();
-  JSHistogramData* data = static_cast<JSHistogramData*>(JS::GetPrivate(obj));
+  JSHistogramData* data = GetJSKeyedHistogramData(obj);
   MOZ_ASSERT(data);
   HistogramID id = data->histogramId;
 
@@ -2297,7 +2316,7 @@ bool internal_JSKeyedHistogram_Clear(JSContext* cx, unsigned argc,
   }
 
   JSObject* obj = &args.thisv().toObject();
-  JSHistogramData* data = static_cast<JSHistogramData*>(JS::GetPrivate(obj));
+  JSHistogramData* data = GetJSKeyedHistogramData(obj);
   MOZ_ASSERT(data);
   HistogramID id = data->histogramId;
 
@@ -2354,7 +2373,7 @@ nsresult internal_WrapAndReturnKeyedHistogram(
   }
 
   JSHistogramData* data = new JSHistogramData{id};
-  JS::SetPrivate(obj, data);
+  JS::SetReservedSlot(obj, HistogramObjectDataSlot, JS::PrivateValue(data));
   ret.setObject(*obj);
 
   return NS_OK;
@@ -2366,7 +2385,7 @@ void internal_JSKeyedHistogram_finalize(JSFreeOp*, JSObject* obj) {
     return;
   }
 
-  JSHistogramData* data = static_cast<JSHistogramData*>(JS::GetPrivate(obj));
+  JSHistogramData* data = GetJSKeyedHistogramData(obj);
   MOZ_ASSERT(data);
   delete data;
 }

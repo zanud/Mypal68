@@ -12,6 +12,7 @@
 #include "mozilla/RefCounted.h"
 #include "mozilla/UniquePtr.h"
 #include "RtpSourceObserver.h"
+#include "RtcpEventObserver.h"
 #include "CodecConfig.h"
 #include "VideoTypes.h"
 #include "MediaConduitErrors.h"
@@ -254,6 +255,8 @@ class MediaSessionConduit {
 
   virtual Maybe<RefPtr<VideoSessionConduit>> AsVideoSessionConduit() = 0;
 
+  virtual void SetRtcpEventObserver(RtcpEventObserver* observer) = 0;
+
   NS_INLINE_DECL_THREADSAFE_REFCOUNTING(MediaSessionConduit)
 };
 
@@ -308,6 +311,10 @@ class WebRtcCallWrapper : public RefCounted<WebRtcCallWrapper> {
   }
 
   DOMHighResTimeStamp GetNow() const { return mTimestampMaker.GetNow(); }
+
+  const dom::RTCStatsTimestampMaker& GetTimestampMaker() const {
+    return mTimestampMaker;
+  }
 
   MOZ_DECLARE_REFCOUNTED_TYPENAME(WebRtcCallWrapper)
 
@@ -594,8 +601,7 @@ class AudioSessionConduit : public MediaSessionConduit {
   virtual bool InsertDTMFTone(int channel, int eventCode, bool outOfBand,
                               int lengthMs, int attenuationDb) = 0;
 
-  virtual void GetRtpSources(const int64_t aTimeNow,
-                             nsTArray<dom::RTCRtpSourceEntry>& outSources) = 0;
+  virtual void GetRtpSources(nsTArray<dom::RTCRtpSourceEntry>& outSources) = 0;
 };
 }  // namespace mozilla
 #endif

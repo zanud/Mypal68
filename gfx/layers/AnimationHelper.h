@@ -15,6 +15,7 @@
 #include "mozilla/TimeStamp.h"  // for TimeStamp
 #include "mozilla/TimingParams.h"
 #include "mozilla/Variant.h"
+#include "nsClassHashtable.h" //MY
 #include "X11UndefineNone.h"
 
 namespace mozilla {

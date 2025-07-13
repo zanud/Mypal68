@@ -55,15 +55,17 @@ bool is_in_render_thread() {
 
 void gecko_profiler_start_marker(const char* name) {
 #ifdef MOZ_GECKO_PROFILER
-  profiler_tracing("WebRender", name, JS::ProfilingCategoryPair::GRAPHICS,
-                   TRACING_INTERVAL_START);
+  profiler_tracing_marker("WebRender", name,
+                          JS::ProfilingCategoryPair::GRAPHICS,
+                          TRACING_INTERVAL_START);
 #endif
 }
 
 void gecko_profiler_end_marker(const char* name) {
 #ifdef MOZ_GECKO_PROFILER
-  profiler_tracing("WebRender", name, JS::ProfilingCategoryPair::GRAPHICS,
-                   TRACING_INTERVAL_END);
+  profiler_tracing_marker("WebRender", name,
+                          JS::ProfilingCategoryPair::GRAPHICS,
+                          TRACING_INTERVAL_END);
 #endif
 }
 
@@ -213,13 +215,12 @@ class SceneBuiltNotification : public wr::NotificationHandler {
               ContentFullPaintPayload(const mozilla::TimeStamp& aStartTime,
                                       const mozilla::TimeStamp& aEndTime)
                   : ProfilerMarkerPayload(aStartTime, aEndTime) {}
-              mozilla::BlocksRingBuffer::Length TagAndSerializationBytes()
-                  const override {
+              mozilla::ProfileBufferEntryWriter::Length
+              TagAndSerializationBytes() const override {
                 return CommonPropsTagAndSerializationBytes();
               }
-              void SerializeTagAndPayload(
-                  mozilla::BlocksRingBuffer::EntryWriter& aEntryWriter)
-                  const override {
+              void SerializeTagAndPayload(mozilla::ProfileBufferEntryWriter&
+                                              aEntryWriter) const override {
                 static const DeserializerTag tag =
                     TagForDeserializer(Deserialize);
                 SerializeTagAndCommonProps(tag, aEntryWriter);
@@ -235,7 +236,7 @@ class SceneBuiltNotification : public wr::NotificationHandler {
               explicit ContentFullPaintPayload(CommonProps&& aCommonProps)
                   : ProfilerMarkerPayload(std::move(aCommonProps)) {}
               static mozilla::UniquePtr<ProfilerMarkerPayload> Deserialize(
-                  mozilla::BlocksRingBuffer::EntryReader& aEntryReader) {
+                  mozilla::ProfileBufferEntryReader& aEntryReader) {
                 ProfilerMarkerPayload::CommonProps props =
                     DeserializeCommonProps(aEntryReader);
                 return UniquePtr<ProfilerMarkerPayload>(
@@ -1218,7 +1219,7 @@ mozilla::ipc::IPCResult WebRenderBridgeParent::RecvSetDisplayList(
     CrashReporter::AnnotateCrashReport(CrashReporter::Annotation::URL, aTxnURL);
   }
 
-  AUTO_PROFILER_TRACING("Paint", "SetDisplayList", GRAPHICS);
+  AUTO_PROFILER_TRACING_MARKER("Paint", "SetDisplayList", GRAPHICS);
   UpdateFwdTransactionId(aFwdTransactionId);
 
   // This ensures that destroy operations are always processed. It is not safe
@@ -1419,7 +1420,7 @@ mozilla::ipc::IPCResult WebRenderBridgeParent::RecvEmptyTransaction(
     CrashReporter::AnnotateCrashReport(CrashReporter::Annotation::URL, aTxnURL);
   }
 
-  AUTO_PROFILER_TRACING("Paint", "EmptyTransaction", GRAPHICS);
+  AUTO_PROFILER_TRACING_MARKER("Paint", "EmptyTransaction", GRAPHICS);
   UpdateFwdTransactionId(aFwdTransactionId);
 
   // This ensures that destroy operations are always processed. It is not safe
@@ -2123,7 +2124,7 @@ void WebRenderBridgeParent::CompositeToTarget(VsyncId aId,
   MOZ_ASSERT(aTarget == nullptr);
   MOZ_ASSERT(aRect == nullptr);
 
-  AUTO_PROFILER_TRACING("Paint", "CompositeToTarget", GRAPHICS);
+  AUTO_PROFILER_TRACING_MARKER("Paint", "CompositeToTarget", GRAPHICS);
   if (mPaused || !mReceivedDisplayList) {
     mPreviousFrameTimeStamp = TimeStamp();
     return;

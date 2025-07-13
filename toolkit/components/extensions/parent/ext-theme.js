@@ -172,14 +172,12 @@ class Theme {
       }
 
       switch (color) {
-        case "accentcolor":
         case "frame":
           styles.accentcolor = cssColor;
           break;
         case "frame_inactive":
           styles.accentcolorInactive = cssColor;
           break;
-        case "textcolor":
         case "tab_background_text":
           styles.textcolor = cssColor;
           break;
@@ -267,7 +265,6 @@ class Theme {
           styles.additionalBackgrounds = backgroundImages;
           break;
         }
-        case "headerURL":
         case "theme_frame": {
           let resolvedURL = baseURI.resolve(val);
           styles.headerURL = resolvedURL;

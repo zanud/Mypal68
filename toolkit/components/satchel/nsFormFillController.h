@@ -5,13 +5,14 @@
 #ifndef __nsFormFillController__
 #define __nsFormFillController__
 
+#include "mozilla/TimeStamp.h"
 #include "nsIFormFillController.h"
 #include "nsIAutoCompleteInput.h"
 #include "nsIAutoCompleteSearch.h"
 #include "nsIAutoCompleteController.h"
 #include "nsIAutoCompletePopup.h"
-#include "nsIFormAutoComplete.h"
 #include "nsIDOMEventListener.h"
+#include "nsIFormAutoComplete.h"
 #include "nsCOMPtr.h"
 #include "nsDataHashtable.h"
 #include "nsIDocShell.h"

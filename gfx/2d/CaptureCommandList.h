@@ -5,13 +5,13 @@
 #ifndef mozilla_gfx_2d_CaptureCommandList_h
 #define mozilla_gfx_2d_CaptureCommandList_h
 
-#include "mozilla/Move.h"
-#include "mozilla/PodOperations.h"
-#include <vector>
 #include <limits>
+#include <utility>
+#include <vector>
 
 #include "DrawCommand.h"
 #include "Logging.h"
+#include "mozilla/PodOperations.h"
 
 namespace mozilla {
 namespace gfx {

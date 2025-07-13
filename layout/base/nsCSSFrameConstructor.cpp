@@ -4345,7 +4345,8 @@ nsCSSFrameConstructor::FindDisplayData(const nsStyleDisplay& aDisplay,
     case StyleDisplayInside::MozBox: {
       if (!aElement.IsInNativeAnonymousSubtree() &&
           aElement.OwnerDoc()->IsContentDocument()) {
-        aElement.OwnerDoc()->WarnOnceAbout(Document::eMozBoxOrInlineBoxDisplay);
+        aElement.OwnerDoc()->WarnOnceAbout(
+            DeprecatedOperations::eMozBoxOrInlineBoxDisplay);
       }
 
       // If we're emulating -moz-box with flexbox, then treat it as non-XUL and
@@ -5108,7 +5109,7 @@ static bool ShouldSuppressFrameInSelect(const nsIContent* aParent,
   // Options with labels have their label text added in ::before by forms.css.
   // Suppress frames for their child text.
   if (aParent->IsHTMLElement(nsGkAtoms::option) &&
-      !aChild.IsRootOfAnonymousSubtree()) {
+      !aChild.IsRootOfNativeAnonymousSubtree()) {
     return aParent->AsElement()->HasNonEmptyAttr(nsGkAtoms::label);
   }
 
@@ -5132,7 +5133,7 @@ static bool ShouldSuppressFrameInSelect(const nsIContent* aParent,
   }
 
   // Allow native anonymous content no matter what.
-  if (aChild.IsRootOfAnonymousSubtree()) {
+  if (aChild.IsRootOfNativeAnonymousSubtree()) {
     return false;
   }
 
@@ -5156,7 +5157,7 @@ static bool ShouldSuppressFrameInNonOpenDetails(
   }
 
   // Don't suppress NAC, unless it's a ::before, inside ::marker, or ::after.
-  if (aChild.IsRootOfAnonymousSubtree() &&
+  if (aChild.IsRootOfNativeAnonymousSubtree() &&
       !(aChild.IsGeneratedContentContainerForMarker() &&
         aComputedStyle->StyleList()->mListStylePosition ==
             NS_STYLE_LIST_STYLE_POSITION_INSIDE) &&
@@ -5538,7 +5539,7 @@ void nsCSSFrameConstructor::ConstructFramesFromItem(
 
   const auto* disp = computedStyle->StyleDisplay();
   MOZ_ASSERT(!disp->IsAbsolutelyPositionedStyle() ||
-             disp->DisplayInside() != StyleDisplayInside::MozBox,
+                 disp->DisplayInside() != StyleDisplayInside::MozBox,
              "This may be a frame that was previously blockified "
              "but isn't any longer! It probably needs explicit "
              "'display:block' to preserve behavior");
@@ -6153,8 +6154,8 @@ nsIFrame* nsCSSFrameConstructor::GetInsertionPrevSibling(
   // XBL insertion point is involved, we'll need to use _that_ to find
   // the preceding frame.
   FlattenedChildIterator iter(aInsertion->mContainer);
-  if (iter.ShadowDOMInvolved() || !aChild->IsRootOfAnonymousSubtree()) {
-    // The check for IsRootOfAnonymousSubtree() is because editor is
+  if (iter.ShadowDOMInvolved() || !aChild->IsRootOfNativeAnonymousSubtree()) {
+    // The check for IsRootOfNativeAnonymousSubtree() is because editor is
     // severely broken and calls us directly for native anonymous
     // nodes that it creates.
     if (aStartSkipChild) {
@@ -7118,7 +7119,7 @@ void nsCSSFrameConstructor::ContentRangeInserted(nsIContent* aStartChild,
 
   if (isSingleInsert) {
     AddFrameConstructionItems(state, aStartChild,
-                              aStartChild->IsRootOfAnonymousSubtree(),
+                              aStartChild->IsRootOfNativeAnonymousSubtree(),
                               insertion, items);
   } else {
     for (nsIContent* child = aStartChild; child != aEndChild;
@@ -7283,7 +7284,7 @@ bool nsCSSFrameConstructor::ContentRemoved(nsIContent* aChild,
                                            nsIContent* aOldNextSibling,
                                            RemoveFlags aFlags) {
   MOZ_ASSERT(aChild);
-  MOZ_ASSERT(!aChild->IsRootOfAnonymousSubtree() || !aOldNextSibling,
+  MOZ_ASSERT(!aChild->IsRootOfNativeAnonymousSubtree() || !aOldNextSibling,
              "Anonymous roots don't have siblings");
   AUTO_PROFILER_LABEL("nsCSSFrameConstructor::ContentRemoved",
                       LAYOUT_FrameConstruction);
@@ -8186,9 +8187,10 @@ static nsIFrame* FindPreviousNonWhitespaceSibling(nsIFrame* aFrame) {
 
 bool nsCSSFrameConstructor::MaybeRecreateContainerForFrameRemoval(
     nsIFrame* aFrame) {
-#define TRACE(reason)                                                          \
-  PROFILER_TRACING("Layout", "MaybeRecreateContainerForFrameRemoval: " reason, \
-                   LAYOUT, TRACING_EVENT)
+#define TRACE(reason)                                                       \
+  PROFILER_TRACING_MARKER("Layout",                                         \
+                          "MaybeRecreateContainerForFrameRemoval: " reason, \
+                          LAYOUT, TRACING_EVENT)
   MOZ_ASSERT(aFrame, "Must have a frame");
   MOZ_ASSERT(aFrame->GetParent(), "Frame shouldn't be root");
   MOZ_ASSERT(aFrame == aFrame->FirstContinuation(),
@@ -8517,7 +8519,7 @@ void nsCSSFrameConstructor::RecreateFramesForContent(
   MOZ_ASSERT(aContent->GetParentNode());
 
   // Remove the frames associated with the content object.
-  nsIContent* nextSibling = aContent->IsRootOfAnonymousSubtree()
+  nsIContent* nextSibling = aContent->IsRootOfNativeAnonymousSubtree()
                                 ? nullptr
                                 : aContent->GetNextSibling();
   bool didReconstruct =
@@ -8547,7 +8549,7 @@ void nsCSSFrameConstructor::RecreateFramesForContent(
 bool nsCSSFrameConstructor::DestroyFramesFor(Element* aElement) {
   MOZ_ASSERT(aElement && aElement->GetParentNode());
 
-  nsIContent* nextSibling = aElement->IsRootOfAnonymousSubtree()
+  nsIContent* nextSibling = aElement->IsRootOfNativeAnonymousSubtree()
                                 ? nullptr
                                 : aElement->GetNextSibling();
 
@@ -9523,7 +9525,7 @@ void nsCSSFrameConstructor::ProcessChildren(
   GetAnonymousContent(aContent, aPossiblyLeafFrame, anonymousItems);
 #ifdef DEBUG
   for (uint32_t i = 0; i < anonymousItems.Length(); ++i) {
-    MOZ_ASSERT(anonymousItems[i].mContent->IsRootOfAnonymousSubtree(),
+    MOZ_ASSERT(anonymousItems[i].mContent->IsRootOfNativeAnonymousSubtree(),
                "Content should know it's an anonymous subtree");
   }
 #endif
@@ -10760,9 +10762,9 @@ bool nsCSSFrameConstructor::MaybeRecreateForColumnSpan(
     // some of them have column-span:all descendants. Sadly, there's no way to
     // detect this by checking FrameConstructionItems in WipeContainingBlock().
     // Otherwise, we would have already wiped the multi-column containing block.
-    PROFILER_TRACING("Layout",
-                     "Reframe multi-column after constructing frame list",
-                     LAYOUT, TRACING_EVENT);
+    PROFILER_TRACING_MARKER(
+        "Layout", "Reframe multi-column after constructing frame list", LAYOUT,
+        TRACING_EVENT);
 
     // aFrameList can contain placeholder frames. In order to destroy their
     // associated out-of-flow frames properly, we need to manually flush all the
@@ -11087,9 +11089,9 @@ static bool IsSafeToAppendToIBSplitInline(nsIFrame* aParentFrame,
 }
 
 bool nsCSSFrameConstructor::WipeInsertionParent(nsContainerFrame* aFrame) {
-#define TRACE(reason)                                                \
-  PROFILER_TRACING("Layout", "WipeInsertionParent: " reason, LAYOUT, \
-                   TRACING_EVENT)
+#define TRACE(reason)                                                       \
+  PROFILER_TRACING_MARKER("Layout", "WipeInsertionParent: " reason, LAYOUT, \
+                          TRACING_EVENT)
 
   const LayoutFrameType frameType = aFrame->Type();
 
@@ -11149,9 +11151,9 @@ bool nsCSSFrameConstructor::WipeContainingBlock(
     nsFrameConstructorState& aState, nsIFrame* aContainingBlock,
     nsIFrame* aFrame, FrameConstructionItemList& aItems, bool aIsAppend,
     nsIFrame* aPrevSibling) {
-#define TRACE(reason)                                                \
-  PROFILER_TRACING("Layout", "WipeContainingBlock: " reason, LAYOUT, \
-                   TRACING_EVENT)
+#define TRACE(reason)                                                       \
+  PROFILER_TRACING_MARKER("Layout", "WipeContainingBlock: " reason, LAYOUT, \
+                          TRACING_EVENT)
 
   if (aItems.IsEmpty()) {
     return false;

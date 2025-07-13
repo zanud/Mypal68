@@ -17,6 +17,7 @@
 
 // Audio Engine Includes
 #include "webrtc/common_types.h"
+#include "webrtc/modules/rtp_rtcp/include/rtp_packet_observer.h"
 #include "webrtc/modules/audio_device/include/fake_audio_device.h"
 #include "webrtc/voice_engine/include/voe_base.h"
 #include "webrtc/voice_engine/channel_proxy.h"
@@ -35,6 +36,7 @@ DOMHighResTimeStamp NTPtoDOMHighResTimeStamp(uint32_t ntpHigh, uint32_t ntpLow);
  */
 class WebrtcAudioConduit : public AudioSessionConduit,
                            public webrtc::Transport,
+                           public webrtc::RtcpEventObserver,
                            public webrtc::RtpPacketObserver {
  public:
   // VoiceEngine defined constant for Payload Name Size.
@@ -196,6 +198,7 @@ class WebrtcAudioConduit : public AudioSessionConduit,
         mSendChannel(-1),
         mDtmfEnabled(false),
         mMutex("WebrtcAudioConduit::mMutex"),
+        mRtpSourceObserver(new RtpSourceObserver(mCall->GetTimestampMaker())),
         mStsThread(aStsThread) {}
 
   virtual ~WebrtcAudioConduit();
@@ -240,11 +243,15 @@ class WebrtcAudioConduit : public AudioSessionConduit,
   bool InsertDTMFTone(int channel, int eventCode, bool outOfBand, int lengthMs,
                       int attenuationDb) override;
 
-  void GetRtpSources(const int64_t aTimeNow,
-                     nsTArray<dom::RTCRtpSourceEntry>& outSources) override;
+  void GetRtpSources(nsTArray<dom::RTCRtpSourceEntry>& outSources) override;
 
   void OnRtpPacket(const webrtc::RTPHeader& aRtpHeader,
                    const int64_t aTimestamp, const uint32_t aJitter) override;
+
+  void OnRtcpBye() override;
+  void OnRtcpTimeout() override;
+
+  void SetRtcpEventObserver(mozilla::RtcpEventObserver* observer) override;
 
   // test-only: inserts fake CSRCs and audio level data
   void InsertAudioLevelForContributingSource(const uint32_t aCsrcSource,
@@ -352,7 +359,7 @@ class WebrtcAudioConduit : public AudioSessionConduit,
   webrtc::AudioFrame mAudioFrame;  // for output pulls
 
   // Accessed from both main and mStsThread. Uses locks internally.
-  RtpSourceObserver mRtpSourceObserver;
+  RefPtr<RtpSourceObserver> mRtpSourceObserver;
 
   // Socket transport service thread. Any thread.
   const nsCOMPtr<nsISerialEventTarget> mStsThread;
@@ -362,6 +369,9 @@ class WebrtcAudioConduit : public AudioSessionConduit,
 
   // Accessed only on mStsThread
   Maybe<DOMHighResTimeStamp> mLastRtcpReceived;
+
+  // Accessed only on main thread.
+  mozilla::RtcpEventObserver* mRtcpEventObserver = nullptr;
 };
 
 }  // namespace mozilla

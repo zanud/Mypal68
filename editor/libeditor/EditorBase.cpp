@@ -5246,9 +5246,8 @@ nsresult EditorBase::InsertLineBreakAsSubAction() {
  *****************************************************************************/
 
 EditorBase::AutoSelectionRestorer::AutoSelectionRestorer(
-    EditorBase& aEditorBase MOZ_GUARD_OBJECT_NOTIFIER_PARAM_IN_IMPL)
+    EditorBase& aEditorBase)
     : mEditorBase(nullptr) {
-  MOZ_GUARD_OBJECT_NOTIFIER_INIT;
   if (aEditorBase.ArePreservingSelection()) {
     // We already have initialized mParentData::mSavedSelection, so this must
     // be nested call.
@@ -5801,6 +5800,28 @@ void EditorBase::TopLevelEditSubActionData::WillDeleteRange(
   NS_WARNING_ASSERTION(NS_SUCCEEDED(rvIgnored),
                        "TopLevelEditSubActionData::AddRangeToChangedRange() "
                        "failed, but ignored");
+}
+
+nsPIDOMWindowOuter* EditorBase::GetWindow() const {
+  return mDocument ? mDocument->GetWindow() : nullptr;
+}
+
+nsPIDOMWindowInner* EditorBase::GetInnerWindow() const {
+  return mDocument ? mDocument->GetInnerWindow() : nullptr;
+}
+
+PresShell* EditorBase::GetPresShell() const {
+  return mDocument ? mDocument->GetPresShell() : nullptr;
+}
+
+nsISelectionController* EditorBase::GetSelectionController() const {
+  if (mSelectionController) {
+    return mSelectionController;
+  }
+  if (!mDocument) {
+    return nullptr;
+  }
+  return mDocument->GetPresShell();
 }
 
 }  // namespace mozilla

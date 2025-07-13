@@ -27,9 +27,6 @@ class DNSRequestChild final : public PDNSRequestChild, public nsICancelable {
                   const uint32_t& aFlags, nsIDNSListener* aListener,
                   nsIEventTarget* target);
 
-  void AddIPDLReference() { AddRef(); }
-  void ReleaseIPDLReference();
-
   // Sends IPDL request to parent
   void StartRequest();
   void CallOnLookupComplete();
@@ -38,7 +35,7 @@ class DNSRequestChild final : public PDNSRequestChild, public nsICancelable {
  protected:
   friend class CancelDNSRequestEvent;
   friend class ChildDNSService;
-  virtual ~DNSRequestChild() {}
+  virtual ~DNSRequestChild() = default;
 
   mozilla::ipc::IPCResult RecvLookupCompleted(const DNSRequestResponse& reply);
   virtual void ActorDestroy(ActorDestroyReason why) override;
@@ -58,7 +55,6 @@ class DNSRequestChild final : public PDNSRequestChild, public nsICancelable {
   uint16_t mType;
   const OriginAttributes mOriginAttributes;
   uint16_t mFlags;
-  bool mIPCOpen;
 };
 
 }  // namespace net

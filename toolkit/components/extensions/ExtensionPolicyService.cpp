@@ -64,11 +64,9 @@ static mozIExtensionProcessScript& ProcessScript() {
   static nsCOMPtr<mozIExtensionProcessScript> sProcessScript;
 
   if (MOZ_UNLIKELY(!sProcessScript)) {
-    nsCOMPtr<mozIExtensionProcessScriptJSM> jsm =
-        do_ImportModule("resource://gre/modules/ExtensionProcessScript.jsm");
-    MOZ_RELEASE_ASSERT(jsm);
-
-    Unused << jsm->GetExtensionProcessScript(getter_AddRefs(sProcessScript));
+    sProcessScript =
+        do_ImportModule("resource://gre/modules/ExtensionProcessScript.jsm",
+                        "ExtensionProcessScript");
     MOZ_RELEASE_ASSERT(sProcessScript);
     ClearOnShutdown(&sProcessScript);
   }
@@ -484,6 +482,8 @@ void ExtensionPolicyService::CheckContentScripts(const DocInfo& aDocInfo,
     win = aDocInfo.GetWindow()->GetCurrentInnerWindow();
   }
 
+  nsTArray<RefPtr<WebExtensionContentScript>> scriptsToLoad;
+
   for (auto iter = mExtensions.Iter(); !iter.Done(); iter.Next()) {
     RefPtr<WebExtensionPolicy> policy = iter.Data();
 
@@ -492,15 +492,26 @@ void ExtensionPolicyService::CheckContentScripts(const DocInfo& aDocInfo,
         if (aIsPreload) {
           ProcessScript().PreloadContentScript(script);
         } else {
-          if (!win->IsCurrentInnerWindow()) {
-            break;
-          }
-          RefPtr<Promise> promise;
-          ProcessScript().LoadContentScript(script, win,
-                                            getter_AddRefs(promise));
+          // Collect the content scripts to load instead of loading them
+          // right away (to prevent a loaded content script from being
+          // able to invalidate the iterator by triggering a call to
+          // policy->UnregisterContentScript while we are still iterating
+          // over all its content scripts). See Bug 1593240.
+          scriptsToLoad.AppendElement(script);
         }
       }
     }
+
+    for (auto& script : scriptsToLoad) {
+      if (!win->IsCurrentInnerWindow()) {
+        break;
+      }
+
+      RefPtr<Promise> promise;
+      ProcessScript().LoadContentScript(script, win, getter_AddRefs(promise));
+    }
+
+    scriptsToLoad.ClearAndRetainStorage();
   }
 
   for (auto iter = mObservers.Iter(); !iter.Done(); iter.Next()) {

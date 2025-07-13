@@ -3,11 +3,6 @@ ChromeUtils.defineModuleGetter(
   "PlacesTestUtils",
   "resource://testing-common/PlacesTestUtils.jsm"
 );
-ChromeUtils.defineModuleGetter(
-  this,
-  "TelemetryTestUtils",
-  "resource://testing-common/TelemetryTestUtils.jsm"
-);
 
 const SINGLE_TRY_TIMEOUT = 100;
 const NUMBER_OF_TRIES = 30;

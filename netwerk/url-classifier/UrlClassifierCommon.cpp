@@ -25,6 +25,7 @@
 #include "nsIWebProgressListener.h"
 #include "nsNetUtil.h"
 #include "nsQueryObject.h"
+#include "nsReadableUtils.h"
 
 namespace mozilla {
 namespace net {
@@ -335,7 +336,7 @@ void SetClassificationFlagsHelper(nsIChannel* aChannel,
 
   RefPtr<ClassifierDummyChannel> dummyChannel = do_QueryObject(aChannel);
   if (dummyChannel) {
-    dummyChannel->AddClassificationFlags(aClassificationFlags);
+    dummyChannel->AddClassificationFlags(aClassificationFlags, aIsThirdParty);
   }
 }
 
@@ -495,22 +496,24 @@ bool UrlClassifierCommon::IsAllowListed(nsIChannel* aChannel) {
 bool UrlClassifierCommon::IsTrackingClassificationFlag(uint32_t aFlag) {
   if (StaticPrefs::privacy_annotate_channels_strict_list_enabled()) {
     return (
-        aFlag &
-        nsIHttpChannel::ClassificationFlags::CLASSIFIED_ANY_STRICT_TRACKING);
+        aFlag & nsIClassifiedChannel::ClassificationFlags::
+                    CLASSIFIED_ANY_STRICT_TRACKING);
   }
-  return (aFlag &
-          nsIHttpChannel::ClassificationFlags::CLASSIFIED_ANY_BASIC_TRACKING);
+  return (
+      aFlag &
+      nsIClassifiedChannel::ClassificationFlags::CLASSIFIED_ANY_BASIC_TRACKING);
 }
 
 // static
 bool UrlClassifierCommon::IsCryptominingClassificationFlag(uint32_t aFlag) {
-  if (aFlag & nsIHttpChannel::ClassificationFlags::CLASSIFIED_CRYPTOMINING) {
+  if (aFlag &
+      nsIClassifiedChannel::ClassificationFlags::CLASSIFIED_CRYPTOMINING) {
     return true;
   }
 
   if (StaticPrefs::privacy_annotate_channels_strict_list_enabled() &&
-      (aFlag &
-       nsIHttpChannel::ClassificationFlags::CLASSIFIED_CRYPTOMINING_CONTENT)) {
+      (aFlag & nsIClassifiedChannel::ClassificationFlags::
+                   CLASSIFIED_CRYPTOMINING_CONTENT)) {
     return true;
   }
 
@@ -519,14 +522,10 @@ bool UrlClassifierCommon::IsCryptominingClassificationFlag(uint32_t aFlag) {
 
 void UrlClassifierCommon::TablesToString(const nsTArray<nsCString>& aList,
                                          nsACString& aString) {
+  // Truncate and append rather than assigning because that's more efficient if
+  // aString is an nsAutoCString.
   aString.Truncate();
-
-  for (const nsCString& table : aList) {
-    if (!aString.IsEmpty()) {
-      aString.Append(",");
-    }
-    aString.Append(table);
-  }
+  StringJoinAppend(aString, ","_ns, aList);
 }
 
 uint32_t UrlClassifierCommon::TablesToClassificationFlags(

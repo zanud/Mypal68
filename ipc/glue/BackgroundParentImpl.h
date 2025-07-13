@@ -348,6 +348,7 @@ class BackgroundParentImpl : public PBackgroundParent {
       PServiceWorkerRegistrationParent* aActor,
       const IPCServiceWorkerRegistrationDescriptor& aDescriptor) override;
 
+#ifdef THE_REPORTING
   virtual PEndpointForReportParent* AllocPEndpointForReportParent(
       const nsString& aGroupName, const PrincipalInfo& aPrincipalInfo) override;
 
@@ -357,10 +358,10 @@ class BackgroundParentImpl : public PBackgroundParent {
 
   virtual bool DeallocPEndpointForReportParent(
       PEndpointForReportParent* aActor) override;
-
   virtual mozilla::ipc::IPCResult RecvRemoveEndpoint(
       const nsString& aGroupName, const nsCString& aEndpointURL,
       const PrincipalInfo& aPrincipalInfo) override;
+#endif
 
   virtual dom::PMediaTransportParent* AllocPMediaTransportParent() override;
   virtual bool DeallocPMediaTransportParent(

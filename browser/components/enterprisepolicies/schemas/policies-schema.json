@@ -235,10 +235,6 @@
       "type": "boolean"
     },
 
-    "DisableFeedbackCommands": {
-      "type": "boolean"
-    },
-
     "DisableFirefoxAccounts": {
       "type": "boolean"
     },

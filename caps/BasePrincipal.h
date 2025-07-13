@@ -5,26 +5,35 @@
 #ifndef mozilla_BasePrincipal_h
 #define mozilla_BasePrincipal_h
 
-#include "nsJSPrincipals.h"
-
-#include "mozilla/Attributes.h"
+#include <stdint.h>
+#include "ErrorList.h"
+#include "js/TypeDecls.h"
+#include "mozilla/AlreadyAddRefed.h"
+#include "mozilla/Assertions.h"
 #include "mozilla/OriginAttributes.h"
-
-class nsAtom;
-class nsIContentSecurityPolicy;
-class nsIObjectOutputStream;
-class nsIObjectInputStream;
-class nsIURI;
+#include "mozilla/RefPtr.h"
+#include "nsAtom.h"
+#include "nsIPrincipal.h"
+#include "nsJSPrincipals.h"
+#include "nsStringFwd.h"
+#include "nscore.h"
 
 class ExpandedPrincipal;
-
+class mozIDOMWindow;
+class nsIChannel;
+class nsIReferrerInfo;
+class nsISupports;
+class nsIURI;
 namespace Json {
 class Value;
 }
+
 namespace mozilla {
+
 namespace dom {
-class Document;
+enum class ReferrerPolicy : uint8_t;
 }
+
 namespace extensions {
 class WebExtensionPolicy;
 }
@@ -109,8 +118,10 @@ class BasePrincipal : public nsJSPrincipals {
                                        bool* _retval) final;
   NS_IMETHOD SubsumesConsideringDomainIgnoringFPD(nsIPrincipal* other,
                                                   bool* _retval) final;
-  NS_IMETHOD CheckMayLoad(nsIURI* uri, bool report,
-                          bool allowIfInheritsPrincipal) final;
+  NS_IMETHOD CheckMayLoad(nsIURI* uri, bool allowIfInheritsPrincipal) final;
+  NS_IMETHOD CheckMayLoadWithReporting(nsIURI* uri,
+                                       bool allowIfInheritsPrincipal,
+                                       uint64_t innerWindowID) final;
   NS_IMETHOD GetAddonPolicy(nsISupports** aResult) final;
   NS_IMETHOD GetIsNullPrincipal(bool* aResult) override;
   NS_IMETHOD GetIsCodebasePrincipal(bool* aResult) override;
@@ -128,6 +139,7 @@ class BasePrincipal : public nsJSPrincipals {
   NS_IMETHOD GetHostPort(nsACString& aRes) override;
   NS_IMETHOD GetHost(nsACString& aRes) override;
   NS_IMETHOD GetPrePath(nsACString& aResult) override;
+  NS_IMETHOD GetFilePath(nsACString& aResult) override;
   NS_IMETHOD GetOriginSuffix(nsACString& aOriginSuffix) final;
   NS_IMETHOD GetIsOnion(bool* aIsOnion) override;
   NS_IMETHOD GetIsInIsolatedMozBrowserElement(
@@ -150,6 +162,7 @@ class BasePrincipal : public nsJSPrincipals {
                                 nsIReferrerInfo** _retval) override;
   NS_IMETHOD GetIsScriptAllowedByPolicy(
       bool* aIsScriptAllowedByPolicy) override;
+  NS_IMETHOD GetStorageOriginKey(nsACString& aOriginKey) override;
   nsresult ToJSON(nsACString& aJSON);
   static already_AddRefed<BasePrincipal> FromJSON(const nsACString& aJSON);
   // Method populates a passed Json::Value with serializable fields
@@ -262,6 +275,10 @@ class BasePrincipal : public nsJSPrincipals {
   virtual bool MayLoadInternal(nsIURI* aURI) = 0;
   friend class ::ExpandedPrincipal;
 
+  // Helper for implementing CheckMayLoad and CheckMayLoadWithReporting.
+  nsresult CheckMayLoadHelper(nsIURI* aURI, bool aAllowIfInheritsPrincipal,
+                              bool aReport, uint64_t aInnerWindowID);
+
   void SetHasExplicitDomain() { mHasExplicitDomain = true; }
 
   // Either of these functions should be called as the last step of the
@@ -288,8 +305,8 @@ class BasePrincipal : public nsJSPrincipals {
       nsIURI* aURI, const OriginAttributes& aAttrs,
       const nsACString& aOriginNoSuffix);
 
-  inline bool FastSubsumesIgnoringFPD(
-      nsIPrincipal* aOther, DocumentDomainConsideration aConsideration);
+  bool FastSubsumesIgnoringFPD(nsIPrincipal* aOther,
+                               DocumentDomainConsideration aConsideration);
 
   RefPtr<nsAtom> mOriginNoSuffix;
   RefPtr<nsAtom> mOriginSuffix;
@@ -362,19 +379,6 @@ inline bool BasePrincipal::FastSubsumesConsideringDomain(nsIPrincipal* aOther) {
   }
 
   return Subsumes(aOther, ConsiderDocumentDomain);
-}
-
-inline bool BasePrincipal::FastSubsumesIgnoringFPD(
-    nsIPrincipal* aOther, DocumentDomainConsideration aConsideration) {
-  MOZ_ASSERT(aOther);
-
-  if (Kind() == eCodebasePrincipal &&
-      !dom::ChromeUtils::IsOriginAttributesEqualIgnoringFPD(
-          mOriginAttributes, Cast(aOther)->mOriginAttributes)) {
-    return false;
-  }
-
-  return SubsumesInternal(aOther, aConsideration);
 }
 
 inline bool BasePrincipal::FastSubsumesIgnoringFPD(nsIPrincipal* aOther) {

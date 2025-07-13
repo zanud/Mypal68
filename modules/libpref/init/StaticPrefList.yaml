@@ -1001,12 +1001,6 @@
   value: "#551A8B"
   mirror: never
 
-# Enable xul error pages.
-- name: browser.xul.error_pages.enabled
-  type: bool
-  value: true
-  mirror: always
-
 #---------------------------------------------------------------------------
 # Prefs starting with "canvas."
 #---------------------------------------------------------------------------
@@ -1367,6 +1361,11 @@
 # system group or not in content.
 - name: dom.compositionevent.text.dispatch_only_system_group_in_content
   type: bool
+  value: true
+  mirror: always
+
+- name: dom.crypto.randomUUID.enabled
+  type: RelaxedAtomicBool
   value: true
   mirror: always
 
@@ -2063,6 +2062,7 @@
 #endif
 
 # Reporting API.
+#ifdef THE_REPORTING
 - name: dom.reporting.enabled
   type: RelaxedAtomicBool
   value: @IS_NIGHTLY_BUILD@
@@ -2106,6 +2106,7 @@
   type: uint32_t
   value: 100
   mirror: always
+#endif
 
 # Enable requestIdleCallback API
 - name: dom.requestIdleCallback.enabled
@@ -4060,7 +4061,100 @@
 
 #---------------------------------------------------------------------------
 # Prefs starting with "javascript."
+#
+# NOTE: SpiderMonkey starts up before `mirror: once` preferences are sealed and
+#       we cannot use them (Bug 1698311). Instead, we use `mirror: always`
+#       prefs but mark as `do_not_use_directly` and `LoadStartupJSPrefs` will
+#       mirror them into SpiderMonkey.
 #---------------------------------------------------------------------------
+
+# The JavaScript JIT compilers. These are read once on startup so a browser may
+# need to be restarted if toggling them. In general each subsequent JIT depends
+# on the ones before it being enabled.
+- name: javascript.options.blinterp
+  type: bool
+  value: true
+  mirror: always  # LoadStartupJSPrefs
+  do_not_use_directly: true
+
+- name: javascript.options.baselinejit
+  type: bool
+  value: true
+  mirror: always  # LoadStartupJSPrefs
+  do_not_use_directly: true
+
+- name: javascript.options.ion
+  type: bool
+  value: true
+  mirror: always  # LoadStartupJSPrefs
+  do_not_use_directly: true
+
+# The irregexp JIT for regex evaluation.
+- name: javascript.options.native_regexp
+  type: bool
+  value: true
+  mirror: always  # LoadStartupJSPrefs
+  do_not_use_directly: true
+
+# "Warm-up" thresholds at which we attempt to compile a script/function with
+# the next JIT tier.
+#
+# NOTE: These must match JitOptions defaults.
+- name: javascript.options.blinterp.threshold
+  type: int32_t
+  value: 10
+  mirror: always  # LoadStartupJSPrefs
+  do_not_use_directly: true
+
+- name: javascript.options.baselinejit.threshold
+  type: int32_t
+  value: 100
+  mirror: always  # LoadStartupJSPrefs
+  do_not_use_directly: true
+
+- name: javascript.options.ion.threshold
+  type: int32_t
+  value: 1500
+  mirror: always  # LoadStartupJSPrefs
+  do_not_use_directly: true
+
+# Enable off-main-thread Warp compilation.
+- name: javascript.options.ion.offthread_compilation
+  type: bool
+  value: true
+  mirror: always  # LoadStartupJSPrefs
+  do_not_use_directly: true
+
+#ifdef DEBUG
+  # Enable extra correctness checks in the JITs that are slow and only available
+  # in debug builds.
+-   name: javascript.options.jit.full_debug_checks
+    type: bool
+    value: false
+    mirror: always  # LoadStartupJSPrefs
+    do_not_use_directly: true
+#endif
+
+# Heuristic threshold for Warp/Ion to decide that too many bailouts are
+# happening and an IonScript should be discarded.
+#
+# NOTE: This must match JitOptions defaults.
+- name: javascript.options.ion.frequent_bailout_threshold
+  type: int32_t
+  value: 10
+  mirror: always  # LoadStartupJSPrefs
+  do_not_use_directly: true
+
+# A threshold for Warp to decide whether a function can be inlined.
+# If the size of a function is smaller than this threshold, then it
+# may be inlined.
+#
+# NOTE: These must match JitOptions defaults.
+- name: javascript.options.inlining_bytecode_max_length
+  type: uint32_t
+  value: 130
+  mirror: always
+  do_not_use_directly: true
 
 - name: javascript.options.compact_on_user_inactive
   type: bool
@@ -4080,46 +4174,58 @@
 
 # Use better error message when accessing property of null or undefined.
 - name: javascript.options.property_error_message_fix
-  type: RelaxedAtomicBool
+  type: bool
   value: @IS_NOT_RELEASE_OR_BETA@
   mirror: always
 
 # Support for weak references in JavaScript (WeakRef and FinalizationRegistry).
 - name: javascript.options.weakrefs
-  type: RelaxedAtomicBool
+  type: bool
   value: true
   mirror: always
 
 # Whether to expose the FinalizationRegistry.prototype.cleanupSome method.
 - name: javascript.options.experimental.weakrefs.expose_cleanupSome
-  type: RelaxedAtomicBool
+  type: bool
   value: false
   mirror: always
 
 #ifdef NIGHTLY_BUILD
   # Experimental support for Iterator Helpers in JavaScript.
-- name: javascript.options.experimental.iterator_helpers
-  type: RelaxedAtomicBool
-  value: false
-  mirror: always
-#endif
+-   name: javascript.options.experimental.iterator_helpers
+    type: bool
+    value: false
+    mirror: always
+#endif  // NIGHTLY_BUILD
+
+# Experimental support for class static blocks in JavaScript.
+-   name: javascript.options.experimental.class_static_blocks
+    type: bool
+    value: true
+    mirror: always
 
   # Support for Private Fields in JavaScript.
 - name: javascript.options.experimental.private_fields
-  type: RelaxedAtomicBool
+  type: bool
   value: true
   mirror: always
 
   # Experimental support for Private Methods in JavaScript.
 - name: javascript.options.experimental.private_methods
-  type: RelaxedAtomicBool
+  type: bool
+  value: true
+  mirror: always
+
+  # Experimental support for the ergonomic brand check proposal.
+- name: javascript.options.experimental.ergonomic_brand_checks
+  type: bool
   value: true
   mirror: always
 
   # Experimental support for Top-level Await in JavaScript.
 - name: javascript.options.experimental.top_level_await
-  type: RelaxedAtomicBool
-  value: false
+  type: bool
+  value: true
   mirror: always
 
 # The amount of time we wait between a request to GC (due to leaving a page) and doing the actual GC, in ms.
@@ -4173,6 +4279,15 @@
   value: false
   mirror: always
 
+# Whether the Parent process allocates and shares memory with all content
+# processes. This is mirrored once, as the parent process will do this
+# allocation early on.
+- name: javascript.options.self_hosted.use_shared_memory
+  type: bool
+  value: true
+  mirror: always  # LoadStartupJSPrefs
+  do_not_use_directly: true
+
 # Streams API.
 - name: javascript.options.streams
   type: RelaxedAtomicBool
@@ -4198,45 +4313,136 @@
 #endif
   mirror: always
 
-# True if off-thread parsing should use a parse GlobalObject in order to
-# directly allocate to the GC from a helper thread. If false, transfer the
-# CompilationStencil back to main thread before allocating GC objects.
-- name: javascript.options.off_thread_parse_global
-  type: bool
-  value: false
-  mirror: once
-
 - name: javascript.options.wasm_optimizingjit
   type: bool
-#if defined(MOZ_AARCH64) && !defined(ENABLE_WASM_CRANELIFT)
+#if defined(MOZ_AARCH64) && !defined(NIGHTLY_BUILD)
   value: false
 #else
   value: true
 #endif
   mirror: always
 
+# SIMD is supported only on x86 and x64, with arm64 support imminent.
 #if defined(ENABLE_WASM_SIMD)
-- name: javascript.options.wasm_simd
-  type: bool
-  #if defined(NIGHTLY_BUILD)
-  value: true
-  #else
-  value: false
-  #endif
-  mirror: always
+-   name: javascript.options.wasm_simd
+    type: bool
+#if defined(MOZ_AARCH64)
+    value: @IS_NIGHTLY_BUILD@
+#else
+    value: true
+#endif
+    mirror: always
+#endif  // defined(ENABLE_WASM_SIMD)
+
+#if defined(ENABLE_WASM_RELAXED_SIMD)
+-   name: javascript.options.wasm_relaxed_simd
+    type: bool
+    value: false
+    mirror: always
+#endif  // defined(ENABLE_WASM_RELAXED_SIMD)
+
+#if defined(ENABLE_WASM_EXTENDED_CONST)
+-   name: javascript.options.wasm_extended_const
+    type: bool
+    value: @IS_NIGHTLY_BUILD@
+    mirror: always
+#endif  // defined(ENABLE_WASM_EXTENDED_CONST)
+
+#if defined(ENABLE_WASM_EXCEPTIONS)
+-   name: javascript.options.wasm_exceptions
+    type: bool
+    value: false
+    mirror: always
+#endif // defined(ENABLE_WASM_EXCEPTIONS)
+
+#if defined(ENABLE_WASM_FUNCTION_REFERENCES)
+-   name: javascript.options.wasm_function_references
+    type: bool
+    value: false
+    mirror: always
+#endif // defined(ENABLE_WASM_FUNCTION_REFERENCES)
+
+#if defined(ENABLE_WASM_GC)
+-   name: javascript.options.wasm_gc
+    type: bool
+    value: false
+    mirror: always
+#endif // defined(ENABLE_WASM_GC)
+
+#if defined(ENABLE_WASM_SIMD_WORMHOLE) && defined(EARLY_BETA_OR_EARLIER)
+  # This is x64-only and it would break unified macOS builds if
+  # it were in all.js.  The feature rides the trains but not the
+  # pref to control it; in late beta and release, it is only
+  # available to privileged content.
+-   name: javascript.options.wasm_simd_wormhole
+    type: bool
+    value: false
+    mirror: always
 #endif
 
-#if defined(ENABLE_WASM_SIMD_WORMHOLE)
-# This is x64-only nightly-only and it would break unified macOS builds if
-# it were in all.js
-- name: javascript.options.wasm_simd_wormhole
-  type: bool
-  value: false
-  mirror: always
-#endif
+#if defined(ENABLE_WASM_MEMORY64)
+-   name: javascript.options.wasm_memory64
+    type: bool
+    value: true
+    mirror: always
+#endif  // defined(ENABLE_WASM_MEMORY64)
 
+# Support for ArrayBuffers larger than 2 GB on 64-bit systems
 - name: javascript.options.large_arraybuffers
-  type: RelaxedAtomicBool
+  type: bool
+  value: true
+  mirror: always  # LoadStartupJSPrefs
+  do_not_use_directly: true
+
+# Support for pretenuring allocations based on their allocation site.
+- name: javascript.options.site_based_pretenuring
+  type: bool
+  value: true
+  mirror: always  # LoadStartupJSPrefs
+  do_not_use_directly: true
+
+#if !defined(JS_CODEGEN_MIPS32) && !defined(JS_CODEGEN_MIPS64)
+  # Spectre security vulnerability mitigations for the JS JITs.
+  #
+  # NOTE: The MIPS backends do not support these mitigations (and generally
+  #       do not need them). In that case, leave the pref unlisted with its
+  #       default value of false.
+-   name: javascript.options.spectre.index_masking
+    type: bool
+    value: true
+    mirror: always  # LoadStartupJSPrefs
+    do_not_use_directly: true
+
+-   name: javascript.options.spectre.object_mitigations
+    type: bool
+    value: true
+    mirror: always  # LoadStartupJSPrefs
+    do_not_use_directly: true
+
+-   name: javascript.options.spectre.string_mitigations
+    type: bool
+    value: true
+    mirror: always  # LoadStartupJSPrefs
+    do_not_use_directly: true
+
+-   name: javascript.options.spectre.value_masking
+    type: bool
+    value: true
+    mirror: always  # LoadStartupJSPrefs
+    do_not_use_directly: true
+
+-   name: javascript.options.spectre.jit_to_cxx_calls
+    type: bool
+    value: true
+    mirror: always  # LoadStartupJSPrefs
+    do_not_use_directly: true
+#endif  // !defined(JS_CODEGEN_MIPSXX)
+
+# Whether to use fdlibm for Math.sin, Math.cos, and Math.tan. When
+# privacy.resistFingerprinting is true, this pref is ignored and fdlibm is used
+# anyway.
+- name: javascript.options.use_fdlibm_for_sin_cos_tan
+  type: bool
   value: false
   mirror: always
 
@@ -4941,6 +5147,18 @@
   value: true
   mirror: always
 
+# Whether we get notified of history queries for visited even if unvisited.
+- name: layout.css.notify-of-unvisited
+  type: RelaxedAtomicBool
+  value: true
+  mirror: always
+
+# Whether we always restyle / repaint as a result of a visited query
+- name: layout.css.always-repaint-on-unvisited
+  type: RelaxedAtomicBool
+  value: true
+  mirror: always
+
 # Make `zoom` a `transform` + `transform-origin` alias.
 - name: layout.css.zoom-transform-hack.enabled
   type: RelaxedAtomicBool
@@ -5470,8 +5688,8 @@
   value: -1
   mirror: always
 
-# The time in number of frames that we estimate for a refresh driver
-# to be quiescent.
+# If it has been this many frame periods since a refresh, assume that painting
+# is quiescent (will not happen again soon).
 - name: layout.idle_period.required_quiescent_frames
   type: uint32_t
   value: 2
@@ -6911,6 +7129,26 @@
 - name: network.http.stale_while_revalidate.enabled
   type: RelaxedAtomicBool
   value: true
+  mirror: always
+
+# Whether to use sni encryption.
+- name: network.security.esni.enabled
+  type: bool
+  value: false
+  mirror: always
+
+# Whether nsIURI.host/.hostname/.spec should return a punycode string.
+# If set to false we will revert to previous behaviour and return a unicode
+# string.
+- name: network.standard-url.punycode-host
+  type: RelaxedAtomicBool
+  value: true
+  mirror: always
+
+# The maximum allowed length for a URL - 1MB default.
+- name: network.standard-url.max-length
+  type: RelaxedAtomicUint32
+  value: 1048576
   mirror: always
 
 # Single TRR request timeout, in milliseconds

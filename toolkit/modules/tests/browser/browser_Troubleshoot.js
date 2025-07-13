@@ -628,15 +628,6 @@ const SNAPSHOT_SCHEMA = {
         },
       },
     },
-    javaScript: {
-      required: true,
-      type: "object",
-      properties: {
-        incrementalGCEnabled: {
-          type: "boolean",
-        },
-      },
-    },
     accessibility: {
       required: true,
       type: "object",

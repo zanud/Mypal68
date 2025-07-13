@@ -5,15 +5,12 @@
 #include "mozilla/OriginAttributes.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/dom/BlobURLProtocolHandler.h"
-#include "mozilla/dom/URLSearchParams.h"
 #include "mozilla/dom/quota/QuotaManager.h"
 #include "nsIEffectiveTLDService.h"
 #include "nsIURI.h"
 #include "nsURLHelper.h"
 
 namespace mozilla {
-
-using dom::URLParams;
 
 void OriginAttributes::SetFirstPartyDomain(const bool aIsTopLevelDocument,
                                            nsIURI* aURI, bool aForced) {
@@ -173,73 +170,6 @@ void OriginAttributes::CreateAnonymizedSuffix(nsACString& aStr) const {
   attrs.CreateSuffix(aStr);
 }
 
-namespace {
-
-class MOZ_STACK_CLASS PopulateFromSuffixIterator final
-    : public URLParams::ForEachIterator {
- public:
-  explicit PopulateFromSuffixIterator(OriginAttributes* aOriginAttributes)
-      : mOriginAttributes(aOriginAttributes) {
-    MOZ_ASSERT(aOriginAttributes);
-    // If mPrivateBrowsingId is passed in as >0 and is not present in the
-    // suffix, then it will remain >0 when it should be 0 according to the
-    // suffix. Set to 0 before iterating to fix this.
-    mOriginAttributes->mPrivateBrowsingId = 0;
-  }
-
-  bool URLParamsIterator(const nsAString& aName,
-                         const nsAString& aValue) override {
-    if (aName.EqualsLiteral("inBrowser")) {
-      if (!aValue.EqualsLiteral("1")) {
-        return false;
-      }
-
-      mOriginAttributes->mInIsolatedMozBrowser = true;
-      return true;
-    }
-
-    if (aName.EqualsLiteral("addonId") || aName.EqualsLiteral("appId")) {
-      // No longer supported. Silently ignore so that legacy origin strings
-      // don't cause failures.
-      return true;
-    }
-
-    if (aName.EqualsLiteral("userContextId")) {
-      nsresult rv;
-      int64_t val = aValue.ToInteger64(&rv);
-      NS_ENSURE_SUCCESS(rv, false);
-      NS_ENSURE_TRUE(val <= UINT32_MAX, false);
-      mOriginAttributes->mUserContextId = static_cast<uint32_t>(val);
-
-      return true;
-    }
-
-    if (aName.EqualsLiteral("privateBrowsingId")) {
-      nsresult rv;
-      int64_t val = aValue.ToInteger64(&rv);
-      NS_ENSURE_SUCCESS(rv, false);
-      NS_ENSURE_TRUE(val >= 0 && val <= UINT32_MAX, false);
-      mOriginAttributes->mPrivateBrowsingId = static_cast<uint32_t>(val);
-
-      return true;
-    }
-
-    if (aName.EqualsLiteral("firstPartyDomain")) {
-      MOZ_RELEASE_ASSERT(mOriginAttributes->mFirstPartyDomain.IsEmpty());
-      mOriginAttributes->mFirstPartyDomain.Assign(aValue);
-      return true;
-    }
-
-    // No other attributes are supported.
-    return false;
-  }
-
- private:
-  OriginAttributes* mOriginAttributes;
-};
-
-}  // namespace
-
 bool OriginAttributes::PopulateFromSuffix(const nsACString& aStr) {
   if (aStr.IsEmpty()) {
     return true;
@@ -249,8 +179,58 @@ bool OriginAttributes::PopulateFromSuffix(const nsACString& aStr) {
     return false;
   }
 
-  PopulateFromSuffixIterator iterator(this);
-  return URLParams::Parse(Substring(aStr, 1, aStr.Length() - 1), iterator);
+  // If mPrivateBrowsingId is passed in as >0 and is not present in the
+  // suffix, then it will remain >0 when it should be 0 according to the
+  // suffix. Set to 0 before iterating to fix this.
+  mPrivateBrowsingId = 0;
+
+  return URLParams::Parse(
+      Substring(aStr, 1, aStr.Length() - 1),
+      [this](const nsAString& aName, const nsAString& aValue) {
+        if (aName.EqualsLiteral("inBrowser")) {
+          if (!aValue.EqualsLiteral("1")) {
+            return false;
+          }
+
+          mInIsolatedMozBrowser = true;
+          return true;
+        }
+
+        if (aName.EqualsLiteral("addonId") || aName.EqualsLiteral("appId")) {
+          // No longer supported. Silently ignore so that legacy origin strings
+          // don't cause failures.
+          return true;
+        }
+
+        if (aName.EqualsLiteral("userContextId")) {
+          nsresult rv;
+          int64_t val = aValue.ToInteger64(&rv);
+          NS_ENSURE_SUCCESS(rv, false);
+          NS_ENSURE_TRUE(val <= UINT32_MAX, false);
+          mUserContextId = static_cast<uint32_t>(val);
+
+          return true;
+        }
+
+        if (aName.EqualsLiteral("privateBrowsingId")) {
+          nsresult rv;
+          int64_t val = aValue.ToInteger64(&rv);
+          NS_ENSURE_SUCCESS(rv, false);
+          NS_ENSURE_TRUE(val >= 0 && val <= UINT32_MAX, false);
+          mPrivateBrowsingId = static_cast<uint32_t>(val);
+
+          return true;
+        }
+
+        if (aName.EqualsLiteral("firstPartyDomain")) {
+          MOZ_RELEASE_ASSERT(mFirstPartyDomain.IsEmpty());
+          mFirstPartyDomain.Assign(aValue);
+          return true;
+        }
+
+        // No other attributes are supported.
+        return false;
+      });
 }
 
 bool OriginAttributes::PopulateFromOrigin(const nsACString& aOrigin,

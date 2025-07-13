@@ -41,7 +41,7 @@ class WindowsDllDetourPatcher final : public WindowsDllPatcherBase<VMPolicy> {
 
  public:
   template <typename... Args>
-  explicit WindowsDllDetourPatcher(Args... aArgs)
+  explicit WindowsDllDetourPatcher(Args&&... aArgs)
       : WindowsDllPatcherBase<VMPolicy>(std::forward<Args>(aArgs)...),
         mFlags(DetourFlags::eDefault) {}
 

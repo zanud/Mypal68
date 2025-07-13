@@ -61,6 +61,7 @@
 #include "FrameLayerBuilder.h"
 #include "AnimationCommon.h"
 #include "LayerAnimationInfo.h"
+#include "mozilla/TimelineConsumers.h"
 
 #include "AudioChannelService.h"
 #include "mozilla/dom/PromiseDebugging.h"
@@ -89,7 +90,6 @@
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/ProcessPriorityManager.h"
 #include "nsPermissionManager.h"
-#include "nsCookieService.h"
 #include "nsApplicationCacheService.h"
 #include "mozilla/dom/CustomElementRegistry.h"
 #include "mozilla/EventDispatcher.h"
@@ -116,7 +116,9 @@
 #include "mozilla/dom/PointerEventHandler.h"
 #include "mozilla/dom/RemoteWorkerService.h"
 #include "mozilla/dom/BlobURLProtocolHandler.h"
+#ifdef THE_REPORTING
 #include "mozilla/dom/ReportingHeader.h"
+#endif
 #include "mozilla/dom/BrowserParent.h"
 #include "mozilla/dom/quota/ActorsParent.h"
 #include "mozilla/dom/localstorage/ActorsParent.h"
@@ -237,6 +239,8 @@ nsresult nsLayoutStatics::Initialize() {
   PointerEventHandler::InitializeStatics();
   TouchManager::InitializeStatics();
 
+  TimelineConsumers::Init();
+
   nsWindowMemoryReporter::Init();
 
   SVGElementFactory::Init();
@@ -284,8 +288,9 @@ nsresult nsLayoutStatics::Initialize() {
 
   ClearSiteData::Initialize();
 
-  // Reporting API.
+#ifdef THE_REPORTING
   ReportingHeader::Initialize();
+#endif
 
   if (XRE_IsParentProcess()) {
     InitializeQuotaManager();

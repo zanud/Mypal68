@@ -1227,8 +1227,8 @@ var Impl = {
 
     this._log.trace("registerJsProbes - registering builtin JS probes");
 
-    await this.registerScalarProbes();
-    await this.registerEventProbes();
+    //await this.registerScalarProbes();
+    //await this.registerEventProbes();
   },
 
   _loadProbeDefinitions(filename) {
