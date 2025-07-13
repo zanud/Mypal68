@@ -270,13 +270,12 @@ exports.setValueSummaryLength = function(val) {
 var WalkerActor = protocol.ActorClassWithSpec(walkerSpec, {
   /**
    * Create the WalkerActor
-   * @param {DebuggerServerConnection} conn
+   * @param {DevToolsServerConnection} conn
    *        The server connection.
    * @param {TargetActor} targetActor
    *        The top-level Actor for this tab.
    * @param {Object} options
    *        - {Boolean} showAllAnonymousContent: Show all native anonymous content
-   *        - {Boolean} showUserAgentShadowRoots: Show shadow roots for user-agent widgets
    */
   initialize: function(conn, targetActor, options) {
     protocol.Actor.prototype.initialize.call(this, conn);
@@ -292,7 +291,6 @@ var WalkerActor = protocol.ActorClassWithSpec(walkerSpec, {
     );
 
     this.showAllAnonymousContent = options.showAllAnonymousContent;
-    this.showUserAgentShadowRoots = options.showUserAgentShadowRoots;
 
     this.walkerSearch = new WalkerSearch(this);
 
@@ -941,9 +939,9 @@ var WalkerActor = protocol.ActorClassWithSpec(walkerSpec, {
     // developers.
     const isUAWidget =
       shadowHost && node.rawNode.openOrClosedShadowRoot.isUAWidget();
-    const hideShadowRoot = isUAWidget && !this.showUserAgentShadowRoots;
+    const hideShadowRoot = isUAWidget && !this.showAllAnonymousContent;
     const showNativeAnonymousChildren =
-      isUAWidget && this.showUserAgentShadowRoots;
+      isUAWidget && this.showAllAnonymousContent;
 
     const templateElement = isTemplateElement(node.rawNode);
     if (templateElement) {
@@ -1283,7 +1281,10 @@ var WalkerActor = protocol.ActorClassWithSpec(walkerSpec, {
    */
   search: function(query) {
     const results = this.walkerSearch.search(query);
-    const nodeList = new NodeListActor(this, results.map(r => r.node));
+    const nodeList = new NodeListActor(
+      this,
+      results.map(r => r.node)
+    );
 
     return {
       list: nodeList,
@@ -2097,8 +2098,13 @@ var WalkerActor = protocol.ActorClassWithSpec(walkerSpec, {
     rawDoc.dontWarnAboutMutationEventsAndAllowSlowDOMMutations = origFlag;
   },
 
-  _breakOnMutation: function(bpType) {
-    this.targetActor.threadActor.pauseForMutationBreakpoint(bpType);
+  _breakOnMutation: function(mutationType, targetNode, ancestorNode, action) {
+    this.targetActor.threadActor.pauseForMutationBreakpoint(
+      mutationType,
+      targetNode,
+      ancestorNode,
+      action
+    );
   },
 
   _mutationBreakpointsForDoc(rawDoc, createIfNeeded = false) {
@@ -2128,7 +2134,7 @@ var WalkerActor = protocol.ActorClassWithSpec(walkerSpec, {
   },
 
   onNodeInserted: function(evt) {
-    this.onSubtreeModified(evt);
+    this.onSubtreeModified(evt, "add");
   },
 
   onNodeRemoved: function(evt) {
@@ -2138,25 +2144,25 @@ var WalkerActor = protocol.ActorClassWithSpec(walkerSpec, {
     this._clearMutationBreakpointsFromSubtree(evt.target);
 
     if (hasNodeRemovalEvent) {
-      this._breakOnMutation("nodeRemoved");
+      this._breakOnMutation("nodeRemoved", evt.target);
     } else {
-      this.onSubtreeModified(evt);
+      this.onSubtreeModified(evt, "remove");
     }
   },
 
   onAttributeModified: function(evt) {
     const mutationBpInfo = this._breakpointInfoForNode(evt.target);
     if (mutationBpInfo && mutationBpInfo.attribute) {
-      this._breakOnMutation("attributeModified");
+      this._breakOnMutation("attributeModified", evt.target);
     }
   },
 
-  onSubtreeModified: function(evt) {
+  onSubtreeModified: function(evt, action) {
     let node = evt.target;
     while ((node = node.parentNode) !== null) {
       const mutationBpInfo = this._breakpointInfoForNode(node);
       if (mutationBpInfo && mutationBpInfo.subtree) {
-        this._breakOnMutation("subtreeModified");
+        this._breakOnMutation("subtreeModified", evt.target, node, action);
         break;
       }
     }

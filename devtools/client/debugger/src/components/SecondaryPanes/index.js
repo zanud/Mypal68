@@ -22,7 +22,7 @@ import {
   getSelectedFrame,
   getShouldPauseOnExceptions,
   getShouldPauseOnCaughtExceptions,
-  getWorkers,
+  getThreads,
   getCurrentThread,
   getThreadContext,
   getSourceFromId,
@@ -37,7 +37,7 @@ import Breakpoints from "./Breakpoints";
 import Expressions from "./Expressions";
 import SplitBox from "devtools-splitter";
 import Frames from "./Frames";
-import Workers from "./Workers";
+import Threads from "./Threads";
 import Accordion from "../shared/Accordion";
 import CommandBar from "./CommandBar";
 import UtilsBar from "./UtilsBar";
@@ -53,7 +53,7 @@ import "./SecondaryPanes.css";
 import type {
   Expression,
   Frame,
-  WorkerList,
+  ThreadList,
   ThreadContext,
   Source,
 } from "../../types";
@@ -102,7 +102,7 @@ type Props = {
   mapScopesEnabled: boolean,
   shouldPauseOnExceptions: boolean,
   shouldPauseOnCaughtExceptions: boolean,
-  workers: WorkerList,
+  workers: ThreadList,
   skipPausing: boolean,
   logEventBreakpoints: boolean,
   source: ?Source,
@@ -182,7 +182,7 @@ class SecondaryPanes extends Component<Props, State> {
 
     const buttons = [];
 
-    if (expressions.size) {
+    if (expressions.length) {
       buttons.push(
         debugBtn(
           evt => {
@@ -344,7 +344,7 @@ class SecondaryPanes extends Component<Props, State> {
     return {
       header: L10N.getStr("callStack.header"),
       className: "call-stack-pane",
-      component: <Frames />,
+      component: <Frames panel="debugger" />,
       opened: prefs.callStackVisible,
       onToggle: opened => {
         prefs.callStackVisible = opened;
@@ -352,13 +352,11 @@ class SecondaryPanes extends Component<Props, State> {
     };
   }
 
-  getWorkersItem(): AccordionPaneItem {
+  getThreadsItem(): AccordionPaneItem {
     return {
-      header: features.windowlessWorkers
-        ? L10N.getStr("threadsHeader")
-        : L10N.getStr("workersHeader"),
-      className: "workers-pane",
-      component: <Workers />,
+      header: L10N.getStr("threadsHeader"),
+      className: "threads-pane",
+      component: <Threads />,
       opened: prefs.workersVisible,
       onToggle: opened => {
         prefs.workersVisible = opened;
@@ -423,7 +421,7 @@ class SecondaryPanes extends Component<Props, State> {
 
     if (horizontal) {
       if (features.workers && this.props.workers.length > 0) {
-        items.push(this.getWorkersItem());
+        items.push(this.getThreadsItem());
       }
 
       items.push(this.getWatchItem());
@@ -460,7 +458,7 @@ class SecondaryPanes extends Component<Props, State> {
 
     const items: AccordionPaneItem[] = [];
     if (features.workers && this.props.workers.length > 0) {
-      items.push(this.getWorkersItem());
+      items.push(this.getThreadsItem());
     }
 
     items.push(this.getWatchItem());
@@ -567,7 +565,7 @@ const mapStateToProps = state => {
     mapScopesEnabled: isMapScopesEnabled(state),
     shouldPauseOnExceptions: getShouldPauseOnExceptions(state),
     shouldPauseOnCaughtExceptions: getShouldPauseOnCaughtExceptions(state),
-    workers: getWorkers(state),
+    workers: getThreads(state),
     skipPausing: getSkipPausing(state),
     logEventBreakpoints: shouldLogEventBreakpoints(state),
     source:
@@ -575,14 +573,11 @@ const mapStateToProps = state => {
   };
 };
 
-export default connect<Props, OwnProps, _, _, _, _>(
-  mapStateToProps,
-  {
-    toggleAllBreakpoints: actions.toggleAllBreakpoints,
-    evaluateExpressions: actions.evaluateExpressions,
-    pauseOnExceptions: actions.pauseOnExceptions,
-    toggleMapScopes: actions.toggleMapScopes,
-    breakOnNext: actions.breakOnNext,
-    toggleEventLogging: actions.toggleEventLogging,
-  }
-)(SecondaryPanes);
+export default connect<Props, OwnProps, _, _, _, _>(mapStateToProps, {
+  toggleAllBreakpoints: actions.toggleAllBreakpoints,
+  evaluateExpressions: actions.evaluateExpressions,
+  pauseOnExceptions: actions.pauseOnExceptions,
+  toggleMapScopes: actions.toggleMapScopes,
+  breakOnNext: actions.breakOnNext,
+  toggleEventLogging: actions.toggleEventLogging,
+})(SecondaryPanes);

@@ -77,7 +77,7 @@ const PREF_UA_STYLES = "devtools.inspector.showUserAgentStyles";
 const PREF_DEFAULT_COLOR_UNIT = "devtools.defaultColorUnit";
 const FILTER_CHANGED_TIMEOUT = 150;
 // Removes the flash-out class from an element after 1 second.
-const REMOVE_FLASH_OUT_CLASS_TIMER = 1000;
+const PROPERTY_FLASHING_DURATION = 1000;
 
 // This is used to parse user input when filtering.
 const FILTER_PROP_RE = /\s*([^:\s]*)\s*:\s*(.*?)\s*;?$/;
@@ -172,7 +172,7 @@ function CssRuleView(inspector, document, store) {
   this.classToggle = doc.getElementById("class-panel-toggle");
   this.printSimulationButton = doc.getElementById("print-simulation-toggle");
 
-  this._initPrintSimulation();
+  this._initSimulationFeatures();
 
   this.searchClearButton.hidden = true;
 
@@ -276,10 +276,6 @@ CssRuleView.prototype = {
     return this._dummyElement;
   },
 
-  get emulationFront() {
-    return this._emulationFront;
-  },
-
   // Get the highlighters overlay from the Inspector.
   get highlighters() {
     if (!this._highlighters) {
@@ -299,7 +295,7 @@ CssRuleView.prototype = {
     return this._elementStyle ? this._elementStyle.rules : [];
   },
 
-  get target() {
+  get currentTarget() {
     return this.inspector.toolbox.target;
   },
 
@@ -381,27 +377,20 @@ CssRuleView.prototype = {
   },
 
   /**
-   * Check the print emulation actor's backwards-compatibility via the target actor's
-   * actorHasMethod.
+   * Initializes the content-viewer front and enable the print and color scheme simulation
+   * if they are supported in the current target.
    */
-  async _initPrintSimulation() {
-    // In order to query if the emulation actor's print simulation methods are supported,
-    // we have to call the emulation front so that the actor is lazily loaded. This allows
-    // us to use `actorHasMethod`. Please see `getActorDescription` for more information.
-    this._emulationFront = await this.target.getFront("emulation");
+  async _initSimulationFeatures() {
+    // In order to query if the content-viewer actor's print and color simulation methods are
+    // supported, we have to call the content-viewer front so that the actor is lazily loaded.
+    // This allows us to use `actorHasMethod`. Please see `getActorDescription` for more
+    // information.
+    this.contentViewerFront = await this.currentTarget.getFront(
+      "contentViewer"
+    );
 
-    // Show the toggle button if:
-    // - Print simulation is supported for the current target.
-    // - Not debugging content document.
-    if (
-      (await this.target.actorHasMethod(
-        "emulation",
-        "getIsPrintSimulationEnabled"
-      )) &&
-      !this.target.chrome
-    ) {
+    if (!this.currentTarget.chrome) {
       this.printSimulationButton.removeAttribute("hidden");
-
       this.printSimulationButton.addEventListener(
         "click",
         this._onTogglePrintSimulation
@@ -818,16 +807,16 @@ CssRuleView.prototype = {
     }
 
     // Clean-up for print simulation.
-    if (this._emulationFront) {
+    if (this.contentViewerFront) {
       this.printSimulationButton.removeEventListener(
         "click",
         this._onTogglePrintSimulation
       );
 
-      this._emulationFront.destroy();
+      this.contentViewerFront.destroy();
 
       this.printSimulationButton = null;
-      this._emulationFront = null;
+      this.contentViewerFront = null;
     }
 
     this.tooltips.destroy();
@@ -1726,14 +1715,14 @@ CssRuleView.prototype = {
   },
 
   async _onTogglePrintSimulation() {
-    const enabled = await this.emulationFront.getIsPrintSimulationEnabled();
+    const enabled = await this.contentViewerFront.getIsPrintSimulationEnabled();
 
     if (!enabled) {
       this.printSimulationButton.classList.add("checked");
-      await this.emulationFront.startPrintMediaSimulation();
+      await this.contentViewerFront.startPrintMediaSimulation();
     } else {
       this.printSimulationButton.classList.remove("checked");
-      await this.emulationFront.stopPrintMediaSimulation(false);
+      await this.contentViewerFront.stopPrintMediaSimulation(false);
     }
 
     // Refresh the current element's rules in the panel.
@@ -1748,24 +1737,22 @@ CssRuleView.prototype = {
    */
   _flashElement(element) {
     flashElementOn(element, {
-      backgroundClass: "ruleview-property-highlight-background-color",
-    });
-    flashElementOff(element, {
-      backgroundClass: "ruleview-property-highlight-background-color",
+      backgroundClass: "theme-bg-contrast",
     });
 
-    if (this._removeFlashOutTimer) {
+    if (this._flashMutationTimer) {
       clearTimeout(this._removeFlashOutTimer);
-      this._removeFlashOutTimer = null;
+      this._flashMutationTimer = null;
     }
 
-    // Remove the flash-out class to prevent the element from re-flashing when the view
-    // is resized.
-    this._removeFlashOutTimer = setTimeout(() => {
-      element.classList.remove("flash-out");
+    this._flashMutationTimer = setTimeout(() => {
+      flashElementOff(element, {
+        backgroundClass: "theme-bg-contrast",
+      });
+
       // Emit "scrolled-to-property" for use by tests.
       this.emit("scrolled-to-element");
-    }, REMOVE_FLASH_OUT_CLASS_TIMER);
+    }, PROPERTY_FLASHING_DURATION);
   },
 
   /**
@@ -2078,7 +2065,7 @@ function RuleViewTool(inspector, window) {
   this.inspector.selection.on("detached-front", this.onDetachedFront);
   this.inspector.selection.on("new-node-front", this.onSelected);
   this.inspector.selection.on("pseudoclass", this.refresh);
-  this.inspector.target.on("navigate", this.clearUserProperties);
+  this.inspector.currentTarget.on("navigate", this.clearUserProperties);
   this.inspector.ruleViewSideBar.on("ruleview-selected", this.onPanelSelected);
   this.inspector.sidebar.on("ruleview-selected", this.onPanelSelected);
   this.inspector.pageStyle.on("stylesheet-updated", this.refresh);
@@ -2164,7 +2151,7 @@ RuleViewTool.prototype = {
     this.inspector.selection.off("detached-front", this.onDetachedFront);
     this.inspector.selection.off("pseudoclass", this.refresh);
     this.inspector.selection.off("new-node-front", this.onSelected);
-    this.inspector.target.off("navigate", this.clearUserProperties);
+    this.inspector.currentTarget.off("navigate", this.clearUserProperties);
     this.inspector.sidebar.off("ruleview-selected", this.onPanelSelected);
     if (this.inspector.pageStyle) {
       this.inspector.pageStyle.off("stylesheet-updated", this.refresh);

@@ -10,8 +10,8 @@ const { webconsoleSpec } = require("devtools/shared/specs/webconsole");
 
 const Services = require("Services");
 const { Cc, Ci, Cu } = require("chrome");
-const { DebuggerServer } = require("devtools/server/debugger-server");
-const { ActorPool } = require("devtools/server/actors/common");
+const { DevToolsServer } = require("devtools/server/devtools-server");
+const { Pool } = require("devtools/shared/protocol/Pool");
 const { ThreadActor } = require("devtools/server/actors/thread");
 const { ObjectActor } = require("devtools/server/actors/object");
 const { LongStringActor } = require("devtools/server/actors/string");
@@ -174,7 +174,7 @@ function isObject(value) {
  *
  * @constructor
  * @param object connection
- *        The connection to the client, DebuggerServerConnection.
+ *        The connection to the client, DevToolsServerConnection.
  * @param object [parentActor]
  *        Optional, the parent actor.
  */
@@ -184,11 +184,10 @@ const WebConsoleActor = ActorClassWithSpec(webconsoleSpec, {
     this.conn = connection;
     this.parentActor = parentActor;
 
-    this._actorPool = new ActorPool(this.conn);
-    this.conn.addActorPool(this._actorPool);
+    this._pool = new Pool(this.conn);
 
     this._prefs = {};
-    this.dbg = this.parentActor.makeDebugger();
+    this.dbg = this.parentActor.dbg;
 
     this._gripDepth = 0;
     this._evalCounter = 0;
@@ -230,12 +229,12 @@ const WebConsoleActor = ActorClassWithSpec(webconsoleSpec, {
   _gripDepth: null,
 
   /**
-   * Actor pool for all of the actors we send to the client.
+   * Pool for all of the actors we send to the client.
    * @private
    * @type object
-   * @see ActorPool
+   * @see Pool
    */
-  _actorPool: null,
+  _pool: null,
 
   /**
    * Web Console-related preferences.
@@ -253,7 +252,7 @@ const WebConsoleActor = ActorClassWithSpec(webconsoleSpec, {
   _listeners: null,
 
   /**
-   * The debugger server connection instance.
+   * The devtools server connection instance.
    * @type object
    */
   conn: null,
@@ -401,17 +400,13 @@ const WebConsoleActor = ActorClassWithSpec(webconsoleSpec, {
 
   typeName: "console",
 
-  get globalDebugObject() {
-    return this.parentActor.threadActor.globalDebugObject;
-  },
-
   grip: function() {
     return { actor: this.actorID };
   },
 
   hasNativeConsoleAPI: function(window) {
-    if (isWorker) {
-      // Can't use XPCNativeWrapper as a way to check for console API in workers
+    if (isWorker || !(window instanceof Ci.nsIDOMWindow)) {
+      // We can only use XPCNativeWrapper on non-worker nsIDOMWindow.
       return true;
     }
 
@@ -447,7 +442,7 @@ const WebConsoleActor = ActorClassWithSpec(webconsoleSpec, {
       this._onChangedToplevelDocument
     );
 
-    this.conn.removeActorPool(this._actorPool);
+    this._pool.destroy();
 
     if (this.parentActor.isRootActor) {
       Services.obs.removeObserver(
@@ -456,11 +451,10 @@ const WebConsoleActor = ActorClassWithSpec(webconsoleSpec, {
       );
     }
 
-    this._actorPool = null;
+    this._pool = null;
     this._webConsoleCommandsCache = null;
     this._lastConsoleInputEvaluation = null;
     this._evalWindow = null;
-    this.dbg.disable();
     this.dbg = null;
     this.conn = null;
   },
@@ -486,7 +480,7 @@ const WebConsoleActor = ActorClassWithSpec(webconsoleSpec, {
     }
 
     const actor = new EnvironmentActor(environment, this);
-    this._actorPool.addActor(actor);
+    this._pool.manage(actor);
     environment.actor = actor;
 
     return actor;
@@ -499,7 +493,7 @@ const WebConsoleActor = ActorClassWithSpec(webconsoleSpec, {
    * @return object
    */
   createValueGrip: function(value) {
-    return createValueGrip(value, this._actorPool, this.objectGrip);
+    return createValueGrip(value, this._pool, this.objectGrip);
   },
 
   /**
@@ -534,7 +528,7 @@ const WebConsoleActor = ActorClassWithSpec(webconsoleSpec, {
    * @param object object
    *        The object you want.
    * @param object pool
-   *        An ActorPool where the new actor instance is added.
+   *        A Pool where the new actor instance is added.
    * @param object
    *        The object grip.
    */
@@ -542,6 +536,7 @@ const WebConsoleActor = ActorClassWithSpec(webconsoleSpec, {
     const actor = new ObjectActor(
       object,
       {
+        thread: this.parentActor.threadActor,
         getGripDepth: () => this._gripDepth,
         incrementGripDepth: () => this._gripDepth++,
         decrementGripDepth: () => this._gripDepth--,
@@ -552,11 +547,10 @@ const WebConsoleActor = ActorClassWithSpec(webconsoleSpec, {
             Error("sources not yet implemented")
           ),
         createEnvironmentActor: env => this.createEnvironmentActor(env),
-        getGlobalDebugObject: () => this.globalDebugObject,
       },
       this.conn
     );
-    pool.addActor(actor);
+    pool.manage(actor);
     return actor.form();
   },
 
@@ -566,13 +560,13 @@ const WebConsoleActor = ActorClassWithSpec(webconsoleSpec, {
    * @param string string
    *        The string you want to create the grip for.
    * @param object pool
-   *        An ActorPool where the new actor instance is added.
+   *        A Pool where the new actor instance is added.
    * @return object
    *         A LongStringActor object that wraps the given string.
    */
   longStringGrip: function(string, pool) {
     const actor = new LongStringActor(this.conn, string);
-    pool.addActor(actor);
+    pool.manage(actor);
     return actor.form();
   },
 
@@ -588,7 +582,7 @@ const WebConsoleActor = ActorClassWithSpec(webconsoleSpec, {
    */
   _createStringGrip: function(string) {
     if (string && stringIsLong(string)) {
-      return this.longStringGrip(string, this._actorPool);
+      return this.longStringGrip(string, this._pool);
     }
     return string;
   },
@@ -600,17 +594,7 @@ const WebConsoleActor = ActorClassWithSpec(webconsoleSpec, {
    * @return object
    */
   getActorByID: function(actorID) {
-    return this._actorPool.get(actorID);
-  },
-
-  /**
-   * Release an actor.
-   *
-   * @param object actor
-   *        The actor instance you want to release.
-   */
-  releaseActor: function(actor) {
-    this._actorPool.removeActor(actor);
+    return this._pool.get(actorID);
   },
 
   /**
@@ -624,10 +608,33 @@ const WebConsoleActor = ActorClassWithSpec(webconsoleSpec, {
   },
 
   /**
+   * Preprocess a debugger object (e.g. return the `boundTargetFunction`
+   * debugger object if the given debugger object is a bound function).
+   *
+   * This method is called by both the `inspect` binding implemented
+   * for the webconsole and the one implemented for the devtools API
+   * `browser.devtools.inspectedWindow.eval`.
+   */
+  preprocessDebuggerObject(dbgObj) {
+    // Returns the bound target function on a bound function.
+    if (dbgObj && dbgObj.isBoundFunction && dbgObj.boundTargetFunction) {
+      return dbgObj.boundTargetFunction;
+    }
+
+    return dbgObj;
+  },
+
+  /**
    * This helper is used by the WebExtensionInspectedWindowActor to
    * inspect an object in the developer toolbox.
+   *
+   * NOTE: shared parts related to preprocess the debugger object (between
+   * this function and the `inspect` webconsole command defined in
+   * "devtools/server/actor/webconsole/utils.js") should be added to
+   * the webconsole actors' `preprocessDebuggerObject` method.
    */
   inspectObject(dbgObj, inspectFromAnnotation) {
+    dbgObj = this.preprocessDebuggerObject(dbgObj);
     this.emit("inspectObject", {
       objectActor: this.createValueGrip(dbgObj),
       inspectFromAnnotation,
@@ -1040,7 +1047,7 @@ const WebConsoleActor = ActorClassWithSpec(webconsoleSpec, {
   },
 
   /**
-   * In order to have asynchronous commands (e.g. screenshot, top-level await, …) ,
+   * In order to have asynchronous commands (e.g. screenshot, top-level await, ???) ,
    * we have to be able to handle promises. This method handles waiting for the promise,
    * and then returns the result.
    *
@@ -1116,6 +1123,9 @@ const WebConsoleActor = ActorClassWithSpec(webconsoleSpec, {
       url: request.url,
       selectedNodeActor: request.selectedNodeActor,
       selectedObjectActor: request.selectedObjectActor,
+      eager: request.eager,
+      bindings: request.bindings,
+      lineNumber: request.lineNumber,
     };
     const { mapped } = request;
 
@@ -1247,27 +1257,38 @@ const WebConsoleActor = ActorClassWithSpec(webconsoleSpec, {
       }
     }
 
-    // If a value is encountered that the debugger server doesn't support yet,
+    // If a value is encountered that the devtools server doesn't support yet,
     // the console should remain functional.
     let resultGrip;
     if (!awaitResult) {
       try {
-        resultGrip = this.createValueGrip(result);
+        const objectActor = this.parentActor.threadActor.getThreadLifetimeObject(
+          result
+        );
+        if (objectActor) {
+          resultGrip = this.parentActor.threadActor.createValueGrip(result);
+        } else {
+          resultGrip = this.createValueGrip(result);
+        }
       } catch (e) {
         errorMessage = e;
       }
     }
 
-    if (!awaitResult) {
-      this._lastConsoleInputEvaluation = result;
-    } else {
-      // If we evaluated a top-level await expression, we want to assign its result to the
-      // _lastConsoleInputEvaluation only when the promise resolves, and only if it
-      // resolves. If the promise rejects, we don't re-assign _lastConsoleInputEvaluation,
-      // it will keep its previous value.
-      awaitResult.then(res => {
-        this._lastConsoleInputEvaluation = this.makeDebuggeeValue(res);
-      });
+    // Don't update _lastConsoleInputEvaluation in eager evaluation, as it would interfere
+    // with the $_ command.
+    if (!request.eager) {
+      if (!awaitResult) {
+        this._lastConsoleInputEvaluation = result;
+      } else {
+        // If we evaluated a top-level await expression, we want to assign its result to the
+        // _lastConsoleInputEvaluation only when the promise resolves, and only if it
+        // resolves. If the promise rejects, we don't re-assign _lastConsoleInputEvaluation,
+        // it will keep its previous value.
+        awaitResult.then(res => {
+          this._lastConsoleInputEvaluation = this.makeDebuggeeValue(res);
+        });
+      }
     }
 
     return {
@@ -1308,11 +1329,11 @@ const WebConsoleActor = ActorClassWithSpec(webconsoleSpec, {
     cursor,
     frameActorId,
     selectedNodeActor,
-    authorizedEvaluations
+    authorizedEvaluations,
+    expressionVars = []
   ) {
     let dbgObject = null;
     let environment = null;
-    let hadDebuggee = false;
     let matches = [];
     let matchProp;
     let isElementAccess;
@@ -1345,8 +1366,6 @@ const WebConsoleActor = ActorClassWithSpec(webconsoleSpec, {
           );
         }
       } else {
-        // This is the general case (non-paused debugger)
-        hadDebuggee = this.dbg.hasDebuggee(this.evalWindow);
         dbgObject = this.dbg.addDebuggee(this.evalWindow);
       }
 
@@ -1358,11 +1377,8 @@ const WebConsoleActor = ActorClassWithSpec(webconsoleSpec, {
         webconsoleActor: this,
         selectedNodeActor,
         authorizedEvaluations,
+        expressionVars,
       });
-
-      if (!hadDebuggee && dbgObject) {
-        this.dbg.removeDebuggee(this.evalWindow);
-      }
 
       if (result === null) {
         return {
@@ -1528,6 +1544,7 @@ const WebConsoleActor = ActorClassWithSpec(webconsoleSpec, {
       chromeWindow: this.chromeWindow.bind(this),
       makeDebuggeeValue: debuggerGlobal.makeDebuggeeValue.bind(debuggerGlobal),
       createValueGrip: this.createValueGrip.bind(this),
+      preprocessDebuggerObject: this.preprocessDebuggerObject.bind(this),
       sandbox: Object.create(null),
       helperResult: null,
       consoleActor: this,
@@ -1652,9 +1669,9 @@ const WebConsoleActor = ActorClassWithSpec(webconsoleSpec, {
     let lineText = pageError.sourceLine;
     if (
       lineText &&
-      lineText.length > DebuggerServer.LONG_STRING_INITIAL_LENGTH
+      lineText.length > DevToolsServer.LONG_STRING_INITIAL_LENGTH
     ) {
-      lineText = lineText.substr(0, DebuggerServer.LONG_STRING_INITIAL_LENGTH);
+      lineText = lineText.substr(0, DevToolsServer.LONG_STRING_INITIAL_LENGTH);
     }
 
     let notesArray = null;
@@ -1939,6 +1956,24 @@ const WebConsoleActor = ActorClassWithSpec(webconsoleSpec, {
   },
 
   /**
+   * Sets the list of blocked request URLs as provided by the netmonitor frontend
+   *
+   * This match will be a (String).includes match, not an exact URL match
+   *
+   * @param object filter
+   *   An object containing a `url` key with a URL to unblock.
+   */
+  async setBlockedUrls(urls) {
+    await this._sendMessageToNetmonitors(
+      "debug:set-blocked-urls",
+      "debug:set-blocked-urls:response",
+      { urls }
+    );
+
+    return {};
+  },
+
+  /**
    * Handler for file activity. This method sends the file request information
    * to the remote Web Console client.
    *
@@ -2018,7 +2053,7 @@ const WebConsoleActor = ActorClassWithSpec(webconsoleSpec, {
    * This function does a little more than creating an ObjectActor for the first
    * parameter of the message. When layout out the console table in the output, we want
    * to be able to look into sub-properties so the table can have a different layout (
-   * for arrays of arrays, objects with objects properties, arrays of objects, …).
+   * for arrays of arrays, objects with objects properties, arrays of objects, ???).
    * So here we need to retrieve the properties of the first parameter, and also all the
    * sub-properties we might need.
    *

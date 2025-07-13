@@ -6,7 +6,7 @@
 
 import { setupCommands, clientCommands } from "../commands";
 
-function makeThreadFront(resp) {
+function makeThreadCLient(resp) {
   // Coerce this to any to avoid supplying the additional members needed in a
   // thread client.
   return ({
@@ -18,7 +18,7 @@ function makeThreadFront(resp) {
 
 function makeDependencies() {
   return {
-    debuggerClient: (null: any),
+    devToolsClient: (null: any),
     supportsWasm: true,
     tabTarget: (null: any),
   };
@@ -49,7 +49,7 @@ describe("firefox commands", () => {
   describe("getProperties", () => {
     it("empty response", async () => {
       const { getProperties } = clientCommands;
-      const threadFront = makeThreadFront({
+      const threadFront = makeThreadCLient({
         ownProperties: {},
         safeGetterValues: {},
       });
@@ -61,7 +61,7 @@ describe("firefox commands", () => {
 
     it("simple properties", async () => {
       const { getProperties } = clientCommands;
-      const threadFront = makeThreadFront({
+      const threadFront = makeThreadCLient({
         ownProperties: {
           obj: { value: "obj" },
           foo: { value: "foo" },
@@ -76,7 +76,7 @@ describe("firefox commands", () => {
 
     it("getter values", async () => {
       const { getProperties } = clientCommands;
-      const threadFront = makeThreadFront({
+      const threadFront = makeThreadCLient({
         ownProperties: {
           obj: { value: "obj" },
           foo: { value: "foo" },
@@ -93,7 +93,7 @@ describe("firefox commands", () => {
 
     it("new getter values", async () => {
       const { getProperties } = clientCommands;
-      const threadFront = makeThreadFront({
+      const threadFront = makeThreadCLient({
         ownProperties: {
           foo: { value: "foo" },
         },

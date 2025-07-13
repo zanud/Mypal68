@@ -349,11 +349,17 @@ StyleEditorUI.prototype = {
           return editor;
         }
 
-        const { href, nodeHref, actorID: id, sourceMapURL } = styleSheet;
-        const url = href || nodeHref;
+        const {
+          href,
+          nodeHref,
+          actorID: id,
+          sourceMapURL,
+          sourceMapBaseURL,
+        } = styleSheet;
         const sources = await sourceMapService.getOriginalURLs({
           id,
-          url,
+          url: href || nodeHref,
+          sourceMapBaseURL,
           sourceMapURL,
         });
         // A single generated sheet might map to multiple original
@@ -1078,8 +1084,8 @@ StyleEditorUI.prototype = {
    *         Object with width or/and height properties.
    */
   async _launchResponsiveMode(options = {}) {
-    const tab = this._target.tab;
-    const win = this._target.tab.ownerDocument.defaultView;
+    const tab = this._target.localTab;
+    const win = this._target.localTab.ownerDocument.defaultView;
 
     await ResponsiveUIManager.openIfNeeded(win, tab, {
       trigger: "style_editor",

@@ -23,7 +23,6 @@ bootstrap(React, ReactDOM).then(connection => {
       win.focus();
     },
     openInspector: () => console.log("opening inspector"),
-    openWorkerToolbox: worker => alert(worker.url),
     openElementInInspector: grip =>
       alert(`Opening node in Inspector: ${grip.class}`),
     openConsoleAndEvaluate: input => alert(`console.log: ${input}`),

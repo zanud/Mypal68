@@ -8,7 +8,7 @@ const protocol = require("devtools/shared/protocol");
 
 const { Cc, Ci, Cu, Cr } = require("chrome");
 
-const { DebuggerServer } = require("devtools/server/debugger-server");
+const { DevToolsServer } = require("devtools/server/devtools-server");
 const Services = require("Services");
 const ChromeUtils = require("ChromeUtils");
 
@@ -78,9 +78,7 @@ function logAccessDeniedWarning(window, callerInfo, extensionPolicy) {
     Ci.nsIScriptError
   );
 
-  const msg = `The extension "${name}" is not allowed to access ${
-    reportedURI.spec
-  }`;
+  const msg = `The extension "${name}" is not allowed to access ${reportedURI.spec}`;
 
   const innerWindowId = window.windowUtils.currentInnerWindowID;
 
@@ -329,7 +327,7 @@ var WebExtensionInspectedWindowActor = protocol.ActorClassWithSpec(
       let selectedDOMNode;
 
       if (options.toolboxSelectedNodeActorID) {
-        const actor = DebuggerServer.searchAllConnectionsForActor(
+        const actor = DevToolsServer.searchAllConnectionsForActor(
           options.toolboxSelectedNodeActorID
         );
         if (actor && actor instanceof NodeActor) {
@@ -356,12 +354,11 @@ var WebExtensionInspectedWindowActor = protocol.ActorClassWithSpec(
         enumerable: true,
         configurable: true,
         value: dbgWindow.makeDebuggeeValue(object => {
-          const dbgObj = dbgWindow.makeDebuggeeValue(object);
-
-          const consoleActor = DebuggerServer.searchAllConnectionsForActor(
+          const consoleActor = DevToolsServer.searchAllConnectionsForActor(
             options.toolboxConsoleActorID
           );
           if (consoleActor) {
+            const dbgObj = consoleActor.makeDebuggeeValue(object);
             consoleActor.inspectObject(
               dbgObj,
               "webextension-devtools-inspectedWindow-eval"
@@ -661,7 +658,7 @@ var WebExtensionInspectedWindowActor = protocol.ActorClassWithSpec(
               });
             }
 
-            const consoleActor = DebuggerServer.searchAllConnectionsForActor(
+            const consoleActor = DevToolsServer.searchAllConnectionsForActor(
               options.toolboxConsoleActorID
             );
 

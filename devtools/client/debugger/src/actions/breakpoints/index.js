@@ -34,6 +34,7 @@ import type {
   Breakpoint,
   Source,
   SourceLocation,
+  SourceId,
   XHRBreakpoint,
   Context,
 } from "../../types";
@@ -184,7 +185,7 @@ export function removeBreakpointsInSource(cx: Context, source: Source) {
   };
 }
 
-export function remapBreakpoints(cx: Context, sourceId: string) {
+export function remapBreakpoints(cx: Context, sourceId: SourceId) {
   return async ({ dispatch, getState, sourceMaps }: ThunkArgs) => {
     const breakpoints = getBreakpointsForSource(getState(), sourceId);
     const newBreakpoints = await remapLocations(
@@ -261,7 +262,7 @@ export function addBreakpointAtLine(
 
 export function removeBreakpointsAtLine(
   cx: Context,
-  sourceId: string,
+  sourceId: SourceId,
   line: number
 ) {
   return ({ dispatch, getState, client, sourceMaps }: ThunkArgs) => {
@@ -276,7 +277,7 @@ export function removeBreakpointsAtLine(
 
 export function disableBreakpointsAtLine(
   cx: Context,
-  sourceId: string,
+  sourceId: SourceId,
   line: number
 ) {
   return ({ dispatch, getState, client, sourceMaps }: ThunkArgs) => {
@@ -291,7 +292,7 @@ export function disableBreakpointsAtLine(
 
 export function enableBreakpointsAtLine(
   cx: Context,
-  sourceId: string,
+  sourceId: SourceId,
   line: number
 ) {
   return ({ dispatch, getState, client, sourceMaps }: ThunkArgs) => {

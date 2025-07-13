@@ -65,7 +65,6 @@ function OptionsPanel(iframeWindow, toolbox) {
   this.panelWin = iframeWindow;
 
   this.toolbox = toolbox;
-  this.telemetry = toolbox.telemetry;
   this.isReady = false;
 
   this.setupToolsList = this.setupToolsList.bind(this);
@@ -230,7 +229,7 @@ OptionsPanel.prototype = {
     // Signal tool registering/unregistering globally (for the tools registered
     // globally) and per toolbox (for the tools registered to a single toolbox).
     // This event handler expect this to be binded to the related checkbox element.
-    const onCheckboxClick = function(telemetry, tool) {
+    const onCheckboxClick = function(tool) {
       // Set the kill switch pref boolean to true
       Services.prefs.setBoolPref(tool.visibilityswitch, this.checked);
 
@@ -238,12 +237,6 @@ OptionsPanel.prototype = {
         gDevTools.emit(
           this.checked ? "tool-registered" : "tool-unregistered",
           tool.id
-        );
-        // Record which tools were registered and unregistered.
-        telemetry.keyedScalarSet(
-          "devtools.tool.registered",
-          tool.id,
-          this.checked
         );
       }
     };
@@ -274,7 +267,7 @@ OptionsPanel.prototype = {
 
       checkboxInput.addEventListener(
         "change",
-        onCheckboxClick.bind(checkboxInput, this.telemetry, tool)
+        onCheckboxClick.bind(checkboxInput, tool)
       );
 
       checkboxLabel.appendChild(checkboxInput);

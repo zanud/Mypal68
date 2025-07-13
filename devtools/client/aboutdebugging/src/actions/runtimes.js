@@ -6,19 +6,21 @@
 
 const Services = require("Services");
 
-const Actions = require("./index");
+const Actions = require("devtools/client/aboutdebugging/src/actions/index");
 
 const {
   getAllRuntimes,
   getCurrentRuntime,
   findRuntimeById,
-} = require("../modules/runtimes-state-helper");
+} = require("devtools/client/aboutdebugging/src/modules/runtimes-state-helper");
 
-const { l10n } = require("../modules/l10n");
-const { createClientForRuntime } = require("../modules/runtime-client-factory");
+const { l10n } = require("devtools/client/aboutdebugging/src/modules/l10n");
+const {
+  createClientForRuntime,
+} = require("devtools/client/aboutdebugging/src/modules/runtime-client-factory");
 const {
   isSupportedDebugTargetPane,
-} = require("../modules/debug-target-support");
+} = require("devtools/client/aboutdebugging/src/modules/debug-target-support");
 
 const {
   remoteClientManager,
@@ -51,12 +53,12 @@ const {
   WATCH_RUNTIME_FAILURE,
   WATCH_RUNTIME_START,
   WATCH_RUNTIME_SUCCESS,
-} = require("../constants");
+} = require("devtools/client/aboutdebugging/src/constants");
 
 const CONNECTION_TIMING_OUT_DELAY = 3000;
 const CONNECTION_CANCEL_DELAY = 13000;
 
-function onRemoteDebuggerClientClosed() {
+function onRemoteDevToolsClientClosed() {
   window.AboutDebugging.onNetworkLocationsUpdated();
   window.AboutDebugging.onUSBRuntimesUpdated();
 }
@@ -66,11 +68,8 @@ function onCanDebugServiceWorkersUpdated() {
 }
 
 function connectRuntime(id) {
-  // Create a random connection id to track the connection attempt in telemetry.
-  const connectionId = (Math.random() * 100000) | 0;
-
   return async (dispatch, getState) => {
-    dispatch({ type: CONNECT_RUNTIME_START, connectionId, id });
+    dispatch({ type: CONNECT_RUNTIME_START, id });
 
     // The preferences test-connection-timing-out-delay and test-connection-cancel-delay
     // don't have a default value but will be overridden during our tests.
@@ -87,7 +86,7 @@ function connectRuntime(id) {
       // If connecting to the runtime takes time over CONNECTION_TIMING_OUT_DELAY,
       // we assume the connection prompt is showing on the runtime, show a dialog
       // to let user know that.
-      dispatch({ type: CONNECT_RUNTIME_NOT_RESPONDING, connectionId, id });
+      dispatch({ type: CONNECT_RUNTIME_NOT_RESPONDING, id });
     }, connectionTimingOutDelay);
     const connectionCancelTimer = setTimeout(() => {
       // Connect button of the runtime will be disabled during connection, but the status
@@ -95,7 +94,7 @@ function connectRuntime(id) {
       // possibility that the disabling continues unless page reloading, user will not be
       // able to click again. To avoid this, revert the connect button status after
       // CONNECTION_CANCEL_DELAY ms.
-      dispatch({ type: CONNECT_RUNTIME_CANCEL, connectionId, id });
+      dispatch({ type: CONNECT_RUNTIME_CANCEL, id });
     }, connectionCancelDelay);
 
     try {
@@ -167,13 +166,12 @@ function connectRuntime(id) {
         // on the connected remote runtime.
         clientWrapper.once(
           "closed",
-          onRemoteDebuggerClientClosed
+          onRemoteDevToolsClientClosed
         );
       }
 
       dispatch({
         type: CONNECT_RUNTIME_SUCCESS,
-        connectionId,
         runtime: {
           id,
           runtimeDetails,
@@ -181,7 +179,7 @@ function connectRuntime(id) {
         },
       });
     } catch (e) {
-      dispatch({ type: CONNECT_RUNTIME_FAILURE, connectionId, id, error: e });
+      dispatch({ type: CONNECT_RUNTIME_FAILURE, id, error: e });
     } finally {
       clearTimeout(connectionNotRespondingTimer);
       clearTimeout(connectionCancelTimer);
@@ -225,7 +223,7 @@ function disconnectRuntime(id, shouldRedirect = false) {
       }
 
       if (runtime.type !== RUNTIMES.THIS_FIREFOX) {
-        clientWrapper.off("closed", onRemoteDebuggerClientClosed);
+        clientWrapper.off("closed", onRemoteDevToolsClientClosed);
       }
       await clientWrapper.close();
       if (shouldRedirect) {
@@ -400,7 +398,7 @@ function updateUSBRuntimes(adbRuntimes) {
 
 /**
  * Check that a given runtime can still be found in the provided array of runtimes, and
- * that the connection of the associated DebuggerClient is still valid.
+ * that the connection of the associated DevToolsClient is still valid.
  * Note that this check is only valid for runtimes which match the type of the runtimes
  * in the array.
  */
@@ -512,7 +510,7 @@ function removeRuntimeListeners() {
     for (const runtime of remoteRuntimes) {
       if (runtime.runtimeDetails) {
         const { clientWrapper } = runtime.runtimeDetails;
-        clientWrapper.off("closed", onRemoteDebuggerClientClosed);
+        clientWrapper.off("closed", onRemoteDevToolsClientClosed);
       }
     }
   };

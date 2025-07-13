@@ -17,6 +17,25 @@ jest.mock("../../../utils/clipboard", () => ({
   copyToTheClipboard: jest.fn(),
 }));
 
+const blackBoxAllContexMenuItem = {
+  id: "node-blackbox-all",
+  label: "Blackbox",
+  submenu: [
+    {
+      id: "node-blackbox-all-inside",
+      label: "Blackbox files in this directory",
+      disabled: false,
+      click: expect.any(Function),
+    },
+    {
+      id: "node-blackbox-all-outside",
+      label: "Blackbox files outside this directory",
+      disabled: false,
+      click: expect.any(Function),
+    },
+  ],
+};
+
 describe("SourceTreeItem", () => {
   afterEach(() => {
     (copyToTheClipboard: any).mockClear();
@@ -55,6 +74,7 @@ describe("SourceTreeItem", () => {
           id: "node-set-directory-root",
           label: "Set directory root",
         },
+        blackBoxAllContexMenuItem,
       ];
       const mockEvent = {
         preventDefault: jest.fn(),
@@ -166,6 +186,57 @@ describe("SourceTreeItem", () => {
       expect(props.toggleBlackBox).toHaveBeenCalled();
     });
 
+    it("shows context menu on directory to blackbox all with submenu options", async () => {
+      const menuOptions = [
+        {
+          click: expect.any(Function),
+          disabled: false,
+          id: "node-menu-collapse-all",
+          label: "Collapse all",
+        },
+        {
+          click: expect.any(Function),
+          disabled: false,
+          id: "node-menu-expand-all",
+          label: "Expand all",
+        },
+        {
+          click: expect.any(Function),
+          disabled: false,
+          id: "node-remove-directory-root",
+          label: "Remove directory root",
+        },
+        blackBoxAllContexMenuItem,
+      ];
+
+      const { props, instance } = render({
+        projectRoot: "root/",
+      });
+
+      const mockEvent = {
+        preventDefault: jest.fn(),
+        stopPropagation: jest.fn(),
+      };
+
+      await instance.onContextMenu(
+        mockEvent,
+        createMockDirectory("root/", "root")
+      );
+
+      expect(showMenu).toHaveBeenCalledWith(mockEvent, menuOptions);
+
+      expect(mockEvent.preventDefault).toHaveBeenCalled();
+      expect(mockEvent.stopPropagation).toHaveBeenCalled();
+
+      showMenu.mock.calls[0][1][3].submenu[0].click();
+      showMenu.mock.calls[0][1][3].submenu[1].click();
+
+      expect(props.setProjectDirectoryRoot).not.toHaveBeenCalled();
+      expect(props.clearProjectDirectoryRoot).not.toHaveBeenCalled();
+
+      expect(props.blackBoxSources.mock.calls).toHaveLength(2);
+    });
+
     it("shows context menu on file to download source file", async () => {
       const menuOptions = [
         {
@@ -237,6 +308,7 @@ describe("SourceTreeItem", () => {
           id: "node-remove-directory-root",
           label: "Remove directory root",
         },
+        blackBoxAllContexMenuItem,
       ];
       const { props, instance } = render({
         projectRoot: "root/",
@@ -282,7 +354,36 @@ describe("SourceTreeItem", () => {
         "moz-extension://e37c3c08-beac-a04b-8032-c4f699a1a856",
         "moz-extension://e37c3c08-beac-a04b-8032-c4f699a1a856"
       );
-      const node = render({ item, depth: 0 });
+      const node = render({ item, depth: 1 });
+      expect(node).toMatchSnapshot();
+    });
+
+    it("should show icon for moz-extension item when a thread is set to root", async () => {
+      const item = createMockDirectory(
+        "moz-extension://e37c3c08-beac-a04b-8032-c4f699a1a856",
+        "moz-extension://e37c3c08-beac-a04b-8032-c4f699a1a856"
+      );
+      const node = render({
+        item,
+        depth: 0,
+        projectRoot: "server1.conn13.child1/thread19",
+        threads: [
+          { name: "Main Thread", actor: "server1.conn13.child1/thread19" },
+        ],
+      });
+      expect(node).toMatchSnapshot();
+    });
+
+    it("should show icon for domain item when a thread is set to root", async () => {
+      const item = createMockDirectory();
+      const node = render({
+        item,
+        depth: 0,
+        projectRoot: "server1.conn13.child1/thread19",
+        threads: [
+          { name: "Main Thread", actor: "server1.conn13.child1/thread19" },
+        ],
+      });
       expect(node).toMatchSnapshot();
     });
 
@@ -460,6 +561,13 @@ function generateDefaults(overrides) {
     selectItem: jest.fn(),
     focusItem: jest.fn(),
     setExpanded: jest.fn(),
+    blackBoxSources: jest.fn(),
+    getSourcesGroups: () => {
+      return {
+        sourcesInside: [makeMockSource("https://example.com/a.js", "actor1")],
+        sourcesOuside: [makeMockSource("https://example.com/b.js", "actor2")],
+      };
+    },
     threads: [{ name: "Main Thread" }],
     ...overrides,
   };

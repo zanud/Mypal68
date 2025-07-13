@@ -17,7 +17,6 @@ const {
 const { getPrefsService } = require("devtools/client/webconsole/utils/prefs");
 const prefsService = getPrefsService({});
 const { PREFS } = require("devtools/client/webconsole/constants");
-const Telemetry = require("devtools/client/shared/telemetry");
 
 /**
  * Prepare actions for use in testing.
@@ -41,21 +40,16 @@ function setupActions() {
 /**
  * Prepare the store for use in testing.
  */
-function setupStore(input = [], { storeOptions = {}, actions, hud } = {}) {
-  if (!hud) {
-    hud = {
-      proxy: {
-        releaseActor: () => {},
-        target: {
-          ensureCSSErrorReportingEnabled: () => {},
-        },
-      },
-    };
+function setupStore(
+  input = [],
+  { storeOptions = {}, actions, webConsoleUI } = {}
+) {
+  if (!webConsoleUI) {
+    webConsoleUI = getWebConsoleUiMock();
   }
-  const store = configureStore(hud, {
+  const store = configureStore(webConsoleUI, {
     ...storeOptions,
     sessionId: -1,
-    telemetry: new Telemetry(),
   });
 
   // Add the messages from the input commands to the store.
@@ -131,6 +125,31 @@ function getPrivatePacket(key) {
   return packet;
 }
 
+function getWebConsoleUiMock(hud, proxyOverrides) {
+  const proxy = getProxyMock(proxyOverrides);
+  return {
+    emit: () => {},
+    emitForTests: () => {},
+    hud,
+    proxy,
+    clearNetworkRequests: () => {},
+    clearMessagesCache: () => {},
+    releaseActor: proxy.releaseActor,
+    getProxy: () => proxy,
+    inspectObjectActor: () => {},
+  };
+}
+
+function getProxyMock(overrides = {}) {
+  return {
+    releaseActor: actor => {},
+    target: {
+      ensureCSSErrorReportingEnabled: () => {},
+    },
+    ...overrides,
+  };
+}
+
 module.exports = {
   clearPrefs,
   clonePacket,
@@ -139,6 +158,7 @@ module.exports = {
   getLastMessage,
   getMessageAt,
   getPrivatePacket,
+  getWebConsoleUiMock,
   prefsService,
   setupActions,
   setupStore,

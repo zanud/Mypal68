@@ -5,7 +5,7 @@
 "use strict";
 
 const Services = require("Services");
-const { DebuggerServer } = require("devtools/server/debugger-server");
+const { DevToolsServer } = require("devtools/server/devtools-server");
 const { Cc, Ci } = require("chrome");
 
 const { ActorClassWithSpec, Actor } = require("devtools/shared/protocol");
@@ -23,6 +23,12 @@ loader.lazyRequireGetter(
   this,
   "ParentProcessTargetActor",
   "devtools/server/actors/targets/parent-process",
+  true
+);
+loader.lazyRequireGetter(
+  this,
+  "connectToContentProcess",
+  "devtools/server/connectors/content-process-connector",
   true
 );
 
@@ -67,14 +73,14 @@ const ProcessDescriptorActor = ActorClassWithSpec(processDescriptorSpec, {
    */
   async _childProcessConnect() {
     const { id } = this;
-    const mm = Services.ppmm.getChildAt(id);
+    const mm = this._lookupMessageManager(id);
     if (!mm) {
       return {
         error: "noProcess",
         message: "There is no process with id '" + id + "'.",
       };
     }
-    const childTargetForm = await DebuggerServer.connectToContentProcess(
+    const childTargetForm = await connectToContentProcess(
       this.conn,
       mm,
       this.destroy
@@ -82,11 +88,23 @@ const ProcessDescriptorActor = ActorClassWithSpec(processDescriptorSpec, {
     return childTargetForm;
   },
 
+  _lookupMessageManager(id) {
+    for (let i = 0; i < Services.ppmm.childCount; i++) {
+      const mm = Services.ppmm.getChildAt(i);
+
+      // A zero id is used for the parent process, instead of its actual pid.
+      if (id ? mm.osPid == id : mm.isInProcess) {
+        return mm;
+      }
+    }
+    return null;
+  },
+
   /**
    * Connect the a process actor.
    */
   async getTarget() {
-    if (!DebuggerServer.allowChromeProcess) {
+    if (!DevToolsServer.allowChromeProcess) {
       return {
         error: "forbidden",
         message: "You are not allowed to debug processes.",

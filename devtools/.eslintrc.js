@@ -31,6 +31,7 @@ module.exports = {
       "client/framework/**",
       "client/shared/*.jsm",
       "client/shared/widgets/*.jsm",
+      "client/storage/VariablesView.jsm",
     ],
     "rules": {
       "consistent-return": "off",
@@ -47,6 +48,8 @@ module.exports = {
       "client/framework/**",
       "client/shared/*.jsm",
       "client/shared/widgets/*.jsm",
+      "client/storage/VariablesView.jsm",
+      "shared/webconsole/test/chrome/*.html",
     ],
     "rules": {
       "mozilla/no-aArgs": "off",
@@ -62,6 +65,7 @@ module.exports = {
     "files": [
       "client/framework/**",
       "client/shared/widgets/*.jsm",
+      "client/storage/VariablesView.jsm",
     ],
     "rules": {
       "no-shadow": "off",
@@ -80,6 +84,14 @@ module.exports = {
     ],
     "rules": {
       "no-unused-vars": ["error", {"args": "none", "vars": "local"}],
+    }
+  }, {
+    // For all server files, prevent requiring devtools/client modules.
+    "files": [
+      "server/**",
+    ],
+    "rules": {
+      "mozilla/reject-some-requires": ["error", "^(resource\://)?devtools/client"],
     }
   }, {
     // Cu, Cc etc... are not available in most devtools modules loaded by require.
@@ -252,6 +264,11 @@ module.exports = {
     "no-regex-spaces": "off",
     // Don't restrict usage of specified node modules (not a node environment).
     "no-restricted-modules": "off",
+    // Prevent using some properties
+    "no-restricted-properties": ["error", {
+      "property": "setupInParent",
+      "message": "avoid child/parent communication with setupInParent"
+    }],
     // Disallow use of assignment in return statement. It is preferable for a
     // single line of code to have only one easily predictable effect.
     "no-return-assign": "error",

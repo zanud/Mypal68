@@ -8,8 +8,6 @@
 // FIXME: some of the inplace-editor focus/blur/commit/revert stuff
 // should be factored out in head.js
 
-const ALL_CHANNELS = Ci.nsITelemetry.DATASET_ALL_CHANNELS;
-
 const TEST_URI = `
   <style type="text/css">
   #testid {
@@ -66,13 +64,6 @@ const DATA = [
 ];
 
 add_task(async function() {
-  // Let's reset the counts.
-  Services.telemetry.clearEvents();
-
-  // Ensure no events have been logged
-  const snapshot = Services.telemetry.snapshotEvents(ALL_CHANNELS, true);
-  ok(!snapshot.parent, "No events have been logged for the main process");
-
   await addTab("data:text/html;charset=utf-8," + encodeURIComponent(TEST_URI));
   const { inspector, view } = await openRuleView();
   await selectNode("#testid", inspector);
@@ -144,14 +135,6 @@ async function testEditProperty(view, rule, name, value, isValid) {
 }
 
 function checkResults() {
-  const snapshot = Services.telemetry.snapshotEvents(ALL_CHANNELS, true);
-  const events = snapshot.parent.filter(
-    event =>
-      event[1] === "devtools.main" &&
-      event[2] === "edit_rule" &&
-      event[3] === "ruleview"
-  );
-
   for (const i in DATA) {
     const [timestamp, category, method, object] = events[i];
     const expected = DATA[i];

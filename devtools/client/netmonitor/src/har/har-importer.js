@@ -4,7 +4,7 @@
 
 "use strict";
 
-const { TIMING_KEYS } = require("../constants");
+const { TIMING_KEYS } = require("devtools/client/netmonitor/src/constants");
 
 var guid = 0;
 
@@ -38,13 +38,13 @@ HarImporter.prototype = {
     // Iterate all entries/requests and generate state.
     har.log.entries.forEach(entry => {
       const requestId = String(++guid);
-      const startedMillis = Date.parse(entry.startedDateTime);
+      const startedMs = Date.parse(entry.startedDateTime);
 
       // Add request
       this.actions.addRequest(
         requestId,
         {
-          startedMillis: startedMillis,
+          startedMs: startedMs,
           method: entry.request.method,
           url: entry.request.url,
           isXHR: false,
@@ -128,14 +128,14 @@ HarImporter.prototype = {
       if (onContentLoad > 0) {
         this.actions.addTimingMarker({
           name: "dom-interactive",
-          time: startedMillis + onContentLoad,
+          time: startedMs + onContentLoad,
         });
       }
 
       if (onLoad > 0) {
         this.actions.addTimingMarker({
           name: "dom-complete",
-          time: startedMillis + onLoad,
+          time: startedMs + onLoad,
         });
       }
     });

@@ -4,9 +4,8 @@
 
 "use strict";
 
-const debugTargets = require("./debug-targets");
-const runtimes = require("./runtimes");
-const telemetry = require("./telemetry");
-const ui = require("./ui");
+const debugTargets = require("devtools/client/aboutdebugging/src/actions/debug-targets");
+const runtimes = require("devtools/client/aboutdebugging/src/actions/runtimes");
+const ui = require("devtools/client/aboutdebugging/src/actions/ui");
 
-Object.assign(exports, ui, runtimes, telemetry, debugTargets);
+Object.assign(exports, ui, runtimes, debugTargets);

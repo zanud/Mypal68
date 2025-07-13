@@ -6,7 +6,6 @@
 
 const {
   ADD_REQUEST,
-  BLOCK_SELECTED_REQUEST_DONE,
   CLEAR_REQUESTS,
   CLONE_REQUEST,
   CLONE_SELECTED_REQUEST,
@@ -14,10 +13,12 @@ const {
   RIGHT_CLICK_REQUEST,
   SEND_CUSTOM_REQUEST,
   TOGGLE_RECORDING,
-  UNBLOCK_SELECTED_REQUEST_DONE,
   UPDATE_REQUEST,
-} = require("../constants");
-const { getSelectedRequest, getRequestById } = require("../selectors/index");
+} = require("devtools/client/netmonitor/src/constants");
+const {
+  getSelectedRequest,
+  getRequestById,
+} = require("devtools/client/netmonitor/src/selectors/index");
 
 function addRequest(id, data, batch) {
   return {
@@ -108,40 +109,6 @@ function sendCustomRequest(connector, requestId = null) {
 }
 
 /**
- * Tell the backend to block future requests that match the URL of the selected one.
- */
-function blockSelectedRequestURL(connector, clickedRequest) {
-  return async dispatch => {
-    if (!clickedRequest) {
-      return;
-    }
-
-    const { url } = clickedRequest;
-    await connector.blockRequest({ url });
-    dispatch({
-      type: BLOCK_SELECTED_REQUEST_DONE,
-    });
-  };
-}
-
-/**
- * Tell the backend to unblock future requests that match the URL of the selected one.
- */
-function unblockSelectedRequestURL(connector, clickedRequest) {
-  return async dispatch => {
-    if (!clickedRequest) {
-      return;
-    }
-
-    const { url } = clickedRequest;
-    await connector.unblockRequest({ url });
-    dispatch({
-      type: UNBLOCK_SELECTED_REQUEST_DONE,
-    });
-  };
-}
-
-/**
  * Remove a request from the list. Supports removing only cloned requests with a
  * "isCustom" attribute. Other requests never need to be removed.
  */
@@ -168,7 +135,6 @@ function toggleRecording() {
 
 module.exports = {
   addRequest,
-  blockSelectedRequestURL,
   clearRequests,
   cloneRequest,
   cloneSelectedRequest,
@@ -176,6 +142,5 @@ module.exports = {
   removeSelectedCustomRequest,
   sendCustomRequest,
   toggleRecording,
-  unblockSelectedRequestURL,
   updateRequest,
 };

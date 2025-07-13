@@ -2,7 +2,6 @@
  * http://creativecommons.org/publicdomain/zero/1.0/ */
 
 /* import-globals-from ../../../shared/test/shared-head.js */
-/* import-globals-from ../../../shared/test/telemetry-test-helpers.js */
 
 // shared-head.js handles imports, constants, and utility functions
 Services.scriptloader.loadSubScript(

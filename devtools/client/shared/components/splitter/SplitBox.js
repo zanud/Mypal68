@@ -48,6 +48,8 @@ class SplitBox extends Component {
       style: PropTypes.object,
       // Call when controlled panel was resized.
       onControlledPanelResized: PropTypes.func,
+      // Retrieve DOM reference to the start panel element
+      onSelectContainerElement: PropTypes.any,
     };
   }
 
@@ -195,9 +197,16 @@ class SplitBox extends Component {
 
   // Rendering
 
+  /* eslint-disable complexity */
   render() {
     const { endPanelControl, splitterSize, vert } = this.state;
-    const { startPanel, endPanel, minSize, maxSize } = this.props;
+    const {
+      startPanel,
+      endPanel,
+      minSize,
+      maxSize,
+      onSelectContainerElement,
+    } = this.props;
 
     const style = Object.assign(
       {
@@ -267,6 +276,9 @@ class SplitBox extends Component {
               role: "presentation",
               ref: div => {
                 this.startPanelContainer = div;
+                if (onSelectContainerElement) {
+                  onSelectContainerElement(div);
+                }
               },
             },
             startPanel
@@ -296,6 +308,7 @@ class SplitBox extends Component {
         : null
     );
   }
+  /* eslint-enable complexity */
 }
 
 module.exports = SplitBox;

@@ -5,7 +5,10 @@
 // @flow
 
 import { correctIndentation } from "./indentation";
+import { getGrip } from "./evaluation-result";
 import type { Expression } from "../types";
+
+const UNAVAILABLE_GRIP = { unavailable: true };
 
 /*
  * wrap the expression input in a try/catch so that it can be safely
@@ -24,58 +27,41 @@ export function wrapExpression(input: string) {
 }
 
 function isUnavailable(value) {
-  if (!value.preview || !value.preview.name) {
-    return false;
-  }
-
-  return ["ReferenceError", "TypeError"].includes(value.preview.name);
+  return (
+    value &&
+    !!value.isError &&
+    (value.class === "ReferenceError" || value.class === "TypeError")
+  );
 }
 
 export function getValue(expression: Expression) {
-  const { value, from, exception, error } = expression;
+  const { value, exception, error } = expression;
+
+  if (error) {
+    return error;
+  }
+
   if (!value) {
-    return {
-      path: from,
-      value: { unavailable: true },
-    };
+    return UNAVAILABLE_GRIP;
   }
 
   if (exception) {
     if (isUnavailable(exception)) {
-      return { value: { unavailable: true } };
+      return UNAVAILABLE_GRIP;
     }
-    return {
-      path: from,
-      value: exception,
-    };
+    return exception;
   }
 
-  if (error) {
-    return {
-      path: from,
-      value: error,
-    };
-  }
+  const valueGrip = getGrip(value.result);
 
-  if (value.result && value.result.class == "Error") {
-    const { name, message } = value.result.preview;
-    if (isUnavailable(value.result)) {
-      return { value: { unavailable: true } };
+  if (valueGrip && typeof valueGrip === "object" && valueGrip.isError) {
+    if (isUnavailable(valueGrip)) {
+      return UNAVAILABLE_GRIP;
     }
 
-    const newValue = `${name}: ${message}`;
-    return { path: value.input, value: newValue };
+    const { name, message } = valueGrip.preview;
+    return `${name}: ${message}`;
   }
 
-  if (typeof value.result == "object") {
-    return {
-      path: value.result.actor,
-      value: value.result,
-    };
-  }
-
-  return {
-    path: value.input,
-    value: value.result,
-  };
+  return valueGrip;
 }

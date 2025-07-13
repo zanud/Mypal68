@@ -19,7 +19,7 @@ const mappings = {
   "./source-editor": "devtools/client/shared/sourceeditor/editor",
   "../editor/source-editor": "devtools/client/shared/sourceeditor/editor",
   "./test-flag": "devtools/shared/flags",
-  "./fronts-device": "devtools/shared/fronts/device",
+  "./fronts-device": "devtools/client/fronts/device",
   immutable: "devtools/client/shared/vendor/immutable",
   lodash: "devtools/client/shared/vendor/lodash",
   react: "devtools/client/shared/vendor/react",
@@ -68,7 +68,6 @@ const VENDORS = [
 ];
 
 const moduleMapping = {
-  Telemetry: "devtools/client/shared/telemetry",
   asyncStoreHelper: "devtools/client/shared/async-store-helper",
   asyncStorage: "devtools/shared/async-storage",
   PluralForm: "devtools/shared/plural-form",
@@ -78,7 +77,6 @@ const moduleMapping = {
 
 /*
  * Updates devtools-modules imports such as
- * `import { Telemetry } from "devtools-modules"`
  * so that we can customize how we resolve certain modules in the package
  *
  * In the case of multiple declarations we need to move

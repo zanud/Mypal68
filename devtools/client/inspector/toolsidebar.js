@@ -6,18 +6,6 @@
 
 const EventEmitter = require("devtools/shared/event-emitter");
 
-/**
- * This object represents replacement for ToolSidebar
- * implemented in devtools/client/framework/sidebar.js module
- *
- * This new component is part of devtools.html aimed at
- * removing XUL and use HTML for entire DevTools UI.
- * There are currently two implementation of the side bar since
- * the `sidebar.js` module (mentioned above) is still used by
- * other panels.
- * As soon as all panels are using this HTML based
- * implementation it can be removed.
- */
 function ToolSidebar(tabbox, panel, uid, options = {}) {
   EventEmitter.decorate(this);
 
@@ -26,10 +14,6 @@ function ToolSidebar(tabbox, panel, uid, options = {}) {
   this._panelDoc = this._tabbox.ownerDocument;
   this._toolPanel = panel;
   this._options = options;
-
-  if (!options.disableTelemetry) {
-    this._telemetry = this._toolPanel.telemetry;
-  }
 
   this._tabs = [];
 
@@ -222,68 +206,8 @@ ToolSidebar.prototype = {
 
     this._currentTool = id;
 
-    this.updateTelemetryOnChange(id, previousTool);
     this.emit(this._currentTool + "-selected");
     this.emit("select", this._currentTool);
-  },
-
-  /**
-   * Log toolClosed and toolOpened events on telemetry.
-   *
-   * @param  {String} currentToolId
-   *         id of the tool being selected.
-   * @param  {String} previousToolId
-   *         id of the previously selected tool.
-   */
-  updateTelemetryOnChange: function(currentToolId, previousToolId) {
-    if (currentToolId === previousToolId || !this._telemetry) {
-      // Skip telemetry if the tool id did not change or telemetry is unavailable.
-      return;
-    }
-
-    const sessionId = this._toolPanel._toolbox.sessionId;
-
-    currentToolId = this.getTelemetryPanelNameOrOther(currentToolId);
-
-    if (previousToolId) {
-      previousToolId = this.getTelemetryPanelNameOrOther(previousToolId);
-      this._telemetry.toolClosed(previousToolId, sessionId, this);
-
-      this._telemetry.recordEvent("sidepanel_changed", "inspector", null, {
-        oldpanel: previousToolId,
-        newpanel: currentToolId,
-        os: this._telemetry.osNameAndVersion,
-        session_id: sessionId,
-      });
-    }
-    this._telemetry.toolOpened(currentToolId, sessionId, this);
-  },
-
-  /**
-   * Returns a panel id in the case of built in panels or "other" in the case of
-   * third party panels. This is necessary due to limitations in addon id strings,
-   * the permitted length of event telemetry property values and what we actually
-   * want to see in our telemetry.
-   *
-   * @param {String} id
-   *        The panel id we would like to process.
-   */
-  getTelemetryPanelNameOrOther: function(id) {
-    if (!this._toolNames) {
-      // Get all built in tool ids. We identify third party tool ids by checking
-      // for a "-", which shows it originates from an addon.
-      const ids = this._tabbar.state.tabs.map(({ id: toolId }) => {
-        return toolId.includes("-") ? "other" : toolId;
-      });
-
-      this._toolNames = new Set(ids);
-    }
-
-    if (!this._toolNames.has(id)) {
-      return "other";
-    }
-
-    return id;
   },
 
   /**
@@ -323,16 +247,10 @@ ToolSidebar.prototype = {
 
     this.emit("destroy");
 
-    if (this._currentTool && this._telemetry) {
-      const sessionId = this._toolPanel._toolbox.sessionId;
-      this._telemetry.toolClosed(this._currentTool, sessionId, this);
-    }
-
     this._toolPanel.emit("sidebar-destroyed", this);
 
     this._tabs = null;
     this._tabbox = null;
-    this._telemetry = null;
     this._panelDoc = null;
     this._toolPanel = null;
   },

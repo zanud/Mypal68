@@ -7,37 +7,29 @@
 import { setupCommands, clientCommands } from "./firefox/commands";
 import { setupEvents, clientEvents } from "./firefox/events";
 import { features, prefs } from "../utils/prefs";
-import type { Grip } from "../types";
-let DebuggerClient;
-
-function createObjectClient(grip: Grip) {
-  return DebuggerClient.createObjectClient(grip);
-}
 
 export async function onConnect(connection: any, actions: Object) {
   const {
-    tabConnection: { tabTarget, threadFront, debuggerClient },
+    tabConnection: { tabTarget, threadFront, devToolsClient },
   } = connection;
 
-  DebuggerClient = debuggerClient;
-
-  if (!tabTarget || !threadFront || !debuggerClient) {
+  if (!tabTarget || !threadFront || !devToolsClient) {
     return;
   }
 
   setupCommands({
     threadFront,
     tabTarget,
-    debuggerClient,
+    devToolsClient,
   });
 
-  setupEvents({ threadFront, tabTarget, actions });
+  setupEvents({ threadFront, tabTarget, actions, devToolsClient });
 
   tabTarget.on("will-navigate", actions.willNavigate);
   tabTarget.on("navigate", actions.navigated);
 
   const wasmBinarySource =
-    features.wasm && !!debuggerClient.mainRoot.traits.wasmBinarySource;
+    features.wasm && !!devToolsClient.mainRoot.traits.wasmBinarySource;
 
   await threadFront.reconfigure({
     observeAsmJS: true,
@@ -54,12 +46,6 @@ export async function onConnect(connection: any, actions: Object) {
   // they are active once attached.
   actions.addEventListenerBreakpoints([]).catch(e => console.error(e));
 
-  // In Firefox, we need to initially request all of the sources. This
-  // usually fires off individual `newSource` notifications as the
-  // debugger finds them, but there may be existing sources already in
-  // the debugger (if it's paused already, or if loading the page from
-  // bfcache) so explicity fire `newSource` events for all returned
-  // sources.
   const { traits } = tabTarget;
   await actions.connect(
     tabTarget.url,
@@ -68,18 +54,18 @@ export async function onConnect(connection: any, actions: Object) {
     tabTarget.isWebExtension
   );
 
-  const fetched = clientCommands
-    .fetchSources()
-    .then(sources => actions.newGeneratedSources(sources));
+  // Fetch the sources for all the targets
+  //
+  // In Firefox, we need to initially request all of the sources. This
+  // usually fires off individual `newSource` notifications as the
+  // debugger finds them, but there may be existing sources already in
+  // the debugger (if it's paused already, or if loading the page from
+  // bfcache) so explicity fire `newSource` events for all returned
+  // sources.
+  const sources = await clientCommands.fetchSources();
+  await actions.newGeneratedSources(sources);
 
-  // If the threadFront is already paused, make sure to show a
-  // paused state.
-  const pausedPacket = threadFront.getLastPausePacket();
-  if (pausedPacket) {
-    clientEvents.paused(threadFront, pausedPacket);
-  }
-
-  return fetched;
+  await clientCommands.checkIfAlreadyPaused();
 }
 
-export { createObjectClient, clientCommands, clientEvents };
+export { clientCommands, clientEvents };

@@ -34,10 +34,6 @@ class Picker {
     return this.toolbox.pickerButton;
   }
 
-  get _telemetry() {
-    return this._panel._telemetry;
-  }
-
   release() {
     this._panel = null;
   }
@@ -145,12 +141,6 @@ class Picker {
 
     await this.walker.cancelPick();
 
-    this._telemetry.toolClosed(
-      "accessibility_picker",
-      this.toolbox.sessionId,
-      this
-    );
-
     this.walker.off(
       "picker-accessible-hovered",
       this.onPickerAccessibleHovered
@@ -194,12 +184,6 @@ class Picker {
     );
 
     await this.walker.pick(doFocus);
-
-    this._telemetry.toolOpened(
-      "accessibility_picker",
-      this.toolbox.sessionId,
-      this
-    );
 
     this.emit("picker-started");
   }

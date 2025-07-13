@@ -33,7 +33,7 @@ const threadFront = {
   },
 };
 
-const debuggerClient = {
+const devToolsClient = {
   mainRoot: {
     traits: {},
   },
@@ -60,7 +60,7 @@ describe("firefox onConnect", () => {
         tabConnection: {
           tabTarget,
           threadFront,
-          debuggerClient,
+          devToolsClient,
         },
       },
       actions

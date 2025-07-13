@@ -89,38 +89,6 @@ BreakpointActor.prototype = {
    * Called on changes to this breakpoint's script offsets or options.
    */
   _newOffsetsOrOptions(script, offsets, oldOptions, options) {
-    // When replaying, logging breakpoints are handled using an API to get logged
-    // messages from throughout the recording.
-    if (this.threadActor.dbg.replaying && options.logValue) {
-      if (
-        oldOptions &&
-        oldOptions.logValue == options.logValue &&
-        oldOptions.condition == options.condition
-      ) {
-        return;
-      }
-      for (const offset of offsets) {
-        const { lineNumber, columnNumber } = script.getOffsetLocation(offset);
-        script.replayVirtualConsoleLog(
-          offset,
-          options.logValue,
-          options.condition,
-          (executionPoint, rv) => {
-            const message = {
-              filename: script.url,
-              lineNumber,
-              columnNumber,
-              executionPoint,
-              arguments: ["return" in rv ? rv.return : rv.throw],
-              logpointId: options.logGroupId,
-            };
-            this.threadActor._parent._consoleActor.onConsoleAPICall(message);
-          }
-        );
-      }
-      return;
-    }
-
     // In all other cases, this is used as a script breakpoint handler.
     // Clear any existing handler first in case this is called multiple times
     // after options change.
@@ -235,9 +203,9 @@ BreakpointActor.prototype = {
   delete: function() {
     // Remove from the breakpoint store.
     this.threadActor.breakpointActorMap.deleteActor(this.location);
-    this.threadActor.threadLifetimePool.removeActor(this);
     // Remove the actual breakpoint from the associated scripts.
     this.removeScripts();
+    this.destroy();
   },
 };
 

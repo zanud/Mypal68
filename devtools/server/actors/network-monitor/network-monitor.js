@@ -58,12 +58,14 @@ const NetworkMonitorActor = ActorClassWithSpec(networkMonitorSpec, {
     this.observer.init();
 
     this.stackTraces = new Set();
+    this.lastFrames = new Map();
 
     this.onStackTraceAvailable = this.onStackTraceAvailable.bind(this);
     this.onRequestContent = this.onRequestContent.bind(this);
     this.onSetPreference = this.onSetPreference.bind(this);
     this.onBlockRequest = this.onBlockRequest.bind(this);
     this.onUnblockRequest = this.onUnblockRequest.bind(this);
+    this.onSetBlockedUrls = this.onSetBlockedUrls.bind(this);
     this.onGetNetworkEventActor = this.onGetNetworkEventActor.bind(this);
     this.onDestroyMessage = this.onDestroyMessage.bind(this);
 
@@ -98,6 +100,10 @@ const NetworkMonitorActor = ActorClassWithSpec(networkMonitorSpec, {
       this.onUnblockRequest
     );
     this.messageManager.addMessageListener(
+      "debug:set-blocked-urls",
+      this.onSetBlockedUrls
+    );
+    this.messageManager.addMessageListener(
       "debug:get-network-event-actor:request",
       this.onGetNetworkEventActor
     );
@@ -129,6 +135,10 @@ const NetworkMonitorActor = ActorClassWithSpec(networkMonitorSpec, {
       this.onUnblockRequest
     );
     this.messageManager.removeMessageListener(
+      "debug:set-blocked-urls",
+      this.onSetBlockedUrls
+    );
+    this.messageManager.removeMessageListener(
       "debug:get-network-event-actor:request",
       this.onGetNetworkEventActor
     );
@@ -147,6 +157,7 @@ const NetworkMonitorActor = ActorClassWithSpec(networkMonitorSpec, {
     }
 
     this.stackTraces.clear();
+    this.lastFrames.clear();
     if (this.messageManager) {
       this.stopListening();
       this.messageManager = null;
@@ -161,14 +172,19 @@ const NetworkMonitorActor = ActorClassWithSpec(networkMonitorSpec, {
     this.stopListening();
     this.messageManager = mm;
     this.stackTraces = new Set();
+    this.lastFrames.clear();
     this.startListening();
   },
 
   onStackTraceAvailable(msg) {
     const { channelId } = msg.data;
     if (!msg.data.stacktrace) {
+      this.lastFrames.delete(channelId);
       this.stackTraces.delete(channelId);
     } else {
+      if (msg.data.lastFrame) {
+        this.lastFrames.set(channelId, msg.data.lastFrame);
+      }
       this.stackTraces.add(channelId);
     }
   },
@@ -238,6 +254,12 @@ const NetworkMonitorActor = ActorClassWithSpec(networkMonitorSpec, {
     this.messageManager.sendAsyncMessage("debug:unblock-request:response");
   },
 
+  onSetBlockedUrls({ data }) {
+    const { urls } = data;
+    this.observer.setBlockedUrls(urls);
+    this.messageManager.sendAsyncMessage("debug:set-blocked-urls:response");
+  },
+
   onGetNetworkEventActor({ data }) {
     const actor = this.getNetworkEventActor(data.channelId);
     this.messageManager.sendAsyncMessage(
@@ -284,6 +306,10 @@ const NetworkMonitorActor = ActorClassWithSpec(networkMonitorSpec, {
     event.cause.stacktrace = this.stackTraces.has(id);
     if (event.cause.stacktrace) {
       this.stackTraces.delete(id);
+    }
+    if (this.lastFrames.has(id)) {
+      event.cause.lastFrame = this.lastFrames.get(id);
+      this.lastFrames.delete(id);
     }
     actor.init(event);
 

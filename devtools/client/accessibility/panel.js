@@ -5,8 +5,6 @@
 
 const EventEmitter = require("devtools/shared/event-emitter");
 
-const Telemetry = require("devtools/client/shared/telemetry");
-
 const { Picker } = require("./picker");
 const { A11Y_SERVICE_DURATION } = require("./constants");
 
@@ -42,9 +40,6 @@ function AccessibilityPanel(iframeWindow, toolbox, startup) {
   this.onAccessibilityInspectorUpdated = this.onAccessibilityInspectorUpdated.bind(
     this
   );
-  this.updateA11YServiceDurationTimer = this.updateA11YServiceDurationTimer.bind(
-    this
-  );
   this.forceUpdatePickerButton = this.forceUpdatePickerButton.bind(this);
 
   EventEmitter.decorate(this);
@@ -65,9 +60,6 @@ AccessibilityPanel.prototype = {
       resolver = resolve;
     });
 
-    this._telemetry = new Telemetry();
-    this.panelWin.gTelemetry = this._telemetry;
-
     this.target.on("navigate", this.onTabNavigated);
     this._toolbox.on("select", this.onPanelVisibilityChange);
 
@@ -85,15 +77,10 @@ AccessibilityPanel.prototype = {
     this.shouldRefresh = true;
     this.panelWin.gToolbox = this._toolbox;
 
-    await this._toolbox.initInspector();
     await this.startup.initAccessibility();
     if (this.supports.enableDisable) {
       this.picker = new Picker(this);
     }
-
-    this.updateA11YServiceDurationTimer();
-    this.front.on("init", this.updateA11YServiceDurationTimer);
-    this.front.on("shutdown", this.updateA11YServiceDurationTimer);
 
     this.front.on("init", this.forceUpdatePickerButton);
     this.front.on("shutdown", this.forceUpdatePickerButton);
@@ -151,27 +138,11 @@ AccessibilityPanel.prototype = {
     );
   },
 
-  updateA11YServiceDurationTimer() {
-    if (this.front.enabled) {
-      this._telemetry.start(A11Y_SERVICE_DURATION, this);
-    } else {
-      this._telemetry.finish(A11Y_SERVICE_DURATION, this, true);
-    }
-  },
-
   selectAccessible(accessibleFront) {
     this.postContentMessage("selectAccessible", this.walker, accessibleFront);
   },
 
   selectAccessibleForNode(nodeFront, reason) {
-    if (reason) {
-      this._telemetry.keyedScalarAdd(
-        "devtools.accessibility.select_accessible_for_node",
-        reason,
-        1
-      );
-    }
-
     this.postContentMessage(
       "selectNodeAccessible",
       this.walker,
@@ -266,24 +237,18 @@ AccessibilityPanel.prototype = {
       this.onAccessibilityInspectorUpdated
     );
 
-    // Older versions of debugger server do not support picker functionality.
+    // Older versions of devtools server do not support picker functionality.
     if (this.picker) {
       this.picker.release();
       this.picker = null;
     }
 
     if (this.front) {
-      this.front.off("init", this.updateA11YServiceDurationTimer);
-      this.front.off("shutdown", this.updateA11YServiceDurationTimer);
-
       this.front.off("init", this.forceUpdatePickerButton);
       this.front.off("shutdown", this.forceUpdatePickerButton);
     }
 
-    this._telemetry = null;
     this.panelWin.gToolbox = null;
-    this.panelWin.gTelemetry = null;
-
     this.emit("destroyed");
   },
 };

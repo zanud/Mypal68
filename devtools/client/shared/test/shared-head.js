@@ -68,23 +68,68 @@ const URL_ROOT_SSL = CHROME_URL_ROOT.replace(
   "https://example.com/"
 );
 
-try {
-  Services.scriptloader.loadSubScript(
-    "chrome://mochitests/content/browser/devtools/client/shared/test/telemetry-test-helpers.js",
-    this
-  );
-} catch (e) {
-  ok(
-    false,
-    "MISSING DEPENDENCY ON telemetry-test-helpers.js\n" +
-      "Please add the following line in browser.ini:\n" +
-      "  !/devtools/client/shared/test/telemetry-test-helpers.js\n"
-  );
-  throw e;
-}
-
 // Force devtools to be initialized so menu items and keyboard shortcuts get installed
 require("devtools/client/framework/devtools-browser");
+
+// Register the test actor in all content processes.
+// test-actor.js contains the definition for the TestActor, the TestSpec and the
+// TestFront, as well as the registration code.
+
+/**
+ * Observer code to register the test actor in every DevTools server which
+ * starts registering its own actors.
+ * DevToolsServer will emit "devtools-server-initialized" after finishing its
+ * initialization. We watch this observable to add our custom actor.
+ * As a single test may create several DevTools servers, we keep the observer
+ * alive until the loader is destroyed.
+ */
+function testActorBootstrap() {
+  const TEST_ACTOR_URL =
+    "chrome://mochitests/content/browser/devtools/client/shared/test/test-actor.js";
+
+  const { require: _require } = ChromeUtils.import(
+    "resource://devtools/shared/Loader.jsm"
+  );
+  _require(TEST_ACTOR_URL);
+
+  const Services = _require("Services");
+
+  const actorRegistryObserver = subject => {
+    const actorRegistry = subject.wrappedJSObject;
+    actorRegistry.registerModule(TEST_ACTOR_URL, {
+      prefix: "test",
+      constructor: "TestActor",
+      type: { target: true },
+    });
+  };
+
+  Services.obs.addObserver(
+    actorRegistryObserver,
+    "devtools-server-initialized"
+  );
+
+  const unloadObserver = function(subject) {
+    if (subject.wrappedJSObject == _require("@loader/unload")) {
+      Services.prefs.removeObserver(
+        "devtools-server-initialized",
+        actorRegistryObserver
+      );
+      Services.obs.removeObserver(unloadObserver, "devtools:loader:destroy");
+    }
+  };
+  Services.obs.addObserver(unloadObserver, "devtools:loader:destroy");
+}
+
+const testActorBootstrapScript = "data:,(" + testActorBootstrap + ")()";
+Services.ppmm.loadProcessScript(
+  testActorBootstrapScript,
+  // Load this script in all processes (created or to be created)
+  true
+);
+
+registerCleanupFunction(() => {
+  Services.ppmm.removeDelayedProcessScript(testActorBootstrapScript);
+});
 
 // All test are asynchronous
 waitForExplicitFinish();
@@ -154,8 +199,29 @@ registerCleanupFunction(() => {
 });
 
 registerCleanupFunction(async function cleanup() {
+  // Close any tab opened by the test.
+  // There should be only one tab opened by default when firefox starts the test.
   while (gBrowser.tabs.length > 1) {
     await closeTabAndToolbox(gBrowser.selectedTab);
+  }
+
+  // Note that this will run before cleanup functions registered by tests or other head.js files.
+  // So all connections must be cleaned up by the test when the test ends,
+  // before the harness starts invoking the cleanup functions
+  await waitForTick();
+
+  // All connections must be cleaned up by the test when the test ends.
+  const { DevToolsServer } = require("devtools/server/devtools-server");
+  ok(
+    !DevToolsServer.hasConnection(),
+    "The main process DevToolsServer has no pending connection when the test ends"
+  );
+  // If there is still open connection, close all of them so that following tests
+  // could pass.
+  if (DevToolsServer.hasConnection()) {
+    for (const conn of Object.values(DevToolsServer._connections)) {
+      conn.close();
+    }
   }
 });
 
@@ -796,7 +862,7 @@ async function injectEventUtilsInContentTask(browser) {
  * @param {string} url
  *        Actor module URL or absolute require path
  * @param {json} options
- *        Arguments to be passed to DebuggerServer.registerModule
+ *        Arguments to be passed to DevToolsServer.registerModule
  */
 async function registerActorInContentProcess(url, options) {
   function convertChromeToFile(uri) {
@@ -817,4 +883,24 @@ async function registerActorInContentProcess(url, options) {
     } = require("devtools/server/actors/utils/actor-registry");
     ActorRegistry.registerModule(args.url, args.options);
   });
+}
+
+/**
+ * Move the provided Window to the provided left, top coordinates and wait for
+ * the window position to be updated.
+ */
+async function moveWindowTo(win, left, top) {
+  // Check that the expected coordinates are within the window available area.
+  left = Math.max(win.screen.availLeft, left);
+  left = Math.min(win.screen.width, left);
+  top = Math.max(win.screen.availTop, top);
+  top = Math.min(win.screen.height, top);
+
+  info(`Moving window to {${left}, ${top}}`);
+  win.moveTo(left, top);
+
+  // Bug 1600809: window move/resize can be async on Linux sometimes.
+  // Wait so that the anchor's position is correctly measured.
+  info("Wait for window screenLeft and screenTop to be updated");
+  return waitUntil(() => win.screenLeft === left && win.screenTop === top);
 }

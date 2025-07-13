@@ -13,16 +13,23 @@ const {
   WS_SET_REQUEST_FILTER_TEXT,
   WS_TOGGLE_COLUMN,
   WS_RESET_COLUMNS,
-} = require("../constants");
+  WS_CLOSE_CONNECTION,
+} = require("devtools/client/netmonitor/src/constants");
+
+const {
+  getDisplayedFrames,
+} = require("devtools/client/netmonitor/src/selectors/index");
+const PAGE_SIZE_ITEM_COUNT_RATIO = 5;
 
 /**
  * Add frame into state.
  */
-function addFrame(httpChannelId, data) {
+function addFrame(httpChannelId, data, batch) {
   return {
     type: WS_ADD_FRAME,
     httpChannelId,
     data,
+    meta: { batch },
   };
 }
 
@@ -103,6 +110,55 @@ function toggleWebSocketsColumn(column) {
   };
 }
 
+/**
+ * Sets current connection status to closed
+ *
+ * @param {number} httpChannelId - Unique id identifying the ws channel
+ * @param {boolean} wasClean - False if ws terminated due to error
+ * @param {number} code - Error code
+ * @param {string} reason
+ */
+function closeConnection(httpChannelId, wasClean, code, reason) {
+  return {
+    type: WS_CLOSE_CONNECTION,
+    httpChannelId,
+    wasClean,
+    code,
+    reason,
+  };
+}
+
+/**
+ * Move the selection up to down according to the "delta" parameter. Possible values:
+ * - Number: positive or negative, move up or down by specified distance
+ * - "PAGE_UP" | "PAGE_DOWN" (String): page up or page down
+ * - +Infinity | -Infinity: move to the start or end of the list
+ */
+function selectFrameDelta(delta) {
+  return (dispatch, getState) => {
+    const state = getState();
+    const frames = getDisplayedFrames(state);
+
+    if (frames.length === 0) {
+      return;
+    }
+
+    const selIndex = frames.findIndex(
+      r => r === state.webSockets.selectedFrame
+    );
+
+    if (delta === "PAGE_DOWN") {
+      delta = Math.ceil(frames.length / PAGE_SIZE_ITEM_COUNT_RATIO);
+    } else if (delta === "PAGE_UP") {
+      delta = -Math.ceil(frames.length / PAGE_SIZE_ITEM_COUNT_RATIO);
+    }
+
+    const newIndex = Math.min(Math.max(0, selIndex + delta), frames.length - 1);
+    const newItem = frames[newIndex];
+    dispatch(selectFrame(newItem));
+  };
+}
+
 module.exports = {
   addFrame,
   selectFrame,
@@ -111,5 +167,7 @@ module.exports = {
   toggleFrameFilterType,
   setFrameFilterText,
   resetWebSocketsColumns,
+  closeConnection,
   toggleWebSocketsColumn,
+  selectFrameDelta,
 };

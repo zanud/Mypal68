@@ -304,11 +304,13 @@ DevToolsStartup.prototype = {
     }
     if (flags.debugger) {
       this.commandLine = true;
-      this.handleDebuggerFlag(cmdLine);
+      const binaryPath =
+        typeof flags.debugger == "string" ? flags.debugger : null;
+      this.handleDebuggerFlag(cmdLine, binaryPath);
     }
 
-    if (flags.debuggerServer) {
-      this.handleDebuggerServerFlag(cmdLine, flags.debuggerServer);
+    if (flags.devToolsServer) {
+      this.handleDevToolsServerFlag(cmdLine, flags.devToolsServer);
     }
   },
 
@@ -319,27 +321,35 @@ DevToolsStartup.prototype = {
         console: false,
         debugger: false,
         devtools: false,
-        debuggerServer: false,
+        devToolsServer: false,
       };
     }
 
     const console = cmdLine.handleFlag("jsconsole", false);
-    const debuggerFlag = cmdLine.handleFlag("jsdebugger", false);
     const devtools = cmdLine.handleFlag("devtools", false);
 
-    let debuggerServer;
+    let devToolsServer;
     try {
-      debuggerServer = cmdLine.handleFlagWithParam(
-        "start-debugger-server",
+      devToolsServer = cmdLine.handleFlagWithParam(
+        "start-devtools-server",
         false
       );
     } catch (e) {
       // We get an error if the option is given but not followed by a value.
       // By catching and trying again, the value is effectively optional.
-      debuggerServer = cmdLine.handleFlag("start-debugger-server", false);
+      devToolsServer = cmdLine.handleFlag("start-devtools-server", false);
     }
 
-    return { console, debugger: debuggerFlag, devtools, debuggerServer };
+    let debuggerFlag;
+    try {
+      debuggerFlag = cmdLine.handleFlagWithParam("jsdebugger", false);
+    } catch (e) {
+      // We get an error if the option is given but not followed by a value.
+      // By catching and trying again, the value is effectively optional.
+      debuggerFlag = cmdLine.handleFlag("jsdebugger", false);
+    }
+
+    return { console, debugger: debuggerFlag, devtools, devToolsServer };
   },
 
   /**
@@ -857,7 +867,7 @@ DevToolsStartup.prototype = {
     return remoteDebuggingEnabled;
   },
 
-  handleDebuggerFlag: function(cmdLine) {
+  handleDebuggerFlag: function(cmdLine, binaryPath) {
     if (!this._isRemoteDebuggingEnabled()) {
       return;
     }
@@ -872,10 +882,10 @@ DevToolsStartup.prototype = {
       Services.obs.addObserver(observe, "devtools-thread-resumed");
     }
 
-    const { BrowserToolboxProcess } = ChromeUtils.import(
-      "resource://devtools/client/framework/ToolboxProcess.jsm"
+    const { BrowserToolboxLauncher } = ChromeUtils.import(
+      "resource://devtools/client/framework/browser-toolbox/Launcher.jsm"
     );
-    BrowserToolboxProcess.init();
+    BrowserToolboxLauncher.init(null, null, null, binaryPath);
 
     if (pauseOnStartup) {
       // Spin the event loop until the debugger connects.
@@ -891,25 +901,25 @@ DevToolsStartup.prototype = {
   },
 
   /**
-   * Handle the --start-debugger-server command line flag. The options are:
-   * --start-debugger-server
+   * Handle the --start-devtools-server command line flag. The options are:
+   * --start-devtools-server
    *   The portOrPath parameter is boolean true in this case. Reads and uses the defaults
    *   from devtools.debugger.remote-port and devtools.debugger.remote-websocket prefs.
    *   The default values of these prefs are port 6000, WebSocket disabled.
    *
-   * --start-debugger-server 6789
+   * --start-devtools-server 6789
    *   Start the non-WebSocket server on port 6789.
    *
-   * --start-debugger-server /path/to/filename
+   * --start-devtools-server /path/to/filename
    *   Start the server on a Unix domain socket.
    *
-   * --start-debugger-server ws:6789
+   * --start-devtools-server ws:6789
    *   Start the WebSocket server on port 6789.
    *
-   * --start-debugger-server ws:
+   * --start-devtools-server ws:
    *   Start the WebSocket server on the default port (taken from d.d.remote-port)
    */
-  handleDebuggerServerFlag: function(cmdLine, portOrPath) {
+  handleDevToolsServerFlag: function(cmdLine, portOrPath) {
     if (!this._isRemoteDebuggingEnabled()) {
       return;
     }
@@ -944,22 +954,22 @@ DevToolsStartup.prototype = {
       const serverLoader = new DevToolsLoader({
         invisibleToDebugger: true,
       });
-      const { DebuggerServer: debuggerServer } = serverLoader.require(
-        "devtools/server/debugger-server"
+      const { DevToolsServer: devToolsServer } = serverLoader.require(
+        "devtools/server/devtools-server"
       );
       const { SocketListener } = serverLoader.require(
         "devtools/shared/security/socket"
       );
-      debuggerServer.init();
-      debuggerServer.registerAllActors();
-      debuggerServer.allowChromeProcess = true;
+      devToolsServer.init();
+      devToolsServer.registerAllActors();
+      devToolsServer.allowChromeProcess = true;
       const socketOptions = { portOrPath, webSocket };
 
-      const listener = new SocketListener(debuggerServer, socketOptions);
+      const listener = new SocketListener(devToolsServer, socketOptions);
       listener.open();
-      dump("Started debugger server on " + portOrPath + "\n");
+      dump("Started devtools server on " + portOrPath + "\n");
     } catch (e) {
-      dump("Unable to start debugger server on " + portOrPath + ": " + e);
+      dump("Unable to start devtools server on " + portOrPath + ": " + e);
     }
 
     if (cmdLine.state == Ci.nsICommandLine.STATE_REMOTE_AUTO) {
@@ -979,12 +989,13 @@ DevToolsStartup.prototype = {
   /* eslint-disable max-len */
   helpInfo:
     "  --jsconsole        Open the Browser Console.\n" +
-    "  --jsdebugger       Open the Browser Toolbox.\n" +
+    "  --jsdebugger [<path>] Open the Browser Toolbox. Defaults to the local build\n" +
+    "                     but can be overridden by a firefox path.\n" +
     "  --wait-for-jsdebugger Spin event loop until JS debugger connects.\n" +
     "                     Enables debugging (some) application startup code paths.\n" +
     "                     Only has an effect when `--jsdebugger` is also supplied.\n" +
     "  --devtools         Open DevTools on initial load.\n" +
-    "  --start-debugger-server [ws:][ <port> | <path> ] Start the debugger server on\n" +
+    "  --start-devtools-server [ws:][ <port> | <path> ] Start the devtools server on\n" +
     "                     a TCP port or Unix domain socket path. Defaults to TCP port\n" +
     "                     6000. Use WebSocket protocol if ws: prefix is specified.\n",
   /* eslint-disable max-len */

@@ -8,11 +8,15 @@ const {
   createStore,
   applyMiddleware,
 } = require("devtools/client/shared/vendor/redux");
-const { thunk } = require("./middleware/thunk");
-const { thunkWithOptions } = require("./middleware/thunk-with-options");
-const { waitUntilService } = require("./middleware/wait-service");
-const { task } = require("./middleware/task");
-const { promise } = require("./middleware/promise");
+const { thunk } = require("devtools/client/shared/redux/middleware/thunk");
+const {
+  thunkWithOptions,
+} = require("devtools/client/shared/redux/middleware/thunk-with-options");
+const {
+  waitUntilService,
+} = require("devtools/client/shared/redux/middleware/wait-service");
+const { task } = require("devtools/client/shared/redux/middleware/task");
+const { promise } = require("devtools/client/shared/redux/middleware/promise");
 const flags = require("devtools/shared/flags");
 
 loader.lazyRequireGetter(
@@ -34,7 +38,7 @@ loader.lazyRequireGetter(
  * various ways, such as logging and recording.
  *
  * @param {object} opts:
- *        - disableTask: if true, don't include the task middleware
+ *        - enableTaskMiddleware: if true, include the task middleware
  *        - log: log all dispatched actions to console
  *        - history: an array to store every action in. Should only be used in tests.
  *        - middleware: array of middleware to be included in the redux store
@@ -43,7 +47,7 @@ loader.lazyRequireGetter(
  */
 const createStoreWithMiddleware = (opts = {}) => {
   const middleware = [];
-  if (!opts.disableTask) {
+  if (opts.enableTaskMiddleware) {
     middleware.push(task);
   }
   middleware.push(
@@ -79,7 +83,7 @@ module.exports = (
     shouldLog = false,
     initialState = undefined,
     thunkOptions,
-    disableTask = false,
+    enableTaskMiddleware = false,
   } = {}
 ) => {
   const reducer =
@@ -94,7 +98,7 @@ module.exports = (
   }
 
   const store = createStoreWithMiddleware({
-    disableTask,
+    enableTaskMiddleware,
     log: flags.testing && shouldLog,
     history: historyEntries,
     thunkOptions,

@@ -57,7 +57,6 @@ add_task(async function() {
   //   "resource://devtools/client/netmonitor/src/selectors/web-sockets.js",
   //   "resource://devtools/client/netmonitor/src/middleware/throttling.js",
   //   "resource://devtools/client/shared/components/throttling/actions.js",
-  //   "resource://devtools/client/netmonitor/src/middleware/event-telemetry.js",
   //   "resource://devtools/client/netmonitor/src/reducers/index.js",
   //   "resource://devtools/client/netmonitor/src/reducers/batching.js",
   //   "resource://devtools/client/netmonitor/src/reducers/requests.js",

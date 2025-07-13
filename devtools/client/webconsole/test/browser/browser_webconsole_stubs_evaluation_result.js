@@ -6,9 +6,10 @@
 const {
   STUBS_UPDATE_ENV,
   getCleanedPacket,
-  getStubFilePath,
+  getSerializedPacket,
+  getStubFile,
   writeStubsToFile,
-} = require("devtools/client/webconsole/test/browser/stub-generator-helpers");
+} = require("chrome://mochitests/content/browser/devtools/client/webconsole/test/browser/stub-generator-helpers");
 
 const TEST_URI = "data:text/html;charset=utf-8,stub generation";
 const STUB_FILE = "evaluationResult.js";
@@ -20,33 +21,28 @@ add_task(async function() {
   const generatedStubs = await generateEvaluationResultStubs();
 
   if (isStubsUpdate) {
-    await writeStubsToFile(
-      getStubFilePath(STUB_FILE, env, true),
-      generatedStubs
-    );
+    await writeStubsToFile(env, STUB_FILE, generatedStubs);
     ok(true, `${STUB_FILE} was updated`);
     return;
   }
 
-  const existingStubs = require(getStubFilePath(STUB_FILE));
+  const existingStubs = getStubFile(STUB_FILE);
   const FAILURE_MSG =
     "The evaluationResult stubs file needs to be updated by running " +
     "`mach test devtools/client/webconsole/test/browser/" +
     "browser_webconsole_stubs_evaluation_result.js --headless " +
     "--setenv WEBCONSOLE_STUBS_UPDATE=true`";
 
-  if (generatedStubs.size !== existingStubs.stubPackets.size) {
+  if (generatedStubs.size !== existingStubs.rawPackets.size) {
     ok(false, FAILURE_MSG);
     return;
   }
 
   let failed = false;
   for (const [key, packet] of generatedStubs) {
-    const packetStr = JSON.stringify(packet, null, 2);
-    const existingPacketStr = JSON.stringify(
-      existingStubs.stubPackets.get(key),
-      null,
-      2
+    const packetStr = getSerializedPacket(packet);
+    const existingPacketStr = getSerializedPacket(
+      existingStubs.rawPackets.get(key)
     );
     is(packetStr, existingPacketStr, `"${key}" packet has expected value`);
     failed = failed || packetStr !== existingPacketStr;
@@ -57,18 +53,19 @@ add_task(async function() {
   } else {
     ok(true, "Stubs are up to date");
   }
+
+  await closeTabAndToolbox();
 });
 
 async function generateEvaluationResultStubs() {
   const stubs = new Map();
   const toolbox = await openNewTabAndToolbox(TEST_URI, "webconsole");
-
+  const webConsoleFront = await toolbox.target.getFront("console");
   for (const [key, code] of getCommands()) {
-    const packet = await toolbox.target.activeConsole.evaluateJS(code);
+    const packet = await webConsoleFront.evaluateJSAsync(code);
     stubs.set(key, getCleanedPacket(key, packet));
   }
 
-  await closeTabAndToolbox();
   return stubs;
 }
 

@@ -10,6 +10,12 @@ const { emulationSpec } = require("devtools/shared/specs/emulation");
 
 loader.lazyRequireGetter(
   this,
+  "ScreenshotActor",
+  "devtools/server/actors/screenshot",
+  true
+);
+loader.lazyRequireGetter(
+  this,
   "TouchSimulator",
   "devtools/server/actors/emulation/touch-simulator",
   true
@@ -27,6 +33,8 @@ loader.lazyRequireGetter(
  * A subtle aspect of the code below is that all get* methods must return non-undefined
  * values, so that the absence of a previous value can be distinguished from the value for
  * "no override" for each of the properties.
+ *
+ * Bug 1606852: Delete this file when Firefox 73 is on release.
  */
 const EmulationActor = protocol.ActorClassWithSpec(emulationSpec, {
   initialize(conn, targetActor) {
@@ -42,7 +50,10 @@ const EmulationActor = protocol.ActorClassWithSpec(emulationSpec, {
   },
 
   destroy() {
-    this.stopPrintMediaSimulation();
+    if (this._printSimulationEnabled) {
+      this.stopPrintMediaSimulation();
+    }
+
     this.clearDPPXOverride();
     this.clearNetworkThrottling();
     this.clearTouchEventsOverride();
@@ -54,6 +65,7 @@ const EmulationActor = protocol.ActorClassWithSpec(emulationSpec, {
 
     this.targetActor = null;
     this.docShell = null;
+    this._screenshotActor = null;
     this._touchSimulator = null;
 
     protocol.Actor.prototype.destroy.call(this);
@@ -70,6 +82,15 @@ const EmulationActor = protocol.ActorClassWithSpec(emulationSpec, {
     }
     const form = this.targetActor.form();
     return this.conn._getOrCreateActor(form.consoleActor);
+  },
+
+  get screenshotActor() {
+    if (!this._screenshotActor) {
+      this._screenshotActor = new ScreenshotActor(this.conn, this.targetActor);
+      this.manage(this._screenshotActor);
+    }
+
+    return this._screenshotActor;
   },
 
   get touchSimulator() {
@@ -231,8 +252,8 @@ const EmulationActor = protocol.ActorClassWithSpec(emulationSpec, {
    * this is the following:
    * RDM is the only current consumer of the touch simulator. RDM instantiates this actor
    * on its own, whether or not the Toolbox is opened. That means it does so in its own
-   * Debugger Server instance.
-   * When the Toolbox is running, it uses a different DebuggerServer. Therefore, it is not
+   * DevTools Server instance.
+   * When the Toolbox is running, it uses a different DevToolsServer. Therefore, it is not
    * possible for the touch simulator to know whether the picker is active or not. This
    * state has to be sent by the client code of the Toolbox to this actor.
    * If a future use case arises where we want to use the touch simulator from the Toolbox
@@ -361,7 +382,7 @@ const EmulationActor = protocol.ActorClassWithSpec(emulationSpec, {
       this.win.screen.orientation.angle !== angle ||
       this.win.screen.orientation.type !== type
     ) {
-      this.win.document.setRDMPaneOrientation(type, angle);
+      this.docShell.browsingContext.setRDMPaneOrientation(type, angle);
     }
   },
 
@@ -393,6 +414,16 @@ const EmulationActor = protocol.ActorClassWithSpec(emulationSpec, {
 
     this.setScreenOrientation(type, angle);
     this.win.dispatchEvent(orientationChangeEvent);
+  },
+
+  async captureScreenshot() {
+    return this.screenshotActor.capture({});
+  },
+
+  async setDocumentInRDMPane(inRDMPane) {
+    if (this.docShell && this.docShell.document) {
+      this.docShell.browsingContext.inRDMPane = inRDMPane;
+    }
   },
 });
 

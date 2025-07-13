@@ -11,8 +11,13 @@ const {
   getResponseHeader,
   getStartTime,
   ipToLong,
-} = require("./request-utils");
-const { RESPONSE_HEADERS } = require("../constants");
+} = require("devtools/client/netmonitor/src/utils/request-utils");
+const {
+  RESPONSE_HEADERS,
+} = require("devtools/client/netmonitor/src/constants");
+const {
+  getUrlBaseName,
+} = require("devtools/client/netmonitor/src/utils/request-utils");
 
 /**
  * Predicates used when sorting items.
@@ -35,7 +40,7 @@ function compareValues(first, second) {
 }
 
 function waterfall(first, second) {
-  const result = compareValues(first.startedMillis, second.startedMillis);
+  const result = compareValues(first.startedMs, second.startedMs);
   return result || compareValues(first.id, second.id);
 }
 
@@ -143,6 +148,46 @@ function cause(first, second) {
   return result || waterfall(first, second);
 }
 
+function initiator(first, second) {
+  const firstCause = first.cause.type;
+  const secondCause = second.cause.type;
+
+  let firstInitiator = "";
+  let firstInitiatorLineNumber = 0;
+
+  if (first.cause.lastFrame) {
+    firstInitiator = getUrlBaseName(first.cause.lastFrame.filename);
+    firstInitiatorLineNumber = first.cause.lastFrame.lineNumber;
+  }
+
+  let secondInitiator = "";
+  let secondInitiatorLineNumber = 0;
+
+  if (second.cause.lastFrame) {
+    secondInitiator = getUrlBaseName(second.cause.lastFrame.filename);
+    secondInitiatorLineNumber = second.cause.lastFrame.lineNumber;
+  }
+
+  let result;
+  // if both initiators don't have a stack trace, compare their causes
+  if (!firstInitiator && !secondInitiator) {
+    result = compareValues(firstCause, secondCause);
+  } else if (!firstInitiator || !secondInitiator) {
+    // if one initiator doesn't have a stack trace but the other does, former should precede the latter
+    result = compareValues(firstInitiatorLineNumber, secondInitiatorLineNumber);
+  } else {
+    result = compareValues(firstInitiator, secondInitiator);
+    if (result === 0) {
+      result = compareValues(
+        firstInitiatorLineNumber,
+        secondInitiatorLineNumber
+      );
+    }
+  }
+
+  return result || waterfall(first, second);
+}
+
 function setCookies(first, second) {
   let { responseCookies: firstResponseCookies = { cookies: [] } } = first;
   let { responseCookies: secondResponseCookies = { cookies: [] } } = second;
@@ -196,6 +241,7 @@ const sorters = {
   setCookies,
   remoteip,
   cause,
+  initiator,
   type,
   transferred,
   contentSize,

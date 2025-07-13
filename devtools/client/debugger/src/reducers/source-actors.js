@@ -5,7 +5,7 @@
 // @flow
 
 import type { Action } from "../actions/types";
-import type { SourceId, ThreadId } from "../types";
+import type { SourceId, ThreadId, URL } from "../types";
 import {
   asSettled,
   type AsyncValue,
@@ -44,16 +44,15 @@ export type SourceActor = {|
 
   +isBlackBoxed: boolean,
 
+  // The URL that the sourcemap should be loaded relative to.
+  +sourceMapBaseURL: URL | null,
+
   // The URL of the sourcemap for this source if there is one.
-  +sourceMapURL: string | null,
+  +sourceMapURL: URL | null,
 
   // The URL of the actor itself. If the source was from an "eval" or other
   // string-based source, this will not be known.
-  +url: string | null,
-
-  // If this script was introduced by an eval, this will be the URL of the
-  // script that triggered the evaluation.
-  +introductionUrl: string | null,
+  +url: URL | null,
 
   // The debugger's Debugger.Source API provides type information for the
   // cause of this source's creation.
@@ -254,7 +253,7 @@ const queryThreadsBySourceObject: ReduceAllQuery<
     }, {})
 );
 
-export function getThreadsBySource(
+export function getAllThreadsBySource(
   state: SourceActorOuterState
 ): { [SourceId]: Array<ThreadId> } {
   return queryThreadsBySourceObject(state.sourceActors);

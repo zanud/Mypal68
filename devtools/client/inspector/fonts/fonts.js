@@ -14,15 +14,21 @@ const { Provider } = require("devtools/client/shared/vendor/react-redux");
 const { debounce } = require("devtools/shared/debounce");
 const { ELEMENT_STYLE } = require("devtools/shared/specs/styles");
 
-const FontsApp = createFactory(require("./components/FontsApp"));
+const FontsApp = createFactory(
+  require("devtools/client/inspector/fonts/components/FontsApp")
+);
 
 const { LocalizationHelper } = require("devtools/shared/l10n");
 const INSPECTOR_L10N = new LocalizationHelper(
   "devtools/client/locales/inspector.properties"
 );
 
-const { parseFontVariationAxes } = require("./utils/font-utils");
-const { updateFonts } = require("./actions/fonts");
+const {
+  parseFontVariationAxes,
+} = require("devtools/client/inspector/fonts/utils/font-utils");
+const {
+  updateFonts,
+} = require("devtools/client/inspector/fonts/actions/fonts");
 const {
   applyInstance,
   resetFontEditor,
@@ -30,8 +36,10 @@ const {
   updateAxis,
   updateFontEditor,
   updateFontProperty,
-} = require("./actions/font-editor");
-const { updatePreviewText } = require("./actions/font-options");
+} = require("devtools/client/inspector/fonts/actions/font-editor");
+const {
+  updatePreviewText,
+} = require("devtools/client/inspector/fonts/actions/font-options");
 
 const FONT_PROPERTIES = [
   "font-family",
@@ -643,28 +651,6 @@ class FontInspector {
   }
 
   /**
-   * Upon a new node selection, log some interesting telemetry probes.
-   */
-  logTelemetryProbesOnNewNode() {
-    const { fontEditor } = this.store.getState();
-    const { telemetry } = this.inspector;
-
-    // Log data about the currently edited font (if any).
-    // Note that the edited font is always the first one from the fontEditor.fonts array.
-    const editedFont = fontEditor.fonts[0];
-    if (!editedFont) {
-      return;
-    }
-
-    const nbOfAxes = editedFont.variationAxes
-      ? editedFont.variationAxes.length
-      : 0;
-    telemetry
-      .getHistogramById(HISTOGRAM_FONT_TYPE_DISPLAYED)
-      .add(!nbOfAxes ? "nonvariable" : "variable");
-  }
-
-  /**
    * Sync the Rule view with the latest styles from the page. Called in a debounced way
    * (see constructor) after property changes are applied directly to the CSS style rule
    * on the page circumventing direct TextProperty.setValue() which triggers expensive DOM
@@ -769,11 +755,8 @@ class FontInspector {
     }
 
     if (this.isPanelVisible()) {
-      Promise.all([this.update(), this.refreshFontEditor()])
-        .then(() => {
-          this.logTelemetryProbesOnNewNode();
-        })
-        .catch(e => console.error(e));
+      this.update();
+      this.refreshFontEditor();
     }
   }
 

@@ -12,12 +12,19 @@
 
 const { Ci } = require("chrome");
 const ChromeUtils = require("ChromeUtils");
-const { DebuggerServer } = require("devtools/server/debugger-server");
+const { DevToolsServer } = require("devtools/server/devtools-server");
 const { XPCOMUtils } = require("resource://gre/modules/XPCOMUtils.jsm");
 const protocol = require("devtools/shared/protocol");
 const { workerTargetSpec } = require("devtools/shared/specs/targets/worker");
 
 loader.lazyRequireGetter(this, "ChromeUtils");
+
+loader.lazyRequireGetter(
+  this,
+  "connectToWorker",
+  "devtools/server/connectors/worker-connector",
+  true
+);
 
 XPCOMUtils.defineLazyServiceGetter(
   this,
@@ -109,12 +116,7 @@ const WorkerTargetActor = protocol.ActorClassWithSpec(workerTargetSpec, {
       };
     }
 
-    return DebuggerServer.connectToWorker(
-      this.conn,
-      this._dbg,
-      this.actorID,
-      options
-    ).then(
+    return connectToWorker(this.conn, this._dbg, this.actorID, options).then(
       ({ threadActor, transport, consoleActor }) => {
         this._threadActor = threadActor;
         this._transport = transport;

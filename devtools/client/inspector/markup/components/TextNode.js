@@ -14,7 +14,10 @@ const dom = require("devtools/client/shared/vendor/react-dom-factories");
 const PropTypes = require("devtools/client/shared/vendor/react-prop-types");
 const { editableItem } = require("devtools/client/shared/inplace-editor");
 
-const { getFormatStr } = require("../utils/l10n");
+const {
+  getStr,
+  getFormatStr,
+} = require("devtools/client/inspector/markup/utils/l10n");
 
 class TextNode extends PureComponent {
   static get propTypes() {
@@ -36,12 +39,15 @@ class TextNode extends PureComponent {
   }
 
   componentDidMount() {
-    editableItem({
-      element: this.valuePreRef.current,
-      trigger: "dblclick",
-    }, element => {
-      this.props.showTextEditor(element);
-    });
+    editableItem(
+      {
+        element: this.valuePreRef.current,
+        trigger: "dblclick",
+      },
+      element => {
+        this.props.showTextEditor(element);
+      }
+    );
   }
 
   render() {
@@ -49,7 +55,9 @@ class TextNode extends PureComponent {
     const isComment = this.props.type === "comment";
     const isWhiteSpace = !/[^\s]/.exec(value);
 
-    return createElement(Fragment, null,
+    return createElement(
+      Fragment,
+      null,
       isComment ? dom.span({}, "<!--") : null,
       dom.pre(
         {
@@ -60,12 +68,16 @@ class TextNode extends PureComponent {
             whiteSpace: "normal",
           },
           tabIndex: -1,
-          title: isWhiteSpace ?
-            getFormatStr("markupView.whitespaceOnly", value.replace(/\n/g, "⏎")
-                                                            .replace(/\t/g, "⇥")
-                                                            .replace(/ /g, "◦"))
-            :
-            "",
+          title: isWhiteSpace
+            ? getFormatStr(
+                "markupView.whitespaceOnly",
+                value
+                  .replace(/\n/g, "⏎")
+                  .replace(/\t/g, "⇥")
+                  .replace(/ /g, "◦")
+              )
+            : "",
+          "data-label": getStr("markupView.whitespaceOnly.label"),
         },
         value
       ),

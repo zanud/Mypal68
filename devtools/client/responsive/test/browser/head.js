@@ -483,9 +483,9 @@ function addDeviceForTest(device) {
 }
 
 async function waitForClientClose(ui) {
-  info("Waiting for RDM debugger client to close");
+  info("Waiting for RDM devtools client to close");
   await ui.client.once("closed");
-  info("RDM's debugger client is now closed");
+  info("RDM's devtools client is now closed");
 }
 
 async function testDevicePixelRatio(ui, expected) {
@@ -497,7 +497,7 @@ async function testTouchEventsOverride(ui, expected) {
   const { document } = ui.toolWindow;
   const touchButton = document.getElementById("touch-simulation-button");
 
-  const flag = await ui.emulationFront.getTouchEventsOverride();
+  const flag = await ui.responsiveFront.getTouchEventsOverride();
   is(
     flag === Ci.nsIDocShell.TOUCHEVENTS_OVERRIDE_ENABLED,
     expected,
@@ -743,4 +743,35 @@ async function testViewportZoomWidthAndHeight(
       );
     }
   }
+}
+
+function promiseContentReflow(ui) {
+  return ContentTask.spawn(ui.getViewportBrowser(), {}, async function() {
+    return new Promise(resolve => {
+      content.window.requestAnimationFrame(resolve);
+    });
+  });
+}
+
+// This function returns a promise that will be resolved when the
+// RDM zoom has been set and the content has finished rescaling
+// to the new size.
+function promiseRDMZoom(ui, browser, zoom) {
+  return new Promise(resolve => {
+    const currentZoom = ZoomManager.getZoomForBrowser(browser);
+    if (currentZoom == zoom) {
+      resolve();
+      return;
+    }
+
+    ZoomManager.setZoomForBrowser(browser, zoom);
+
+    // Await the zoom complete event, then reflow.
+    BrowserTestUtils.waitForContentEvent(
+      ui.getViewportBrowser(),
+      "ZoomComplete"
+    )
+      .then(promiseContentReflow(ui))
+      .then(resolve);
+  });
 }

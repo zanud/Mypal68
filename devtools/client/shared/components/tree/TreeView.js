@@ -16,9 +16,15 @@ define(function(require, exports, module) {
   const dom = require("devtools/client/shared/vendor/react-dom-factories");
 
   // Reps
-  const { ObjectProvider } = require("./ObjectProvider");
-  const TreeRow = createFactory(require("./TreeRow"));
-  const TreeHeader = createFactory(require("./TreeHeader"));
+  const {
+    ObjectProvider,
+  } = require("devtools/client/shared/components/tree/ObjectProvider");
+  const TreeRow = createFactory(
+    require("devtools/client/shared/components/tree/TreeRow")
+  );
+  const TreeHeader = createFactory(
+    require("devtools/client/shared/components/tree/TreeHeader")
+  );
 
   const { scrollIntoView } = require("devtools/client/shared/scroll");
 
@@ -247,14 +253,31 @@ define(function(require, exports, module) {
 
     componentDidUpdate() {
       const selected = this.getSelectedRow();
-      if (!selected && this.rows.length > 0) {
-        this.selectRow(
-          this.rows[
-            Math.min(this.state.lastSelectedIndex, this.rows.length - 1)
-          ],
-          { alignTo: "top" }
-        );
+      if (selected) {
+        return;
       }
+
+      const rows = this.visibleRows;
+      if (rows.length === 0) {
+        return;
+      }
+
+      this.selectRow(
+        rows[Math.min(this.state.lastSelectedIndex, rows.length - 1)],
+        { alignTo: "top" }
+      );
+    }
+
+    /**
+     * Get rows that are currently visible. Some rows can be filtered and made
+     * invisible, in which case, when navigating around the tree we need to
+     * ignore the ones that are not reachable by the user.
+     */
+    get visibleRows() {
+      return this.rows.filter(row => {
+        const rowEl = findDOMNode(row);
+        return rowEl && rowEl.offsetParent;
+      });
     }
 
     // Node expand/collapse
@@ -281,6 +304,7 @@ define(function(require, exports, module) {
 
     // Event Handlers
 
+    /* eslint-disable complexity */
     onKeyDown(event) {
       if (!SUPPORTED_KEYS.includes(event.key)) {
         return;
@@ -291,7 +315,8 @@ define(function(require, exports, module) {
         return;
       }
 
-      const index = this.rows.indexOf(row);
+      const rows = this.visibleRows;
+      const index = rows.indexOf(row);
       switch (event.key) {
         case "ArrowRight":
           const { hasChildren, open } = row.props.member;
@@ -303,7 +328,7 @@ define(function(require, exports, module) {
           if (row && row.props.member.open) {
             this.toggle(this.state.selected);
           } else {
-            const parentRow = this.rows
+            const parentRow = rows
               .slice(0, index)
               .reverse()
               .find(r => r.props.member.level < row.props.member.level);
@@ -313,19 +338,19 @@ define(function(require, exports, module) {
           }
           break;
         case "ArrowDown":
-          const nextRow = this.rows[index + 1];
+          const nextRow = rows[index + 1];
           if (nextRow) {
             this.selectRow(nextRow, { alignTo: "bottom" });
           }
           break;
         case "ArrowUp":
-          const previousRow = this.rows[index - 1];
+          const previousRow = rows[index - 1];
           if (previousRow) {
             this.selectRow(previousRow, { alignTo: "top" });
           }
           break;
         case "Home":
-          const firstRow = this.rows[0];
+          const firstRow = rows[0];
 
           if (firstRow) {
             this.selectRow(firstRow, { alignTo: "top" });
@@ -333,7 +358,7 @@ define(function(require, exports, module) {
           break;
 
         case "End":
-          const lastRow = this.rows[this.rows.length - 1];
+          const lastRow = rows[rows.length - 1];
           if (lastRow) {
             this.selectRow(lastRow, { alignTo: "bottom" });
           }
@@ -365,25 +390,28 @@ define(function(require, exports, module) {
       this.treeRef.current.focus();
       event.preventDefault();
     }
+    /* eslint-enable complexity */
 
     onClickRow(nodePath, event) {
       const onClickRow = this.props.onClickRow;
+      const row = this.visibleRows.find(r => r.props.member.path === nodePath);
 
-      if (onClickRow) {
-        onClickRow.call(this, nodePath, event);
+      // Call custom click handler and bail out if it returns true.
+      if (
+        onClickRow &&
+        onClickRow.call(this, nodePath, event, row.props.member)
+      ) {
         return;
       }
 
       event.stopPropagation();
+
       const cell = event.target.closest("td");
       if (cell && cell.classList.contains("treeLabelCell")) {
         this.toggle(nodePath);
       }
 
-      this.selectRow(
-        this.rows.find(row => row.props.member.path === nodePath),
-        { preventAutoScroll: true }
-      );
+      this.selectRow(row, { preventAutoScroll: true });
     }
 
     onContextMenu(member, event) {
@@ -394,10 +422,11 @@ define(function(require, exports, module) {
     }
 
     getSelectedRow() {
-      if (!this.state.selected || this.rows.length === 0) {
+      const rows = this.visibleRows;
+      if (!this.state.selected || rows.length === 0) {
         return null;
       }
-      return this.rows.find(row => this.isSelected(row.props.member.path));
+      return rows.find(row => this.isSelected(row.props.member.path));
     }
 
     getSelectedRowIndex() {
@@ -407,7 +436,7 @@ define(function(require, exports, module) {
         return 0;
       }
 
-      return this.rows.indexOf(row);
+      return this.visibleRows.indexOf(row);
     }
 
     _scrollIntoView(row, options = {}) {
@@ -582,20 +611,7 @@ define(function(require, exports, module) {
           member: member,
           columns: this.state.columns,
           id: member.path,
-          ref: row => {
-            if (!row) {
-              return;
-            }
-
-            const rowEl = findDOMNode(row);
-            if (!rowEl || !rowEl.offsetParent) {
-              // offsetParent returns null when the element has style.display
-              // set to none (done by TreeView filtering).
-              return;
-            }
-
-            this.rows.push(row);
-          },
+          ref: row => row && this.rows.push(row),
           onClick: this.onClickRow.bind(this, member.path),
           onContextMenu: this.onContextMenu.bind(this, member),
         });

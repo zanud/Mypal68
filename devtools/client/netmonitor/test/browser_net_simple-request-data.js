@@ -22,7 +22,7 @@ function test() {
     const Actions = windowRequire(
       "devtools/client/netmonitor/src/actions/index"
     );
-    const { EVENTS } = windowRequire(
+    const { EVENTS, TEST_EVENTS } = windowRequire(
       "devtools/client/netmonitor/src/constants"
     );
     const {
@@ -46,14 +46,14 @@ function test() {
       );
     }
 
-    expectEvent(EVENTS.NETWORK_EVENT, async () => {
+    expectEvent(TEST_EVENTS.NETWORK_EVENT, async () => {
       is(
         getSelectedRequest(store.getState()),
         null,
         "There shouldn't be any selected item in the requests menu."
       );
       is(
-        store.getState().requests.requests.size,
+        store.getState().requests.requests.length,
         1,
         "The requests menu should not be empty after the first request."
       );
@@ -63,7 +63,7 @@ function test() {
         "The network details panel should still be hidden after first request."
       );
 
-      const requestItem = getSortedRequests(store.getState()).get(0);
+      const requestItem = getSortedRequests(store.getState())[0];
 
       is(
         typeof requestItem.id,
@@ -73,14 +73,14 @@ function test() {
       isnot(requestItem.id, "", "The attached request id should not be empty.");
 
       is(
-        typeof requestItem.startedMillis,
+        typeof requestItem.startedMs,
         "number",
-        "The attached startedMillis is incorrect."
+        "The attached startedMs is incorrect."
       );
       isnot(
-        requestItem.startedMillis,
+        requestItem.startedMs,
         0,
-        "The attached startedMillis should not be zero."
+        "The attached startedMs should not be zero."
       );
 
       is(
@@ -164,10 +164,10 @@ function test() {
       );
     });
 
-    expectEvent(EVENTS.RECEIVED_REQUEST_HEADERS, async () => {
+    expectEvent(TEST_EVENTS.RECEIVED_REQUEST_HEADERS, async () => {
       await waitForRequestData(store, ["requestHeaders"]);
 
-      const requestItem = getSortedRequests(store.getState()).get(0);
+      const requestItem = getSortedRequests(store.getState())[0];
 
       ok(
         requestItem.requestHeaders,
@@ -195,10 +195,10 @@ function test() {
       );
     });
 
-    expectEvent(EVENTS.RECEIVED_REQUEST_COOKIES, async () => {
+    expectEvent(TEST_EVENTS.RECEIVED_REQUEST_COOKIES, async () => {
       await waitForRequestData(store, ["requestCookies"]);
 
-      const requestItem = getSortedRequests(store.getState()).get(0);
+      const requestItem = getSortedRequests(store.getState())[0];
 
       ok(
         requestItem.requestCookies,
@@ -219,14 +219,14 @@ function test() {
       );
     });
 
-    monitor.panelWin.api.once(EVENTS.RECEIVED_REQUEST_POST_DATA, () => {
+    monitor.panelWin.api.once(TEST_EVENTS.RECEIVED_REQUEST_POST_DATA, () => {
       ok(false, "Trap listener: this request doesn't have any post data.");
     });
 
-    expectEvent(EVENTS.RECEIVED_RESPONSE_HEADERS, async () => {
+    expectEvent(TEST_EVENTS.RECEIVED_RESPONSE_HEADERS, async () => {
       await waitForRequestData(store, ["responseHeaders"]);
 
-      const requestItem = getSortedRequests(store.getState()).get(0);
+      const requestItem = getSortedRequests(store.getState())[0];
 
       ok(
         requestItem.responseHeaders,
@@ -252,10 +252,10 @@ function test() {
       );
     });
 
-    expectEvent(EVENTS.RECEIVED_RESPONSE_COOKIES, async () => {
+    expectEvent(TEST_EVENTS.RECEIVED_RESPONSE_COOKIES, async () => {
       await waitForRequestData(store, ["responseCookies"]);
 
-      const requestItem = getSortedRequests(store.getState()).get(0);
+      const requestItem = getSortedRequests(store.getState())[0];
 
       ok(
         requestItem.responseCookies,
@@ -276,7 +276,7 @@ function test() {
       );
     });
 
-    expectEvent(EVENTS.STARTED_RECEIVING_RESPONSE, async () => {
+    expectEvent(TEST_EVENTS.STARTED_RECEIVING_RESPONSE, async () => {
       await waitForRequestData(store, [
         "httpVersion",
         "status",
@@ -284,7 +284,7 @@ function test() {
         "headersSize",
       ]);
 
-      const requestItem = getSortedRequests(store.getState()).get(0);
+      const requestItem = getSortedRequests(store.getState())[0];
 
       is(
         requestItem.httpVersion,
@@ -308,6 +308,7 @@ function test() {
       const requestsListStatus = requestListItem.querySelector(".status-code");
       EventUtils.sendMouseEvent({ type: "mouseover" }, requestsListStatus);
       await waitUntil(() => requestsListStatus.title);
+      await waitForDOMIfNeeded(requestListItem, ".requests-list-timings-total");
 
       verifyRequestItemTarget(
         document,
@@ -329,7 +330,7 @@ function test() {
         "mimeType",
       ]);
 
-      const requestItem = getSortedRequests(store.getState()).get(0);
+      const requestItem = getSortedRequests(store.getState())[0];
 
       is(
         requestItem.transferredSize,
@@ -365,7 +366,7 @@ function test() {
     expectEvent(EVENTS.UPDATING_EVENT_TIMINGS, async () => {
       await waitForRequestData(store, ["eventTimings"]);
 
-      const requestItem = getSortedRequests(store.getState()).get(0);
+      const requestItem = getSortedRequests(store.getState())[0];
 
       is(
         typeof requestItem.totalTime,
@@ -392,7 +393,7 @@ function test() {
     expectEvent(EVENTS.RECEIVED_EVENT_TIMINGS, async () => {
       await waitForRequestData(store, ["eventTimings"]);
 
-      const requestItem = getSortedRequests(store.getState()).get(0);
+      const requestItem = getSortedRequests(store.getState())[0];
 
       ok(
         requestItem.eventTimings,
@@ -455,7 +456,7 @@ function test() {
     tab.linkedBrowser.reload();
     await wait;
 
-    const requestItem = getSortedRequests(store.getState()).get(0);
+    const requestItem = getSortedRequests(store.getState())[0];
 
     if (!requestItem.requestHeaders) {
       connector.requestData(requestItem.id, "requestHeaders");

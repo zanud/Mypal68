@@ -22,7 +22,6 @@ if CONFIG['ACCESSIBILITY']:
     ]
 
 DevToolsModules(
-    'actor-registry.js',
     'animation-type-longhand.js',
     'animation.js',
     'array-buffer.js',

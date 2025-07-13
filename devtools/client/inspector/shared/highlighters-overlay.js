@@ -34,8 +34,7 @@ class HighlightersOverlay {
     this.inspector = inspector;
     this.inspectorFront = this.inspector.inspectorFront;
     this.store = this.inspector.store;
-    this.target = this.inspector.target;
-    this.telemetry = this.inspector.telemetry;
+    this.target = this.inspector.currentTarget;
     this.walker = this.inspector.walker;
     this.maxGridHighlighters = Services.prefs.getIntPref(
       "devtools.gridinspector.maxHighlighters"
@@ -55,11 +54,6 @@ class HighlightersOverlay {
 
     // Map of grid container NodeFront to their parent grid container.
     this.subgridToParentMap = new Map();
-
-    // Boolean flag to keep track of whether or not the telemetry timer for the grid
-    // highlighter active time is active. We keep track of this to avoid re-starting a
-    // new timer when an additional grid highlighter is turned on.
-    this.isGridHighlighterTimerActive = false;
 
     // Collection of instantiated in-context editors, like ShapesInContextEditor, which
     // behave like highlighters but with added editing capabilities that need to map value
@@ -372,20 +366,6 @@ class HighlightersOverlay {
 
     this._toggleRuleViewIcon(node, true, ".ruleview-flex");
 
-    this.telemetry.toolOpened(
-      "flexbox_highlighter",
-      this.inspector.toolbox.sessionId,
-      this
-    );
-
-    if (trigger === "layout") {
-      this.telemetry.scalarAdd("devtools.layout.flexboxhighlighter.opened", 1);
-    } else if (trigger === "markup") {
-      this.telemetry.scalarAdd("devtools.markup.flexboxhighlighter.opened", 1);
-    } else if (trigger === "rule") {
-      this.telemetry.scalarAdd("devtools.rules.flexboxhighlighter.opened", 1);
-    }
-
     try {
       // Save flexbox highlighter state.
       const { url } = this.target;
@@ -414,12 +394,6 @@ class HighlightersOverlay {
     ) {
       return;
     }
-
-    this.telemetry.toolClosed(
-      "flexbox_highlighter",
-      this.inspector.toolbox.sessionId,
-      this
-    );
 
     this._toggleRuleViewIcon(node, false, ".ruleview-flex");
 
@@ -580,23 +554,6 @@ class HighlightersOverlay {
 
     this._toggleRuleViewIcon(node, true, ".ruleview-grid");
 
-    if (!this.isGridHighlighterTimerActive) {
-      this.telemetry.toolOpened(
-        "grid_highlighter",
-        this.inspector.toolbox.sessionId,
-        this
-      );
-      this.isGridHighlighterTimerActive = true;
-    }
-
-    if (trigger === "grid") {
-      this.telemetry.scalarAdd("devtools.grid.gridinspector.opened", 1);
-    } else if (trigger === "markup") {
-      this.telemetry.scalarAdd("devtools.markup.gridinspector.opened", 1);
-    } else if (trigger === "rule") {
-      this.telemetry.scalarAdd("devtools.rules.gridinspector.opened", 1);
-    }
-
     try {
       // Save grid highlighter state.
       const { url } = this.target;
@@ -683,15 +640,6 @@ class HighlightersOverlay {
     }
 
     this._toggleRuleViewIcon(node, false, ".ruleview-grid");
-
-    if (this.isGridHighlighterTimerActive && !this.gridHighlighters.size) {
-      this.telemetry.toolClosed(
-        "grid_highlighter",
-        this.inspector.toolbox.sessionId,
-        this
-      );
-      this.isGridHighlighterTimerActive = false;
-    }
 
     // Emit the NodeFront of the grid container element that the grid highlighter was
     // hidden for.
@@ -1495,7 +1443,6 @@ class HighlightersOverlay {
     this.store = null;
     this.subgridToParentMap = null;
     this.target = null;
-    this.telemetry = null;
     this.walker = null;
 
     this.boxModelHighlighterShown = null;

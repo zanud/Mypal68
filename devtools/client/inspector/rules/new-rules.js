@@ -16,21 +16,23 @@ const EventEmitter = require("devtools/shared/event-emitter");
 const {
   updateClasses,
   updateClassPanelExpanded,
-} = require("./actions/class-list");
+} = require("devtools/client/inspector/rules/actions/class-list");
 const {
   disableAllPseudoClasses,
   setPseudoClassLocks,
   togglePseudoClass,
-} = require("./actions/pseudo-classes");
+} = require("devtools/client/inspector/rules/actions/pseudo-classes");
 const {
   updateAddRuleEnabled,
   updateHighlightedSelector,
   updatePrintSimulationHidden,
   updateRules,
   updateSourceLinkEnabled,
-} = require("./actions/rules");
+} = require("devtools/client/inspector/rules/actions/rules");
 
-const RulesApp = createFactory(require("./components/RulesApp"));
+const RulesApp = createFactory(
+  require("devtools/client/inspector/rules/components/RulesApp")
+);
 
 const { LocalizationHelper } = require("devtools/shared/l10n");
 const INSPECTOR_L10N = new LocalizationHelper(
@@ -77,7 +79,6 @@ class RulesView {
     this.pageStyle = inspector.pageStyle;
     this.selection = inspector.selection;
     this.store = inspector.store;
-    this.telemetry = inspector.telemetry;
     this.toolbox = inspector.toolbox;
     this.isNewRulesView = true;
 
@@ -139,7 +140,7 @@ class RulesView {
       showSelectorEditor: this.showSelectorEditor,
     });
 
-    this.initPrintSimulation();
+    this.initSimulationFeatures();
 
     const provider = createElement(
       Provider,
@@ -156,24 +157,20 @@ class RulesView {
     this.provider = provider;
   }
 
-  async initPrintSimulation() {
-    const target = this.inspector.target;
+  /**
+   * Initializes the content-viewer front and enable the print and color scheme simulation
+   * if they are supported in the current target.
+   */
+  async initSimulationFeatures() {
+    // In order to query if the content-viewer actor's print and color simulation methods are
+    // supported, we have to call the content-viewer front so that the actor is lazily loaded.
+    // This allows us to use `actorHasMethod`. Please see `getActorDescription` for more
+    // information.
+    this.contentViewerFront = await this.currentTarget.getFront(
+      "contentViewer"
+    );
 
-    // In order to query if the emulation actor's print simulation methods are supported,
-    // we have to call the emulation front so that the actor is lazily loaded. This allows
-    // us to use `actorHasMethod`. Please see `getActorDescription` for more information.
-    this.emulationFront = await target.getFront("emulation");
-
-    // Show the toggle button if:
-    // - Print simulation is supported for the current target.
-    // - Not debugging content document.
-    if (
-      (await target.actorHasMethod(
-        "emulation",
-        "getIsPrintSimulationEnabled"
-      )) &&
-      !target.chrome
-    ) {
+    if (!this.currentTarget.chrome) {
       this.store.dispatch(updatePrintSimulationHidden(false));
     } else {
       this.store.dispatch(updatePrintSimulationHidden(true));
@@ -208,9 +205,9 @@ class RulesView {
       this.elementStyle = null;
     }
 
-    if (this.emulationFront) {
-      this.emulationFront.destroy();
-      this.emulationFront = null;
+    if (this.contentViewerFront) {
+      this.contentViewerFront.destroy();
+      this.contentViewerFront = null;
     }
 
     this._dummyElement = null;
@@ -221,7 +218,6 @@ class RulesView {
     this.selection = null;
     this.showUserAgentStyles = null;
     this.store = null;
-    this.telemetry = null;
     this.toolbox = null;
   }
 
@@ -254,6 +250,16 @@ class RulesView {
 
     return this._classList;
   }
+
+  /**
+   * Get the current target the toolbox is debugging.
+   *
+   * @return {Target}
+   */
+  get currentTarget() {
+    return this.inspector.currentTarget;
+  }
+
   /**
    * Creates a dummy element in the document that helps get the computed style in
    * TextProperty.
@@ -379,12 +385,12 @@ class RulesView {
    */
   async onOpenSourceLink(ruleId) {
     const rule = this.elementStyle.getRule(ruleId);
-    if (!rule || !Tools.styleEditor.isTargetSupported(this.inspector.target)) {
+    if (!rule || !Tools.styleEditor.isTargetSupported(this.currentTarget)) {
       return;
     }
 
     const toolbox = await gDevTools.showToolbox(
-      this.inspector.target,
+      this.currentTarget,
       "styleeditor"
     );
     const styleEditor = toolbox.getCurrentPanel();
@@ -454,21 +460,18 @@ class RulesView {
    */
   onToggleDeclaration(ruleId, declarationId) {
     this.elementStyle.toggleDeclaration(ruleId, declarationId);
-    this.telemetry.recordEvent("edit_rule", "ruleview", null, {
-      session_id: this.toolbox.sessionId,
-    });
   }
 
   /**
    * Handler for toggling print media simulation.
    */
   async onTogglePrintSimulation() {
-    const enabled = await this.emulationFront.getIsPrintSimulationEnabled();
+    const enabled = await this.contentViewerFront.getIsPrintSimulationEnabled();
 
     if (!enabled) {
-      await this.emulationFront.startPrintMediaSimulation();
+      await this.contentViewerFront.startPrintMediaSimulation();
     } else {
-      await this.emulationFront.stopPrintMediaSimulation(false);
+      await this.contentViewerFront.stopPrintMediaSimulation(false);
     }
 
     await this.updateElementStyle();
@@ -566,9 +569,6 @@ class RulesView {
           declarationId,
           name
         );
-        this.telemetry.recordEvent("edit_rule", "ruleview", null, {
-          session_id: this.toolbox.sessionId,
-        });
       },
       element,
       popup: this.autocompletePopup,
@@ -601,7 +601,8 @@ class RulesView {
       advanceChars: advanceValidate,
       contentType: InplaceEditor.CONTENT_TYPES.CSS_VALUE,
       cssProperties: this.cssProperties,
-      cssVariables: this.elementStyle.variables,
+      cssVariables:
+        this.elementStyle.variablesMap.get(rule.pseudoElement) || [],
       defaultIncrement: declaration.name === "opacity" ? 0.1 : 1,
       done: async (value, commit) => {
         if (!commit || !value || !value.trim()) {
@@ -613,9 +614,6 @@ class RulesView {
           declarationId,
           value
         );
-        this.telemetry.recordEvent("edit_rule", "ruleview", null, {
-          session_id: this.toolbox.sessionId,
-        });
       },
       element,
       getGridLineNames: this.getGridlineNames,
@@ -627,6 +625,7 @@ class RulesView {
       multiline: true,
       popup: this.autocompletePopup,
       property: declaration,
+      showSuggestCompletionOnEmpty: true,
     });
   }
 
@@ -654,9 +653,6 @@ class RulesView {
         }
 
         this.elementStyle.addNewDeclaration(ruleId, value);
-        this.telemetry.recordEvent("edit_rule", "ruleview", null, {
-          session_id: this.toolbox.sessionId,
-        });
       },
       element,
       popup: this.autocompletePopup,

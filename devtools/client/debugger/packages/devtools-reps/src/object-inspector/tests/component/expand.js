@@ -5,7 +5,7 @@ const { mountObjectInspector } = require("../test-utils");
 
 const repsPath = "../../../reps";
 const { MODE } = require(`${repsPath}/constants`);
-const ObjectClient = require("../__mocks__/object-client");
+const ObjectFront = require("../__mocks__/object-front");
 const gripRepStubs = require(`${repsPath}/stubs/grip`);
 const gripPropertiesStubs = require("../../stubs/grip");
 const {
@@ -43,32 +43,36 @@ function generateDefaults(overrides) {
         },
       },
     ],
-    createObjectClient: grip => ObjectClient(grip),
+    createObjectFront: grip => ObjectFront(grip),
     mode: MODE.LONG,
     ...overrides,
   };
 }
-const LongStringClientMock = require("../__mocks__/long-string-client");
+const { LongStringFront } = require("../__mocks__/string-front");
 
-function mount(props, { initialState } = {}) {
-  const client = {
-    createObjectClient: grip =>
-      ObjectClient(grip, {
+function getClient(overrides = {}) {
+  return {
+    releaseActor: () => {},
+
+    createObjectFront: grip =>
+      ObjectFront(grip, {
         getPrototype: () => Promise.resolve(protoStub),
         getProxySlots: () =>
           Promise.resolve(gripRepStubs.get("testProxySlots")),
       }),
 
-    createLongStringClient: grip =>
-      LongStringClientMock(grip, {
-        substring: function(initiaLength, length, cb) {
-          cb({
-            substring: "<<<<",
-          });
+    createLongStringFront: grip =>
+      LongStringFront(grip, {
+        substring: async function(initiaLength, length) {
+          return "<<<<";
         },
       }),
-  };
 
+    ...overrides,
+  };
+}
+
+function mount(props, { initialState, client = getClient() } = {}) {
   return mountObjectInspector({
     client,
     props: generateDefaults(props),
@@ -183,6 +187,46 @@ describe("ObjectInspector - state", () => {
     expect(
       getActors(store.getState()).has(protoStub.prototype.actor)
     ).toBeTruthy();
+  });
+
+  it("does not handle actors when client does not have releaseActor function", async () => {
+    const { wrapper, store } = mount(
+      {},
+      { client: getClient({ releaseActor: null }) }
+    );
+
+    expect(formatObjectInspector(wrapper)).toMatchSnapshot();
+    let nodes = wrapper.find(".node");
+    const root1 = nodes.at(0);
+
+    let onPropertiesLoad = waitForDispatch(store, "NODE_PROPERTIES_LOADED");
+    root1.simulate("click");
+    await onPropertiesLoad;
+    wrapper.update();
+
+    expect(storeHasLoadedProperty(store, "root-1")).toBeTruthy();
+    // We don't want to track root actors.
+    expect(
+      getActors(store.getState()).has(
+        gripRepStubs.get("testMoreThanMaxProps").actor
+      )
+    ).toBeFalsy();
+    expect(formatObjectInspector(wrapper)).toMatchSnapshot();
+
+    nodes = wrapper.find(".node");
+    const protoNode = nodes.at(1);
+
+    onPropertiesLoad = waitForDispatch(store, "NODE_PROPERTIES_LOADED");
+    protoNode.simulate("click");
+    await onPropertiesLoad;
+    wrapper.update();
+
+    // Once all the loading promises are resolved, actors and loadedProperties
+    // should have the expected values.
+    expect(formatObjectInspector(wrapper)).toMatchSnapshot();
+    expect(storeHasLoadedProperty(store, "root-1◦<prototype>")).toBeTruthy();
+
+    expect(getActors(store.getState()).size).toBe(0);
   });
 
   it.skip("has the expected state when expanding a proxy node", async () => {
@@ -313,62 +357,6 @@ describe("ObjectInspector - state", () => {
     wrapper.update();
 
     expect(formatObjectInspector(wrapper)).toMatchSnapshot();
-  });
-
-  it("calls recordTelemetryEvent when expanding a node", async () => {
-    const recordTelemetryEvent = jest.fn();
-    const { wrapper, store } = mount(
-      {
-        recordTelemetryEvent,
-      },
-      {
-        initialState: {
-          loadedProperties: new Map([
-            ["root-1", gripPropertiesStubs.get("proto-properties-symbols")],
-          ]),
-        },
-      }
-    );
-
-    let nodes = wrapper.find(".node");
-    const root1 = nodes.at(0);
-    const root2 = nodes.at(1);
-
-    // Expanding a node calls recordTelemetryEvent.
-    root1.simulate("click");
-    expect(recordTelemetryEvent.mock.calls).toHaveLength(1);
-    expect(recordTelemetryEvent.mock.calls[0][0]).toEqual("object_expanded");
-
-    // Collapsing a node does not call recordTelemetryEvent.
-    root1.simulate("click");
-    expect(recordTelemetryEvent.mock.calls).toHaveLength(1);
-
-    // Expanding another node calls recordTelemetryEvent.
-    const onPropertiesLoaded = waitForDispatch(store, "NODE_PROPERTIES_LOADED");
-    root2.simulate("click");
-    await onPropertiesLoaded;
-    expect(recordTelemetryEvent.mock.calls).toHaveLength(2);
-    expect(recordTelemetryEvent.mock.calls[1][0]).toEqual("object_expanded");
-
-    wrapper.update();
-
-    // Re-expanding a node calls recordTelemetryEvent.
-    root1.simulate("click");
-    expect(recordTelemetryEvent.mock.calls).toHaveLength(3);
-    expect(recordTelemetryEvent.mock.calls[2][0]).toEqual("object_expanded");
-
-    nodes = wrapper.find(".node");
-    const propNode = nodes.at(1);
-    const symbolNode = nodes.at(2);
-    const protoNode = nodes.at(3);
-
-    propNode.simulate("click");
-    symbolNode.simulate("click");
-    protoNode.simulate("click");
-
-    // The property and symbols have primitive values, and can't be expanded.
-    expect(recordTelemetryEvent.mock.calls).toHaveLength(4);
-    expect(recordTelemetryEvent.mock.calls[3][0]).toEqual("object_expanded");
   });
 
   it("expanding a getter returning a longString does not throw", async () => {

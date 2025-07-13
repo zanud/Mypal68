@@ -81,13 +81,6 @@ MarkupContainer.prototype = {
 
     // Marking the node as shown or hidden
     this.updateIsDisplayed();
-
-    if (node.isShadowRoot) {
-      this.markup.telemetry.scalarSet(
-        "devtools.shadowdom.shadow_root_displayed",
-        true
-      );
-    }
   },
 
   buildMarkup: function() {
@@ -353,13 +346,6 @@ MarkupContainer.prototype = {
 
     if (this.showExpander) {
       this.tagLine.setAttribute("aria-expanded", this.expanded);
-    }
-
-    if (this.node.isShadowRoot) {
-      this.markup.telemetry.scalarSet(
-        "devtools.shadowdom.shadow_root_expanded",
-        true
-      );
     }
   },
 
@@ -677,7 +663,7 @@ MarkupContainer.prototype = {
     if (!this.selected) {
       flashElementOn(this.tagState, {
         foregroundElt: this.editor.elt,
-        backgroundClass: "theme-bg-yellow-contrast",
+        backgroundClass: "theme-bg-contrast",
       });
       if (this._flashMutationTimer) {
         clearTimeout(this._flashMutationTimer);
@@ -686,7 +672,7 @@ MarkupContainer.prototype = {
       this._flashMutationTimer = setTimeout(() => {
         flashElementOff(this.tagState, {
           foregroundElt: this.editor.elt,
-          backgroundClass: "theme-bg-yellow-contrast",
+          backgroundClass: "theme-bg-contrast",
         });
       }, this.markup.CONTAINER_FLASHING_DURATION);
     }

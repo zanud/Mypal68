@@ -21,27 +21,22 @@ loader.lazyRequireGetter(
   "devtools/shared/platform/clipboard"
 );
 
-const ChangesApp = createFactory(require("./components/ChangesApp"));
-const { getChangesStylesheet } = require("./selectors/changes");
-
+const ChangesApp = createFactory(
+  require("devtools/client/inspector/changes/components/ChangesApp")
+);
 const {
-  TELEMETRY_SCALAR_CONTEXTMENU,
-  TELEMETRY_SCALAR_CONTEXTMENU_COPY,
-  TELEMETRY_SCALAR_CONTEXTMENU_COPY_DECLARATION,
-  TELEMETRY_SCALAR_CONTEXTMENU_COPY_RULE,
-  TELEMETRY_SCALAR_COPY,
-  TELEMETRY_SCALAR_COPY_ALL_CHANGES,
-  TELEMETRY_SCALAR_COPY_RULE,
-} = require("./constants");
-
-const { resetChanges, trackChange } = require("./actions/changes");
+  getChangesStylesheet,
+} = require("devtools/client/inspector/changes/selectors/changes");
+const {
+  resetChanges,
+  trackChange,
+} = require("devtools/client/inspector/changes/actions/changes");
 
 class ChangesView {
   constructor(inspector, window) {
     this.document = window.document;
     this.inspector = inspector;
     this.store = this.inspector.store;
-    this.telemetry = this.inspector.telemetry;
     this.window = window;
 
     this.onAddChange = this.onAddChange.bind(this);
@@ -50,7 +45,9 @@ class ChangesView {
     this.onContextMenu = this.onContextMenu.bind(this);
     this.onCopy = this.onCopy.bind(this);
     this.onCopyAllChanges = this.copyAllChanges.bind(this);
+    this.onCopyDeclaration = this.copyDeclaration.bind(this);
     this.onCopyRule = this.copyRule.bind(this);
+    this.onSelectAll = this.onSelectAll.bind(this);
     this.destroy = this.destroy.bind(this);
 
     this.init();
@@ -58,7 +55,15 @@ class ChangesView {
 
   get contextMenu() {
     if (!this._contextMenu) {
-      this._contextMenu = new ChangesContextMenu(this);
+      this._contextMenu = new ChangesContextMenu({
+        onCopy: this.onCopy,
+        onCopyAllChanges: this.onCopyAllChanges,
+        onCopyDeclaration: this.onCopyDeclaration,
+        onCopyRule: this.onCopyRule,
+        onSelectAll: this.onSelectAll,
+        toolboxDocument: this.inspector.toolbox.doc,
+        window: this.window,
+      });
     }
 
     return this._contextMenu;
@@ -67,7 +72,6 @@ class ChangesView {
   init() {
     const changesApp = ChangesApp({
       onContextMenu: this.onContextMenu,
-      onCopy: this.onCopy,
       onCopyAllChanges: this.onCopyAllChanges,
       onCopyRule: this.onCopyRule,
     });
@@ -87,19 +91,19 @@ class ChangesView {
       changesApp
     );
 
-    this.inspector.target.on("will-navigate", this.onClearChanges);
+    this.inspector.currentTarget.on("will-navigate", this.onClearChanges);
   }
 
   _getChangesFront() {
     if (this.changesFrontPromise) {
       return this.changesFrontPromise;
     }
-    this.changesFrontPromise = new Promise(async resolve => {
-      const target = this.inspector.target;
+    this.changesFrontPromise = (async () => {
+      const target = this.inspector.currentTarget;
       const front = await target.getFront("changes");
       this.onChangesFront(front);
-      resolve(front);
-    });
+      return front;
+    })();
     return this.changesFrontPromise;
   }
 
@@ -127,7 +131,6 @@ class ChangesView {
    */
   copyAllChanges() {
     this.copyChanges();
-    this.telemetry.scalarAdd(TELEMETRY_SCALAR_COPY_ALL_CHANGES, 1);
   }
 
   /**
@@ -177,7 +180,6 @@ class ChangesView {
     const isRemoved = element.classList.contains("diff-remove");
     const text = isRemoved ? `/* ${name}: ${value}; */` : `${name}: ${value};`;
     clipboardHelper.copyString(text);
-    this.telemetry.scalarAdd(TELEMETRY_SCALAR_CONTEXTMENU_COPY_DECLARATION, 1);
   }
 
   /**
@@ -187,29 +189,19 @@ class ChangesView {
    *
    * @param {String} ruleId
    *        Rule id of the target CSS rule.
-   * @param {Boolean} usingContextMenu
-   *        True if the handler is invoked from the context menu.
-   *        (Default) False if invoked from the button.
    */
-  async copyRule(ruleId, usingContextMenu = false) {
+  async copyRule(ruleId) {
     const rule = await this.inspector.pageStyle.getRule(ruleId);
     const text = await rule.getRuleText();
     clipboardHelper.copyString(text);
-
-    if (usingContextMenu) {
-      this.telemetry.scalarAdd(TELEMETRY_SCALAR_CONTEXTMENU_COPY_RULE, 1);
-    } else {
-      this.telemetry.scalarAdd(TELEMETRY_SCALAR_COPY_RULE, 1);
-    }
   }
 
   /**
    * Handler for the "Copy" option from the context menu.
    * Copies the current text selection to the clipboard.
    */
-  copySelection() {
+  onCopy() {
     clipboardHelper.copyString(this.window.getSelection().toString());
-    this.telemetry.scalarAdd(TELEMETRY_SCALAR_CONTEXTMENU_COPY, 1);
   }
 
   onAddChange(change) {
@@ -222,20 +214,17 @@ class ChangesView {
   }
 
   /**
-   * Event handler for the "contextmenu" event fired when the context menu is requested.
-   * @param {Event} e
+   * Select all text.
    */
-  onContextMenu(e) {
-    this.contextMenu.show(e);
-    this.telemetry.scalarAdd(TELEMETRY_SCALAR_CONTEXTMENU, 1);
+  onSelectAll() {
+    const selection = this.window.getSelection();
+    selection.selectAllChildren(
+      this.document.getElementById("sidebar-panel-changes")
+    );
   }
 
-  /**
-   * Event handler for the "copy" event fired when content is copied to the clipboard.
-   * We don't change the default behavior. We only log the increment count of this action.
-   */
-  onCopy() {
-    this.telemetry.scalarAdd(TELEMETRY_SCALAR_COPY, 1);
+  onContextMenu(e) {
+    this.contextMenu.show(e);
   }
 
   /**

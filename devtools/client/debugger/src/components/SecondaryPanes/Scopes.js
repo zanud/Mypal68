@@ -7,7 +7,6 @@ import React, { PureComponent } from "react";
 import { showMenu } from "devtools-contextmenu";
 import { connect } from "../../utils/connect";
 import actions from "../../actions";
-import { createObjectClient } from "../../client/firefox";
 import { features } from "../../utils/prefs";
 
 import {
@@ -57,6 +56,14 @@ type State = {
   originalScopes: ?(NamedValue[]),
   generatedScopes: ?(NamedValue[]),
   showOriginal: boolean,
+};
+
+type Node = {
+  contents: ?{
+    watchpoint: ?"get" | "set",
+  },
+  name: string,
+  path: string,
 };
 
 class Scopes extends PureComponent<Props, State> {
@@ -119,12 +126,7 @@ class Scopes extends PureComponent<Props, State> {
   onContextMenu = (event: any, item: any) => {
     const { addWatchpoint, removeWatchpoint } = this.props;
 
-    if (
-      !features.watchpoints ||
-      !item.parent ||
-      !item.parent.contents ||
-      !item.contents.configurable
-    ) {
+    if (!features.watchpoints || !item.parent || !item.contents.configurable) {
       return;
     }
 
@@ -172,6 +174,28 @@ class Scopes extends PureComponent<Props, State> {
     showMenu(event, menuItems);
   };
 
+  renderWatchpointButton = (item: Node) => {
+    const { removeWatchpoint } = this.props;
+
+    if (
+      !item ||
+      !item.contents ||
+      !item.contents.watchpoint ||
+      typeof L10N === "undefined"
+    ) {
+      return null;
+    }
+
+    const { watchpoint } = item.contents;
+    return (
+      <button
+        className={`remove-${watchpoint}-watchpoint`}
+        title={L10N.getStr("watchpoints.removeWatchpointTooltip")}
+        onClick={() => removeWatchpoint(item)}
+      />
+    );
+  };
+
   renderScopesList() {
     const {
       cx,
@@ -203,7 +227,6 @@ class Scopes extends PureComponent<Props, State> {
             disableWrap={true}
             dimTopLevelWindow={true}
             openLink={openLink}
-            createObjectClient={grip => createObjectClient(grip)}
             onDOMNodeClick={grip => openElementInInspector(grip)}
             onInspectIconClick={grip => openElementInInspector(grip)}
             onDOMNodeMouseOver={grip => highlightDomElement(grip)}
@@ -211,6 +234,7 @@ class Scopes extends PureComponent<Props, State> {
             onContextMenu={this.onContextMenu}
             setExpanded={(path, expand) => setExpandedScope(cx, path, expand)}
             initiallyExpanded={initiallyExpanded}
+            renderItemActions={this.renderWatchpointButton}
           />
         </div>
       );
@@ -272,16 +296,13 @@ const mapStateToProps = state => {
   };
 };
 
-export default connect<Props, OwnProps, _, _, _, _>(
-  mapStateToProps,
-  {
-    openLink: actions.openLink,
-    openElementInInspector: actions.openElementInInspectorCommand,
-    highlightDomElement: actions.highlightDomElement,
-    unHighlightDomElement: actions.unHighlightDomElement,
-    toggleMapScopes: actions.toggleMapScopes,
-    setExpandedScope: actions.setExpandedScope,
-    addWatchpoint: actions.addWatchpoint,
-    removeWatchpoint: actions.removeWatchpoint,
-  }
-)(Scopes);
+export default connect<Props, OwnProps, _, _, _, _>(mapStateToProps, {
+  openLink: actions.openLink,
+  openElementInInspector: actions.openElementInInspectorCommand,
+  highlightDomElement: actions.highlightDomElement,
+  unHighlightDomElement: actions.unHighlightDomElement,
+  toggleMapScopes: actions.toggleMapScopes,
+  setExpandedScope: actions.setExpandedScope,
+  addWatchpoint: actions.addWatchpoint,
+  removeWatchpoint: actions.removeWatchpoint,
+})(Scopes);

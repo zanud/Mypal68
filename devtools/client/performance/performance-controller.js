@@ -15,12 +15,13 @@ const flags = require("devtools/shared/flags");
 
 // Logic modules
 const {
-  PerformanceTelemetry,
-} = require("devtools/client/performance/modules/logic/telemetry");
-const { PerformanceView } = require("./performance-view");
-const { DetailsView } = require("./views/details");
-const { RecordingsView } = require("./views/recordings");
-const { ToolbarView } = require("./views/toolbar");
+  PerformanceView,
+} = require("devtools/client/performance/performance-view");
+const { DetailsView } = require("devtools/client/performance/views/details");
+const {
+  RecordingsView,
+} = require("devtools/client/performance/views/recordings");
+const { ToolbarView } = require("devtools/client/performance/views/toolbar");
 
 /**
  * Functions handling target-related lifetime events and
@@ -39,7 +40,6 @@ const PerformanceController = {
     this.target = target;
     this.front = front;
 
-    this._telemetry = new PerformanceTelemetry(this);
     this.startRecording = this.startRecording.bind(this);
     this.stopRecording = this.stopRecording.bind(this);
     this.importRecording = this.importRecording.bind(this);
@@ -116,8 +116,6 @@ const PerformanceController = {
 
     this._prefObserver.off("devtools.theme", this._onThemeChanged);
     this._prefObserver.destroy();
-
-    this._telemetry.destroy();
   },
 
   /**

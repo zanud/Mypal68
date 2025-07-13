@@ -12,22 +12,34 @@ const dom = require("devtools/client/shared/vendor/react-dom-factories");
 const PropTypes = require("devtools/client/shared/vendor/react-prop-types");
 
 loader.lazyGetter(this, "FrameListColumnSize", function() {
-  return createFactory(require("./FrameListColumnSize"));
+  return createFactory(
+    require("devtools/client/netmonitor/src/components/websockets/FrameListColumnSize")
+  );
 });
 loader.lazyGetter(this, "FrameListColumnData", function() {
-  return createFactory(require("./FrameListColumnData"));
+  return createFactory(
+    require("devtools/client/netmonitor/src/components/websockets/FrameListColumnData")
+  );
 });
 loader.lazyGetter(this, "FrameListColumnOpCode", function() {
-  return createFactory(require("./FrameListColumnOpCode"));
+  return createFactory(
+    require("devtools/client/netmonitor/src/components/websockets/FrameListColumnOpCode")
+  );
 });
 loader.lazyGetter(this, "FrameListColumnMaskBit", function() {
-  return createFactory(require("./FrameListColumnMaskBit"));
+  return createFactory(
+    require("devtools/client/netmonitor/src/components/websockets/FrameListColumnMaskBit")
+  );
 });
 loader.lazyGetter(this, "FrameListColumnFinBit", function() {
-  return createFactory(require("./FrameListColumnFinBit"));
+  return createFactory(
+    require("devtools/client/netmonitor/src/components/websockets/FrameListColumnFinBit")
+  );
 });
 loader.lazyGetter(this, "FrameListColumnTime", function() {
-  return createFactory(require("./FrameListColumnTime"));
+  return createFactory(
+    require("devtools/client/netmonitor/src/components/websockets/FrameListColumnTime")
+  );
 });
 
 const COLUMN_COMPONENT_MAP = {
@@ -49,8 +61,9 @@ class FrameListItem extends Component {
       index: PropTypes.number.isRequired,
       isSelected: PropTypes.bool.isRequired,
       onMouseDown: PropTypes.func.isRequired,
+      onContextMenu: PropTypes.func.isRequired,
       connector: PropTypes.object.isRequired,
-      visibleColumns: PropTypes.object.isRequired,
+      visibleColumns: PropTypes.array.isRequired,
     };
   }
 
@@ -60,11 +73,16 @@ class FrameListItem extends Component {
       index,
       isSelected,
       onMouseDown,
+      onContextMenu,
       connector,
       visibleColumns,
     } = this.props;
 
-    const classList = ["ws-frame-list-item", index % 2 ? "odd" : "even"];
+    const classList = [
+      "ws-frame-list-item",
+      index % 2 ? "odd" : "even",
+      item.type,
+    ];
     if (isSelected) {
       classList.push("selected");
     }
@@ -74,6 +92,7 @@ class FrameListItem extends Component {
         className: classList.join(" "),
         tabIndex: 0,
         onMouseDown,
+        onContextMenu,
       },
       visibleColumns.map(name => {
         const ColumnComponent = COLUMN_COMPONENT_MAP[name];

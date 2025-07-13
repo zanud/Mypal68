@@ -18,7 +18,6 @@ import {
 import { addBreakpoint } from "../breakpoints";
 
 import { prettyPrintSource } from "./prettyPrint";
-import { setBreakableLines } from "./breakableLines";
 import { isFulfilled, fulfilled } from "../../utils/async-value";
 
 import { isOriginal, isPretty } from "../../utils/source";
@@ -27,14 +26,11 @@ import {
   type MemoizedAction,
 } from "../../utils/memoizableAction";
 
-import { Telemetry } from "devtools-modules";
-
 import type { ThunkArgs } from "../types";
-import type { Source, Context } from "../../types";
+import type { Source, Context, SourceId } from "../../types";
 
 // Measures the time it takes for a source to load
 const loadSourceHistogram = "DEVTOOLS_DEBUGGER_LOAD_SOURCE_MS";
-const telemetry = new Telemetry();
 
 async function loadSource(
   state,
@@ -88,9 +84,7 @@ async function loadSource(
     handledActors.add(actor.actor);
 
     try {
-      telemetry.start(loadSourceHistogram, source);
       response = await client.sourceContents(actor);
-      telemetry.finish(loadSourceHistogram, source);
       break;
     } catch (e) {
       console.warn(`sourceContents failed: ${e}`);
@@ -131,7 +125,6 @@ async function loadSourceTextPromise(
         : { type: "text", value: "", contentType: undefined }
     );
 
-    await dispatch(setBreakableLines(cx, source.id));
     // Update the text in any breakpoints for this source by re-adding them.
     const breakpoints = getBreakpointsForSource(getState(), source.id);
     for (const { location, options, disabled } of breakpoints) {
@@ -140,7 +133,7 @@ async function loadSourceTextPromise(
   }
 }
 
-export function loadSourceById(cx: Context, sourceId: string) {
+export function loadSourceById(cx: Context, sourceId: SourceId) {
   return ({ getState, dispatch }: ThunkArgs) => {
     const source = getSourceFromId(getState(), sourceId);
     return dispatch(loadSourceText({ cx, source }));
@@ -148,7 +141,7 @@ export function loadSourceById(cx: Context, sourceId: string) {
 }
 
 export const loadSourceText: MemoizedAction<
-  { cx: Context, source: Source },
+  {| cx: Context, source: Source |},
   ?Source
 > = memoizeableAction("loadSourceText", {
   getValue: ({ source }, { getState }) => {

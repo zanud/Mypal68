@@ -10,6 +10,7 @@
 
 #include "js/Array.h"  // JS::NewArrayObject
 #include "js/Debug.h"
+#include "js/PropertyAndElement.h"  // JS_DefineProperty
 #include "js/TypeDecls.h"
 #include "js/UbiNodeBreadthFirst.h"
 #include "js/UbiNodeCensus.h"
@@ -28,7 +29,6 @@
 #include "mozilla/dom/ContentChild.h"
 #include "mozilla/dom/HeapSnapshotBinding.h"
 #include "mozilla/RangedPtr.h"
-#include "mozilla/Telemetry.h"
 #include "mozilla/Unused.h"
 
 #include "jsapi.h"
@@ -1261,15 +1261,9 @@ class MOZ_STACK_CLASS HeapSnapshotHandler {
   JS::CompartmentSet* compartments;
 
  public:
-  // For telemetry.
-  uint32_t nodeCount;
-  uint32_t edgeCount;
-
   HeapSnapshotHandler(CoreDumpWriter& writer, JS::CompartmentSet* compartments)
       : writer(writer),
-        compartments(compartments),
-        nodeCount(0),
-        edgeCount(0) {}
+        compartments(compartments) {}
 
   // JS::ubi::BreadthFirst handler interface.
 
@@ -1277,8 +1271,6 @@ class MOZ_STACK_CLASS HeapSnapshotHandler {
   typedef JS::ubi::BreadthFirst<HeapSnapshotHandler> Traversal;
   bool operator()(Traversal& traversal, JS::ubi::Node origin,
                   const JS::ubi::Edge& edge, NodeData*, bool first) {
-    edgeCount++;
-
     // We're only interested in the first time we reach edge.referent, not in
     // every edge arriving at that node. "But, don't we want to serialize every
     // edge in the heap graph?" you ask. Don't worry! This edge is still
@@ -1296,8 +1288,6 @@ class MOZ_STACK_CLASS HeapSnapshotHandler {
       return true;
     }
 
-    nodeCount++;
-
     if (policy == CoreDumpWriter::EXCLUDE_EDGES) traversal.abandonReferent();
 
     return writer.writeNode(edge.referent, policy);
@@ -1307,8 +1297,7 @@ class MOZ_STACK_CLASS HeapSnapshotHandler {
 bool WriteHeapGraph(JSContext* cx, const JS::ubi::Node& node,
                     CoreDumpWriter& writer, bool wantNames,
                     JS::CompartmentSet* compartments,
-                    JS::AutoCheckCannotGC& noGC, uint32_t& outNodeCount,
-                    uint32_t& outEdgeCount) {
+                    JS::AutoCheckCannotGC& noGC) {
   // Serialize the starting node to the core dump.
 
   if (NS_WARN_IF(!writer.writeNode(node, CoreDumpWriter::INCLUDE_EDGES))) {
@@ -1323,11 +1312,6 @@ bool WriteHeapGraph(JSContext* cx, const JS::ubi::Node& node,
   traversal.wantNames = wantNames;
 
   bool ok = traversal.addStartVisited(node) && traversal.traverse();
-
-  if (ok) {
-    outNodeCount = handler.nodeCount;
-    outEdgeCount = handler.edgeCount;
-  }
 
   return ok;
 }
@@ -1459,8 +1443,6 @@ void ChromeUtils::SaveHeapSnapshotShared(
 
   bool wantNames = true;
   CompartmentSet compartments;
-  uint32_t nodeCount = 0;
-  uint32_t edgeCount = 0;
 
   nsCOMPtr<nsIOutputStream> outputStream =
       getCoreDumpOutputStream(rv, start, outFilePath, outSnapshotId);
@@ -1489,19 +1471,21 @@ void ChromeUtils::SaveHeapSnapshotShared(
         // roots.
         !WriteHeapGraph(cx, roots, writer, wantNames,
                         !compartments.empty() ? &compartments : nullptr,
-                        maybeNoGC.ref(), nodeCount, edgeCount)) {
+                        maybeNoGC.ref())) {
       rv.Throw(zeroCopyStream.failed() ? zeroCopyStream.result()
                                        : NS_ERROR_UNEXPECTED);
       return;
     }
   }
+}
 
-  Telemetry::AccumulateTimeDelta(Telemetry::DEVTOOLS_SAVE_HEAP_SNAPSHOT_MS,
-                                 start);
-  Telemetry::Accumulate(Telemetry::DEVTOOLS_HEAP_SNAPSHOT_NODE_COUNT,
-                        nodeCount);
-  Telemetry::Accumulate(Telemetry::DEVTOOLS_HEAP_SNAPSHOT_EDGE_COUNT,
-                        edgeCount);
+/* static */
+uint64_t ChromeUtils::GetObjectNodeId(GlobalObject& global,
+                                      JS::HandleObject val) {
+  JS::RootedObject obj(global.Context(), val);
+
+  JS::ubi::Node node(obj);
+  return node.identifier();
 }
 
 /* static */
@@ -1523,8 +1507,6 @@ void ChromeUtils::SaveHeapSnapshotGetId(
 /* static */
 already_AddRefed<HeapSnapshot> ChromeUtils::ReadHeapSnapshot(
     GlobalObject& global, const nsAString& filePath, ErrorResult& rv) {
-  auto start = TimeStamp::Now();
-
   UniquePtr<char[]> path(ToNewCString(filePath, mozilla::fallible));
   if (!path) {
     rv.Throw(NS_ERROR_OUT_OF_MEMORY);
@@ -1538,10 +1520,6 @@ already_AddRefed<HeapSnapshot> ChromeUtils::ReadHeapSnapshot(
   RefPtr<HeapSnapshot> snapshot = HeapSnapshot::Create(
       global.Context(), global, reinterpret_cast<const uint8_t*>(mm.address()),
       mm.size(), rv);
-
-  if (!rv.Failed())
-    Telemetry::AccumulateTimeDelta(Telemetry::DEVTOOLS_READ_HEAP_SNAPSHOT_MS,
-                                   start);
 
   return snapshot.forget();
 }

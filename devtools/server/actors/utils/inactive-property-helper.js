@@ -89,7 +89,7 @@ class InactivePropertyHelper {
           "order",
         ],
         when: () => !this.flexItem,
-        fixId: "inactive-css-not-flex-item-fix",
+        fixId: "inactive-css-not-flex-item-fix-2",
         msgId: "inactive-css-not-flex-item",
         numFixProps: 2,
       },
@@ -100,7 +100,6 @@ class InactivePropertyHelper {
           "grid-auto-flow",
           "grid-auto-rows",
           "grid-template",
-          "grid-gap",
           "justify-items",
         ],
         when: () => !this.gridContainer,
@@ -120,16 +119,17 @@ class InactivePropertyHelper {
           "grid-row-start",
           "justify-self",
         ],
-        when: () => !this.gridItem,
-        fixId: "inactive-css-not-grid-item-fix",
+        when: () => !this.gridItem && !this.isAbsPosGridElement(),
+        fixId: "inactive-css-not-grid-item-fix-2",
         msgId: "inactive-css-not-grid-item",
         numFixProps: 2,
       },
       // Grid and flex item properties used on non-grid or non-flex item.
       {
         invalidProperties: ["align-self", "place-self"],
-        when: () => !this.gridItem && !this.flexItem,
-        fixId: "inactive-css-not-grid-or-flex-item-fix",
+        when: () =>
+          !this.gridItem && !this.flexItem && !this.isAbsPosGridElement(),
+        fixId: "inactive-css-not-grid-or-flex-item-fix-2",
         msgId: "inactive-css-not-grid-or-flex-item",
         numFixProps: 4,
       },
@@ -142,17 +142,20 @@ class InactivePropertyHelper {
           "place-content",
           "place-items",
           "row-gap",
+          "grid-gap",
+          "grid-row-gap",
         ],
         when: () => !this.gridContainer && !this.flexContainer,
         fixId: "inactive-css-not-grid-or-flex-container-fix",
         msgId: "inactive-css-not-grid-or-flex-container",
         numFixProps: 2,
       },
-      // column-gap and shorthand used on non-grid or non-flex or non-multi-col container.
+      // column-gap and shorthands used on non-grid or non-flex or non-multi-col container.
       {
         invalidProperties: [
           "column-gap",
           "gap",
+          "grid-column-gap",
         ],
         when: () =>
           !this.gridContainer && !this.flexContainer && !this.multiColContainer,
@@ -227,6 +230,22 @@ class InactivePropertyHelper {
         msgId: "inactive-css-property-is-impossible-to-override-in-visited",
         numFixProps: 1,
         learnMoreURL: VISITED_MDN_LINK,
+      },
+      // top, right, bottom, left properties used on non positioned boxes.
+      {
+        invalidProperties: ["top", "right", "bottom", "left"],
+        when: () => !this.isPositioned,
+        fixId: "inactive-css-position-property-on-unpositioned-box-fix",
+        msgId: "inactive-css-position-property-on-unpositioned-box",
+        numFixProps: 1,
+      },
+      // z-index property used on non positioned boxes that are not grid/flex items.
+      {
+        invalidProperties: ["z-index"],
+        when: () => !this.isPositioned && !this.gridItem && !this.flexItem,
+        fixId: "inactive-css-position-property-on-unpositioned-box-fix",
+        msgId: "inactive-css-position-property-on-unpositioned-box",
+        numFixProps: 1,
       },
     ];
   }
@@ -511,10 +530,22 @@ class InactivePropertyHelper {
   }
 
   /**
-   * Check if the current node is a non-replaced inline box.
+   * Returns whether this element uses CSS layout.
+   */
+  get hasCssLayout() {
+    return !this.isSvg && !this.isMathMl;
+  }
+
+  /**
+   * Check if the current node is a non-replaced CSS inline box.
    */
   get nonReplacedInlineBox() {
-    return this.nonReplaced && this.style && this.style.display === "inline";
+    return (
+      this.hasCssLayout &&
+      this.nonReplaced &&
+      this.style &&
+      this.style.display === "inline"
+    );
   }
 
   /**
@@ -523,6 +554,26 @@ class InactivePropertyHelper {
    */
   get nonReplaced() {
     return !this.replaced;
+  }
+
+  /**
+   * Check if the current node is an absolutely-positioned element.
+   */
+  get isAbsolutelyPositioned() {
+    return this.checkComputedStyle("position", ["absolute", "fixed"]);
+  }
+
+  /**
+   * Check if the current node is positioned (i.e. its position property has a value other
+   * than static).
+   */
+  get isPositioned() {
+    return this.checkComputedStyle("position", [
+      "relative",
+      "absolute",
+      "fixed",
+      "sticky",
+    ]);
   }
 
   /**
@@ -542,25 +593,23 @@ class InactivePropertyHelper {
     // These are always treated as replaced elements:
     if (
       this.nodeNameOneOf([
+        "audio",
         "br",
         "button",
         "canvas",
         "embed",
         "hr",
         "iframe",
+        "input",
         "math",
         "object",
         "picture",
+        "select",
         "svg",
+        "textarea",
         "video",
       ])
     ) {
-      return true;
-    }
-
-    // audio – Treated as a replaced element only when it's "exposing a user
-    // interface element" i.e. has a "controls" attribute.
-    if (this.nodeName === "audio" && this.node.getAttribute("controls")) {
       return true;
     }
 
@@ -582,6 +631,20 @@ class InactivePropertyHelper {
   }
 
   /**
+   * Return whether the node is a MathML element.
+   */
+  get isMathMl() {
+    return this.node.namespaceURI === "http://www.w3.org/1998/Math/MathML";
+  }
+
+  /**
+   * Return whether the node is an SVG element.
+   */
+  get isSvg() {
+    return this.node.namespaceURI === "http://www.w3.org/2000/svg";
+  }
+
+  /**
    * Check if the current node's nodeName matches a value inside the value array.
    *
    * @param {Array} values
@@ -590,6 +653,23 @@ class InactivePropertyHelper {
    */
   nodeNameOneOf(values) {
     return values.includes(this.nodeName);
+  }
+
+  /**
+   * Check if the current node is an absolutely-positioned grid element.
+   * See: https://drafts.csswg.org/css-grid/#abspos-items
+   *
+   * @return {Boolean} whether or not the current node is absolutely-positioned by a
+   *                   grid container.
+   */
+  isAbsPosGridElement() {
+    if (!this.isAbsolutelyPositioned) {
+      return false;
+    }
+
+    const containingBlock = this.getContainingBlock();
+
+    return containingBlock !== null && this.isGridContainer(containingBlock);
   }
 
   /**
@@ -619,7 +699,7 @@ class InactivePropertyHelper {
    *        The node to check.
    */
   isGridContainer(node) {
-    return !!node.getGridFragments().length > 0;
+    return node.getGridFragments().length > 0;
   }
 
   /**
@@ -665,6 +745,13 @@ class InactivePropertyHelper {
     return true;
   }
 
+  /**
+   * Return the current node's ancestor that generates its containing block.
+   */
+  getContainingBlock() {
+    return this.node ? InspectorUtils.containingBlockOf(this.node) : null;
+  }
+
   getParentGridElement(node) {
     // The documentElement can't be a grid item, only a container, so bail out.
     if (node.flattenedTreeParentNode === node.ownerDocument) {
@@ -678,13 +765,7 @@ class InactivePropertyHelper {
         // Doesn't generate a box, not a grid item.
         return null;
       }
-      const position = this.style ? this.style.position : null;
-      const cssFloat = this.style ? this.style.cssFloat : null;
-      if (
-        position === "absolute" ||
-        position === "fixed" ||
-        cssFloat !== "none"
-      ) {
+      if (this.isAbsolutelyPositioned || this.isFloated) {
         // Out of flow, not a grid item.
         return null;
       }
@@ -697,13 +778,14 @@ class InactivePropertyHelper {
       p;
       p = p.flattenedTreeParentNode
     ) {
-      const style = node.ownerGlobal.getComputedStyle(p);
-      const display = style.display;
-
-      if (display.includes("grid") && !!p.getGridFragments().length > 0) {
+      if (this.isGridContainer(p)) {
         // It's a grid item!
         return p;
       }
+
+      const style = node.ownerGlobal.getComputedStyle(p);
+      const display = style.display;
+
       if (display !== "contents") {
         return null; // Not a grid item, for sure.
       }

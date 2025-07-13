@@ -16,7 +16,9 @@ const protocol = require("devtools/shared/protocol");
 const {
   webExtensionDescriptorSpec,
 } = require("devtools/shared/specs/descriptors/webextension");
-const { DebuggerServer } = require("devtools/server/debugger-server");
+const {
+  connectToFrame,
+} = require("devtools/server/connectors/frame-connector");
 
 loader.lazyImporter(
   this,
@@ -43,7 +45,7 @@ loader.lazyImporter(
  * WebExtensionDescriptorActor is a child of RootActor, it can be retrieved via
  * RootActor.listAddons request.
  *
- * @param {DebuggerServerConnection} conn
+ * @param {DevToolsServerConnection} conn
  *        The connection to the client.
  * @param {AddonWrapper} addon
  *        The target addon.
@@ -81,16 +83,17 @@ const WebExtensionDescriptorActor = protocol.ActorClassWithSpec(
         manifestURL: policy && policy.getURL("manifest.json"),
         name: this.addon.name,
         temporarilyInstalled: this.addon.temporarilyInstalled,
+        traits: {
+          // checked in the front descriptor.
+          // remove when FF70 is on release channel
+          isDescriptor: true,
+        },
         type: this.addon.type,
         url: this.addon.sourceURI ? this.addon.sourceURI.spec : undefined,
         warnings: ExtensionParent.DebugUtils.getExtensionManifestWarnings(
           this.addonId
         ),
       };
-    },
-
-    connect() {
-      return this.getTarget();
     },
 
     getTarget() {
@@ -125,7 +128,7 @@ const WebExtensionDescriptorActor = protocol.ActorClassWithSpec(
         this
       );
 
-      this._form = await DebuggerServer.connectToFrame(
+      this._form = await connectToFrame(
         this.conn,
         this._browser,
         this._extensionFrameDisconnect,
@@ -146,7 +149,7 @@ const WebExtensionDescriptorActor = protocol.ActorClassWithSpec(
       return {};
     },
 
-    // This function will be called from RootActor in case that the debugger client
+    // This function will be called from RootActor in case that the devtools client
     // retrieves list of addons with `iconDataURL` option.
     async loadIconDataURL() {
       this._iconDataURL = await this.getIconDataURL();

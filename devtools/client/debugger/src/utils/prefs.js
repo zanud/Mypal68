@@ -12,7 +12,7 @@ import Services from "devtools-services";
 // Schema version to bump when the async store format has changed incompatibly
 // and old stores should be cleared.
 const prefsSchemaVersion = 11;
-const pref = Services.pref;
+const { pref } = Services;
 
 if (isDevelopment()) {
   pref("devtools.debugger.logging", false);
@@ -67,7 +67,6 @@ if (isDevelopment()) {
   pref("devtools.debugger.features.map-await-expression", true);
   pref("devtools.debugger.features.xhr-breakpoints", true);
   pref("devtools.debugger.features.original-blackbox", true);
-  pref("devtools.debugger.features.windowless-workers", true);
   pref("devtools.debugger.features.event-listeners-breakpoints", true);
   pref("devtools.debugger.features.dom-mutation-breakpoints", true);
   pref("devtools.debugger.features.log-points", true);
@@ -82,7 +81,7 @@ export const prefs = new PrefsHelper("devtools", {
   alphabetizeOutline: ["Bool", "debugger.alphabetize-outline"],
   autoPrettyPrint: ["Bool", "debugger.auto-pretty-print"],
   clientSourceMapsEnabled: ["Bool", "source-map.client-service.enabled"],
-  chromeAndExtenstionsEnabled: ["Bool", "chrome.enabled"],
+  chromeAndExtensionsEnabled: ["Bool", "chrome.enabled"],
   pauseOnExceptions: ["Bool", "debugger.pause-on-exceptions"],
   pauseOnCaughtExceptions: ["Bool", "debugger.pause-on-caught-exceptions"],
   ignoreCaughtExceptions: ["Bool", "debugger.ignore-caught-exceptions"],
@@ -142,6 +141,7 @@ export const features = new PrefsHelper("devtools.debugger.features", {
   showOverlay: ["Bool", "overlay"],
   inlinePreview: ["Bool", "inline-preview"],
   watchpoints: ["Bool", "watchpoints"],
+  windowlessServiceWorkers: ["Bool", "windowless-service-workers"],
 });
 
 export const asyncStore = asyncStoreHelper("debugger", {

@@ -10,7 +10,7 @@
  *
  * The |Animations| actor is the main entry point. It is used to discover
  * animation players on given nodes.
- * There should only be one instance per debugger server.
+ * There should only be one instance per devtools server.
  *
  * The |AnimationPlayer| actor provides attributes and methods to inspect an
  * animation as well as pause/resume/seek it.
@@ -32,7 +32,9 @@ const {
   animationPlayerSpec,
   animationsSpec,
 } = require("devtools/shared/specs/animation");
-const { ANIMATION_TYPE_FOR_LONGHANDS } = require("./animation-type-longhand");
+const {
+  ANIMATION_TYPE_FOR_LONGHANDS,
+} = require("devtools/server/actors/animation-type-longhand");
 
 // Types of animations.
 const ANIMATION_TYPES = {

@@ -24,12 +24,22 @@ const MESSAGE_DATA_LIMIT = Services.prefs.getIntPref(
   "devtools.netmonitor.ws.messageDataLimit"
 );
 const MESSAGE_DATA_TRUNCATED = L10N.getStr("messageDataTruncated");
+const SocketIODecoder = require("devtools/client/netmonitor/src/components/websockets/parsers/socket-io/index.js");
+const {
+  JsonHubProtocol,
+  HandshakeProtocol,
+} = require("devtools/client/netmonitor/src/components/websockets/parsers/signalr/index.js");
+const {
+  parseSockJS,
+} = require("devtools/client/netmonitor/src/components/websockets/parsers/sockjs/index.js");
 
 // Components
 const Accordion = createFactory(
   require("devtools/client/shared/components/Accordion")
 );
-const RawData = createFactory(require("./RawData"));
+const RawData = createFactory(
+  require("devtools/client/netmonitor/src/components/websockets/RawData")
+);
 loader.lazyGetter(this, "JSONPreview", function() {
   return createFactory(
     require("devtools/client/netmonitor/src/components/JSONPreview")
@@ -55,6 +65,7 @@ class FramePayload extends Component {
       payload: "",
       isFormattedData: false,
       formattedData: {},
+      formattedDataTitle: "",
     };
   }
 
@@ -70,17 +81,122 @@ class FramePayload extends Component {
 
   updateFramePayload() {
     const { selectedFrame, connector } = this.props;
-
     getFramePayload(selectedFrame.payload, connector.getLongString).then(
       payload => {
-        const { json } = isJSON(payload);
+        const { formattedData, formattedDataTitle } = this.parsePayload(
+          payload
+        );
         this.setState({
           payload,
-          isFormattedData: !!json,
-          formattedData: json,
+          isFormattedData: !!formattedData,
+          formattedData,
+          formattedDataTitle,
         });
       }
     );
+  }
+
+  parsePayload(payload) {
+    // socket.io payload
+    const socketIOPayload = this.parseSocketIOPayload(payload);
+    if (socketIOPayload) {
+      return {
+        formattedData: socketIOPayload,
+        formattedDataTitle: "Socket.IO",
+      };
+    }
+    // sockjs payload
+    const sockJSPayload = parseSockJS(payload);
+    if (sockJSPayload) {
+      return {
+        formattedData: sockJSPayload,
+        formattedDataTitle: "SockJS",
+      };
+    }
+    // signalr payload
+    const signalRPayload = this.parseSignalR(payload);
+    if (signalRPayload) {
+      return {
+        formattedData: signalRPayload,
+        formattedDataTitle: "SignalR",
+      };
+    }
+
+    // json payload
+    const { json } = isJSON(payload);
+    if (json) {
+      return {
+        formattedData: json,
+        formattedDataTitle: "JSON",
+      };
+    }
+    return {
+      formattedData: null,
+      formattedDataTitle: "",
+    };
+  }
+
+  parseSocketIOPayload(payload) {
+    let result;
+    // Try decoding socket.io frames
+    try {
+      const decoder = new SocketIODecoder();
+      decoder.on("decoded", decodedPacket => {
+        if (
+          decodedPacket &&
+          !decodedPacket.data.includes("parser error") &&
+          decodedPacket.type
+        ) {
+          result = decodedPacket;
+        }
+      });
+      decoder.add(payload);
+      return result;
+    } catch (err) {
+      // Ignore errors
+    }
+    return null;
+  }
+
+  parseSignalR(payload) {
+    // attempt to parse as HandshakeResponseMessage
+    let decoder;
+    try {
+      decoder = new HandshakeProtocol();
+      const [remainingData, responseMessage] = decoder.parseHandshakeResponse(
+        payload
+      );
+
+      if (responseMessage) {
+        return {
+          handshakeResponse: responseMessage,
+          remainingData: this.parseSignalR(remainingData),
+        };
+      }
+    } catch (err) {
+      // ignore errors;
+    }
+
+    // attempt to parse as JsonHubProtocolMessage
+    try {
+      decoder = new JsonHubProtocol();
+      const msgs = decoder.parseMessages(payload, null);
+      if (msgs?.length) {
+        return msgs;
+      }
+    } catch (err) {
+      // ignore errors;
+    }
+
+    // MVP Signalr
+    if (payload.endsWith("\u001e")) {
+      const { json } = isJSON(payload.slice(0, -1));
+      if (json) {
+        return json;
+      }
+    }
+
+    return null;
   }
 
   render() {
@@ -117,7 +233,9 @@ class FramePayload extends Component {
             },
           ],
         }),
-        header: `JSON (${getFormattedSize(this.state.payload.length)})`,
+        header: `${this.state.formattedDataTitle} (${getFormattedSize(
+          this.state.payload.length
+        )})`,
         labelledby: "ws-frame-formattedData-header",
         opened: true,
       });

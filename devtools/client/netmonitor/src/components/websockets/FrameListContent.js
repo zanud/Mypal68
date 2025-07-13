@@ -14,27 +14,37 @@ const {
   connect,
 } = require("devtools/client/shared/redux/visibility-handler-connect");
 const { PluralForm } = require("devtools/shared/plural-form");
-const { getDisplayedFrames } = require("../../selectors/index");
+const {
+  getDisplayedFrames,
+  isCurrentChannelClosed,
+  getClosedConnectionDetails,
+} = require("devtools/client/netmonitor/src/selectors/index");
 const dom = require("devtools/client/shared/vendor/react-dom-factories");
-const { table, tbody, tr, td, div, input, label } = dom;
-const { L10N } = require("../../utils/l10n");
+const { table, tbody, tr, td, div, input, label, hr, p } = dom;
+const { L10N } = require("devtools/client/netmonitor/src/utils/l10n");
 const FRAMES_EMPTY_TEXT = L10N.getStr("messagesEmptyText");
 const TOGGLE_MESSAGES_TRUNCATION = L10N.getStr("toggleMessagesTruncation");
 const TOGGLE_MESSAGES_TRUNCATION_TITLE = L10N.getStr(
   "toggleMessagesTruncation.title"
 );
-const TRUNCATED_MESSAGES_WARNING = L10N.getStr(
-  "netmonitor.ws.truncated-messages.warning"
-);
-const Actions = require("../../actions/index");
+const CONNECTION_CLOSED_TEXT = L10N.getStr("netmonitor.ws.connection.closed");
+const Actions = require("devtools/client/netmonitor/src/actions/index");
 
-const { getSelectedFrame } = require("../../selectors/index");
+const {
+  getSelectedFrame,
+} = require("devtools/client/netmonitor/src/selectors/index");
 
+// Components
+const FrameListContextMenu = require("devtools/client/netmonitor/src/components/websockets/FrameListContextMenu");
 loader.lazyGetter(this, "FrameListHeader", function() {
-  return createFactory(require("./FrameListHeader"));
+  return createFactory(
+    require("devtools/client/netmonitor/src/components/websockets/FrameListHeader")
+  );
 });
 loader.lazyGetter(this, "FrameListItem", function() {
-  return createFactory(require("./FrameListItem"));
+  return createFactory(
+    require("devtools/client/netmonitor/src/components/websockets/FrameListItem")
+  );
 });
 
 const LEFT_MOUSE_BUTTON = 0;
@@ -46,16 +56,23 @@ class FrameListContent extends Component {
   static get propTypes() {
     return {
       connector: PropTypes.object.isRequired,
+      startPanelContainer: PropTypes.object,
       frames: PropTypes.array,
       selectedFrame: PropTypes.object,
       selectFrame: PropTypes.func.isRequired,
       columns: PropTypes.object.isRequired,
+      isClosed: PropTypes.func.isRequired,
+      closedConnectionDetails: PropTypes.object,
+      channelId: PropTypes.number,
+      onSelectFrameDelta: PropTypes.func.isRequired,
     };
   }
 
   constructor(props) {
     super(props);
 
+    this.onContextMenu = this.onContextMenu.bind(this);
+    this.onKeyDown = this.onKeyDown.bind(this);
     this.framesLimit = Services.prefs.getIntPref(
       "devtools.netmonitor.ws.displayed-frames.limit"
     );
@@ -63,6 +80,115 @@ class FrameListContent extends Component {
     this.state = {
       checked: false,
     };
+    this.pinnedToBottom = false;
+    this.initIntersectionObserver = false;
+    this.intersectionObserver = null;
+    this.toggleTruncationCheckBox = this.toggleTruncationCheckBox.bind(this);
+  }
+
+  componentDidMount() {
+    const { startPanelContainer } = this.props;
+    const scrollAnchor = this.refs.scrollAnchor;
+
+    if (scrollAnchor) {
+      // Always scroll to anchor when FrameListContent component first mounts.
+      scrollAnchor.scrollIntoView();
+    }
+    this.setupScrollToBottom(startPanelContainer, scrollAnchor);
+  }
+
+  componentDidUpdate(prevProps) {
+    const { startPanelContainer, channelId } = this.props;
+    const scrollAnchor = this.refs.scrollAnchor;
+
+    // When frames are cleared, the previous scrollAnchor would be destroyed, so we need to reset this boolean.
+    if (!scrollAnchor) {
+      this.initIntersectionObserver = false;
+    }
+
+    // If a new WebSocket connection is selected, scroll to anchor.
+    if (channelId !== prevProps.channelId && scrollAnchor) {
+      scrollAnchor.scrollIntoView();
+    }
+
+    // Do not autoscroll if the selection changed. This would cause
+    // the newly selected frame to jump just after clicking in.
+    // (not user friendly)
+    //
+    // If the selection changed, we need to ensure that the newly
+    // selected frame is properly scrolled into the visible area.
+    if (prevProps.selectedFrame === this.props.selectedFrame) {
+      this.setupScrollToBottom(startPanelContainer, scrollAnchor);
+    } else {
+      const head = document.querySelector("thead.ws-frames-list-headers-group");
+      const selectedRow = document.querySelector(
+        "tr.ws-frame-list-item.selected"
+      );
+
+      if (selectedRow) {
+        const rowRect = selectedRow.getBoundingClientRect();
+        const scrollableRect = startPanelContainer.getBoundingClientRect();
+        const headRect = head.getBoundingClientRect();
+
+        if (rowRect.top <= scrollableRect.top) {
+          selectedRow.scrollIntoView(true);
+
+          // We need to scroll a bit more to get the row out
+          // of the header. The header is sticky and overlaps
+          // part of the scrollable area.
+          startPanelContainer.scrollTop -= headRect.height;
+        } else if (rowRect.bottom > scrollableRect.bottom) {
+          selectedRow.scrollIntoView(false);
+        }
+      }
+    }
+  }
+
+  componentWillUnmount() {
+    // Reset observables and boolean values.
+    const scrollAnchor = this.refs.scrollAnchor;
+
+    if (this.intersectionObserver) {
+      if (scrollAnchor) {
+        this.intersectionObserver.unobserve(scrollAnchor);
+      }
+      this.initIntersectionObserver = false;
+      this.pinnedToBottom = false;
+    }
+  }
+
+  setupScrollToBottom(startPanelContainer, scrollAnchor) {
+    if (startPanelContainer && scrollAnchor) {
+      // Initialize intersection observer.
+      if (!this.initIntersectionObserver) {
+        this.intersectionObserver = new IntersectionObserver(
+          () => {
+            // When scrollAnchor first comes into view, this.pinnedToBottom is set to true.
+            // When the anchor goes out of view, this callback function triggers again and toggles this.pinnedToBottom.
+            // Subsequent scroll into/out of view will toggle this.pinnedToBottom.
+            this.pinnedToBottom = !this.pinnedToBottom;
+          },
+          {
+            root: startPanelContainer,
+            threshold: 0.1,
+          }
+        );
+        if (this.intersectionObserver) {
+          this.intersectionObserver.observe(scrollAnchor);
+          this.initIntersectionObserver = true;
+        }
+      }
+
+      if (this.pinnedToBottom) {
+        scrollAnchor.scrollIntoView();
+      }
+    }
+  }
+
+  toggleTruncationCheckBox() {
+    this.setState({
+      checked: !this.state.checked,
+    });
   }
 
   onMouseDown(evt, item) {
@@ -71,8 +197,59 @@ class FrameListContent extends Component {
     }
   }
 
+  onContextMenu(evt, item) {
+    evt.preventDefault();
+    const { connector } = this.props;
+    this.contextMenu = new FrameListContextMenu({
+      connector,
+    });
+    this.contextMenu.open(evt, item);
+  }
+
+  /**
+   * Handler for keyboard events. For arrow up/down, page up/down, home/end,
+   * move the selection up or down.
+   */
+  onKeyDown(evt) {
+    evt.preventDefault();
+    evt.stopPropagation();
+    let delta;
+
+    switch (evt.key) {
+      case "ArrowUp":
+        delta = -1;
+        break;
+      case "ArrowDown":
+        delta = +1;
+        break;
+      case "PageUp":
+        delta = "PAGE_UP";
+        break;
+      case "PageDown":
+        delta = "PAGE_DOWN";
+        break;
+      case "Home":
+        delta = -Infinity;
+        break;
+      case "End":
+        delta = +Infinity;
+        break;
+    }
+
+    if (delta) {
+      this.props.onSelectFrameDelta(delta);
+    }
+  }
+
   render() {
-    const { frames, selectedFrame, connector, columns } = this.props;
+    const {
+      frames,
+      selectedFrame,
+      connector,
+      columns,
+      isClosed,
+      closedConnectionDetails,
+    } = this.props;
 
     if (frames.length === 0) {
       return div(
@@ -109,61 +286,57 @@ class FrameListContent extends Component {
       table(
         { className: "ws-frames-list-table" },
         FrameListHeader(),
-        tr(
-          {
-            tabIndex: 0,
-          },
-          td(
-            {
-              className: "truncated-messages-cell",
-              colSpan: visibleColumns.length,
-            },
-            shouldTruncate &&
-              div(
-                {
-                  className: "truncated-messages-header",
-                },
-                div(
-                  {
-                    className: "truncated-messages-container",
-                  },
-                  div({
-                    className: "truncated-messages-warning-icon",
-                    title: TRUNCATED_MESSAGES_WARNING,
-                  }),
-                  div(
-                    {
-                      className: "truncated-message",
-                      title: MESSAGES_TRUNCATED,
-                    },
-                    MESSAGES_TRUNCATED
-                  )
-                ),
-                label(
-                  {
-                    className: "truncated-messages-checkbox-label",
-                    title: TOGGLE_MESSAGES_TRUNCATION_TITLE,
-                  },
-                  input({
-                    type: "checkbox",
-                    className: "truncation-checkbox",
-                    title: TOGGLE_MESSAGES_TRUNCATION_TITLE,
-                    checked: this.state.checked,
-                    onClick: () => {
-                      this.setState({
-                        checked: !this.state.checked,
-                      });
-                    },
-                  }),
-                  TOGGLE_MESSAGES_TRUNCATION
-                )
-              )
-          )
-        ),
         tbody(
           {
             className: "ws-frames-list-body",
+            onKeyDown: this.onKeyDown,
           },
+          tr(
+            {
+              tabIndex: 0,
+            },
+            td(
+              {
+                className: "truncated-messages-cell",
+                colSpan: visibleColumns.length,
+              },
+              shouldTruncate &&
+                div(
+                  {
+                    className: "truncated-messages-header",
+                  },
+                  div(
+                    {
+                      className: "truncated-messages-container",
+                    },
+                    div({
+                      className: "truncated-messages-warning-icon",
+                    }),
+                    div(
+                      {
+                        className: "truncated-message",
+                        title: MESSAGES_TRUNCATED,
+                      },
+                      MESSAGES_TRUNCATED
+                    )
+                  ),
+                  label(
+                    {
+                      className: "truncated-messages-checkbox-label",
+                      title: TOGGLE_MESSAGES_TRUNCATION_TITLE,
+                    },
+                    input({
+                      type: "checkbox",
+                      className: "truncation-checkbox",
+                      title: TOGGLE_MESSAGES_TRUNCATION_TITLE,
+                      checked: this.state.checked,
+                      onChange: this.toggleTruncationCheckBox,
+                    }),
+                    TOGGLE_MESSAGES_TRUNCATION
+                  )
+                )
+            )
+          ),
           displayedFrames.map((item, index) =>
             FrameListItem({
               key: "ws-frame-list-item-" + index,
@@ -171,12 +344,24 @@ class FrameListContent extends Component {
               index,
               isSelected: item === selectedFrame,
               onMouseDown: evt => this.onMouseDown(evt, item),
+              onContextMenu: evt => this.onContextMenu(evt, item),
               connector,
               visibleColumns,
             })
           )
         )
-      )
+      ),
+      isClosed &&
+        p(
+          {
+            className: "ws-connection-closed-message",
+          },
+          `${CONNECTION_CLOSED_TEXT}: ${closedConnectionDetails.code} ${closedConnectionDetails.reason}`
+        ),
+      hr({
+        ref: "scrollAnchor",
+        className: "ws-frames-list-scroll-anchor",
+      })
     );
   }
 }
@@ -186,8 +371,11 @@ module.exports = connect(
     selectedFrame: getSelectedFrame(state),
     frames: getDisplayedFrames(state),
     columns: state.webSockets.columns,
+    isClosed: isCurrentChannelClosed(state),
+    closedConnectionDetails: getClosedConnectionDetails(state),
   }),
   dispatch => ({
     selectFrame: item => dispatch(Actions.selectFrame(item)),
+    onSelectFrameDelta: delta => dispatch(Actions.selectFrameDelta(delta)),
   })
 )(FrameListContent);

@@ -11,7 +11,6 @@ DIRS += [
 ]
 
 CompiledModules(
-    'debuggee.js',
     'event-listeners.js',
     'expressions.js',
     'file-search.js',
@@ -24,5 +23,6 @@ CompiledModules(
     'source-tree.js',
     'tabs.js',
     'toolbox.js',
+    'threads.js',
     'ui.js',
 )

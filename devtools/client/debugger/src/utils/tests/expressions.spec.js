@@ -7,8 +7,10 @@
 import { wrapExpression, getValue } from "../expressions";
 import { makeMockExpression } from "../test-mockup";
 
-function createError(preview) {
-  return makeMockExpression({ result: { class: "Error", preview } });
+function createError(type, preview) {
+  return makeMockExpression({
+    result: { getGrip: () => ({ class: type, isError: true, preview }) },
+  });
 }
 
 describe("expressions", () => {
@@ -46,14 +48,16 @@ describe("expressions", () => {
 
   describe("getValue", () => {
     it("Reference Errors should be shown as (unavailable)", () => {
-      expect(getValue(createError({ name: "ReferenceError" })).value).toEqual({
+      expect(
+        getValue(createError("ReferenceError", { name: "ReferenceError" }))
+      ).toEqual({
         unavailable: true,
       });
     });
 
     it("Errors messages should be shown", () => {
       expect(
-        getValue(createError({ name: "Foo", message: "YO" })).value
+        getValue(createError("Error", { name: "Foo", message: "YO" }))
       ).toEqual("Foo: YO");
     });
   });

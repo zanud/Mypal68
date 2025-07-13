@@ -6,13 +6,16 @@
 
 const Services = require("Services");
 const { gDevTools } = require("devtools/client/framework/devtools");
-const { L10N } = require("../utils/l10n");
+const { L10N } = require("devtools/client/netmonitor/src/utils/l10n");
 const {
   formDataURI,
   getUrlQuery,
   getUrlBaseName,
   parseQueryString,
-} = require("../utils/request-utils");
+} = require("devtools/client/netmonitor/src/utils/request-utils");
+const {
+  hasMatchingBlockingRequestPattern,
+} = require("devtools/client/netmonitor/src/utils/request-blocking");
 
 loader.lazyRequireGetter(this, "Curl", "devtools/client/shared/curl", true);
 loader.lazyRequireGetter(this, "saveAs", "devtools/shared/DevToolsUtils", true);
@@ -40,10 +43,10 @@ class RequestListContextMenu {
     this.props = props;
   }
 
-  open(event, clickedRequest, requests) {
+  /* eslint-disable complexity */
+  open(event, clickedRequest, requests, blockedUrls) {
     const {
       id,
-      blockedReason,
       isCustom,
       formDataSections,
       method,
@@ -60,14 +63,15 @@ class RequestListContextMenu {
       url,
     } = clickedRequest;
     const {
-      blockSelectedRequestURL,
       connector,
       cloneRequest,
       openDetailsPanelTab,
       sendCustomRequest,
       openStatistics,
       openRequestInTab,
-      unblockSelectedRequestURL,
+      openRequestBlockingAndAddUrl,
+      openRequestBlockingAndDisableUrls,
+      removeBlockedUrl,
     } = this.props;
     const menu = [];
     const copySubmenu = [];
@@ -260,18 +264,28 @@ class RequestListContextMenu {
     menu.push({
       id: "request-list-context-block-url",
       label: L10N.getStr("netmonitor.context.blockURL"),
-      visible: !!(clickedRequest && !blockedReason),
+      visible: !hasMatchingBlockingRequestPattern(
+        blockedUrls,
+        clickedRequest.url
+      ),
       click: () => {
-        blockSelectedRequestURL(clickedRequest);
+        openRequestBlockingAndAddUrl(clickedRequest.url);
       },
     });
 
     menu.push({
       id: "request-list-context-unblock-url",
       label: L10N.getStr("netmonitor.context.unblockURL"),
-      visible: !!(clickedRequest && blockedReason),
+      visible: hasMatchingBlockingRequestPattern(
+        blockedUrls,
+        clickedRequest.url
+      ),
       click: () => {
-        unblockSelectedRequestURL(clickedRequest);
+        if (blockedUrls.find(blockedUrl => blockedUrl === clickedRequest.url)) {
+          removeBlockedUrl(clickedRequest.url);
+        } else {
+          openRequestBlockingAndDisableUrls(clickedRequest.url);
+        }
       },
     });
 
@@ -317,7 +331,7 @@ class RequestListContextMenu {
       id: "request-list-context-perf",
       label: L10N.getStr("netmonitor.context.perfTools"),
       accesskey: L10N.getStr("netmonitor.context.perfTools.accesskey"),
-      visible: requests.size > 0,
+      visible: requests.length > 0,
       click: () => openStatistics(true),
     });
 

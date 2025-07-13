@@ -5,7 +5,6 @@
 // @flow
 
 import { PROMISE } from "../utils/middleware/promise";
-import { recordEvent } from "../../utils/telemetry";
 import type { ThunkArgs } from "../types";
 
 /**
@@ -18,12 +17,6 @@ export function pauseOnExceptions(
   shouldPauseOnCaughtExceptions: boolean
 ) {
   return ({ dispatch, getState, client }: ThunkArgs) => {
-    recordEvent("pause_on_exceptions", {
-      exceptions: shouldPauseOnExceptions,
-      // There's no "n" in the key below (#1463117)
-      ["caught_exceptio"]: shouldPauseOnCaughtExceptions,
-    });
-
     return dispatch({
       type: "PAUSE_ON_EXCEPTIONS",
       shouldPauseOnExceptions,

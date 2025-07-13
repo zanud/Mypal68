@@ -29,11 +29,11 @@ add_task(async function() {
   await wait;
 
   const requests = {
-    get: getSortedRequests(store.getState()).get(0),
-    post: getSortedRequests(store.getState()).get(1),
-    patch: getSortedRequests(store.getState()).get(2),
-    multipart: getSortedRequests(store.getState()).get(3),
-    multipartForm: getSortedRequests(store.getState()).get(4),
+    get: getSortedRequests(store.getState())[0],
+    post: getSortedRequests(store.getState())[1],
+    patch: getSortedRequests(store.getState())[2],
+    multipart: getSortedRequests(store.getState())[3],
+    multipartForm: getSortedRequests(store.getState())[4],
   };
 
   let data = await createCurlData(requests.get, getLongString, requestData);

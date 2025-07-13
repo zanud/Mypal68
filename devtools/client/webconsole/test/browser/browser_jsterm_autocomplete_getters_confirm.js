@@ -13,10 +13,13 @@ const TEST_URI = `data:text/html;charset=utf-8,
      * Object prototype properties.
      */
     var obj = props => Object.create(null, Object.getOwnPropertyDescriptors(props));
+    let sideEffect;
     window.foo = obj({
       get bar() {
+        sideEffect = "bar";
         return obj({
           get baz() {
+            sideEffect = "baz";
             return obj({
               hello: 1,
               world: "",
@@ -26,6 +29,7 @@ const TEST_URI = `data:text/html;charset=utf-8,
         })
       },
       get rab() {
+        sideEffect = "rab";
         return "";
       }
     });
@@ -34,6 +38,8 @@ const TEST_URI = `data:text/html;charset=utf-8,
 <body>Autocomplete popup - invoke getter usage test</body>`;
 
 add_task(async function() {
+  await pushPref("devtools.editor.autoclosebrackets", false);
+
   const hud = await openNewTabAndConsole(TEST_URI);
   const { jsterm } = hud;
   const { autocompletePopup } = jsterm;
@@ -59,9 +65,8 @@ add_task(async function() {
   EventUtils.synthesizeKey("KEY_Tab");
   await onPopUpOpen;
   ok(autocompletePopup.isOpen, "popup is open after Tab");
-  is(
-    getAutocompletePopupLabels(autocompletePopup).join("-"),
-    "baz-bloop",
+  ok(
+    hasExactPopupLabels(autocompletePopup, ["baz", "bloop"]),
     "popup has expected items"
   );
   checkInputValueAndCursorPosition(hud, "window.foo.bar.|");
@@ -93,9 +98,8 @@ add_task(async function() {
   EventUtils.synthesizeKey("KEY_Tab");
   await onPopUpOpen;
   ok(autocompletePopup.isOpen, "popup is open after Tab");
-  is(
-    getAutocompletePopupLabels(autocompletePopup).join("-"),
-    `"hello"-"world"`,
+  ok(
+    hasExactPopupLabels(autocompletePopup, [`"hello"`, `"world"`]),
     "popup has expected items"
   );
   checkInputValueAndCursorPosition(hud, "window.foo.bar.baz[|");
@@ -112,7 +116,7 @@ add_task(async function() {
   await onPopUpOpen;
   ok(autocompletePopup.isOpen, "got items of getter result");
   ok(
-    getAutocompletePopupLabels(autocompletePopup).includes("toExponential"),
+    hasPopupLabel(autocompletePopup, "toExponential"),
     "popup has expected items"
   );
 
@@ -139,7 +143,7 @@ add_task(async function() {
     "popup is open after clicking on the confirm button"
   );
   ok(
-    getAutocompletePopupLabels(autocompletePopup).includes("startsWith"),
+    hasPopupLabel(autocompletePopup, "startsWith"),
     "popup has expected items"
   );
   checkInputValueAndCursorPosition(hud, "window.foo.rab.|");

@@ -86,9 +86,7 @@ AutoRefreshHighlighter.prototype = {
   _ignoreZoom: false,
 
   /**
-   * Window corresponding to the current highlighterEnv. When replaying, this
-   * will be the window against which the server is running, which is different
-   * from the window containing the target content.
+   * Window corresponding to the current highlighterEnv.
    */
   get win() {
     if (!this.highlighterEnv) {

@@ -4,6 +4,7 @@
 
 "use strict";
 
+const Debugger = require("Debugger");
 const DevToolsUtils = require("devtools/shared/DevToolsUtils");
 
 loader.lazyRequireGetter(
@@ -36,6 +37,16 @@ loader.lazyRequireGetter(
   "LongStringActor",
   "devtools/server/actors/string",
   true
+);
+loader.lazyRequireGetter(
+  this,
+  "eagerEcmaWhitelist",
+  "devtools/server/actors/webconsole/eager-ecma-whitelist"
+);
+loader.lazyRequireGetter(
+  this,
+  "eagerFunctionWhitelist",
+  "devtools/server/actors/webconsole/eager-function-whitelist"
 );
 
 function isObject(value) {
@@ -90,8 +101,9 @@ function isObject(value) {
  *        in the Inspector (or null, if there is no selection). This is used
  *        for helper functions that make reference to the currently selected
  *        node, like $0.
- *         - url: the url to evaluate the script as. Defaults to
- *         "debugger eval code".
+ *        - eager: Set to true if you want the evaluation to bail if it may have side effects.
+ *        - url: the url to evaluate the script as. Defaults to "debugger eval code",
+ *        or "debugger eager eval code" if eager is true.
  * @return object
  *         An object that holds the following properties:
  *         - dbg: the debugger where the string was evaluated.
@@ -105,13 +117,10 @@ function isObject(value) {
 exports.evalWithDebugger = function(string, options = {}, webConsole) {
   const evalString = getEvalInput(string);
   const { frame, dbg } = getFrameDbg(options, webConsole);
-  // early return for replay
-  if (dbg.replaying) {
-    return evalReplay(frame, dbg, evalString);
-  }
+
   const { dbgWindow, bindSelf } = getDbgWindow(options, dbg, webConsole);
   const helpers = getHelpers(dbgWindow, options, webConsole);
-  const { bindings, helperCache } = bindCommands(
+  let { bindings, helperCache } = bindCommands(
     isCommand(string),
     dbgWindow,
     bindSelf,
@@ -119,20 +128,57 @@ exports.evalWithDebugger = function(string, options = {}, webConsole) {
     helpers
   );
 
+  if (options.bindings) {
+    bindings = { ...(bindings || {}), ...options.bindings };
+  }
+
   // Ready to evaluate the string.
   helpers.evalInput = string;
-  const evalOptions =
-    typeof options.url === "string" ? { url: options.url } : null;
+  const evalOptions = {};
+
+  const urlOption =
+    options.url || (options.eager ? "debugger eager eval code" : null);
+  if (typeof urlOption === "string") {
+    evalOptions.url = urlOption;
+  }
+
+  if (typeof options.lineNumber === "number") {
+    evalOptions.lineNumber = options.lineNumber;
+  }
 
   updateConsoleInputEvaluation(dbg, dbgWindow, webConsole);
 
-  const result = getEvalResult(
-    evalString,
-    evalOptions,
-    bindings,
-    frame,
-    dbgWindow
-  );
+  let noSideEffectDebugger = null;
+  if (options.eager) {
+    noSideEffectDebugger = makeSideeffectFreeDebugger();
+  }
+
+  let result;
+  try {
+    result = getEvalResult(
+      dbg,
+      evalString,
+      evalOptions,
+      bindings,
+      frame,
+      dbgWindow,
+      noSideEffectDebugger
+    );
+  } finally {
+    // We need to be absolutely sure that the sideeffect-free debugger's
+    // debuggees are removed because otherwise we risk them terminating
+    // execution of later code in the case of unexpected exceptions.
+    if (noSideEffectDebugger) {
+      noSideEffectDebugger.removeAllDebuggees();
+    }
+  }
+
+  // Attempt to initialize any declarations found in the evaluated string
+  // since they may now be stuck in an "initializing" state due to the
+  // error. Already-initialized bindings will be ignored.
+  if (!frame && result && "throw" in result) {
+    parseErrorOutput(dbgWindow, string);
+  }
 
   const { helperResult } = helpers;
 
@@ -151,25 +197,57 @@ exports.evalWithDebugger = function(string, options = {}, webConsole) {
   };
 };
 
-function getEvalResult(string, evalOptions, bindings, frame, dbgWindow) {
-  if (frame) {
-    return frame.evalWithBindings(string, bindings, evalOptions);
+function getEvalResult(
+  dbg,
+  string,
+  evalOptions,
+  bindings,
+  frame,
+  dbgWindow,
+  noSideEffectDebugger
+) {
+  if (noSideEffectDebugger) {
+    // When a sideeffect-free debugger has been created, we need to eval
+    // in the context of that debugger in order for the side-effect tracking
+    // to apply.
+    frame = frame ? noSideEffectDebugger.adoptFrame(frame) : null;
+    dbgWindow = noSideEffectDebugger.adoptDebuggeeValue(dbgWindow);
+    if (bindings) {
+      bindings = Object.keys(bindings).reduce((acc, key) => {
+        acc[key] = noSideEffectDebugger.adoptDebuggeeValue(bindings[key]);
+        return acc;
+      }, {});
+    }
   }
-  const result = dbgWindow.executeInGlobalWithBindings(
-    string,
-    bindings,
-    evalOptions
-  );
-  // Attempt to initialize any declarations found in the evaluated string
-  // since they may now be stuck in an "initializing" state due to the
-  // error. Already-initialized bindings will be ignored.
-  if ("throw" in result) {
-    parseErrorOutput(dbgWindow, string);
+
+  let result;
+  if (frame) {
+    result = frame.evalWithBindings(string, bindings, evalOptions);
+  } else {
+    result = dbgWindow.executeInGlobalWithBindings(
+      string,
+      bindings,
+      evalOptions
+    );
+  }
+  if (noSideEffectDebugger && result) {
+    if ("return" in result) {
+      result.return = dbg.adoptDebuggeeValue(result.return);
+    }
+    if ("throw" in result) {
+      result.throw = dbg.adoptDebuggeeValue(result.throw);
+    }
   }
   return result;
 }
 
 function parseErrorOutput(dbgWindow, string) {
+  // Reflect is not usable in workers, so return early to avoid logging an error
+  // to the console when loading it.
+  if (isWorker) {
+    return;
+  }
+
   let ast;
   // Parse errors will raise an exception. We can/should ignore the error
   // since it's already being handled elsewhere and we are only interested
@@ -228,6 +306,135 @@ function parseErrorOutput(dbgWindow, string) {
       dbgWindow.forceLexicalInitializationByName(name);
     }
   }
+}
+
+function makeSideeffectFreeDebugger() {
+  // We ensure that the metadata for native functions is loaded before we
+  // initialize sideeffect-prevention because the data is lazy-loaded, and this
+  // logic can run inside of debuggee compartments because the
+  // "addAllGlobalsAsDebuggees" considers the vast majority of realms
+  // valid debuggees. Without this, eager-eval runs the risk of failing
+  // because building the list of valid native functions is itself a
+  // side-effectful operation because it needs to populate a
+  // module cache, among any number of other things.
+  ensureSideEffectFreeNatives();
+
+  // Note: It is critical for debuggee performance that we implement all of
+  // this debuggee tracking logic with a separate Debugger instance.
+  // Bug 1617666 arises otherwise if we set an onEnterFrame hook on the
+  // existing debugger object and then later clear it.
+  const dbg = new Debugger();
+  dbg.addAllGlobalsAsDebuggees();
+
+  const timeoutDuration = 100;
+  const endTime = Date.now() + timeoutDuration;
+  let count = 0;
+  function shouldCancel() {
+    // To keep the evaled code as quick as possible, we avoid querying the
+    // current time on ever single step and instead check every 100 steps
+    // as an arbitrary count that seemed to be "often enough".
+    return ++count % 100 === 0 && Date.now() > endTime;
+  }
+
+  const executedScripts = new Set();
+  const handler = {
+    hit: () => null,
+  };
+  dbg.onEnterFrame = frame => {
+    if (shouldCancel()) {
+      return null;
+    }
+    frame.onStep = () => {
+      if (shouldCancel()) {
+        return null;
+      }
+      return undefined;
+    };
+
+    const script = frame.script;
+
+    if (executedScripts.has(script)) {
+      return undefined;
+    }
+    executedScripts.add(script);
+
+    const offsets = script.getEffectfulOffsets();
+    for (const offset of offsets) {
+      script.setBreakpoint(offset, handler);
+    }
+
+    return undefined;
+  };
+
+  // The debugger only calls onNativeCall handlers on the debugger that is
+  // explicitly calling eval, so we need to add this hook on "dbg" even though
+  // the rest of our hooks work via "newDbg".
+  dbg.onNativeCall = (callee, reason) => {
+    try {
+      // Getters are never considered effectful, and setters are always effectful.
+      // Natives called normally are handled with a whitelist.
+      if (
+        reason == "get" ||
+        (reason == "call" && nativeHasNoSideEffects(callee))
+      ) {
+        // Returning undefined causes execution to continue normally.
+        return undefined;
+      }
+    } catch (err) {
+      DevToolsUtils.reportException(
+        "evalWithDebugger onNativeCall",
+        new Error("Unable to validate native function against whitelist")
+      );
+    }
+    // Returning null terminates the current evaluation.
+    return null;
+  };
+
+  return dbg;
+}
+
+// Native functions which are considered to be side effect free.
+let gSideEffectFreeNatives; // string => Array(Function)
+
+function ensureSideEffectFreeNatives() {
+  if (gSideEffectFreeNatives) {
+    return;
+  }
+
+  const natives = [
+    ...eagerEcmaWhitelist,
+
+    // Pull in all of the non-ECMAScript native functions that we want to
+    // whitelist as well.
+    ...eagerFunctionWhitelist,
+  ];
+
+  const map = new Map();
+  for (const n of natives) {
+    if (!map.has(n.name)) {
+      map.set(n.name, []);
+    }
+    map.get(n.name).push(n);
+  }
+
+  gSideEffectFreeNatives = map;
+}
+
+function nativeHasNoSideEffects(fn) {
+  if (fn.isBoundFunction) {
+    fn = fn.boundTargetFunction;
+  }
+
+  // Natives with certain names are always considered side effect free.
+  switch (fn.name) {
+    case "toString":
+    case "toLocaleString":
+    case "valueOf":
+      return true;
+  }
+
+  const natives = gSideEffectFreeNatives.get(fn.name);
+  return natives && natives.some(n => fn.isSameNative(n));
 }
 
 function updateConsoleInputEvaluation(dbg, dbgWindow, webConsole) {
@@ -289,28 +496,6 @@ function getFrameDbg(options, webConsole) {
   );
 }
 
-function evalReplay(frame, dbg, string) {
-  // If the debugger is replaying then we can't yet introduce new bindings
-  // for the eval, so compute the result now.
-  let result;
-  if (frame) {
-    try {
-      result = frame.eval(string);
-    } catch (e) {
-      result = { throw: e };
-    }
-  } else {
-    result = { throw: "Cannot evaluate while replaying without a frame" };
-  }
-  return {
-    result: result,
-    helperResult: null,
-    dbg: dbg,
-    frame: frame,
-    window: null,
-  };
-}
-
 function getDbgWindow(options, dbg, webConsole) {
   const dbgWindow = dbg.makeGlobalObjectReference(webConsole.evalWindow);
 
@@ -370,11 +555,8 @@ function bindCommands(isCmd, dbgWindow, bindSelf, frame, helpers) {
   }
   // Check if the Debugger.Frame or Debugger.Object for the global include any of the
   // helper function we set. We will not overwrite these functions with the Web Console
-  // commands. The exception being "print" which should exist everywhere as
-  // `window.print`, and that we don't want to trigger from the console.
-  const availableHelpers = [
-    ...WebConsoleCommands._originalCommands.keys(),
-  ].filter(h => h !== "print");
+  // commands.
+  const availableHelpers = [...WebConsoleCommands._originalCommands.keys()];
 
   let helpersToDisable = [];
   const helperCache = {};

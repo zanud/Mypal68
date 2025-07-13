@@ -17,12 +17,6 @@ loader.lazyRequireGetter(
   "devtools/server/actors/source",
   true
 );
-loader.lazyRequireGetter(
-  this,
-  "isEvalSource",
-  "devtools/server/actors/source",
-  true
-);
 
 /**
  * Manages the sources for a thread. Handles URL contents, locations in
@@ -108,20 +102,13 @@ TabSources.prototype = {
   },
 
   /**
-   * Return the source actor representing the `source` (or
-   * `originalUrl`), creating one if none exists already. May return
-   * null if the source is disallowed.
+   * Create a source actor representing this source.
    *
    * @param Debugger.Source source
-   *        The source to make an actor for
-   * @param boolean isInlineSource
-   *        True if this source is an inline HTML source, and should thus be
-   *        treated as a subsection of a larger source file.
-   * @param optional String contentType
-   *        The content type of the source, if immediately available.
+   *        The source to make an actor for.
    * @returns a SourceActor representing the source or null.
    */
-  source: function({ source, isInlineSource, contentType }) {
+  createSourceActor: function(source) {
     assert(source, "TabSources.prototype.source needs a source");
 
     if (!this.allowSource(source)) {
@@ -135,11 +122,9 @@ TabSources.prototype = {
     const actor = new SourceActor({
       thread: this._thread,
       source,
-      isInlineSource,
-      contentType,
     });
 
-    this._thread.threadLifetimePool.addActor(actor);
+    this._thread.threadLifetimePool.manage(actor);
 
     if (
       this._autoBlackBox &&
@@ -264,104 +249,6 @@ TabSources.prototype = {
       // whole thing with the minified source regexp.
       return MINIFIED_SOURCE_REGEXP.test(uri);
     }
-  },
-
-  /**
-   * Return whether a source represents an inline script.
-   */
-  isInlineScript(source) {
-    // Assume the source is inline if the element that introduced it is a
-    // script element and does not have a src attribute.
-    try {
-      const e = source.element ? source.element.unsafeDereference() : null;
-      return e && e.tagName === "SCRIPT" && !e.hasAttribute("src");
-    } catch (e) {
-      // If we are debugging a dead window then the above can throw.
-      DevToolsUtils.reportException("TabSources.isInlineScript", e);
-      return false;
-    }
-  },
-
-  /**
-   * Create a source actor representing this source.
-   *
-   * @param Debugger.Source source
-   *        The source instance to create an actor for.
-   * @returns SourceActor
-   */
-  createSourceActor: function(source) {
-    // Don't use getSourceURL because we don't want to consider the
-    // displayURL property if it's an eval source. We only want to
-    // consider real URLs, otherwise if there is a URL but it's
-    // invalid the code below will not set the content type, and we
-    // will later try to fetch the contents of the URL to figure out
-    // the content type, but it's a made up URL for eval sources.
-    const url = isEvalSource(source) ? null : source.url;
-    const spec = { source };
-
-    // XXX bug 915433: We can't rely on Debugger.Source.prototype.text
-    // if the source is an HTML-embedded <script> tag. Since we don't
-    // have an API implemented to detect whether this is the case, we
-    // need to be conservative and only treat valid js files as real
-    // sources. Otherwise, use the `originalUrl` property to treat it
-    // as an HTML source that manages multiple inline sources.
-
-    if (this.isInlineScript(source)) {
-      if (source.introductionScript) {
-        // As for other evaluated sources, script elements which were
-        // dynamically generated when another script ran should have
-        // a javascript content-type.
-        spec.contentType = "text/javascript";
-      } else {
-        spec.isInlineSource = true;
-      }
-    } else if (source.introductionType === "wasm") {
-      // Wasm sources are not JavaScript. Give them their own content-type.
-      spec.contentType = "text/wasm";
-    } else if (source.introductionType === "debugger eval") {
-      // All debugger eval code should have a text/javascript content-type.
-      // See Bug 1399064
-      spec.contentType = "text/javascript";
-    } else if (url) {
-      // There are a few special URLs that we know are JavaScript:
-      // inline `javascript:` and code coming from the console
-      if (
-        url.indexOf("javascript:") === 0 ||
-        url === "debugger eval code" ||
-        url === "sandbox eval code"
-      ) {
-        spec.contentType = "text/javascript";
-      } else {
-        try {
-          const pathname = new URL(url).pathname;
-          const filename = pathname.slice(pathname.lastIndexOf("/") + 1);
-          const index = filename.lastIndexOf(".");
-          const extension = index >= 0 ? filename.slice(index + 1) : "";
-          if (extension === "xml") {
-            // XUL inline scripts may not correctly have the
-            // `source.element` property, so do a blunt check here if
-            // it's an xml page.
-            spec.isInlineSource = true;
-          } else if (extension === "js") {
-            spec.contentType = "text/javascript";
-          }
-        } catch (e) {
-          // This only needs to be here because URL is not yet exposed to
-          // workers. (BUG 1258892)
-          const filename = url;
-          const index = filename.lastIndexOf(".");
-          const extension = index >= 0 ? filename.slice(index + 1) : "";
-          if (extension === "js") {
-            spec.contentType = "text/javascript";
-          }
-        }
-      }
-    } else {
-      // Assume the content is javascript if there's no URL
-      spec.contentType = "text/javascript";
-    }
-
-    return this.source(spec);
   },
 
   /**
@@ -585,6 +472,25 @@ TabSources.prototype = {
     } catch (error) {
       this._reportLoadSourceError(error);
       throw error;
+    }
+
+    // When we fetch the contents, there is a risk that the contents we get
+    // do not match up with the actual text of the sources these contents will
+    // be associated with. We want to always show contents that include that
+    // actual text (otherwise it will be very confusing or unusable for users),
+    // so replace the contents with the actual text if there is a mismatch.
+    const actors = [...this._sourceActors.values()].filter(
+      actor => actor.url == url
+    );
+    if (!actors.every(actor => actor.contentMatches(result))) {
+      if (actors.length > 1) {
+        // When there are multiple actors we won't be able to show the source
+        // for all of them. Ask the user to reload so that we don't have to do
+        // any fetching.
+        result.content = "Error: Incorrect contents fetched, please reload.";
+      } else {
+        result.content = actors[0].actualText();
+      }
     }
 
     this._urlContents.set(url, { ...result, complete: true });

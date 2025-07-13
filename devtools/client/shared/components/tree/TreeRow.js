@@ -16,8 +16,12 @@ define(function(require, exports, module) {
   const { tr } = dom;
 
   // Tree
-  const TreeCell = createFactory(require("./TreeCell"));
-  const LabelCell = createFactory(require("./LabelCell"));
+  const TreeCell = createFactory(
+    require("devtools/client/shared/components/tree/TreeCell")
+  );
+  const LabelCell = createFactory(
+    require("devtools/client/shared/components/tree/LabelCell")
+  );
 
   const { focusableSelector } = require("devtools/client/shared/focus");
 
@@ -42,8 +46,8 @@ define(function(require, exports, module) {
     static get propTypes() {
       return {
         member: PropTypes.shape({
-          object: PropTypes.obSject,
-          name: PropTypes.sring,
+          object: PropTypes.object,
+          name: PropTypes.string,
           type: PropTypes.string.isRequired,
           rowClass: PropTypes.string.isRequired,
           level: PropTypes.number.isRequired,
@@ -57,8 +61,8 @@ define(function(require, exports, module) {
           loading: PropTypes.bool,
         }),
         decorator: PropTypes.object,
-        renderCell: PropTypes.object,
-        renderLabelCell: PropTypes.object,
+        renderCell: PropTypes.func,
+        renderLabelCell: PropTypes.func,
         columns: PropTypes.array.isRequired,
         id: PropTypes.string.isRequired,
         provider: PropTypes.object.isRequired,

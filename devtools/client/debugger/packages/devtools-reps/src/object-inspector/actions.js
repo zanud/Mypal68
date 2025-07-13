@@ -7,7 +7,13 @@
 import type { GripProperties, Node, Props, ReduxAction } from "./types";
 
 const { loadItemProperties } = require("./utils/load-properties");
-const { getPathExpression, getValue } = require("./utils/node");
+const {
+  getPathExpression,
+  getParentFront,
+  getParentGripValue,
+  getValue,
+  nodeIsBucket,
+} = require("./utils/node");
 const { getLoadedProperties, getActors, getWatchpoints } = require("./reducer");
 
 type Dispatch = ReduxAction => void;
@@ -22,7 +28,7 @@ type ThunkArg = {
  * it will call the action responsible to fetch properties.
  */
 function nodeExpand(node: Node, actor) {
-  return async ({ dispatch, getState }: ThunkArg) => {
+  return async ({ dispatch }: ThunkArg) => {
     dispatch({ type: "NODE_EXPAND", data: { node } });
     dispatch(nodeLoadProperties(node, actor));
   };
@@ -37,7 +43,7 @@ function nodeCollapse(node: Node) {
 
 /*
  * This action checks if we need to fetch properties, entries, prototype and
- * symbols for a given node. If we do, it will call the appropriate ObjectClient
+ * symbols for a given node. If we do, it will call the appropriate ObjectFront
  * functions.
  */
 function nodeLoadProperties(node: Node, actor) {
@@ -51,10 +57,15 @@ function nodeLoadProperties(node: Node, actor) {
     try {
       const properties = await loadItemProperties(
         node,
-        client.createObjectClient,
-        client.createLongStringClient,
+        client,
         loadedProperties
       );
+
+      // If the client does not have a releaseActor function, it means the actors are
+      // handled directly by the consumer, so we don't need to track them.
+      if (!client || !client.releaseActor) {
+        actor = null;
+      }
 
       dispatch(nodePropertiesLoaded(node, actor, properties));
     } catch (e) {
@@ -80,7 +91,12 @@ function nodePropertiesLoaded(
 function addWatchpoint(item, watchpoint: string) {
   return async function({ dispatch, client }: ThunkArgs) {
     const { parent, name } = item;
-    const object = getValue(parent);
+    let object = getValue(parent);
+
+    if (nodeIsBucket(parent)) {
+      object = getValue(parent.parent);
+    }
+
     if (!object) {
       return;
     }
@@ -104,9 +120,15 @@ function addWatchpoint(item, watchpoint: string) {
  */
 function removeWatchpoint(item) {
   return async function({ dispatch, client }: ThunkArgs) {
-    const object = getValue(item.parent);
-    const property = item.name;
-    const path = item.parent.path;
+    const { parent, name } = item;
+    let object = getValue(parent);
+
+    if (nodeIsBucket(parent)) {
+      object = getValue(parent.parent);
+    }
+
+    const property = name;
+    const path = parent.path;
     const actor = object.actor;
 
     await client.removeWatchpoint(object, property);
@@ -119,9 +141,8 @@ function removeWatchpoint(item) {
 }
 
 function closeObjectInspector() {
-  return async ({ getState, client }: ThunkArg) => {
-    releaseActors(getState(), client);
-  };
+  return ({ dispatch, getState, client }: ThunkArg) =>
+    releaseActors(getState(), client, dispatch);
 }
 
 /*
@@ -133,8 +154,8 @@ function closeObjectInspector() {
  * consumer.
  */
 function rootsChanged(props: Props) {
-  return async ({ dispatch, client, getState }: ThunkArg) => {
-    releaseActors(getState(), client);
+  return ({ dispatch, client, getState }: ThunkArg) => {
+    releaseActors(getState(), client, dispatch);
     dispatch({
       type: "ROOTS_CHANGED",
       data: props,
@@ -142,32 +163,34 @@ function rootsChanged(props: Props) {
   };
 }
 
-function releaseActors(state, client) {
+async function releaseActors(state, client, dispatch) {
   const actors = getActors(state);
-  const watchpoints = getWatchpoints(state);
-
-  for (const actor of actors) {
-    // Watchpoints are stored in object actors.
-    // If we release the actor we lose the watchpoint.
-    if (!watchpoints.has(actor)) {
-      client.releaseActor(actor);
-    }
+  if (!client || !client.releaseActor || actors.size === 0) {
+    return;
   }
+
+  let promises = [];
+  for (const actor of actors) {
+    promises.push(client.releaseActor(actor));
+  }
+
+  await Promise.all(promises);
+
+  dispatch({
+    type: "RELEASED_ACTORS",
+    data: { actors },
+  });
 }
 
-function invokeGetter(
-  node: Node,
-  targetGrip: object,
-  receiverId: string | null,
-  getterName: string
-) {
+function invokeGetter(node: Node, receiverId: string | null) {
   return async ({ dispatch, client, getState }: ThunkArg) => {
     try {
-      const objectClient = client.createObjectClient(targetGrip);
-      const result = await objectClient.getPropertyValue(
-        getterName,
-        receiverId
-      );
+      const objectFront =
+        getParentFront(node) ||
+        client.createObjectFront(getParentGripValue(node));
+      const getterName = node.propertyName || node.name;
+
+      const result = await objectFront.getPropertyValue(getterName, receiverId);
       dispatch({
         type: "GETTER_INVOKED",
         data: {

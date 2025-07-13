@@ -10,7 +10,7 @@ const EventEmitter = require("devtools/shared/event-emitter");
 const { executeSoon } = require("devtools/shared/DevToolsUtils");
 const { Toolbox } = require("devtools/client/framework/toolbox");
 const ReflowTracker = require("devtools/client/inspector/shared/reflow-tracker");
-const Store = require("devtools/client/inspector/store");
+const createStore = require("devtools/client/inspector/store");
 const InspectorStyleChangeTracker = require("devtools/client/inspector/shared/style-change-tracker");
 
 // Use privileged promise in panel documents to prevent having them to freeze
@@ -20,7 +20,7 @@ const Promise = require("Promise");
 loader.lazyRequireGetter(
   this,
   "initCssProperties",
-  "devtools/shared/fronts/css-properties",
+  "devtools/client/fronts/css-properties",
   true
 );
 loader.lazyRequireGetter(
@@ -66,12 +66,10 @@ loader.lazyRequireGetter(
   "saveScreenshot",
   "devtools/shared/screenshot/save"
 );
-loader.lazyRequireGetter(
-  this,
-  "ObjectClient",
-  "devtools/shared/client/object-client"
-);
 
+// This import to chrome code is forbidden according to the inspector specific
+// eslintrc. TODO: Fix in Bug 1591091.
+// eslint-disable-next-line mozilla/reject-some-requires
 loader.lazyImporter(
   this,
   "DeferredTask",
@@ -146,17 +144,7 @@ function Inspector(toolbox) {
   this.panelDoc = window.document;
   this.panelWin = window;
   this.panelWin.inspector = this;
-  this.store = Store({
-    createObjectClient: object => {
-      return new ObjectClient(toolbox.target.client, object);
-    },
-    releaseActor: actor => {
-      if (!actor) {
-        return;
-      }
-      toolbox.target.client.release(actor);
-    },
-  });
+  this.store = createStore();
 
   // Map [panel id => panel instance]
   // Stores all the instances of sidebar panels like rule view, computed view, ...
@@ -198,7 +186,7 @@ Inspector.prototype = {
 
     await this.initInspectorFront();
 
-    this.target.on("will-navigate", this._onBeforeNavigate);
+    this.currentTarget.on("will-navigate", this._onBeforeNavigate);
 
     await Promise.all([
       this._getCssProperties(),
@@ -210,8 +198,8 @@ Inspector.prototype = {
 
     // Store the URL of the target page prior to navigation in order to ensure
     // telemetry counts in the Grid Inspector are not double counted on reload.
-    this.previousURL = this.target.url;
-    this.reflowTracker = new ReflowTracker(this.target);
+    this.previousURL = this.currentTarget.url;
+    this.reflowTracker = new ReflowTracker(this.currentTarget);
     this.styleChangeTracker = new InspectorStyleChangeTracker(this);
 
     this._markupBox = this.panelDoc.getElementById("markup-box");
@@ -220,7 +208,7 @@ Inspector.prototype = {
   },
 
   async initInspectorFront() {
-    this.inspectorFront = await this.target.getFront("inspector");
+    this.inspectorFront = await this.currentTarget.getFront("inspector");
     this.highlighter = this.inspectorFront.highlighter;
     this.walker = this.inspectorFront.walker;
   },
@@ -242,7 +230,7 @@ Inspector.prototype = {
   },
 
   get is3PaneModeEnabled() {
-    if (this.target.chrome) {
+    if (this.currentTarget.chrome) {
       if (!this._is3PaneModeChromeEnabled) {
         this._is3PaneModeChromeEnabled = Services.prefs.getBoolPref(
           THREE_PANE_CHROME_ENABLED_PREF
@@ -262,7 +250,7 @@ Inspector.prototype = {
   },
 
   set is3PaneModeEnabled(value) {
-    if (this.target.chrome) {
+    if (this.currentTarget.chrome) {
       this._is3PaneModeChromeEnabled = value;
       Services.prefs.setBoolPref(
         THREE_PANE_CHROME_ENABLED_PREF,
@@ -369,7 +357,9 @@ Inspector.prototype = {
   },
 
   _getAccessibilityFront: async function() {
-    this.accessibilityFront = await this.target.getFront("accessibility");
+    this.accessibilityFront = await this.currentTarget.getFront(
+      "accessibility"
+    );
     return this.accessibilityFront;
   },
 
@@ -377,7 +367,7 @@ Inspector.prototype = {
     // Get the Changes front, then call a method on it, which will instantiate
     // the ChangesActor. We want the ChangesActor to be guaranteed available before
     // the user makes any changes.
-    this.changesFront = await this.toolbox.target.getFront("changes");
+    this.changesFront = await this.currentTarget.getFront("changes");
     await this.changesFront.start();
     return this.changesFront;
   },
@@ -468,15 +458,8 @@ Inspector.prototype = {
   /**
    * Target getter.
    */
-  get target() {
+  get currentTarget() {
     return this._target;
-  },
-
-  /**
-   * Target setter.
-   */
-  set target(value) {
-    this._target = value;
   },
 
   /**
@@ -915,6 +898,13 @@ Inspector.prototype = {
     }
 
     this.emit("ruleview-added");
+  },
+
+  /**
+   * Returns a boolean indicating whether a sidebar panel instance exists.
+   */
+  hasPanel: function(id) {
+    return this._panels.has(id);
   },
 
   /**
@@ -1423,7 +1413,7 @@ Inspector.prototype = {
     await this._onLazyPanelResize();
     // Note that we may have been destroyed by now, especially in tests, so we
     // need to check if that's happened before touching anything else.
-    if (!this.target || !this.is3PaneModeEnabled) {
+    if (!this.currentTarget || !this.is3PaneModeEnabled) {
       return;
     }
 
@@ -1548,7 +1538,7 @@ Inspector.prototype = {
     this.sidebar.off("show", this.onSidebarShown);
     this.sidebar.off("hide", this.onSidebarHidden);
     this.sidebar.off("destroy", this.onSidebarHidden);
-    this.target.off("will-navigate", this._onBeforeNavigate);
+    this.currentTarget.off("will-navigate", this._onBeforeNavigate);
 
     for (const [, panel] of this._panels) {
       panel.destroy();
@@ -1719,6 +1709,12 @@ Inspector.prototype = {
       return;
     }
 
+    // turn off node picker when add node is triggered
+    this.toolbox.nodePicker.stop();
+
+    // turn off color picker when add node is triggered
+    this.hideEyeDropper();
+
     const html = "<div></div>";
 
     // Insert the html and expect a childList markup mutation.
@@ -1772,7 +1768,7 @@ Inspector.prototype = {
       nodeActorID: this.selection.nodeFront.actorID,
       clipboard: clipboardEnabled,
     };
-    const screenshotFront = await this.target.getFront("screenshot");
+    const screenshotFront = await this.currentTarget.getFront("screenshot");
     const screenshot = await screenshotFront.capture(args);
     await saveScreenshot(this.panelWin, args, screenshot);
   },

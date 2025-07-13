@@ -118,12 +118,13 @@ add_task(async function() {
       const requestsListStatus = requestItem.querySelector(".status-code");
       EventUtils.sendMouseEvent({ type: "mouseover" }, requestsListStatus);
       await waitUntil(() => requestsListStatus.title);
+      await waitForDOMIfNeeded(requestItem, ".requests-list-timings-total");
     }
 
     info("Verifying requests contain correct information.");
     let index = 0;
     for (const request of REQUEST_DATA) {
-      const item = getSortedRequests(store.getState()).get(index);
+      const item = getSortedRequests(store.getState())[index];
       requestItems[index] = item;
 
       info("Verifying request #" + index);

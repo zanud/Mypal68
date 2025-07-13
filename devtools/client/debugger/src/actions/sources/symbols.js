@@ -16,10 +16,15 @@ import {
 } from "../../utils/memoizableAction";
 import { fulfilled } from "../../utils/async-value";
 
+import type { ThunkArgs } from "../../actions/types";
 import type { Source, Context } from "../../types";
 import type { Symbols } from "../../reducers/types";
 
-async function doSetSymbols(cx, source, { dispatch, getState, parser }) {
+async function doSetSymbols(
+  cx,
+  source: Source,
+  { dispatch, getState, parser }: ThunkArgs
+) {
   const sourceId = source.id;
 
   await dispatch(loadSourceText({ cx, source }));
@@ -37,24 +42,22 @@ async function doSetSymbols(cx, source, { dispatch, getState, parser }) {
   }
 }
 
-type Args = { cx: Context, source: Source };
+export const setSymbols: MemoizedAction<
+  {| cx: Context, source: Source |},
+  ?Symbols
+> = memoizeableAction("setSymbols", {
+  getValue: ({ source }, { getState }) => {
+    if (source.isWasm) {
+      return fulfilled(null);
+    }
 
-export const setSymbols: MemoizedAction<Args, ?Symbols> = memoizeableAction(
-  "setSymbols",
-  {
-    getValue: ({ source }, { getState }) => {
-      if (source.isWasm) {
-        return fulfilled(null);
-      }
+    const symbols = getSymbols(getState(), source);
+    if (!symbols || symbols.loading) {
+      return null;
+    }
 
-      const symbols = getSymbols(getState(), source);
-      if (!symbols || symbols.loading) {
-        return null;
-      }
-
-      return fulfilled(symbols);
-    },
-    createKey: ({ source }) => source.id,
-    action: ({ cx, source }, thunkArgs) => doSetSymbols(cx, source, thunkArgs),
-  }
-);
+    return fulfilled(symbols);
+  },
+  createKey: ({ source }) => source.id,
+  action: ({ cx, source }, thunkArgs) => doSetSymbols(cx, source, thunkArgs),
+});

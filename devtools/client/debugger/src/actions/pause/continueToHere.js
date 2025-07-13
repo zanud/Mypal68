@@ -7,19 +7,20 @@
 import {
   getSelectedSource,
   getSelectedFrame,
+  getClosestBreakpointPosition,
+  getBreakpoint,
 } from "../../selectors";
 import { addHiddenBreakpoint } from "../breakpoints";
+import { setBreakpointPositions } from "../breakpoints/breakpointPositions";
+
 import { resume } from "./commands";
 
 import type { ThunkArgs } from "../types";
-import type { ThreadContext } from "../../types";
+import type { ThreadContext, SourceLocation } from "../../types";
 
-export function continueToHere(
-  cx: ThreadContext,
-  line: number,
-  column?: number
-) {
+export function continueToHere(cx: ThreadContext, location: SourceLocation) {
   return async function({ dispatch, getState }: ThunkArgs) {
+    const { line, column, sourceId } = location;
     const selectedSource = getSelectedSource(getState());
     const selectedFrame = getSelectedFrame(getState(), cx.thread);
 
@@ -28,17 +29,33 @@ export function continueToHere(
     }
 
     const debugLine = selectedFrame.location.line;
-    if (debugLine == line) {
+    // If the user selects a line to continue to,
+    // it must be different than the currently paused line.
+    if (!column && debugLine == line) {
       return;
     }
 
-    await dispatch(
-      addHiddenBreakpoint(cx, {
-        line,
-        column,
-        sourceId: selectedSource.id,
-      })
-    );
+    await dispatch(setBreakpointPositions({ cx, sourceId, line }));
+    const position = getClosestBreakpointPosition(getState(), location);
+
+    // If the user selects a location in the editor,
+    // there must be a place we can pause on that line.
+    if (column && !position) {
+      return;
+    }
+
+    const pauseLocation = column && position ? position.location : location;
+    // Set a hidden breakpoint if we do not already have a breakpoint
+    // at the closest position
+    if (!getBreakpoint(getState(), pauseLocation)) {
+      await dispatch(
+        addHiddenBreakpoint(cx, {
+          sourceId: selectedSource.id,
+          line: pauseLocation.line,
+          column: pauseLocation.column,
+        })
+      );
+    }
 
     dispatch(resume(cx));
   };

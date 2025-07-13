@@ -8,13 +8,14 @@ import * as timings from "./timings";
 import { prefs, asyncStore, features } from "./prefs";
 import { isDevelopment, isTesting } from "devtools-environment";
 import { getDocument } from "./editor/source-documents";
+import type { URL } from "../types";
 
-function findSource(dbg: any, url: string) {
+function findSource(dbg: any, url: URL) {
   const sources = dbg.selectors.getSourceList();
   return sources.find(s => (s.url || "").includes(url));
 }
 
-function findSources(dbg: any, url: string) {
+function findSources(dbg: any, url: URL) {
   const sources = dbg.selectors.getSourceList();
   return sources.filter(s => (s.url || "").includes(url));
 }
@@ -95,9 +96,6 @@ export function setupHelper(obj: Object) {
       mappedLocations: locations => formatMappedLocations(locations),
       mappedLocation: location => formatMappedLocation(location),
       selectedColumnBreakpoints: () => formatSelectedColumnBreakpoints(dbg),
-    },
-    _telemetry: {
-      events: {},
     },
   };
 

@@ -11,6 +11,9 @@
   /* Icons perfectly centered in the left gutter "feel" closer to the window
    * edge than to message text. This value pushes them slightly to the right. */
   --console-icon-horizontal-offset: 1px;
+  --console-warning-background: var(--theme-warning-background);
+  --console-warning-border: var(--theme-warning-border);
+  --console-warning-color: var(--theme-warning-color);
 }
 
 .theme-dark {
@@ -21,9 +24,6 @@
   --console-error-background: hsl(345, 23%, 24%);
   --console-error-border: hsl(345, 30%, 35%);
   --console-error-color: var(--red-20);
-  --console-warning-background: hsl(42, 37%, 19%);
-  --console-warning-border: hsl(60, 30%, 26%);
-  --console-warning-color: hsl(43, 94%, 81%);
   --console-navigation-color: var(--theme-highlight-blue);
   --console-navigation-border: var(--blue-60);
   --console-indent-border-color: var(--theme-highlight-blue);
@@ -43,9 +43,6 @@
   --console-error-background: hsl(344, 73%, 97%);
   --console-error-border: rgba(215, 0, 34, 0.12); /* Red 60 + opacity */
   --console-error-color: var(--red-70);
-  --console-warning-background: hsl(54, 100%, 92%);
-  --console-warning-border: rgba(215, 182, 0, 0.28); /* Yellow 60 + opacity */
-  --console-warning-color: var(--yellow-80);
   --console-navigation-color: var(--theme-highlight-blue);
   --console-navigation-border: var(--blue-30);
   --console-indent-border-color: var(--theme-highlight-blue);
@@ -94,7 +91,7 @@ a {
  *
  * The exact stacking order is:
  *
- *   - z-index: 3 = Navigation and Paused markers
+ *   - z-index: 3 = Navigation
  *   - z-index: 2 = Errors and warnings
  *   - z-index: 1 = Other (console.log, console.info, requests, etc.)
  */
@@ -176,25 +173,6 @@ a {
   border-color: var(--console-navigation-border);
 }
 
-.message.paused {
-  z-index: 3;
-}
-
-.message.paused.paused-before {
-  border-top-color: var(--purple-50);
-}
-
-.message.paused:not(.paused-before) {
-  border-bottom-color: var(--purple-50);
-  /* always show the border, even for the last child */
-  border-bottom-width: 1px;
-}
-
-.message.paused ~ .message:not(.command):not(.result) .message-body-wrapper,
-.message.paused.paused-before .message-body-wrapper {
-  opacity: 0.5;
-}
-
 .message.startGroup,
 .message.startGroupCollapsed {
   --console-indent-border-color: transparent;
@@ -242,7 +220,8 @@ a {
   margin-inline-end: calc(11px - var(--console-icon-horizontal-offset));
 }
 
-.message > .icon {
+.message > .icon,
+.eager-evaluation-result > .icon {
   flex: none;
   align-self: flex-start;
   /* Width and height must be a multiples of 2px to avoid blurry images.
@@ -258,6 +237,10 @@ a {
   fill: currentColor;
 }
 
+.eager-evaluation-result > .icon {
+  margin: 3px 8px 0 10px;
+}
+
 /* Icon on unindented row should be centered within the left gutter */
 .message > .indent[data-indent="0"] + .icon {
   width: 24px;
@@ -270,7 +253,8 @@ a {
   background-image: url(chrome://devtools/skin/images/webconsole/input.svg);
 }
 
-.message.result > .icon {
+.message.result > .icon,
+.eager-evaluation-result > .icon {
   color: var(--theme-icon-dimmed-color);
   background-image: url(chrome://devtools/skin/images/webconsole/return.svg);
 }
@@ -483,6 +467,24 @@ html #webconsole-notificationbox {
 
 .webconsole-app .jsterm-input-container > .CodeMirror-focused {
   fill: var(--theme-icon-checked-color);
+}
+
+.eager-evaluation-result {
+  display: flex;
+  background-color: var(--console-input-background);
+  line-height: 20px;
+  overflow-y: hidden;
+  flex-grow: 1;
+  flex-shrink: 0;
+  padding-bottom: 5px;
+  min-height: 25px;
+}
+
+/* Style the reps result */
+.eager-evaluation-result :last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre !important;
 }
 
 .webconsole-app .cm-auto-complete-shadow-text::after {

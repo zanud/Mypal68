@@ -3,8 +3,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 "use strict";
 
-/* global gTelemetry */
-
 // React & Redux
 const {
   createFactory,
@@ -87,10 +85,6 @@ class Description extends Component {
   onEnable() {
     const { accessibility, dispatch } = this.props;
     this.setState({ enabling: true });
-
-    if (gTelemetry) {
-      gTelemetry.scalarAdd(A11Y_SERVICE_ENABLED_COUNT, 1);
-    }
 
     dispatch(enable(accessibility))
       .then(() => this.setState({ enabling: false }))

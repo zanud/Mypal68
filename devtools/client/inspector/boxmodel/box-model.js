@@ -8,7 +8,7 @@ const {
   updateGeometryEditorEnabled,
   updateLayout,
   updateOffsetParent,
-} = require("./actions/box-model");
+} = require("devtools/client/inspector/boxmodel/actions/box-model");
 
 loader.lazyRequireGetter(
   this,
@@ -194,7 +194,7 @@ BoxModel.prototype = {
         isPositionEditable,
       });
 
-      const actorCanGetOffSetParent = await this.inspector.target.actorHasMethod(
+      const actorCanGetOffSetParent = await this.inspector.currentTarget.actorHasMethod(
         "domwalker",
         "getOffsetParent"
       );

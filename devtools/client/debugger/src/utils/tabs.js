@@ -4,24 +4,24 @@
 
 // @flow
 
-import type { Source } from "../types";
-import type { TabList } from "../reducers/tabs";
+import type { PersistedTab, VisibleTab } from "../reducers/tabs";
+import type { TabList, Tab, TabsSources } from "../reducers/types";
+import type { URL } from "../types";
 
-type SourcesList = Source[];
 /*
  * Finds the hidden tabs by comparing the tabs' top offset.
  * hidden tabs will have a great top offset.
  *
- * @param sourceTabs Immutable.list
+ * @param sourceTabs Array
  * @param sourceTabEls HTMLCollection
  *
- * @returns Immutable.list
+ * @returns Array
  */
 
 export function getHiddenTabs(
-  sourceTabs: SourcesList,
+  sourceTabs: TabsSources,
   sourceTabEls: Array<any>
-): SourcesList {
+): TabsSources {
   sourceTabEls = [].slice.call(sourceTabEls);
   function getTopOffset() {
     const topOffsets = sourceTabEls.map(t => t.getBoundingClientRect().top);
@@ -41,7 +41,7 @@ export function getHiddenTabs(
   });
 }
 
-export function getFramework(tabs: TabList, url: string) {
+export function getFramework(tabs: TabList, url: URL) {
   const tab = tabs.find(t => t.url === url);
 
   if (tab) {
@@ -108,4 +108,18 @@ export function getTabMenuItems() {
       disabled: false,
     },
   };
+}
+
+export function isSimilarTab(tab: Tab, url: URL, isOriginal: boolean) {
+  return tab.url === url && tab.isOriginal === isOriginal;
+}
+
+export function persistTabs(tabs: VisibleTab[]): PersistedTab[] {
+  return [...tabs]
+    .filter(tab => tab.url)
+    .map(tab => {
+      const newTab = { ...tab };
+      newTab.sourceId = null;
+      return newTab;
+    });
 }

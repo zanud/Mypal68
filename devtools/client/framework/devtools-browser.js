@@ -14,7 +14,7 @@
 
 const { Cc, Ci } = require("chrome");
 const Services = require("Services");
-const { gDevTools } = require("./devtools");
+const { gDevTools } = require("devtools/client/framework/devtools");
 
 // Load target and toolbox lazily as they need gDevTools to be fully initialized
 loader.lazyRequireGetter(
@@ -31,14 +31,14 @@ loader.lazyRequireGetter(
 );
 loader.lazyRequireGetter(
   this,
-  "DebuggerServer",
-  "devtools/server/debugger-server",
+  "DevToolsServer",
+  "devtools/server/devtools-server",
   true
 );
 loader.lazyRequireGetter(
   this,
-  "DebuggerClient",
-  "devtools/shared/client/debugger-client",
+  "DevToolsClient",
+  "devtools/shared/client/devtools-client",
   true
 );
 loader.lazyRequireGetter(
@@ -65,8 +65,8 @@ loader.lazyRequireGetter(
 );
 loader.lazyImporter(
   this,
-  "BrowserToolboxProcess",
-  "resource://devtools/client/framework/ToolboxProcess.jsm"
+  "BrowserToolboxLauncher",
+  "resource://devtools/client/framework/browser-toolbox/Launcher.jsm"
 );
 
 const { LocalizationHelper } = require("devtools/shared/l10n");
@@ -315,7 +315,7 @@ var gDevToolsBrowser = (exports.gDevToolsBrowser = {
         await gDevToolsBrowser.toggleToolboxCommand(window.gBrowser);
         break;
       case "browserToolbox":
-        BrowserToolboxProcess.init();
+        BrowserToolboxLauncher.init();
         break;
       case "browserConsole":
         const {
@@ -341,18 +341,18 @@ var gDevToolsBrowser = (exports.gDevToolsBrowser = {
   },
 
   async _getContentProcessTarget(processId) {
-    // Create a DebuggerServer in order to connect locally to it
-    DebuggerServer.init();
-    DebuggerServer.registerAllActors();
-    DebuggerServer.allowChromeProcess = true;
+    // Create a DevToolsServer in order to connect locally to it
+    DevToolsServer.init();
+    DevToolsServer.registerAllActors();
+    DevToolsServer.allowChromeProcess = true;
 
-    const transport = DebuggerServer.connectPipe();
-    const client = new DebuggerClient(transport);
+    const transport = DevToolsServer.connectPipe();
+    const client = new DevToolsClient(transport);
 
     await client.connect();
     const target = await client.mainRoot.getProcess(processId);
     // Ensure closing the connection in order to cleanup
-    // the debugger client and also the server created in the
+    // the devtools client and also the server created in the
     // content process
     target.on("close", () => {
       client.close();
@@ -375,7 +375,7 @@ var gDevToolsBrowser = (exports.gDevToolsBrowser = {
     for (let i = 1; i < childCount; i++) {
       const child = Services.ppmm.getChildAt(i);
       if (child == mm) {
-        processId = i;
+        processId = mm.osPid;
         break;
       }
     }
@@ -601,7 +601,7 @@ var gDevToolsBrowser = (exports.gDevToolsBrowser = {
   hasToolboxOpened(win) {
     const tab = win.gBrowser.selectedTab;
     for (const [target] of gDevTools._toolboxes) {
-      if (target.tab == tab) {
+      if (target.localTab == tab) {
         return true;
       }
     }
@@ -711,7 +711,7 @@ var gDevToolsBrowser = (exports.gDevToolsBrowser = {
 
     // Destroy toolboxes for closed window
     for (const [target, toolbox] of gDevTools._toolboxes) {
-      if (target.tab && target.tab.ownerDocument.defaultView == win) {
+      if (target.localTab && target.localTab.ownerDocument.defaultView == win) {
         toolbox.destroy();
       }
     }
@@ -761,7 +761,7 @@ var gDevToolsBrowser = (exports.gDevToolsBrowser = {
     }
 
     // Remove scripts loaded in content process to support the Browser Content Toolbox.
-    DebuggerServer.removeContentServerScript();
+    DevToolsServer.removeContentServerScript();
 
     gDevTools.destroy({ shuttingDown });
   },

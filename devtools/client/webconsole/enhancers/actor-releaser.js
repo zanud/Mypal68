@@ -9,7 +9,7 @@ const {
   MESSAGES_CLEAR,
   PRIVATE_MESSAGES_CLEAR,
   MESSAGES_CLEAR_LOGPOINT,
-  REMOVED_ACTORS_CLEAR,
+  FRONTS_TO_RELEASE_CLEAR,
 } = require("devtools/client/webconsole/constants");
 
 /**
@@ -23,9 +23,8 @@ function enableActorReleaser(webConsoleUI) {
       state = reducer(state, action);
 
       const type = action.type;
-      const proxy = webConsoleUI ? webConsoleUI.proxy : null;
       if (
-        proxy &&
+        webConsoleUI &&
         [
           MESSAGES_ADD,
           MESSAGES_CLEAR,
@@ -33,11 +32,28 @@ function enableActorReleaser(webConsoleUI) {
           MESSAGES_CLEAR_LOGPOINT,
         ].includes(type)
       ) {
-        releaseActors(state.messages.removedActors, proxy);
+        const promises = [];
+        state.messages.frontsToRelease.forEach(front => {
+          // We only release the front if it actually has a release method,
+          // and if it's not in the sidebar (where we might still need it).
+          if (
+            front &&
+            typeof front.release === "function" &&
+            (!state.ui.frontInSidebar ||
+              state.ui.frontInSidebar.actorID !== front.actorID)
+          ) {
+            promises.push(front.release());
+          }
+        });
 
-        // Reset `removedActors` in message reducer.
+        // Emit an event we can listen to to make sure all the fronts were released.
+        Promise.all(promises).then(() =>
+          webConsoleUI.emitForTests("fronts-released")
+        );
+
+        // Reset `frontsToRelease` in message reducer.
         state = reducer(state, {
-          type: REMOVED_ACTORS_CLEAR,
+          type: FRONTS_TO_RELEASE_CLEAR,
         });
       }
 
@@ -46,17 +62,6 @@ function enableActorReleaser(webConsoleUI) {
 
     return next(releaseActorsEnhancer, initialState, enhancer);
   };
-}
-
-/**
- * Helper function for releasing backend actors.
- */
-function releaseActors(removedActors, proxy) {
-  if (!proxy) {
-    return;
-  }
-
-  removedActors.forEach(actor => proxy.releaseActor(actor));
 }
 
 module.exports = enableActorReleaser;

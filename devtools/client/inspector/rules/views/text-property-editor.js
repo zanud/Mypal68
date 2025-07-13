@@ -100,7 +100,6 @@ function TextPropertyEditor(ruleEditor, property) {
   this._clickedElementOptions = null;
 
   this.toolbox = this.ruleView.inspector.toolbox;
-  this.telemetry = this.toolbox.telemetry;
 
   this.getGridlineNames = this.getGridlineNames.bind(this);
   this.update = this.update.bind(this);
@@ -334,8 +333,11 @@ TextPropertyEditor.prototype = {
         multiline: true,
         maxWidth: () => this.container.getBoundingClientRect().width,
         cssProperties: this.cssProperties,
-        cssVariables: this.rule.elementStyle.variables,
+        cssVariables:
+          this.rule.elementStyle.variablesMap.get(this.rule.pseudoElement) ||
+          [],
         getGridLineNames: this.getGridlineNames,
+        showSuggestCompletionOnEmpty: true,
       });
     }
   },
@@ -482,7 +484,8 @@ TextPropertyEditor.prototype = {
       baseURI: this.sheetHref,
       unmatchedVariableClass: "ruleview-unmatched-variable",
       matchedVariableClass: "ruleview-variable",
-      isVariableInUse: varName => this.rule.elementStyle.getVariable(varName),
+      isVariableInUse: varName =>
+        this.rule.elementStyle.getVariable(varName, this.rule.pseudoElement),
     };
     const frag = outputParser.parseCssProperty(name, val, parserOptions);
 
@@ -896,9 +899,6 @@ TextPropertyEditor.prototype = {
     }
     this.prop.setEnabled(!checked);
     event.stopPropagation();
-    this.telemetry.recordEvent("edit_rule", "ruleview", null, {
-      session_id: this.toolbox.sessionId,
-    });
   },
 
   /**
@@ -970,10 +970,6 @@ TextPropertyEditor.prototype = {
     if (this.prop.value && isNameUnchanged) {
       return;
     }
-
-    this.telemetry.recordEvent("edit_rule", "ruleview", null, {
-      session_id: this.toolbox.sessionId,
-    });
 
     // Remove a property if the name is empty
     if (!value.trim()) {
@@ -1070,10 +1066,6 @@ TextPropertyEditor.prototype = {
       this.rule.setPropertyEnabled(this.prop, this.prop.enabled);
       return;
     }
-
-    this.telemetry.recordEvent("edit_rule", "ruleview", null, {
-      session_id: this.toolbox.sessionId,
-    });
 
     // Since the value was changed, check if the original property was a flex or grid
     // display declaration and hide their respective highlighters.

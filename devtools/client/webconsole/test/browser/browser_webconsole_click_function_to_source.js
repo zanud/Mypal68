@@ -33,7 +33,7 @@ add_task(async function() {
   jumpIcon.click();
 
   info("Wait for the Debugger panel to open.");
-  const toolbox = gDevTools.getToolbox(hud.target);
+  const toolbox = hud.toolbox;
   await toolbox.getPanelWhenReady("jsdebugger");
 
   const dbg = createDebuggerContext(toolbox);

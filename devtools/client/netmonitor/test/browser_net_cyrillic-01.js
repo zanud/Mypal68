@@ -27,11 +27,12 @@ add_task(async function() {
   requestItem.scrollIntoView();
   EventUtils.sendMouseEvent({ type: "mouseover" }, requestsListStatus);
   await waitUntil(() => requestsListStatus.title);
+  await waitForDOMIfNeeded(requestItem, ".requests-list-timings-total");
 
   verifyRequestItemTarget(
     document,
     getDisplayedRequests(store.getState()),
-    getSortedRequests(store.getState()).get(0),
+    getSortedRequests(store.getState())[0],
     "GET",
     CONTENT_TYPE_SJS + "?fmt=txt",
     {
@@ -40,7 +41,7 @@ add_task(async function() {
     }
   );
 
-  wait = waitForDOM(document, "#headers-panel");
+  let wait = waitForDOM(document, "#headers-panel");
   EventUtils.sendMouseEvent(
     { type: "mousedown" },
     document.querySelectorAll(".request-list-item")[0]

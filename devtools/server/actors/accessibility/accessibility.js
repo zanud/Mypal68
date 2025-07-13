@@ -4,7 +4,7 @@
 
 "use strict";
 
-const { DebuggerServer } = require("devtools/server/debugger-server");
+const { DevToolsServer } = require("devtools/server/devtools-server");
 const Services = require("Services");
 const { Actor, ActorClassWithSpec } = require("devtools/shared/protocol");
 const defer = require("devtools/shared/defer");
@@ -31,8 +31,9 @@ const AccessibilityActor = ActorClassWithSpec(accessibilitySpec, {
 
     this.initializedDeferred = defer();
 
-    if (DebuggerServer.isInChildProcess) {
+    if (DevToolsServer.isInChildProcess) {
       this._msgName = `debug:${this.conn.prefix}accessibility`;
+      // eslint-disable-next-line no-restricted-properties
       this.conn.setupInParent({
         module: "devtools/server/actors/accessibility/accessibility-parent",
         setupParent: "setupParentProcess",
@@ -69,7 +70,7 @@ const AccessibilityActor = ActorClassWithSpec(accessibilitySpec, {
   },
 
   get canBeEnabled() {
-    if (DebuggerServer.isInChildProcess) {
+    if (DevToolsServer.isInChildProcess) {
       return this._canBeEnabled;
     }
 
@@ -77,7 +78,7 @@ const AccessibilityActor = ActorClassWithSpec(accessibilitySpec, {
   },
 
   get canBeDisabled() {
-    if (DebuggerServer.isInChildProcess) {
+    if (DevToolsServer.isInChildProcess) {
       return this._canBeDisabled;
     } else if (!this.enabled) {
       return true;
@@ -95,7 +96,7 @@ const AccessibilityActor = ActorClassWithSpec(accessibilitySpec, {
    *         Message manager that corresponds to the current content tab.
    */
   get messageManager() {
-    if (!DebuggerServer.isInChildProcess) {
+    if (!DevToolsServer.isInChildProcess) {
       throw new Error(
         "Message manager should only be used when actor is in child process."
       );
@@ -149,7 +150,7 @@ const AccessibilityActor = ActorClassWithSpec(accessibilitySpec, {
 
     const initPromise = this.once("init");
 
-    if (DebuggerServer.isInChildProcess) {
+    if (DevToolsServer.isInChildProcess) {
       this.messageManager.sendAsyncMessage(this._msgName, { action: "enable" });
     } else {
       // This executes accessibility service lazy getter and adds accessible
@@ -170,7 +171,7 @@ const AccessibilityActor = ActorClassWithSpec(accessibilitySpec, {
 
     this.disabling = true;
     const shutdownPromise = this.once("shutdown");
-    if (DebuggerServer.isInChildProcess) {
+    if (DevToolsServer.isInChildProcess) {
       this.messageManager.sendAsyncMessage(this._msgName, {
         action: "disable",
       });
@@ -281,7 +282,7 @@ const AccessibilityActor = ActorClassWithSpec(accessibilitySpec, {
     }
 
     Services.obs.removeObserver(this, "a11y-init-or-shutdown");
-    if (DebuggerServer.isInChildProcess) {
+    if (DevToolsServer.isInChildProcess) {
       this.messageManager.removeMessageListener(
         `${this._msgName}:event`,
         this.onMessage

@@ -50,7 +50,6 @@
     * [Guidelines](frontend/react-guidelines.md)
   * [Redux](frontend/redux.md)
     * [Guidelines](frontend/redux-guidelines.md)
-  * [Telemetry](frontend/telemetry.md)
   * [Content Security Policy](frontend/csp.md)
 * [Backend](backend/backend.md)
   * [Remote Debugging Protocol](backend/protocol.md)

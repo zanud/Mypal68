@@ -5,21 +5,15 @@
 // @flow
 
 import type { ThunkArgs } from "./types";
-import type { Worker, Grip } from "../types";
+import type { Grip, URL } from "../types";
 
 /**
  * @memberof actions/toolbox
  * @static
  */
-export function openLink(url: string) {
+export function openLink(url: URL) {
   return async function({ panel }: ThunkArgs) {
     return panel.openLink(url);
-  };
-}
-
-export function openWorkerToolbox(worker: Worker) {
-  return async function({ getState, panel }: ThunkArgs) {
-    return panel.openWorkerToolbox(worker);
   };
 }
 

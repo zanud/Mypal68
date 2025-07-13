@@ -12,6 +12,7 @@ exports[`Frames Blackboxed Frames filters blackboxed frames 1`] = `
       disableContextMenu={false}
       frame={
         Object {
+          "asyncCause": null,
           "displayName": "display-1",
           "generatedLocation": Object {
             "line": 4,
@@ -37,15 +38,15 @@ exports[`Frames Blackboxed Frames filters blackboxed frames 1`] = `
           "source": Object {
             "extensionName": null,
             "id": "1",
-            "introductionType": undefined,
-            "introductionUrl": null,
             "isBlackBoxed": false,
             "isExtension": false,
+            "isOriginal": false,
             "isPrettyPrinted": false,
             "isWasm": false,
             "relativeUrl": "url",
             "url": "url",
           },
+          "state": "on-stack",
           "this": Object {},
           "thread": "FakeThread",
         }
@@ -54,9 +55,9 @@ exports[`Frames Blackboxed Frames filters blackboxed frames 1`] = `
       hideLocation={false}
       key="1"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={
         Object {
+          "asyncCause": null,
           "displayName": "display-1",
           "generatedLocation": Object {
             "line": 4,
@@ -82,15 +83,15 @@ exports[`Frames Blackboxed Frames filters blackboxed frames 1`] = `
           "source": Object {
             "extensionName": null,
             "id": "1",
-            "introductionType": undefined,
-            "introductionUrl": null,
             "isBlackBoxed": false,
             "isExtension": false,
+            "isOriginal": false,
             "isPrettyPrinted": false,
             "isWasm": false,
             "relativeUrl": "url",
             "url": "url",
           },
+          "state": "on-stack",
           "this": Object {},
           "thread": "FakeThread",
         }
@@ -104,6 +105,7 @@ exports[`Frames Blackboxed Frames filters blackboxed frames 1`] = `
       disableContextMenu={false}
       frame={
         Object {
+          "asyncCause": null,
           "displayName": "display-3",
           "generatedLocation": Object {
             "line": 4,
@@ -129,15 +131,15 @@ exports[`Frames Blackboxed Frames filters blackboxed frames 1`] = `
           "source": Object {
             "extensionName": null,
             "id": "1",
-            "introductionType": undefined,
-            "introductionUrl": null,
             "isBlackBoxed": false,
             "isExtension": false,
+            "isOriginal": false,
             "isPrettyPrinted": false,
             "isWasm": false,
             "relativeUrl": "url",
             "url": "url",
           },
+          "state": "on-stack",
           "this": Object {},
           "thread": "FakeThread",
         }
@@ -146,9 +148,9 @@ exports[`Frames Blackboxed Frames filters blackboxed frames 1`] = `
       hideLocation={false}
       key="3"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={
         Object {
+          "asyncCause": null,
           "displayName": "display-1",
           "generatedLocation": Object {
             "line": 4,
@@ -174,15 +176,15 @@ exports[`Frames Blackboxed Frames filters blackboxed frames 1`] = `
           "source": Object {
             "extensionName": null,
             "id": "1",
-            "introductionType": undefined,
-            "introductionUrl": null,
             "isBlackBoxed": false,
             "isExtension": false,
+            "isOriginal": false,
             "isPrettyPrinted": false,
             "isWasm": false,
             "relativeUrl": "url",
             "url": "url",
           },
+          "state": "on-stack",
           "this": Object {},
           "thread": "FakeThread",
         }
@@ -214,7 +216,6 @@ exports[`Frames Library Frames groups all the Webpack-related frames 1`] = `
       hideLocation={false}
       key="1-appFrame"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={
         Object {
           "id": "1-appFrame",
@@ -257,7 +258,6 @@ exports[`Frames Library Frames groups all the Webpack-related frames 1`] = `
       }
       key="2-webpackBootstrapFrame"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={
         Object {
           "id": "1-appFrame",
@@ -289,7 +289,6 @@ exports[`Frames Library Frames selectable framework frames 1`] = `
       hideLocation={false}
       key="1"
       selectFrame={[MockFunction]}
-      selectable={true}
       selectedFrame={
         Object {
           "id": 1,
@@ -312,7 +311,6 @@ exports[`Frames Library Frames selectable framework frames 1`] = `
       hideLocation={false}
       key="2"
       selectFrame={[MockFunction]}
-      selectable={true}
       selectedFrame={
         Object {
           "id": 1,
@@ -335,7 +333,6 @@ exports[`Frames Library Frames selectable framework frames 1`] = `
       hideLocation={false}
       key="3"
       selectFrame={[MockFunction]}
-      selectable={true}
       selectedFrame={
         Object {
           "id": 1,
@@ -357,7 +354,6 @@ exports[`Frames Library Frames selectable framework frames 1`] = `
       hideLocation={false}
       key="8"
       selectFrame={[MockFunction]}
-      selectable={true}
       selectedFrame={
         Object {
           "id": 1,
@@ -390,7 +386,6 @@ exports[`Frames Library Frames selectable framework frames 2`] = `
       hideLocation={false}
       key="1"
       selectFrame={[MockFunction]}
-      selectable={true}
       selectedFrame={
         Object {
           "id": 1,
@@ -417,7 +412,6 @@ exports[`Frames Library Frames selectable framework frames 2`] = `
       }
       key="2"
       selectFrame={[MockFunction]}
-      selectable={true}
       selectedFrame={
         Object {
           "id": 1,
@@ -438,7 +432,6 @@ exports[`Frames Library Frames selectable framework frames 2`] = `
       hideLocation={false}
       key="8"
       selectFrame={[MockFunction]}
-      selectable={true}
       selectedFrame={
         Object {
           "id": 1,
@@ -471,7 +464,6 @@ exports[`Frames Library Frames toggling framework frames 1`] = `
       hideLocation={false}
       key="1"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={
         Object {
           "id": 1,
@@ -494,7 +486,6 @@ exports[`Frames Library Frames toggling framework frames 1`] = `
       hideLocation={false}
       key="2"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={
         Object {
           "id": 1,
@@ -517,7 +508,6 @@ exports[`Frames Library Frames toggling framework frames 1`] = `
       hideLocation={false}
       key="3"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={
         Object {
           "id": 1,
@@ -539,7 +529,6 @@ exports[`Frames Library Frames toggling framework frames 1`] = `
       hideLocation={false}
       key="8"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={
         Object {
           "id": 1,
@@ -572,7 +561,6 @@ exports[`Frames Library Frames toggling framework frames 2`] = `
       hideLocation={false}
       key="1"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={
         Object {
           "id": 1,
@@ -599,7 +587,6 @@ exports[`Frames Library Frames toggling framework frames 2`] = `
       }
       key="2"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={
         Object {
           "id": 1,
@@ -620,7 +607,6 @@ exports[`Frames Library Frames toggling framework frames 2`] = `
       hideLocation={false}
       key="8"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={
         Object {
           "id": 1,
@@ -653,7 +639,6 @@ exports[`Frames Supports different number of frames disable frame truncation 1`]
       hideLocation={false}
       key="1"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={null}
       shouldMapDisplayName={true}
       toggleBlackBox={[MockFunction]}
@@ -671,7 +656,6 @@ exports[`Frames Supports different number of frames disable frame truncation 1`]
       hideLocation={false}
       key="2"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={null}
       shouldMapDisplayName={true}
       toggleBlackBox={[MockFunction]}
@@ -689,7 +673,6 @@ exports[`Frames Supports different number of frames disable frame truncation 1`]
       hideLocation={false}
       key="3"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={null}
       shouldMapDisplayName={true}
       toggleBlackBox={[MockFunction]}
@@ -707,7 +690,6 @@ exports[`Frames Supports different number of frames disable frame truncation 1`]
       hideLocation={false}
       key="4"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={null}
       shouldMapDisplayName={true}
       toggleBlackBox={[MockFunction]}
@@ -725,7 +707,6 @@ exports[`Frames Supports different number of frames disable frame truncation 1`]
       hideLocation={false}
       key="5"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={null}
       shouldMapDisplayName={true}
       toggleBlackBox={[MockFunction]}
@@ -743,7 +724,6 @@ exports[`Frames Supports different number of frames disable frame truncation 1`]
       hideLocation={false}
       key="6"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={null}
       shouldMapDisplayName={true}
       toggleBlackBox={[MockFunction]}
@@ -761,7 +741,6 @@ exports[`Frames Supports different number of frames disable frame truncation 1`]
       hideLocation={false}
       key="7"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={null}
       shouldMapDisplayName={true}
       toggleBlackBox={[MockFunction]}
@@ -779,7 +758,6 @@ exports[`Frames Supports different number of frames disable frame truncation 1`]
       hideLocation={false}
       key="8"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={null}
       shouldMapDisplayName={true}
       toggleBlackBox={[MockFunction]}
@@ -797,7 +775,6 @@ exports[`Frames Supports different number of frames disable frame truncation 1`]
       hideLocation={false}
       key="9"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={null}
       shouldMapDisplayName={true}
       toggleBlackBox={[MockFunction]}
@@ -815,7 +792,6 @@ exports[`Frames Supports different number of frames disable frame truncation 1`]
       hideLocation={false}
       key="10"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={null}
       shouldMapDisplayName={true}
       toggleBlackBox={[MockFunction]}
@@ -833,7 +809,6 @@ exports[`Frames Supports different number of frames disable frame truncation 1`]
       hideLocation={false}
       key="11"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={null}
       shouldMapDisplayName={true}
       toggleBlackBox={[MockFunction]}
@@ -851,7 +826,6 @@ exports[`Frames Supports different number of frames disable frame truncation 1`]
       hideLocation={false}
       key="12"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={null}
       shouldMapDisplayName={true}
       toggleBlackBox={[MockFunction]}
@@ -869,7 +843,6 @@ exports[`Frames Supports different number of frames disable frame truncation 1`]
       hideLocation={false}
       key="13"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={null}
       shouldMapDisplayName={true}
       toggleBlackBox={[MockFunction]}
@@ -887,7 +860,6 @@ exports[`Frames Supports different number of frames disable frame truncation 1`]
       hideLocation={false}
       key="14"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={null}
       shouldMapDisplayName={true}
       toggleBlackBox={[MockFunction]}
@@ -905,7 +877,6 @@ exports[`Frames Supports different number of frames disable frame truncation 1`]
       hideLocation={false}
       key="15"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={null}
       shouldMapDisplayName={true}
       toggleBlackBox={[MockFunction]}
@@ -923,7 +894,6 @@ exports[`Frames Supports different number of frames disable frame truncation 1`]
       hideLocation={false}
       key="16"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={null}
       shouldMapDisplayName={true}
       toggleBlackBox={[MockFunction]}
@@ -941,7 +911,6 @@ exports[`Frames Supports different number of frames disable frame truncation 1`]
       hideLocation={false}
       key="17"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={null}
       shouldMapDisplayName={true}
       toggleBlackBox={[MockFunction]}
@@ -959,7 +928,6 @@ exports[`Frames Supports different number of frames disable frame truncation 1`]
       hideLocation={false}
       key="18"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={null}
       shouldMapDisplayName={true}
       toggleBlackBox={[MockFunction]}
@@ -977,7 +945,6 @@ exports[`Frames Supports different number of frames disable frame truncation 1`]
       hideLocation={false}
       key="19"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={null}
       shouldMapDisplayName={true}
       toggleBlackBox={[MockFunction]}
@@ -995,7 +962,6 @@ exports[`Frames Supports different number of frames disable frame truncation 1`]
       hideLocation={false}
       key="20"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={null}
       shouldMapDisplayName={true}
       toggleBlackBox={[MockFunction]}
@@ -1036,7 +1002,6 @@ exports[`Frames Supports different number of frames one frame 1`] = `
       hideLocation={false}
       key="1"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={
         Object {
           "id": 1,
@@ -1077,7 +1042,6 @@ exports[`Frames Supports different number of frames passes the getFrameTitle pro
       hideLocation={false}
       key="1"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={null}
       shouldMapDisplayName={true}
       toggleBlackBox={[MockFunction]}
@@ -1106,7 +1070,6 @@ exports[`Frames Supports different number of frames toggling the show more butto
       hideLocation={false}
       key="1"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={
         Object {
           "id": 1,
@@ -1128,7 +1091,6 @@ exports[`Frames Supports different number of frames toggling the show more butto
       hideLocation={false}
       key="2"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={
         Object {
           "id": 1,
@@ -1150,7 +1112,6 @@ exports[`Frames Supports different number of frames toggling the show more butto
       hideLocation={false}
       key="3"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={
         Object {
           "id": 1,
@@ -1172,7 +1133,6 @@ exports[`Frames Supports different number of frames toggling the show more butto
       hideLocation={false}
       key="4"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={
         Object {
           "id": 1,
@@ -1194,7 +1154,6 @@ exports[`Frames Supports different number of frames toggling the show more butto
       hideLocation={false}
       key="5"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={
         Object {
           "id": 1,
@@ -1216,7 +1175,6 @@ exports[`Frames Supports different number of frames toggling the show more butto
       hideLocation={false}
       key="6"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={
         Object {
           "id": 1,
@@ -1238,7 +1196,6 @@ exports[`Frames Supports different number of frames toggling the show more butto
       hideLocation={false}
       key="7"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={
         Object {
           "id": 1,
@@ -1260,7 +1217,6 @@ exports[`Frames Supports different number of frames toggling the show more butto
       hideLocation={false}
       key="8"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={
         Object {
           "id": 1,
@@ -1282,7 +1238,6 @@ exports[`Frames Supports different number of frames toggling the show more butto
       hideLocation={false}
       key="9"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={
         Object {
           "id": 1,
@@ -1304,7 +1259,6 @@ exports[`Frames Supports different number of frames toggling the show more butto
       hideLocation={false}
       key="10"
       selectFrame={[MockFunction]}
-      selectable={false}
       selectedFrame={
         Object {
           "id": 1,

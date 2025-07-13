@@ -22,9 +22,8 @@ const {
   MESSAGE_CLOSE,
   MESSAGE_TYPE,
   MESSAGE_UPDATE_PAYLOAD,
-  PAUSED_EXCECUTION_POINT,
   PRIVATE_MESSAGES_CLEAR,
-} = require("../constants");
+} = require("devtools/client/webconsole/constants");
 
 const defaultIdGenerator = new IdGenerator();
 
@@ -66,13 +65,6 @@ function messagesClearLogpoint(logpointId) {
   };
 }
 
-function setPauseExecutionPoint(executionPoint) {
-  return {
-    type: PAUSED_EXCECUTION_POINT,
-    executionPoint,
-  };
-}
-
 function privateMessagesClear() {
   return {
     type: PRIVATE_MESSAGES_CLEAR,
@@ -104,15 +96,15 @@ function messageClose(id) {
  * @return {[type]} [description]
  */
 function messageGetMatchingElements(id, cssSelectors) {
-  return ({ dispatch, services }) => {
-    services
-      .requestEvaluation(`document.querySelectorAll('${cssSelectors}')`)
-      .then(response => {
-        dispatch(messageUpdatePayload(id, response.result));
-      })
-      .catch(err => {
-        console.error(err);
-      });
+  return async ({ dispatch, client }) => {
+    try {
+      const response = await client.evaluateJSAsync(
+        `document.querySelectorAll('${cssSelectors}')`
+      );
+      dispatch(messageUpdatePayload(id, response.result));
+    } catch (err) {
+      console.error(err);
+    }
   };
 }
 
@@ -165,6 +157,4 @@ module.exports = {
   networkMessageUpdate,
   networkUpdateRequest,
   privateMessagesClear,
-  // for test purpose only.
-  setPauseExecutionPoint,
 };

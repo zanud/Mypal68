@@ -7,7 +7,7 @@ const OutputParser = require("devtools/client/shared/output-parser");
 const {
   initCssProperties,
   getCssProperties,
-} = require("devtools/shared/fronts/css-properties");
+} = require("devtools/client/fronts/css-properties");
 const { CSS_PROPERTIES_DB } = require("devtools/shared/css/properties-db");
 
 add_task(async function() {
@@ -22,7 +22,7 @@ async function performTest() {
     set: [["security.allow_unsafe_parent_loads", true]],
   });
 
-  const [host, , doc] = await createHost(
+  const { host, doc } = await createHost(
     "bottom",
     "data:text/html," + "<h1>browser_outputParser.js</h1><div></div>"
   );
@@ -46,6 +46,7 @@ async function performTest() {
   testParseAngle(doc, parser);
   testParseShape(doc, parser);
   testParseVariable(doc, parser);
+  testParseColorVariable(doc, parser);
   testParseFontFamily(doc, parser);
 
   host.destroy();
@@ -557,6 +558,56 @@ function testParseVariable(doc, parser) {
 
     is(target.innerHTML, test.expected, test.text);
     target.innerHTML = "";
+  }
+}
+
+function testParseColorVariable(doc, parser) {
+  const testCategories = [
+    {
+      desc: "Test for CSS variable defining color",
+      tests: [
+        makeColorTest("--test-var", "lime", [{ name: "lime" }]),
+        makeColorTest("--test-var", "#000", [{ name: "#000" }]),
+      ],
+    },
+    {
+      desc: "Test for CSS variable not defining color",
+      tests: [
+        makeColorTest("--foo", "something", ["something"]),
+        makeColorTest("--bar", "Arial Black", ["Arial Black"]),
+        makeColorTest("--baz", "10vmin", ["10vmin"]),
+      ],
+    },
+    {
+      desc: "Test for non CSS variable defining color",
+      tests: [
+        makeColorTest("non-css-variable", "lime", ["lime"]),
+        makeColorTest("-non-css-variable", "#000", ["#000"]),
+      ],
+    },
+  ];
+
+  for (const category of testCategories) {
+    info(category.desc);
+
+    for (const test of category.tests) {
+      info(test.desc);
+      const target = doc.querySelector("div");
+
+      const frag = parser.parseCssProperty(test.name, test.value, {
+        colorSwatchClass: COLOR_TEST_CLASS,
+      });
+
+      target.appendChild(frag);
+
+      is(
+        target.innerHTML,
+        test.expected,
+        `The parsed result for '${test.name}: ${test.value}' is correct`
+      );
+
+      target.innerHTML = "";
+    }
   }
 }
 

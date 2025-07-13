@@ -14,32 +14,47 @@ const {
   waitUntilService,
 } = require("devtools/client/shared/redux/middleware/wait-service.js");
 
-const { MIN_COLUMN_WIDTH, DEFAULT_COLUMN_WIDTH } = require("./constants");
+const {
+  MIN_COLUMN_WIDTH,
+  DEFAULT_COLUMN_WIDTH,
+} = require("devtools/client/netmonitor/src/constants");
 
 // Middleware
-const batching = require("./middleware/batching");
-const prefs = require("./middleware/prefs");
-const thunk = require("./middleware/thunk");
-const recording = require("./middleware/recording");
-const throttling = require("./middleware/throttling");
-const eventTelemetry = require("./middleware/event-telemetry");
+const batching = require("devtools/client/netmonitor/src/middleware/batching");
+const prefs = require("devtools/client/netmonitor/src/middleware/prefs");
+const thunk = require("devtools/client/netmonitor/src/middleware/thunk");
+const recording = require("devtools/client/netmonitor/src/middleware/recording");
+const throttling = require("devtools/client/netmonitor/src/middleware/throttling");
+const requestBlocking = require("devtools/client/netmonitor/src/middleware/request-blocking");
 
 // Reducers
-const rootReducer = require("./reducers/index");
-const { FilterTypes, Filters } = require("./reducers/filters");
-const { Requests } = require("./reducers/requests");
-const { Sort } = require("./reducers/sort");
-const { TimingMarkers } = require("./reducers/timing-markers");
-const { UI, Columns, ColumnsData } = require("./reducers/ui");
+const rootReducer = require("devtools/client/netmonitor/src/reducers/index");
+const {
+  FilterTypes,
+  Filters,
+} = require("devtools/client/netmonitor/src/reducers/filters");
+const {
+  Requests,
+} = require("devtools/client/netmonitor/src/reducers/requests");
+const { Sort } = require("devtools/client/netmonitor/src/reducers/sort");
+const {
+  TimingMarkers,
+} = require("devtools/client/netmonitor/src/reducers/timing-markers");
+const {
+  UI,
+  Columns,
+  ColumnsData,
+} = require("devtools/client/netmonitor/src/reducers/ui");
 const {
   WebSockets,
   getWebSocketsDefaultColumnsState,
-} = require("./reducers/web-sockets");
+} = require("devtools/client/netmonitor/src/reducers/web-sockets");
+const { Search } = require("devtools/client/netmonitor/src/reducers/search");
 
 /**
  * Configure state and middleware for the Network monitor tool.
  */
-function configureStore(connector, telemetry) {
+function configureStore(connector) {
   // Prepare initial state.
   const initialState = {
     filters: new Filters({
@@ -55,16 +70,17 @@ function configureStore(connector, telemetry) {
     webSockets: WebSockets({
       columns: getWebSocketsColumnState(),
     }),
+    search: new Search(),
   };
 
   // Prepare middleware.
   const middleware = applyMiddleware(
+    requestBlocking(connector),
     thunk,
     prefs,
     batching,
     recording(connector),
     throttling(connector),
-    eventTelemetry(connector, telemetry),
     waitUntilService
   );
 

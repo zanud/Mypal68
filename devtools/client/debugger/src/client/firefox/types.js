@@ -16,18 +16,13 @@ import type {
   FrameId,
   ActorId,
   Script,
-  Pause,
   PendingLocation,
-  Frame,
   SourceId,
-  QueuedSourceData,
-  Worker,
   Range,
+  URL,
 } from "../../types";
 
 import type { EventListenerCategoryList } from "../../actions/types";
-
-type URL = string;
 
 /**
  * The protocol is carried by a reliable, bi-directional byte stream; data sent
@@ -66,21 +61,34 @@ type URL = string;
  * @static
  */
 
+export type FramePacket = {|
+  +actor: ActorId,
+  +arguments: any[],
+  +displayName: string,
+  +this: any,
+  +depth?: number,
+  +oldest?: boolean,
+  +type: "pause" | "call",
+  +where: ServerLocation,
+|};
+
+type ServerLocation = {| actor: string, line: number, column: number |};
+
 /**
  * Frame Packet
  * @memberof firefox/packets
  * @static
  */
-export type FramePacket = {
-  actor: ActorId,
-  arguments: any[],
+export type FrameFront = {
+  +typeName: "frame",
+  +data: FramePacket,
+  +getEnvironment: () => Promise<*>,
+  +where: ServerLocation,
+  actorID: string,
   displayName: string,
-  environment: any,
   this: any,
-  depth?: number,
-  oldest?: boolean,
-  type: "pause" | "call",
-  where: {| actor: string, line: number, column: number |},
+  asyncCause: null | string,
+  state: "on-stack" | "suspended" | "dead",
 };
 
 /**
@@ -93,8 +101,8 @@ export type SourcePayload = {
   actor: ActorId,
   url: URL | null,
   isBlackBoxed: boolean,
+  sourceMapBaseURL: URL | null,
   sourceMapURL: URL | null,
-  introductionUrl: URL | null,
   introductionType: string | null,
   extensionName: string | null,
 };
@@ -131,7 +139,7 @@ export type PausedPacket = {
   actor: ActorId,
   from: ActorId,
   type: string,
-  frame: FramePacket,
+  frame: FrameFront,
   why: {
     actors: ActorId[],
     type: string,
@@ -144,18 +152,14 @@ export type PausedPacket = {
  * @memberof firefox
  * @static
  */
-export type FramesResponse = {
-  frames: FramePacket[],
-  from: ActorId,
-};
 
 export type TabPayload = {
   actor: ActorId,
   animationsActor: ActorId,
   consoleActor: ActorId,
+  contentViewerActor: ActorId,
   cssPropertiesActor: ActorId,
   directorManagerActor: ActorId,
-  emulationActor: ActorId,
   eventLoopLagActor: ActorId,
   framerateActor: ActorId,
   inspectorActor: ActorId,
@@ -166,6 +170,7 @@ export type TabPayload = {
   performanceEntriesActor: ActorId,
   profilerActor: ActorId,
   reflowActor: ActorId,
+  responsiveActor: ActorId,
   storageActor: ActorId,
   styleEditorActor: ActorId,
   styleSheetsActor: ActorId,
@@ -176,55 +181,48 @@ export type TabPayload = {
 };
 
 /**
- * Actions
- * @memberof firefox
- * @static
- */
-export type Actions = {
-  paused: Pause => void,
-  resumed: ActorId => void,
-  newQueuedSources: (QueuedSourceData[]) => void,
-  fetchEventListeners: () => void,
-  updateWorkers: () => void,
-};
-
-/**
  * Tab Target gives access to the browser tabs
  * @memberof firefox
  * @static
  */
-export type TabTarget = {
+export type Target = {
   on: (string, Function) => void,
   emit: (string, any) => void,
-  threadFront: ThreadFront,
-  activeConsole: {
-    evaluateJS: (
-      script: Script,
-      func: Function,
-      params?: { frameActor: ?FrameId }
-    ) => void,
-    evaluateJSAsync: (
-      script: Script,
-      func: Function,
-      params?: { frameActor: ?FrameId }
-    ) => Promise<{ result: Grip | null }>,
-    autocomplete: (
-      input: string,
-      cursor: number,
-      func: Function,
-      frameId: ?string
-    ) => void,
-    emit: (string, any) => void,
-  },
+  getFront: string => Promise<ConsoleFront>,
   form: { consoleActor: any },
   root: any,
-  navigateTo: ({ url: string }) => Promise<*>,
+  navigateTo: ({ url: URL }) => Promise<*>,
   listWorkers: () => Promise<*>,
   reload: () => Promise<*>,
   destroy: () => void,
+  threadFront: ThreadFront,
+  name: string,
   isBrowsingContext: boolean,
   isContentProcess: boolean,
+  isWorkerTarget: boolean,
   traits: Object,
+  chrome: Boolean,
+  url: URL,
+  isAddon: Boolean,
+  isServiceWorker: boolean,
+
+  // Property installed by the debugger itself.
+  debuggerServiceWorkerStatus: string,
+};
+
+type ConsoleFront = {
+  evaluateJSAsync: (
+    script: Script,
+    func: Function,
+    params?: { frameActor: ?FrameId }
+  ) => Promise<{ result: ExpressionResult }>,
+  autocomplete: (
+    input: string,
+    cursor: number,
+    func: Function,
+    frameId: ?string
+  ) => void,
+  emit: (string, any) => void,
 };
 
 /**
@@ -234,11 +232,11 @@ export type TabTarget = {
  */
 
 /**
- * DebuggerClient
+ * DevToolsClient
  * @memberof firefox
  * @static
  */
-export type DebuggerClient = {
+export type DevToolsClient = {
   _activeRequests: {
     get: any => any,
     delete: any => void,
@@ -246,19 +244,21 @@ export type DebuggerClient = {
   mainRoot: {
     traits: any,
     getFront: string => Promise<*>,
+    listProcesses: () => Promise<Array<ProcessDescriptor>>,
+    listAllWorkerTargets: () => Promise<*>,
+    listServiceWorkerRegistrations: () => Promise<*>,
+    getWorker: any => Promise<*>,
+    on: (string, Function) => void,
   },
   connect: () => Promise<*>,
   request: (packet: Object) => Promise<*>,
   attachConsole: (actor: String, listeners: Array<*>) => Promise<*>,
-  createObjectClient: (grip: Grip) => ObjectClient,
+  createObjectFront: (grip: Grip, thread: ThreadFront) => ObjectFront,
   release: (actor: String) => {},
+  getFrontByID: (actor: String) => { release: () => Promise<*> },
 };
 
-export type TabClient = {
-  listWorkers: () => Promise<*>,
-  addListener: (string, Function) => void,
-  on: (string, Function) => void,
-};
+type ProcessDescriptor = Object;
 
 /**
  * A grip is a JSON value that refers to a specific JavaScript value in the
@@ -275,17 +275,18 @@ export type TabClient = {
  * @memberof firefox
  * @static
  */
-export type Grip = {
-  actor: string,
+export type Grip = {|
+  actor?: string,
   class: string,
   displayClass: string,
   displayName?: string,
+  isError?: boolean,
   parameterNames?: string[],
   userDisplayName?: string,
   name: string,
   extensible: boolean,
   location: {
-    url: string,
+    url: URL,
     line: number,
     column: number,
   },
@@ -295,7 +296,7 @@ export type Grip = {
   sealed: boolean,
   optimizedOut: boolean,
   type: string,
-};
+|};
 
 export type FunctionGrip = {|
   class: "Function",
@@ -303,7 +304,7 @@ export type FunctionGrip = {|
   parameterNames: string[],
   displayName: string,
   userDisplayName: string,
-  url: string,
+  url: URL,
   line: number,
   column: number,
 |};
@@ -326,19 +327,37 @@ export type SourceClient = {
 };
 
 /**
- * ObjectClient
+ * ObjectFront
  * @memberof firefox
  * @static
  */
-export type ObjectClient = {
+export type ObjectFront = {
+  actorID: string,
+  getGrip: () => Grip,
   getPrototypeAndProperties: () => any,
+  getProperty: string => { descriptor: any },
   addWatchpoint: (
     property: string,
     label: string,
     watchpointType: string
   ) => {},
   removeWatchpoint: (property: string) => {},
+  release: () => Promise<*>,
 };
+
+export type LongStringFront = {
+  actorID: string,
+  getGrip: () => Grip,
+  release: () => Promise<*>,
+};
+
+export type ExpressionResult =
+  | ObjectFront
+  | LongStringFront
+  | Grip
+  | string
+  | number
+  | null;
 
 /**
  * ThreadFront
@@ -346,6 +365,9 @@ export type ObjectClient = {
  * @static
  */
 export type ThreadFront = {
+  actorID: string,
+  parentFront: Target,
+  getFrames: (number, number) => Promise<{| frames: FrameFront[] |}>,
   resume: Function => Promise<*>,
   stepIn: Function => Promise<*>,
   stepOver: Function => Promise<*>,
@@ -353,7 +375,7 @@ export type ThreadFront = {
   breakOnNext: () => Promise<*>,
   // FIXME: unclear if SourceId or ActorId here
   source: ({ actor: SourceId }) => SourceClient,
-  pauseGrip: (Grip | Function) => ObjectClient,
+  pauseGrip: (Grip | Function) => ObjectFront,
   pauseOnExceptions: (boolean, boolean) => Promise<*>,
   setBreakpoint: (BreakpointLocation, BreakpointOptions) => Promise<*>,
   removeBreakpoint: PendingLocation => Promise<*>,
@@ -361,27 +383,27 @@ export type ThreadFront = {
   removeXHRBreakpoint: (path: string, method: string) => Promise<boolean>,
   interrupt: () => Promise<*>,
   eventListeners: () => Promise<*>,
-  getFrames: (number, number) => FramesResponse,
-  getEnvironment: (frame: Frame) => Promise<*>,
   on: (string, Function) => void,
+  off: (string, Function) => void,
   getSources: () => Promise<SourcesPacket>,
   reconfigure: ({ observeAsmJS: boolean }) => Promise<*>,
   getLastPausePacket: () => ?PausedPacket,
-  _parent: TabClient,
+  _parent: Target,
   actor: ActorId,
   actorID: ActorId,
   request: (payload: Object) => Promise<*>,
-  url: string,
-  setActiveEventBreakpoints: (string[]) => void,
+  url: URL,
+  setActiveEventBreakpoints: (string[]) => Promise<void>,
   getAvailableEventBreakpoints: () => Promise<EventListenerCategoryList>,
   skipBreakpoints: boolean => Promise<{| skip: boolean |}>,
+  detach: () => Promise<void>,
+  get: string => FrameFront,
 };
 
 export type Panel = {|
   emit: (eventName: string) => void,
-  openLink: (url: string) => void,
+  openLink: (url: URL) => void,
   openInspector: () => void,
-  openWorkerToolbox: (worker: Worker) => void,
   openElementInInspector: (grip: Object) => void,
   openConsoleAndEvaluate: (input: string) => void,
   highlightDomElement: (grip: Object) => void,

@@ -15,7 +15,7 @@ var EventEmitter = require("devtools/shared/event-emitter");
  * objects. Pools are used on both sides of the connection to help coordinate lifetimes.
  *
  * @param optional conn
- *   Either a DebuggerServerConnection or a DebuggerClient.  Must have
+ *   Either a DevToolsServerConnection or a DevToolsClient.  Must have
  *   addActorPool, removeActorPool, and poolFor.
  *   conn can be null if the subclass provides a conn property.
  * @constructor
@@ -33,7 +33,7 @@ class Pool extends EventEmitter {
   /**
    * Return the parent pool for this client.
    */
-  parent() {
+  getParent() {
     return this.conn.poolFor(this.actorID);
   }
 
@@ -68,20 +68,26 @@ class Pool extends EventEmitter {
    */
   manage(actor) {
     if (!actor.actorID) {
-      actor.actorID = this.conn.allocID(actor.actorPrefix || actor.typeName);
+      actor.actorID = this.conn.allocID(actor.typeName);
     } else {
-      // If the actor is already registerd in a pool, remove it without destroying it.
+      // If the actor is already registered in a pool, remove it without destroying it.
       // This happens for example when an addon is reloaded. To see this behavior, take a
-      // look at devtools/server/tests/unit/test_addon_reload.js
+      // look at devtools/server/tests/xpcshell/test_addon_reload.js
 
-      // TODO: not all actors have been moved to protocol.js, so they do not all have
-      // a parent field. Remove the check for the parent once the conversion is finished
-      const parent = this.poolFor(actor.actorID);
+      const parent = actor.getParent();
       if (parent) {
         parent.unmanage(actor);
       }
     }
     this._poolMap.set(actor.actorID, actor);
+  }
+
+  unmanageChildren(FrontType) {
+    for (const front of this.poolChildren()) {
+      if (!FrontType || front instanceof FrontType) {
+        this.unmanage(front);
+      }
+    }
   }
 
   /**
@@ -137,7 +143,7 @@ class Pool extends EventEmitter {
    * and destroying all children if necessary.
    */
   destroy() {
-    const parent = this.parent();
+    const parent = this.getParent();
     if (parent) {
       parent.unmanage(this);
     }
@@ -164,7 +170,7 @@ class Pool extends EventEmitter {
   }
 
   /**
-   * For getting along with the debugger server pools, should be removable
+   * For getting along with the devtools server pools, should be removable
    * eventually.
    */
   cleanup() {

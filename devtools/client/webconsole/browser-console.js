@@ -7,7 +7,6 @@
 var Services = require("Services");
 var WebConsole = require("devtools/client/webconsole/webconsole");
 
-loader.lazyRequireGetter(this, "Telemetry", "devtools/client/shared/telemetry");
 loader.lazyRequireGetter(
   this,
   "BrowserConsoleManager",
@@ -37,11 +36,15 @@ class BrowserConsole extends WebConsole {
    *        The window of the browser console owner.
    */
   constructor(target, iframeWindow, chromeWindow) {
-    super(target, iframeWindow, chromeWindow, true);
+    super(null, iframeWindow, chromeWindow, true);
 
-    this._telemetry = new Telemetry();
+    this._browserConsoleTarget = target;
     this._bcInitializer = null;
     this._bcDestroyer = null;
+  }
+
+  get currentTarget() {
+    return this._browserConsoleTarget;
   }
 
   /**
@@ -57,22 +60,6 @@ class BrowserConsole extends WebConsole {
 
     // Only add the shutdown observer if we've opened a Browser Console window.
     ShutdownObserver.init();
-
-    const window = this.iframeWindow;
-
-    // Make sure that the closing of the Browser Console window destroys this
-    // instance.
-    window.addEventListener(
-      "unload",
-      () => {
-        this.destroy();
-      },
-      { once: true }
-    );
-
-    // browserconsole is not connected with a toolbox so we pass -1 as the
-    // toolbox session id.
-    this._telemetry.toolOpened("browserconsole", -1, this);
 
     this._bcInitializer = super.init();
     return this._bcInitializer;
@@ -90,12 +77,8 @@ class BrowserConsole extends WebConsole {
     }
 
     this._bcDestroyer = (async () => {
-      // browserconsole is not connected with a toolbox so we pass -1 as the
-      // toolbox session id.
-      this._telemetry.toolClosed("browserconsole", -1, this);
-
       await super.destroy();
-      await this.target.destroy();
+      await this.currentTarget.destroy();
       this.chromeWindow.close();
     })();
 

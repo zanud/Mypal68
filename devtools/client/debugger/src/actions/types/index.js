@@ -6,11 +6,13 @@
 
 import typeof SourceMaps from "devtools-source-map";
 import type {
-  WorkerList,
-  MainThread,
+  ThreadList,
+  Thread,
   Context,
   ThreadId,
+  SourceId,
   SourceLocation,
+  URL,
 } from "../../types";
 import type { State } from "../../reducers/types";
 import type { MatchedLocations } from "../../reducers/file-search";
@@ -59,35 +61,35 @@ export type Thunk = ThunkArgs => any;
 export type ActionType = Object | Function;
 
 type ProjectTextSearchResult = {
-  sourceId: string,
+  sourceId: SourceId,
   filepath: string,
   matches: MatchedLocations[],
 };
 
 type AddTabAction = {|
   +type: "ADD_TAB",
-  +url: string,
+  +url: URL,
   +framework?: string,
   +isOriginal?: boolean,
-  +sourceId?: string,
+  +sourceId: SourceId,
 |};
 
 type UpdateTabAction = {|
   +type: "UPDATE_TAB",
-  +url: string,
+  +url: URL,
   +framework?: string,
   +isOriginal?: boolean,
-  +sourceId?: string,
+  +sourceId: SourceId,
 |};
 
 type NavigateAction =
   | {|
       +type: "CONNECT",
-      +mainThread: MainThread,
+      +mainThread: Thread,
       +traits: Object,
       +isWebExtension: boolean,
     |}
-  | {| +type: "NAVIGATE", +mainThread: MainThread |};
+  | {| +type: "NAVIGATE", +mainThread: Thread |};
 
 export type FocusItem = TreeNode;
 
@@ -145,14 +147,20 @@ export type QuickOpenAction =
 
 export type DebuggeeAction =
   | {|
-      +type: "INSERT_WORKERS",
+      +type: "INSERT_THREADS",
       +cx: Context,
-      +workers: WorkerList,
+      +threads: ThreadList,
     |}
   | {|
-      +type: "REMOVE_WORKERS",
+      +type: "REMOVE_THREADS",
       +cx: Context,
-      +workers: Array<ThreadId>,
+      +threads: Array<ThreadId>,
+    |}
+  | {|
+      +type: "UPDATE_SERVICE_WORKER_STATUS",
+      +cx: Context,
+      +thread: string,
+      +status: string,
     |}
   | {|
       +type: "SELECT_THREAD",

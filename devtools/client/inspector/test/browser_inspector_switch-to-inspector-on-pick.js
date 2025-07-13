@@ -7,8 +7,6 @@
 
 const TEST_URI =
   "data:text/html;charset=UTF-8," + "<p>Switch to inspector on pick</p>";
-const ALL_CHANNELS = Ci.nsITelemetry.DATASET_ALL_CHANNELS;
-
 const DATA = [
   {
     timestamp: 3562,
@@ -53,13 +51,6 @@ const DATA = [
 ];
 
 add_task(async function() {
-  // Let's reset the counts.
-  Services.telemetry.clearEvents();
-
-  // Ensure no events have been logged
-  const snapshot = Services.telemetry.snapshotEvents(ALL_CHANNELS, true);
-  ok(!snapshot.parent, "No events have been logged for the main process");
-
   const tab = await addTab(TEST_URI);
   const toolbox = await openToolbox(tab);
 
@@ -88,13 +79,6 @@ async function startPickerAndAssertSwitchToInspector(toolbox) {
 }
 
 function checkResults() {
-  const snapshot = Services.telemetry.snapshotEvents(ALL_CHANNELS, true);
-  const events = snapshot.parent.filter(
-    event =>
-      (event[1] === "devtools.main" && event[2] === "enter") ||
-      event[2] === "exit"
-  );
-
   for (const i in DATA) {
     const [timestamp, category, method, object, value, extra] = events[i];
     const expected = DATA[i];

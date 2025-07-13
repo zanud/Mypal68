@@ -21,7 +21,7 @@ import { searchContents } from "./file-search";
 import { copyToTheClipboard } from "../utils/clipboard";
 import { isFulfilled } from "../utils/async-value";
 
-import type { SourceLocation, Context, Source } from "../types";
+import type { SourceLocation, Context, Source, SourceId } from "../types";
 import type {
   ActiveSearchType,
   OrientationType,
@@ -86,7 +86,7 @@ export function toggleInlinePreview(toggleValue: boolean) {
   };
 }
 
-export function showSource(cx: Context, sourceId: string) {
+export function showSource(cx: Context, sourceId: SourceId) {
   return ({ dispatch, getState }: ThunkArgs) => {
     const source = getSource(getState(), sourceId);
     if (!source) {
@@ -134,7 +134,7 @@ export function togglePaneCollapse(
 export function highlightLineRange(location: {
   start: number,
   end: number,
-  sourceId: string,
+  sourceId: SourceId,
 }) {
   return {
     type: "HIGHLIGHT_LINES",
@@ -145,7 +145,7 @@ export function highlightLineRange(location: {
 export function flashLineRange(location: {
   start: number,
   end: number,
-  sourceId: string,
+  sourceId: SourceId,
 }) {
   return ({ dispatch }: ThunkArgs) => {
     dispatch(highlightLineRange(location));
@@ -194,13 +194,16 @@ export function clearProjectDirectoryRoot(cx: Context) {
 
 export function setProjectDirectoryRoot(cx: Context, newRoot: string) {
   return ({ dispatch, getState }: ThunkArgs) => {
-    // Remove the thread actor ID from the root path
     const threadActor = startsWithThreadActor(getState(), newRoot);
+
+    let curRoot = getProjectDirectoryRoot(getState());
+
+    // Remove the thread actor ID from the root path
     if (threadActor) {
       newRoot = newRoot.slice(threadActor.length + 1);
+      curRoot = curRoot.slice(threadActor.length + 1);
     }
 
-    const curRoot = getProjectDirectoryRoot(getState());
     if (newRoot && curRoot) {
       const newRootArr = newRoot.replace(/\/+/g, "/").split("/");
       const curRootArr = curRoot

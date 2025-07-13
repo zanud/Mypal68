@@ -18,7 +18,7 @@ module.exports = {
   bootstrap: ({
     threadFront,
     tabTarget,
-    debuggerClient,
+    devToolsClient,
     workers,
     panel,
   }: any) =>
@@ -28,7 +28,7 @@ module.exports = {
         tabConnection: {
           tabTarget,
           threadFront,
-          debuggerClient,
+          devToolsClient,
         },
       },
       workers,

@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 "use strict";
 
-/* global EVENTS, gTelemetry, gToolbox */
+/* global EVENTS, gToolbox */
 
 // React & Redux
 const {
@@ -49,9 +49,6 @@ loader.lazyRequireGetter(
   "devtools/client/shared/link",
   true
 );
-
-const TELEMETRY_NODE_INSPECTED_COUNT =
-  "devtools.accessibility.node_inspected_count";
 
 const TREE_DEPTH_PADDING_INCREMENT = 20;
 
@@ -243,10 +240,6 @@ class Accessible extends Component {
   }
 
   selectNode(nodeFront, reason = "accessibility") {
-    if (gTelemetry) {
-      gTelemetry.scalarAdd(TELEMETRY_NODE_INSPECTED_COUNT, 1);
-    }
-
     if (!gToolbox) {
       return;
     }

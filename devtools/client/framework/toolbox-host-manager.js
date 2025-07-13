@@ -10,7 +10,6 @@ const L10N = new LocalizationHelper(
   "devtools/client/locales/toolbox.properties"
 );
 const DevToolsUtils = require("devtools/shared/DevToolsUtils");
-const Telemetry = require("devtools/client/shared/telemetry");
 
 // The min-width of toolbox and browser toolbox.
 const WIDTH_CHEVRON_AND_MEATBALL = 50;
@@ -70,7 +69,6 @@ function ToolboxHostManager(target, hostType, hostOptions) {
   }
   this.host = this.createHost(hostType, hostOptions);
   this.hostType = hostType;
-  this.telemetry = new Telemetry();
   this.setMinWidthWithZoom = this.setMinWidthWithZoom.bind(this);
   Services.prefs.addObserver(ZOOM_VALUE_PREF, this.setMinWidthWithZoom);
 }
@@ -84,17 +82,12 @@ ToolboxHostManager.prototype = {
     // We have to listen on capture as no event fires on bubble
     this.host.frame.addEventListener("unload", this, true);
 
-    const msSinceProcessStart = parseInt(
-      this.telemetry.msSinceProcessStart(),
-      10
-    );
     const toolbox = new Toolbox(
       this.target,
       toolId,
       this.host.type,
       this.host.frame.contentWindow,
       this.frameId,
-      msSinceProcessStart
     );
 
     // Prevent reloading the toolbox when loading the tools in a tab
@@ -103,10 +96,6 @@ ToolboxHostManager.prototype = {
     if (!location.href.startsWith("about:devtools-toolbox")) {
       this.host.frame.setAttribute("src", "about:devtools-toolbox");
     }
-
-    // We set an attribute on the toolbox iframe so that apps do not need
-    // access to the toolbox internals in order to get the session ID.
-    this.host.frame.setAttribute("session_id", msSinceProcessStart);
 
     this.setMinWidthWithZoom();
     return toolbox;
@@ -212,7 +201,7 @@ ToolboxHostManager.prototype = {
       throw new Error("Unknown hostType: " + hostType);
     }
 
-    const newHost = new Hosts[hostType](this.target.tab, options);
+    const newHost = new Hosts[hostType](this.target.localTab, options);
     return newHost;
   },
 

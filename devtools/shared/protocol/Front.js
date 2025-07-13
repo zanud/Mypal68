@@ -7,31 +7,18 @@
 var { settleAll } = require("devtools/shared/DevToolsUtils");
 var EventEmitter = require("devtools/shared/event-emitter");
 
-var { Pool } = require("./Pool");
+var { Pool } = require("devtools/shared/protocol/Pool");
 var {
   getStack,
   callFunctionWithAsyncStack,
 } = require("devtools/shared/platform/stack");
-// Bug 1454373: devtools/shared/defer still uses Promise.jsm which is slower
-// than DOM Promises. So implement our own copy of `defer` based on DOM Promises.
-function defer() {
-  let resolve, reject;
-  const promise = new Promise(function() {
-    resolve = arguments[0];
-    reject = arguments[1];
-  });
-  return {
-    resolve: resolve,
-    reject: reject,
-    promise: promise,
-  };
-}
+const defer = require("devtools/shared/defer");
 
 /**
  * Base class for client-side actor fronts.
  *
- * @param [DebuggerClient|null] conn
- *   The conn must either be DebuggerClient or null. Must have
+ * @param [DevToolsClient|null] conn
+ *   The conn must either be DevToolsClient or null. Must have
  *   addActorPool, removeActorPool, and poolFor.
  *   conn can be null if the subclass provides a conn property.
  * @param [Target|null] target
@@ -65,6 +52,15 @@ class Front extends Pool {
     this._beforeListeners = new Map();
   }
 
+  /**
+   * Return the parent front.
+   */
+  getParent() {
+    return this.parentFront && this.parentFront.actorID
+      ? this.parentFront
+      : null;
+  }
+
   destroy() {
     // Reject all outstanding requests, they won't make sense after
     // the front is destroyed.
@@ -89,7 +85,7 @@ class Front extends Pool {
     this._beforeListeners = null;
   }
 
-  manage(front) {
+  async manage(front, form, ctx) {
     if (!front.actorID) {
       throw new Error(
         "Can't manage front without an actor ID.\n" +
@@ -98,7 +94,35 @@ class Front extends Pool {
           "."
       );
     }
+
+    if (front.parentFront && front.parentFront !== this) {
+      throw new Error(
+        `${this.actorID} (${this.typeName}) can't manage ${front.actorID}
+        (${front.typeName}) since it has a different parentFront ${
+          front.parentFront
+            ? front.parentFront.actordID +
+              "(" +
+              front.parentFront.typeName +
+              ")"
+            : "<no parentFront>"
+        }`
+      );
+    }
+
     super.manage(front);
+
+    if (typeof front.initialize == "function") {
+      await front.initialize();
+    }
+
+    // Ensure calling form() *before* notifying about this front being just created.
+    // We exprect the front to be fully initialized, especially via its form attributes.
+    // But do that *after* calling manage() so that the front is already registered
+    // in Pools and can be fetched by its ID, in case a child actor, created in form()
+    // tries to get a reference to its parent via the actor ID.
+    if (form) {
+      front.form(form, ctx);
+    }
 
     // Call listeners registered via `onFront` method
     this._frontListeners.emit(front.typeName, front);
@@ -228,8 +252,6 @@ class Front extends Pool {
     callFunctionWithAsyncStack(
       () => {
         if (packet.error) {
-          // "Protocol error" is here to avoid TBPL heuristics. See also
-          // https://dxr.mozilla.org/webtools-central/source/tbpl/php/inc/GeneralErrorFilter.php
           let message;
           if (packet.error && packet.message) {
             message =
@@ -237,7 +259,8 @@ class Front extends Pool {
           } else {
             message = packet.error;
           }
-          deferred.reject(message);
+          const packetError = new Error(message);
+          deferred.reject(packetError);
         } else {
           deferred.resolve(packet);
         }

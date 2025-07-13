@@ -22,25 +22,27 @@ describe("Function - Named", () => {
     expect(renderRep(object, { mode: undefined }).text()).toBe(
       "function testName()"
     );
-    expect(renderRep(object, { parameterNames: [] }).text()).toBe(
+    expect(renderRep({ ...object, parameterNames: [] }).text()).toBe(
       "function testName()"
     );
-    expect(renderRep(object, { parameterNames: ["a"] }).text()).toBe(
+    expect(renderRep({ ...object, parameterNames: ["a"] }).text()).toBe(
       "function testName(a)"
     );
-    expect(renderRep(object, { parameterNames: ["a", "b", "c"] }).text()).toBe(
-      "function testName(a, b, c)"
-    );
+    expect(
+      renderRep({ ...object, parameterNames: ["a", "b", "c"] }).text()
+    ).toBe("function testName(a, b, c)");
     expect(
       renderRep(object, {
         mode: MODE.TINY,
       }).text()
     ).toBe("testName()");
     expect(
-      renderRep(object, {
-        mode: MODE.TINY,
-        parameterNames: ["a", "b", "c"],
-      }).text()
+      renderRep(
+        { ...object, parameterNames: ["a", "b", "c"] },
+        {
+          mode: MODE.TINY,
+        }
+      ).text()
     ).toBe("testName(a, b, c)");
 
     expectActorAttribute(renderRep(object), object.actor);
@@ -55,25 +57,27 @@ describe("Function - User named", () => {
     expect(renderRep(object, { mode: undefined }).text()).toBe(
       "function testUserName()"
     );
-    expect(renderRep(object, { parameterNames: [] }).text()).toBe(
+    expect(renderRep({ ...object, parameterNames: [] }).text()).toBe(
       "function testUserName()"
     );
-    expect(renderRep(object, { parameterNames: ["a"] }).text()).toBe(
+    expect(renderRep({ ...object, parameterNames: ["a"] }).text()).toBe(
       "function testUserName(a)"
     );
-    expect(renderRep(object, { parameterNames: ["a", "b", "c"] }).text()).toBe(
-      "function testUserName(a, b, c)"
-    );
+    expect(
+      renderRep({ ...object, parameterNames: ["a", "b", "c"] }).text()
+    ).toBe("function testUserName(a, b, c)");
     expect(
       renderRep(object, {
         mode: MODE.TINY,
       }).text()
     ).toBe("testUserName()");
     expect(
-      renderRep(object, {
-        mode: MODE.TINY,
-        parameterNames: ["a", "b", "c"],
-      }).text()
+      renderRep(
+        { ...object, parameterNames: ["a", "b", "c"] },
+        {
+          mode: MODE.TINY,
+        }
+      ).text()
     ).toBe("testUserName(a, b, c)");
   });
 });
@@ -86,25 +90,27 @@ describe("Function - Var named", () => {
     expect(renderRep(object, { mode: undefined }).text()).toBe(
       "function testVarName()"
     );
-    expect(renderRep(object, { parameterNames: [] }).text()).toBe(
+    expect(renderRep({ ...object, parameterNames: [] }).text()).toBe(
       "function testVarName()"
     );
-    expect(renderRep(object, { parameterNames: ["a"] }).text()).toBe(
+    expect(renderRep({ ...object, parameterNames: ["a"] }).text()).toBe(
       "function testVarName(a)"
     );
-    expect(renderRep(object, { parameterNames: ["a", "b", "c"] }).text()).toBe(
-      "function testVarName(a, b, c)"
-    );
+    expect(
+      renderRep({ ...object, parameterNames: ["a", "b", "c"] }).text()
+    ).toBe("function testVarName(a, b, c)");
     expect(
       renderRep(object, {
         mode: MODE.TINY,
       }).text()
     ).toBe("testVarName()");
     expect(
-      renderRep(object, {
-        mode: MODE.TINY,
-        parameterNames: ["a", "b", "c"],
-      }).text()
+      renderRep(
+        { ...object, parameterNames: ["a", "b", "c"] },
+        {
+          mode: MODE.TINY,
+        }
+      ).text()
     ).toBe("testVarName(a, b, c)");
   });
 });
@@ -115,25 +121,27 @@ describe("Function - Anonymous", () => {
 
   it("renders anonymous function as expected", () => {
     expect(renderRep(object, { mode: undefined }).text()).toBe("function ()");
-    expect(renderRep(object, { parameterNames: [] }).text()).toBe(
+    expect(renderRep({ ...object, parameterNames: [] }).text()).toBe(
       "function ()"
     );
-    expect(renderRep(object, { parameterNames: ["a"] }).text()).toBe(
+    expect(renderRep({ ...object, parameterNames: ["a"] }).text()).toBe(
       "function (a)"
     );
-    expect(renderRep(object, { parameterNames: ["a", "b", "c"] }).text()).toBe(
-      "function (a, b, c)"
-    );
+    expect(
+      renderRep({ ...object, parameterNames: ["a", "b", "c"] }).text()
+    ).toBe("function (a, b, c)");
     expect(
       renderRep(object, {
         mode: MODE.TINY,
       }).text()
     ).toBe("()");
     expect(
-      renderRep(object, {
-        mode: MODE.TINY,
-        parameterNames: ["a", "b", "c"],
-      }).text()
+      renderRep(
+        { ...object, parameterNames: ["a", "b", "c"] },
+        {
+          mode: MODE.TINY,
+        }
+      ).text()
     ).toBe("(a, b, c)");
   });
 });
@@ -150,25 +158,27 @@ describe("Function - Long name", () => {
     expect(renderRep(object, { mode: undefined }).text()).toBe(
       `function ${functionName}()`
     );
-    expect(renderRep(object, { parameterNames: [] }).text()).toBe(
+    expect(renderRep({ ...object, parameterNames: [] }).text()).toBe(
       `function ${functionName}()`
     );
-    expect(renderRep(object, { parameterNames: ["a"] }).text()).toBe(
+    expect(renderRep({ ...object, parameterNames: ["a"] }).text()).toBe(
       `function ${functionName}(a)`
     );
-    expect(renderRep(object, { parameterNames: ["a", "b", "c"] }).text()).toBe(
-      `function ${functionName}(a, b, c)`
-    );
+    expect(
+      renderRep({ ...object, parameterNames: ["a", "b", "c"] }).text()
+    ).toBe(`function ${functionName}(a, b, c)`);
     expect(
       renderRep(object, {
         mode: MODE.TINY,
       }).text()
     ).toBe(`${functionName}()`);
     expect(
-      renderRep(object, {
-        mode: MODE.TINY,
-        parameterNames: ["a", "b", "c"],
-      }).text()
+      renderRep(
+        { ...object, parameterNames: ["a", "b", "c"] },
+        {
+          mode: MODE.TINY,
+        }
+      ).text()
     ).toBe(`${functionName}(a, b, c)`);
   });
 });
@@ -189,20 +199,22 @@ describe("Function - Async function", () => {
     expect(renderRep(object, { mode: MODE.LONG }).text()).toBe(
       "async function waitUntil2017()"
     );
-    expect(renderRep(object, { parameterNames: [] }).text()).toBe(
+    expect(renderRep({ ...object, parameterNames: [] }).text()).toBe(
       "async function waitUntil2017()"
     );
-    expect(renderRep(object, { parameterNames: ["a"] }).text()).toBe(
+    expect(renderRep({ ...object, parameterNames: ["a"] }).text()).toBe(
       "async function waitUntil2017(a)"
     );
-    expect(renderRep(object, { parameterNames: ["a", "b", "c"] }).text()).toBe(
-      "async function waitUntil2017(a, b, c)"
-    );
     expect(
-      renderRep(object, {
-        mode: MODE.TINY,
-        parameterNames: ["a", "b", "c"],
-      }).text()
+      renderRep({ ...object, parameterNames: ["a", "b", "c"] }).text()
+    ).toBe("async function waitUntil2017(a, b, c)");
+    expect(
+      renderRep(
+        { ...object, parameterNames: ["a", "b", "c"] },
+        {
+          mode: MODE.TINY,
+        }
+      ).text()
     ).toBe("async waitUntil2017(a, b, c)");
   });
 });
@@ -221,20 +233,22 @@ describe("Function - Anonymous async function", () => {
     expect(renderRep(object, { mode: MODE.LONG }).text()).toBe(
       "async function ()"
     );
-    expect(renderRep(object, { parameterNames: [] }).text()).toBe(
+    expect(renderRep({ ...object, parameterNames: [] }).text()).toBe(
       "async function ()"
     );
-    expect(renderRep(object, { parameterNames: ["a"] }).text()).toBe(
+    expect(renderRep({ ...object, parameterNames: ["a"] }).text()).toBe(
       "async function (a)"
     );
-    expect(renderRep(object, { parameterNames: ["a", "b", "c"] }).text()).toBe(
-      "async function (a, b, c)"
-    );
     expect(
-      renderRep(object, {
-        mode: MODE.TINY,
-        parameterNames: ["a", "b", "c"],
-      }).text()
+      renderRep({ ...object, parameterNames: ["a", "b", "c"] }).text()
+    ).toBe("async function (a, b, c)");
+    expect(
+      renderRep(
+        { ...object, parameterNames: ["a", "b", "c"] },
+        {
+          mode: MODE.TINY,
+        }
+      ).text()
     ).toBe("async (a, b, c)");
   });
 });
@@ -253,20 +267,22 @@ describe("Function - Generator function", () => {
     expect(renderRep(object, { mode: MODE.LONG }).text()).toBe(
       "function* fib()"
     );
-    expect(renderRep(object, { parameterNames: [] }).text()).toBe(
+    expect(renderRep({ ...object, parameterNames: [] }).text()).toBe(
       "function* fib()"
     );
-    expect(renderRep(object, { parameterNames: ["a"] }).text()).toBe(
+    expect(renderRep({ ...object, parameterNames: ["a"] }).text()).toBe(
       "function* fib(a)"
     );
-    expect(renderRep(object, { parameterNames: ["a", "b", "c"] }).text()).toBe(
-      "function* fib(a, b, c)"
-    );
     expect(
-      renderRep(object, {
-        mode: MODE.TINY,
-        parameterNames: ["a", "b", "c"],
-      }).text()
+      renderRep({ ...object, parameterNames: ["a", "b", "c"] }).text()
+    ).toBe("function* fib(a, b, c)");
+    expect(
+      renderRep(
+        { ...object, parameterNames: ["a", "b", "c"] },
+        {
+          mode: MODE.TINY,
+        }
+      ).text()
     ).toBe("* fib(a, b, c)");
   });
 });
@@ -279,20 +295,22 @@ describe("Function - Anonymous generator function", () => {
     expect(renderRep(object, { mode: MODE.TINY }).text()).toBe("* ()");
     expect(renderRep(object, { mode: MODE.SHORT }).text()).toBe("function* ()");
     expect(renderRep(object, { mode: MODE.LONG }).text()).toBe("function* ()");
-    expect(renderRep(object, { parameterNames: [] }).text()).toBe(
+    expect(renderRep({ ...object, parameterNames: [] }).text()).toBe(
       "function* ()"
     );
-    expect(renderRep(object, { parameterNames: ["a"] }).text()).toBe(
+    expect(renderRep({ ...object, parameterNames: ["a"] }).text()).toBe(
       "function* (a)"
     );
-    expect(renderRep(object, { parameterNames: ["a", "b", "c"] }).text()).toBe(
-      "function* (a, b, c)"
-    );
     expect(
-      renderRep(object, {
-        mode: MODE.TINY,
-        parameterNames: ["a", "b", "c"],
-      }).text()
+      renderRep({ ...object, parameterNames: ["a", "b", "c"] }).text()
+    ).toBe("function* (a, b, c)");
+    expect(
+      renderRep(
+        { ...object, parameterNames: ["a", "b", "c"] },
+        {
+          mode: MODE.TINY,
+        }
+      ).text()
     ).toBe("* (a, b, c)");
   });
 });
@@ -318,26 +336,6 @@ describe("Function - Jump to definition", () => {
     expect(node.exists()).toBeTruthy();
     expect(onViewSourceInDebugger.mock.calls).toHaveLength(1);
     expect(onViewSourceInDebugger.mock.calls[0][0]).toEqual(object.location);
-  });
-
-  it("calls recordTelemetryEvent when jump to definition icon clicked", () => {
-    const onViewSourceInDebugger = jest.fn();
-    const recordTelemetryEvent = jest.fn();
-    const object = stubs.get("getRandom");
-    const renderedComponent = renderRep(object, {
-      onViewSourceInDebugger,
-      recordTelemetryEvent,
-    });
-
-    const node = renderedComponent.find(".jump-definition");
-    node.simulate("click", {
-      type: "click",
-      stopPropagation: () => {},
-    });
-
-    expect(node.exists()).toBeTruthy();
-    expect(recordTelemetryEvent.mock.calls).toHaveLength(1);
-    expect(recordTelemetryEvent.mock.calls[0][0]).toEqual("jump_to_definition");
   });
 
   it("no icon when onViewSourceInDebugger props not provided", () => {
@@ -465,23 +463,30 @@ describe("Function - Two properties with same displayName", () => {
       renderRep(object, { mode: undefined, functionName: "$" }).text()
     ).toBe("function $:jQuery()");
     expect(
-      renderRep(object, { parameterNames: [], functionName: "$" }).text()
+      renderRep({ ...object, parameterNames: [] }, { functionName: "$" }).text()
     ).toBe("function $:jQuery()");
     expect(
-      renderRep(object, { parameterNames: ["a"], functionName: "$" }).text()
+      renderRep(
+        { ...object, parameterNames: ["a"] },
+        { functionName: "$" }
+      ).text()
     ).toBe("function $:jQuery(a)");
     expect(
-      renderRep(object, {
-        parameterNames: ["a", "b", "c"],
-        functionName: "$",
-      }).text()
+      renderRep(
+        { ...object, parameterNames: ["a", "b", "c"] },
+        {
+          functionName: "$",
+        }
+      ).text()
     ).toBe("function $:jQuery(a, b, c)");
     expect(
-      renderRep(object, {
-        mode: MODE.TINY,
-        parameterNames: ["a", "b", "c"],
-        functionName: "$",
-      }).text()
+      renderRep(
+        { ...object, parameterNames: ["a", "b", "c"] },
+        {
+          mode: MODE.TINY,
+          functionName: "$",
+        }
+      ).text()
     ).toBe("$:jQuery(a, b, c)");
   });
 });

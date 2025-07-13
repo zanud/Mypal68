@@ -1185,7 +1185,7 @@ var PageStyleActor = protocol.ActorClassWithSpec(pageStyleSpec, {
    *
    * This is necessary because changes in one rule can cause the declarations in another
    * to not be applicable (inactive CSS). The observers of those rules should be notified.
-   * Rules will fire a "declarations-updated" event if their declarations changed states.
+   * Rules will fire a "rule-updated" event if any of their declarations changed state.
    *
    * Call this method whenever a CSS rule is mutated:
    * - a CSS declaration is added/changed/disabled/removed
@@ -1422,9 +1422,8 @@ var StyleRuleActor = protocol.ActorClassWithSpec(styleRuleSpec, {
       column: this.column,
       ancestorData: [],
       traits: {
-        // Whether the style rule actor implements the setRuleText
-        // method.
         canSetRuleText: this.canSetRuleText,
+        emitsRuleUpdatedEvent: true,
       },
     };
 
@@ -1790,6 +1789,8 @@ var StyleRuleActor = protocol.ActorClassWithSpec(styleRuleSpec, {
     this.authoredText = newText;
     this.pageStyle.refreshObservedRules();
 
+    // Returning this updated actor over the protocol will update its corresponding front
+    // and any references to it.
     return this;
   },
 
@@ -2095,8 +2096,7 @@ var StyleRuleActor = protocol.ActorClassWithSpec(styleRuleSpec, {
    * check the states of declarations in this CSS rule.
    *
    * If any have changed their used/unused state, potentially as a result of changes in
-   * another rule, fire a "declarations-updated" event with all declarations and their
-   * updated states.
+   * another rule, fire a "rule-updated" event with this rule actor in its latest state.
    */
   refresh() {
     let hasChanged = false;
@@ -2119,7 +2119,7 @@ var StyleRuleActor = protocol.ActorClassWithSpec(styleRuleSpec, {
     }
 
     if (hasChanged) {
-      this.emit("declarations-updated", this._declarations);
+      this.emit("rule-updated", this);
     }
   },
 });

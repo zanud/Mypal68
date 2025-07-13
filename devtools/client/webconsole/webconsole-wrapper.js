@@ -22,10 +22,11 @@ const {
   getAllMessagesById,
   getMessage,
 } = require("devtools/client/webconsole/selectors/messages");
-const Telemetry = require("devtools/client/shared/telemetry");
 
 const EventEmitter = require("devtools/shared/event-emitter");
 const App = createFactory(require("devtools/client/webconsole/components/App"));
+const DataProvider = require("devtools/client/netmonitor/src/connector/firefox-data-provider");
+
 const {
   setupServiceContainer,
 } = require("devtools/client/webconsole/service-container");
@@ -56,44 +57,42 @@ class WebConsoleWrapper {
     this.document = document;
 
     this.init = this.init.bind(this);
-    this.dispatchPaused = this.dispatchPaused.bind(this);
-    this.dispatchProgress = this.dispatchProgress.bind(this);
 
     this.queuedMessageAdds = [];
     this.queuedMessageUpdates = [];
     this.queuedRequestUpdates = [];
     this.throttledDispatchPromise = null;
-    this.telemetry = new Telemetry();
   }
 
-  init() {
+  async init() {
+    const { webConsoleUI } = this;
+
+    const webConsoleFront = await this.hud.currentTarget.getFront("console");
+
+    this.networkDataProvider = new DataProvider({
+      actions: {
+        updateRequest: (id, data) => this.batchedRequestUpdates({ id, data }),
+      },
+      webConsoleFront,
+    });
+
     return new Promise(resolve => {
-      const { webConsoleUI } = this;
-      const debuggerClient = this.hud.target.client;
-
-      const serviceContainer = setupServiceContainer({
-        debuggerClient,
-        webConsoleUI,
-        actions,
-        toolbox: this.toolbox,
-        hud: this.hud,
-        webconsoleWrapper: this,
-      });
-
       store = configureStore(this.webConsoleUI, {
         // We may not have access to the toolbox (e.g. in the browser console).
         sessionId: (this.toolbox && this.toolbox.sessionId) || -1,
-        telemetry: this.telemetry,
-        services: serviceContainer,
+        thunkArgs: {
+          webConsoleUI,
+          hud: this.hud,
+          client: this.webConsoleUI._commands,
+        },
       });
 
-      if (this.toolbox) {
-        this.toolbox.threadFront.on("paused", this.dispatchPaused);
-        this.toolbox.threadFront.on("progress", this.dispatchProgress);
-      }
-
-      const { prefs } = store.getState();
-      const autocomplete = prefs.autocomplete;
+      const serviceContainer = setupServiceContainer({
+        webConsoleUI,
+        toolbox: this.toolbox,
+        hud: this.hud,
+        webConsoleWrapper: this,
+      });
 
       this.prefsObservers = new Map();
       this.prefsObservers.set(PREFS.UI.MESSAGE_TIMESTAMP, () => {
@@ -117,7 +116,6 @@ class WebConsoleWrapper {
         webConsoleUI,
         onFirstMeaningfulPaint: resolve,
         closeSplitConsole: this.closeSplitConsole.bind(this),
-        autocomplete,
         hidePersistLogsCheckbox:
           webConsoleUI.isBrowserConsole || webConsoleUI.isBrowserToolboxConsole,
         hideShowContentMessagesCheckbox:
@@ -136,38 +134,8 @@ class WebConsoleWrapper {
     });
   }
 
-  dispatchMessageAdd(packet, waitForResponse) {
-    // Wait for the message to render to resolve with the DOM node.
-    // This is just for backwards compatibility with old tests, and should
-    // be removed once it's not needed anymore.
-    // Can only wait for response if the action contains a valid message.
-    let promise;
-    // Also, do not expect any update while the panel is in background.
-    if (waitForResponse && document.visibilityState === "visible") {
-      const timeStampToMatch = packet.message
-        ? packet.message.timeStamp
-        : packet.timestamp;
-
-      promise = new Promise(resolve => {
-        this.webConsoleUI.on(
-          "new-messages",
-          function onThisMessage(messages) {
-            for (const m of messages) {
-              if (m.timeStamp === timeStampToMatch) {
-                resolve(m.node);
-                this.webConsoleUI.off("new-messages", onThisMessage);
-                return;
-              }
-            }
-          }.bind(this)
-        );
-      });
-    } else {
-      promise = Promise.resolve();
-    }
-
-    this.batchedMessageAdd(packet);
-    return promise;
+  dispatchMessageAdd(packet) {
+    this.batchedMessagesAdd([packet]);
   }
 
   dispatchMessagesAdd(messages) {
@@ -182,7 +150,7 @@ class WebConsoleWrapper {
     this.queuedMessageUpdates = [];
     this.queuedRequestUpdates = [];
     store.dispatch(actions.messagesClear());
-    this.webConsoleUI.emit("messages-cleared");
+    this.webConsoleUI.emitForTests("messages-cleared");
   }
 
   dispatchPrivateMessagesClear() {
@@ -236,18 +204,6 @@ class WebConsoleWrapper {
     store.dispatch(actions.privateMessagesClear());
   }
 
-  dispatchPaused(packet) {
-    if (packet.executionPoint) {
-      store.dispatch(actions.setPauseExecutionPoint(packet.executionPoint));
-    }
-  }
-
-  dispatchProgress(packet) {
-    const { executionPoint, recording } = packet;
-    const point = recording ? null : executionPoint;
-    store.dispatch(actions.setPauseExecutionPoint(point));
-  }
-
   dispatchMessageUpdate(message, res) {
     // network-message-updated will emit when all the update message arrives.
     // Since we can't ensure the order of the network update, we check
@@ -267,10 +223,6 @@ class WebConsoleWrapper {
     if (res.networkInfo.updates.length === expectedLength) {
       this.batchedMessageUpdates({ res, message });
     }
-  }
-
-  dispatchRequestUpdate(id, data) {
-    return this.batchedRequestUpdates({ id, data });
   }
 
   dispatchSidebarClose() {
@@ -298,7 +250,7 @@ class WebConsoleWrapper {
       packet.type = "will-navigate";
       this.dispatchMessageAdd(packet);
     } else {
-      this.webConsoleUI.webConsoleClient.clearNetworkRequests();
+      this.webConsoleUI.clearNetworkRequests();
       this.dispatchMessagesClear();
       store.dispatch({
         type: Constants.WILL_NAVIGATE,
@@ -316,14 +268,13 @@ class WebConsoleWrapper {
     return this.setTimeoutIfNeeded();
   }
 
-  batchedMessageAdd(message) {
-    this.queuedMessageAdds.push(message);
-    this.setTimeoutIfNeeded();
-  }
-
   batchedMessagesAdd(messages) {
     this.queuedMessageAdds = this.queuedMessageAdds.concat(messages);
     this.setTimeoutIfNeeded();
+  }
+
+  requestData(id, type) {
+    this.networkDataProvider.requestData(id, type);
   }
 
   dispatchClearLogpointMessages(logpointId) {
@@ -371,19 +322,6 @@ class WebConsoleWrapper {
 
         const length = this.queuedMessageAdds.length;
 
-        // This telemetry event is only useful when we have a toolbox so only
-        // send it when we have one.
-        if (this.toolbox) {
-          this.telemetry.addEventProperty(
-            this.toolbox,
-            "enter",
-            "webconsole",
-            null,
-            "message_count",
-            length
-          );
-        }
-
         this.queuedMessageAdds = [];
 
         if (this.queuedMessageUpdates.length > 0) {
@@ -391,7 +329,7 @@ class WebConsoleWrapper {
             await store.dispatch(
               actions.networkMessageUpdate(message, null, res)
             );
-            this.webConsoleUI.emit("network-message-updated", res);
+            this.webConsoleUI.emitForTests("network-message-updated", res);
           }
           this.queuedMessageUpdates = [];
         }
@@ -408,7 +346,7 @@ class WebConsoleWrapper {
           // (netmonitor/src/connector/firefox-data-provider).
           // This event might be utilized in tests to find the right
           // time when to finish.
-          this.webConsoleUI.emit("network-request-payload-ready");
+          this.webConsoleUI.emitForTests("network-request-payload-ready");
         }
         done();
       }, 50);
@@ -422,6 +360,10 @@ class WebConsoleWrapper {
 
   subscribeToStore(callback) {
     store.subscribe(() => callback(store.getState()));
+  }
+
+  createElement(nodename) {
+    return this.document.createElement(nodename);
   }
 
   // Called by pushing close button.

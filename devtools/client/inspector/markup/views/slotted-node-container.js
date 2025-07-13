@@ -41,10 +41,6 @@ SlottedNodeContainer.prototype = extend(MarkupContainer.prototype, {
   _revealFromSlot() {
     const reason = "reveal-from-slot";
     this.markup.inspector.selection.setNodeFront(this.node, { reason });
-    this.markup.telemetry.scalarSet(
-      "devtools.shadowdom.reveal_link_clicked",
-      true
-    );
   },
 
   _onKeyDown: function(event) {

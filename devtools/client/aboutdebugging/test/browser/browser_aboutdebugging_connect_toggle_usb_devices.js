@@ -54,12 +54,6 @@ add_task(async function() {
   const adbExtensionId = Services.prefs.getCharPref(
     "devtools.remote.adb.extensionID"
   );
-  const addon = await AddonManager.getAddonByID(adbExtensionId);
-  Assert.deepEqual(
-    addon.installTelemetryInfo,
-    { source: "about:debugging" },
-    "Got the expected addon.installTelemetryInfo"
-  );
 
   // Right now we are resuming as soon as "USB enabled" is displayed, but ADB
   // might still be starting up. If we move to uninstall directly, the ADB startup will

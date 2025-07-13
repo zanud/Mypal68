@@ -6,9 +6,7 @@
 
 const { Utils: WebConsoleUtils } = require("devtools/client/webconsole/utils");
 const EventEmitter = require("devtools/shared/event-emitter");
-const defer = require("devtools/shared/defer");
 const Services = require("Services");
-const { gDevTools } = require("devtools/client/framework/devtools");
 const {
   WebConsoleConnectionProxy,
 } = require("devtools/client/webconsole/webconsole-connection-proxy");
@@ -19,6 +17,9 @@ var ChromeUtils = require("ChromeUtils");
 const { BrowserLoader } = ChromeUtils.import(
   "resource://devtools/client/shared/browser-loader.js"
 );
+const {
+  getAdHocFrontOrPrimitiveGrip,
+} = require("devtools/client/fronts/object");
 
 loader.lazyRequireGetter(
   this,
@@ -26,6 +27,7 @@ loader.lazyRequireGetter(
   "resource://gre/modules/AppConstants.jsm",
   true
 );
+const ConsoleCommands = require("devtools/client/webconsole/commands.js");
 
 const ZoomKeys = require("devtools/client/shared/zoom-keys");
 
@@ -47,6 +49,7 @@ class WebConsoleUI {
     this.hud = hud;
     this.hudId = this.hud.hudId;
     this.isBrowserConsole = this.hud._browserConsole;
+
     this.isBrowserToolboxConsole =
       this.hud.currentTarget &&
       this.hud.currentTarget.isParentProcess &&
@@ -57,16 +60,61 @@ class WebConsoleUI {
     this._onChangeSplitConsoleState = this._onChangeSplitConsoleState.bind(
       this
     );
+    this._listProcessesAndCreateProxies = this._listProcessesAndCreateProxies.bind(
+      this
+    );
 
     EventEmitter.decorate(this);
   }
 
   /**
-   * Getter for the debugger WebConsoleClient.
+   * Getter for the WebConsoleFront.
    * @type object
    */
-  get webConsoleClient() {
-    return this.proxy ? this.proxy.webConsoleClient : null;
+  get webConsoleFront() {
+    const proxy = this.getProxy();
+
+    if (!proxy) {
+      return null;
+    }
+
+    return proxy.webConsoleFront;
+  }
+
+  /**
+   * Return the main target proxy, i.e. the proxy for MainProcessTarget in BrowserConsole,
+   * and the proxy for the target passed from the Toolbox to WebConsole.
+   *
+   * @returns {WebConsoleConnectionProxy}
+   */
+  getProxy() {
+    return this.proxy;
+  }
+
+  /**
+   * Return all the proxies we're currently managing (i.e. the "main" one, and the
+   * possible additional ones).
+   *
+   * @param {Boolean} filterDisconnectedProxies: True by default, if false, this
+   *   function also returns not-already-connected or already disconnected proxies.
+   *
+   * @returns {Array<WebConsoleConnectionProxy>}
+   */
+  getAllProxies(filterDisconnectedProxies = true) {
+    let proxies = [this.getProxy()];
+
+    if (this.additionalProxies) {
+      proxies = proxies.concat(this.additionalProxies);
+    }
+
+    // Ignore Fronts that are already destroyed
+    if (filterDisconnectedProxies) {
+      proxies = proxies.filter(proxy => {
+        return proxy.webConsoleClient && !!proxy.webConsoleClient.actorID;
+      });
+    }
+
+    return proxies;
   }
 
   /**
@@ -74,15 +122,31 @@ class WebConsoleUI {
    * @return object
    *         A promise object that resolves once the frame is ready to use.
    */
-  async init() {
-    this._initUI();
-    await this._initConnection();
-    await this.wrapper.init();
-
-    const id = WebConsoleUtils.supportsString(this.hudId);
-    if (Services.obs) {
-      Services.obs.notifyObservers(id, "web-console-created");
+  init() {
+    if (this._initializer) {
+      return this._initializer;
     }
+
+    this._initializer = (async () => {
+      this._initUI();
+      await this._attachTargets();
+
+      this._commands = new ConsoleCommands({
+        devToolsClient: this.hud.currentTarget.client,
+        proxy: this.getProxy(),
+        threadFront: this.hud.toolbox && this.hud.toolbox.threadFront,
+        currentTarget: this.hud.currentTarget,
+      });
+
+      await this.wrapper.init();
+
+      const id = WebConsoleUtils.supportsString(this.hudId);
+      if (Services.obs) {
+        Services.obs.notifyObservers(id, "web-console-created");
+      }
+    })();
+
+    return this._initializer;
   }
 
   destroy() {
@@ -107,19 +171,54 @@ class WebConsoleUI {
       this.wrapper.destroy();
     }
 
-    const toolbox = gDevTools.getToolbox(this.hud.target);
+    const toolbox = this.hud.toolbox;
     if (toolbox) {
       toolbox.off("webconsole-selected", this._onPanelSelected);
       toolbox.off("split-console", this._onChangeSplitConsoleState);
       toolbox.off("select", this._onChangeSplitConsoleState);
     }
 
-    this.window = this.hud = this.wrapper = null;
-
-    if (this.proxy) {
-      this.proxy.disconnect();
-      this.proxy = null;
+    const target = this.hud.currentTarget;
+    if (target) {
+      target.client.mainRoot.off(
+        "processListChanged",
+        this._listProcessesAndCreateProxies
+      );
     }
+
+    for (const proxy of this.getAllProxies()) {
+      proxy.disconnect();
+    }
+    this.proxy = null;
+    this.additionalProxies = null;
+
+    // Nullify `hud` last as it nullify also target which is used on destroy
+    this.window = this.hud = this.wrapper = null;
+  }
+
+  async switchToTarget(newTarget) {
+    // Fake a will-navigate and navigate event packets
+    // The only three attribute being used are the following:
+    const packet = {
+      url: newTarget.url,
+      title: newTarget.title,
+      // We always pass true here as the warning message will
+      // be logged when calling `connect`. This flag is also returned
+      // by `startListeners` request
+      nativeConsoleAPI: true,
+    };
+    this.handleTabWillNavigate(packet);
+
+    // Disconnect all previous proxies, including the top level one
+    for (const proxy of this.getAllProxies()) {
+      proxy.disconnect();
+    }
+    this.proxy = null;
+    this.additionalProxies = [];
+
+    await this._attachTargets();
+
+    this.handleTabNavigated(packet);
   }
 
   /**
@@ -140,11 +239,23 @@ class WebConsoleUI {
     if (this.wrapper) {
       this.wrapper.dispatchMessagesClear();
     }
-    this.webConsoleClient.clearNetworkRequests();
+    this.clearNetworkRequests();
     if (clearStorage) {
-      this.webConsoleClient.clearMessagesCache();
+      this.clearMessagesCache();
     }
-    this.emit("messages-cleared");
+    this.emitForTests("messages-cleared");
+  }
+
+  clearNetworkRequests() {
+    for (const proxy of this.getAllProxies()) {
+      proxy.webConsoleFront.clearNetworkRequests();
+    }
+  }
+
+  clearMessagesCache() {
+    for (const proxy of this.getAllProxies()) {
+      proxy.webConsoleFront.clearMessagesCache();
+    }
   }
 
   /**
@@ -155,16 +266,20 @@ class WebConsoleUI {
   clearPrivateMessages() {
     if (this.wrapper) {
       this.wrapper.dispatchPrivateMessagesClear();
-      this.emit("private-messages-cleared");
+      this.emitForTests("private-messages-cleared");
     }
   }
 
   inspectObjectActor(objectActor) {
+    const webConsoleFront = this.webConsoleFront;
     this.wrapper.dispatchMessageAdd(
       {
         helperResult: {
           type: "inspectObject",
-          object: objectActor,
+          object:
+            objectActor && objectActor.getGrip
+              ? objectActor
+              : getAdHocFrontOrPrimitiveGrip(objectActor, webConsoleFront),
         },
       },
       true
@@ -172,8 +287,12 @@ class WebConsoleUI {
     return this.wrapper;
   }
 
+  getPanelWindow() {
+    return this.window;
+  }
+
   logWarningAboutReplacedAPI() {
-    return this.hud.target.logWarningInPage(
+    return this.hud.currentTarget.logWarningInPage(
       l10n.getStr("ConsoleAPIDisabled"),
       "ConsoleAPIDisabled"
     );
@@ -186,7 +305,7 @@ class WebConsoleUI {
    *        The new value you want to set.
    */
   async setSaveRequestAndResponseBodies(value) {
-    if (!this.webConsoleClient) {
+    if (!this.webConsoleFront) {
       // Don't continue if the webconsole disconnected.
       return null;
     }
@@ -197,7 +316,7 @@ class WebConsoleUI {
     };
 
     // Make sure the web console client connection is established first.
-    return this.webConsoleClient.setPreferences(toSet);
+    return this.webConsoleFront.setPreferences(toSet);
   }
 
   /**
@@ -205,30 +324,65 @@ class WebConsoleUI {
    *
    * @private
    * @return object
-   *         A promise object that is resolved/reject based on the connection
-   *         result.
+   *         A promise object that is resolved/reject based on the proxies connections.
    */
-  _initConnection() {
-    if (this._initDefer) {
-      return this._initDefer.promise;
+  async _attachTargets() {
+    this.proxy = new WebConsoleConnectionProxy(this, this.hud.currentTarget);
+
+    const target = this.hud.currentTarget;
+    const onConnect = this.proxy.connect();
+
+    if (false && target.chrome && !target.isAddon) {
+      this.additionalProxies = [];
+
+      await this._listProcessesAndCreateProxies();
+      target.client.mainRoot.on(
+        "processListChanged",
+        this._listProcessesAndCreateProxies
+      );
     }
 
-    this._initDefer = defer();
-    this.proxy = new WebConsoleConnectionProxy(this, this.hud.target);
+    await onConnect;
+  }
 
-    this.proxy.connect().then(
-      () => {
-        // on success
-        this._initDefer.resolve(this);
-      },
-      reason => {
-        // on failure
-        // TODO Print a message to console
-        this._initDefer.reject(reason);
+  async _listProcessesAndCreateProxies() {
+    const target = this.hud.currentTarget;
+    const { mainRoot } = target.client;
+    const { processes } = await mainRoot.listProcesses();
+
+    if (!this.additionalProxies) {
+      return;
+    }
+
+    const newProxies = [];
+    for (const processDescriptor of processes) {
+      const targetFront = await processDescriptor.getTarget();
+
+      // Don't create a proxy for the "main" target,
+      // as we already created it in this.proxy.
+      if (targetFront === target) {
+        continue;
       }
-    );
 
-    return this._initDefer.promise;
+      if (!targetFront) {
+        console.warn(
+          "Can't retrieve the target front for process",
+          processDescriptor
+        );
+        continue;
+      }
+
+      if (this.additionalProxies.some(proxy => proxy.target == targetFront)) {
+        continue;
+      }
+
+      const proxy = new WebConsoleConnectionProxy(this, targetFront);
+
+      newProxies.push(proxy);
+      this.additionalProxies.push(proxy);
+    }
+
+    await Promise.all(newProxies.map(proxy => proxy.connect()));
   }
 
   _initUI() {
@@ -237,14 +391,14 @@ class WebConsoleUI {
 
     this.outputNode = this.document.getElementById("app-wrapper");
 
-    const toolbox = gDevTools.getToolbox(this.hud.target);
+    const toolbox = this.hud.toolbox;
 
     // Initialize module loader and load all the WebConsoleWrapper. The entire code-base
     // doesn't need any extra privileges and runs entirely in content scope.
     const WebConsoleWrapper = BrowserLoader({
       baseURI: "resource://devtools/client/webconsole/",
       window: this.window,
-    }).require("./webconsole-wrapper");
+    }).require("devtools/client/webconsole/webconsole-wrapper");
 
     this.wrapper = new WebConsoleWrapper(
       this.outputNode,
@@ -318,10 +472,9 @@ class WebConsoleUI {
       // Make sure keyboard shortcuts work immediately after opening
       // the Browser Console (Bug 1461366).
       this.window.focus();
-
       shortcuts.on(
         l10n.getStr("webconsole.close.key"),
-        this.window.top.close.bind(this.window.top)
+        this.window.close.bind(this.window)
       );
 
       ZoomKeys.register(this.window, shortcuts);
@@ -336,17 +489,8 @@ class WebConsoleUI {
     }
   }
 
-  /**
-   * Release an actor.
-   *
-   * @private
-   * @param string actor
-   *        The actor ID you want to release.
-   */
-  _releaseObject(actor) {
-    if (this.proxy) {
-      this.proxy.releaseActor(actor);
-    }
+  getLongString(grip) {
+    this.getProxy().webConsoleFront.getString(grip);
   }
 
   /**
@@ -387,6 +531,51 @@ class WebConsoleUI {
 
   handleTabWillNavigate(packet) {
     this.wrapper.dispatchTabWillNavigate(packet);
+  }
+
+  getInputCursor() {
+    return this.jsterm && this.jsterm.getSelectionStart();
+  }
+
+  getJsTermTooltipAnchor() {
+    return this.outputNode.querySelector(".CodeMirror-cursor");
+  }
+
+  attachRef(id, node) {
+    this[id] = node;
+  }
+
+  // Retrieves the debugger's currently selected frame front
+  async getFrameActor() {
+    const state = this.hud.getDebuggerFrames();
+    if (!state) {
+      return null;
+    }
+
+    const frame = state.frames[state.selected];
+
+    if (!frame) {
+      return null;
+    }
+
+    return frame.actor;
+  }
+
+  getWebConsoleFront({ frameActorId } = {}) {
+    if (!frameActorId) {
+      return this.webConsoleFront;
+    }
+
+    const frameFront = this.hud.getFrontByID(frameActorId);
+    return frameFront.getWebConsoleFront();
+  }
+
+  getSelectedNodeActor() {
+    const inspectorSelection = this.hud.getInspectorSelection();
+    if (inspectorSelection && inspectorSelection.nodeFront) {
+      return inspectorSelection.nodeFront.actorID;
+    }
+    return null;
   }
 }
 

@@ -7,7 +7,7 @@ const PropTypes = require("devtools/client/shared/vendor/react-prop-types");
 const { span } = require("devtools/client/shared/vendor/react-dom-factories");
 
 // Utils
-const { getGripType, isGrip, wrapRender } = require("./rep-utils");
+const { isGrip, wrapRender } = require("./rep-utils");
 const { cleanFunctionName } = require("./function");
 const { isLongString } = require("./string");
 const { MODE } = require("./constants");
@@ -229,20 +229,18 @@ function parseStackString(stack) {
     let functionName;
     let location;
 
-    // Given the input: "functionName@scriptLocation:2:100"
-    // Result: [
-    //   "functionName@scriptLocation:2:100",
-    //   "functionName",
-    //   "scriptLocation:2:100"
-    // ]
-    const result = frame.match(/^(.*)@(.*)$/);
-    if (result && result.length === 3) {
-      functionName = result[1];
+    // Retrieve the index of the first @ to split the frame string.
+    const atCharIndex = frame.indexOf("@");
+    if (atCharIndex > -1) {
+      functionName = frame.slice(0, atCharIndex);
+      location = frame.slice(atCharIndex + 1);
+    }
 
+    if (location && location.includes(" -> ")) {
       // If the resource was loaded by base-loader.js, the location looks like:
       // resource://devtools/shared/base-loader.js -> resource://path/to/file.js .
       // What's needed is only the last part after " -> ".
-      location = result[2].split(" -> ").pop();
+      location = location.split(" -> ").pop();
     }
 
     if (!functionName) {
@@ -276,10 +274,8 @@ function supportsObject(object, noGrip = false) {
   if (noGrip === true || !isGrip(object)) {
     return false;
   }
-  return (
-    (object.preview && getGripType(object, noGrip) === "Error") ||
-    object.class === "DOMException"
-  );
+
+  return object.isError || object.class === "DOMException";
 }
 
 // Exports from this module

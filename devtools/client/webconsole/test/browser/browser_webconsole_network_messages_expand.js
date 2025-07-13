@@ -108,7 +108,7 @@ async function openRequestAfterUpdates(target, hud) {
 async function openRequestBeforeUpdates(target, hud, tab) {
   const toolbox = gDevTools.getToolbox(target);
 
-  hud.ui.clearOutput(true);
+  await clearOutput(hud);
 
   const xhrUrl = TEST_PATH + "sjs_slow-response-test-server.sjs";
   const onMessage = waitForMessage(hud, xhrUrl);
@@ -345,16 +345,4 @@ function expandXhrMessage(node) {
   );
   node.querySelector(".url").click();
   return waitFor(() => node.querySelector(".network-info"));
-}
-
-/**
- * Wait until all lazily fetch requests in netmonitor get finished.
- * Otherwise test will be shutdown too early and cause failure.
- */
-async function waitForLazyRequests(toolbox) {
-  const { ui } = toolbox.getCurrentPanel().hud;
-  const proxy = ui.proxy;
-  return waitUntil(() => {
-    return !proxy.networkDataProvider.lazyRequestData.size;
-  });
 }

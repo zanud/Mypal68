@@ -5,10 +5,11 @@
 
 const {
   STUBS_UPDATE_ENV,
-  getStubFilePath,
+  getStubFile,
   getCleanedPacket,
+  getSerializedPacket,
   writeStubsToFile,
-} = require("devtools/client/webconsole/test/browser/stub-generator-helpers");
+} = require("chrome://mochitests/content/browser/devtools/client/webconsole/test/browser/stub-generator-helpers");
 
 const TEST_URI =
   "http://example.com/browser/devtools/client/webconsole/test/browser/test-console-api.html";
@@ -21,34 +22,29 @@ add_task(async function() {
   const generatedStubs = await generateConsoleApiStubs();
 
   if (isStubsUpdate) {
-    await writeStubsToFile(
-      getStubFilePath(STUB_FILE, env, true),
-      generatedStubs
-    );
+    await writeStubsToFile(env, STUB_FILE, generatedStubs);
     ok(true, `${STUB_FILE} was updated`);
     return;
   }
-
-  const existingStubs = require(getStubFilePath(STUB_FILE));
+  const existingStubs = getStubFile(STUB_FILE);
   const FAILURE_MSG =
     "The consoleApi stubs file needs to be updated by running " +
     "`mach test devtools/client/webconsole/test/browser/" +
     "browser_webconsole_stubs_console_api.js --headless " +
     "--setenv WEBCONSOLE_STUBS_UPDATE=true`";
 
-  if (generatedStubs.size !== existingStubs.stubPackets.size) {
+  if (generatedStubs.size !== existingStubs.rawPackets.size) {
     ok(false, FAILURE_MSG);
     return;
   }
 
   let failed = false;
   for (const [key, packet] of generatedStubs) {
-    const packetStr = JSON.stringify(packet, null, 2);
-    const existingPacketStr = JSON.stringify(
-      existingStubs.stubPackets.get(key),
-      null,
-      2
+    const packetStr = getSerializedPacket(packet);
+    const existingPacketStr = getSerializedPacket(
+      existingStubs.rawPackets.get(key)
     );
+
     is(packetStr, existingPacketStr, `"${key}" packet has expected value`);
     failed = failed || packetStr !== existingPacketStr;
   }
@@ -58,17 +54,16 @@ add_task(async function() {
   } else {
     ok(true, "Stubs are up to date");
   }
+
+  await closeTabAndToolbox().catch(() => {});
 });
 
 async function generateConsoleApiStubs() {
-  const { PREFS } = require("devtools/client/webconsole/constants");
-  // Hiding log messages so we don't get unwanted client/server communication.
-  const { getPrefsService } = require("devtools/client/webconsole/utils/prefs");
-  getPrefsService({}).setBoolPref(PREFS.FILTER.LOG, false);
-
   const stubs = new Map();
 
-  const toolbox = await openNewTabAndToolbox(TEST_URI, "webconsole");
+  const hud = await openNewTabAndConsole(TEST_URI);
+  const target = hud.currentTarget;
+  const webConsoleFront = await target.getFront("console");
 
   for (const { keys, code } of getCommands()) {
     const received = new Promise(resolve => {
@@ -79,11 +74,11 @@ async function generateConsoleApiStubs() {
         stubs.set(callKey, getCleanedPacket(callKey, res));
 
         if (++i === keys.length) {
-          toolbox.target.activeConsole.off("consoleAPICall", listener);
+          webConsoleFront.off("consoleAPICall", listener);
           resolve();
         }
       };
-      toolbox.target.activeConsole.on("consoleAPICall", listener);
+      webConsoleFront.on("consoleAPICall", listener);
     });
 
     await ContentTask.spawn(gBrowser.selectedBrowser, code, function(subCode) {
@@ -99,8 +94,13 @@ async function generateConsoleApiStubs() {
     await received;
   }
 
-  Services.prefs.clearUserPref(PREFS.FILTER.LOG);
-  await closeTabAndToolbox().catch(() => {});
+  // We have everything we want, we can freeze the console to avoid communication
+  // with the server.
+  const {
+    START_IGNORE_ACTION,
+  } = require("devtools/client/shared/redux/middleware/ignore");
+  await hud.ui.wrapper.getStore().dispatch(START_IGNORE_ACTION);
+
   return stubs;
 }
 

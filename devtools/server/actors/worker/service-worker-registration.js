@@ -41,7 +41,7 @@ const ServiceWorkerRegistrationActor = protocol.ActorClassWithSpec(
   {
     /**
      * Create the ServiceWorkerRegistrationActor
-     * @param DebuggerServerConnection conn
+     * @param DevToolsServerConnection conn
      *   The server connection.
      * @param ServiceWorkerRegistrationInfo registration
      *   The registration's information.
@@ -51,6 +51,11 @@ const ServiceWorkerRegistrationActor = protocol.ActorClassWithSpec(
       this._conn = conn;
       this._registration = registration;
       this._pushSubscriptionActor = null;
+
+      // A flag to know if preventShutdown has been called and we should
+      // try to allow the shutdown of the SW when the actor is destroyed
+      this._preventedShutdown = false;
+
       this._registration.addListener(this);
 
       this._createServiceWorkerActors();
@@ -92,6 +97,16 @@ const ServiceWorkerRegistrationActor = protocol.ActorClassWithSpec(
 
     destroy() {
       protocol.Actor.prototype.destroy.call(this);
+
+      // Ensure resuming the service worker in case the connection drops
+      if (
+        swm.isParentInterceptEnabled() &&
+        this._registration.activeWorker &&
+        this._preventedShutdown
+      ) {
+        this.allowShutdown();
+      }
+
       Services.obs.removeObserver(this, PushService.subscriptionModifiedTopic);
       this._registration.removeListener(this);
       this._registration = null;

@@ -37,8 +37,7 @@ class MarkupContextMenu {
     this.markup = markup;
     this.inspector = markup.inspector;
     this.selection = this.inspector.selection;
-    this.target = this.inspector.target;
-    this.telemetry = this.inspector.telemetry;
+    this.target = this.inspector.currentTarget;
     this.toolbox = this.inspector.toolbox;
     this.walker = this.inspector.walker;
   }
@@ -48,7 +47,6 @@ class MarkupContextMenu {
     this.inspector = null;
     this.selection = null;
     this.target = null;
-    this.telemetry = null;
     this.toolbox = null;
     this.walker = null;
   }
@@ -92,7 +90,6 @@ class MarkupContextMenu {
       return;
     }
 
-    this.telemetry.scalarSet("devtools.copy.full.css.selector.opened", 1);
     this.selection.nodeFront
       .getCssPath()
       .then(path => {
@@ -133,7 +130,6 @@ class MarkupContextMenu {
       return;
     }
 
-    this.telemetry.scalarSet("devtools.copy.unique.css.selector.opened", 1);
     this.selection.nodeFront
       .getUniqueSelector()
       .then(selector => {
@@ -150,7 +146,6 @@ class MarkupContextMenu {
       return;
     }
 
-    this.telemetry.scalarSet("devtools.copy.xpath.opened", 1);
     this.selection.nodeFront
       .getXPath()
       .then(path => {
@@ -343,7 +338,7 @@ class MarkupContextMenu {
   _showDOMProperties() {
     this.toolbox.openSplitConsole().then(() => {
       const { hud } = this.toolbox.getPanel("webconsole");
-      hud.ui.wrapper.dispatchEvaluateExpression("inspect($0)");
+      hud.ui.wrapper.dispatchEvaluateExpression("inspect($0, true)");
     });
   }
 
@@ -369,10 +364,7 @@ class MarkupContextMenu {
     const options = {
       selectedNodeActor: this.selection.nodeFront.actorID,
     };
-    const res = await hud.ui.webConsoleClient.evaluateJSAsync(
-      evalString,
-      options
-    );
+    const res = await hud.evaluateJSAsync(evalString, options);
     hud.setInputValue(res.result);
     this.inspector.emit("console-var-ready");
   }

@@ -5,7 +5,7 @@
 "use strict";
 
 const { Cu, Ci } = require("chrome");
-const { DebuggerServer } = require("devtools/server/debugger-server");
+const { DevToolsServer } = require("devtools/server/devtools-server");
 const DevToolsUtils = require("devtools/shared/DevToolsUtils");
 loader.lazyRequireGetter(
   this,
@@ -119,17 +119,15 @@ const previewers = {
         grip.userDisplayName = hooks.createValueGrip(userDisplayName.value);
       }
 
-      const dbgGlobal = hooks.getGlobalDebugObject();
-      if (dbgGlobal) {
-        const script = dbgGlobal.makeDebuggeeValue(obj.unsafeDereference())
-          .script;
-        if (script) {
-          grip.location = {
-            url: script.url,
-            line: script.startLine,
-            column: obj.script.startColumn
-          };
-        }
+      grip.isAsync = obj.isAsyncFunction;
+      grip.isGenerator = obj.isGeneratorFunction;
+
+      if (obj.script) {
+        grip.location = {
+          url: obj.script.url,
+          line: obj.script.startLine,
+          column: obj.script.startColumn,
+        };
       }
 
       return true;
@@ -439,36 +437,20 @@ function GenericObject(
     return false;
   }
 
-  let i = 0,
-    names = [],
-    symbols = [];
   const preview = (grip.preview = {
     kind: "Object",
     ownProperties: Object.create(null),
     ownSymbols: [],
   });
 
-  try {
-    if (ObjectUtils.isStorage(obj)) {
-      // local and session storage cannot be iterated over using
-      // Object.getOwnPropertyNames() because it skips keys that are duplicated
-      // on the prototype e.g. "key", "getKeys" so we need to gather the real
-      // keys using the storage.key() function.
-      for (let j = 0; j < rawObj.length; j++) {
-        names.push(rawObj.key(j));
-      }
-    } else {
-      names = obj.getOwnPropertyNames();
-    }
-    symbols = obj.getOwnPropertySymbols();
-  } catch (ex) {
-    // Calling getOwnPropertyNames() on some wrapped native prototypes is not
-    // allowed: "cannot modify properties of a WrappedNative". See bug 952093.
-  }
+  const names = ObjectUtils.getPropNamesFromObject(obj, rawObj);
+  const symbols = ObjectUtils.getSafeOwnPropertySymbols(obj);
+
   preview.ownPropertiesLength = names.length;
   preview.ownSymbolsLength = symbols.length;
 
-  let length;
+  let length,
+    i = 0;
   if (specialStringBehavior) {
     length = DevToolsUtils.getProperty(obj, "length");
     if (typeof length != "number") {
@@ -541,21 +523,17 @@ previewers.Object = [
       return true;
     }
 
-    // Cu is unavailable in workers
-    // we do not need to worry about xrays.
-    if (!isWorker) {
-      const global = Cu.getGlobalForObject(DebuggerServer);
-      const classProto = global[obj.class].prototype;
-      // The Xray machinery for TypedArrays denies indexed access on the grounds
-      // that it's slow, and advises callers to do a structured clone instead.
-      const safeView = Cu.cloneInto(
-        classProto.subarray.call(raw, 0, OBJECT_PREVIEW_MAX_ITEMS),
-        global
-      );
-      const items = (grip.preview.items = []);
-      for (let i = 0; i < safeView.length; i++) {
-        items.push(safeView[i]);
+    const previewLength = Math.min(
+      OBJECT_PREVIEW_MAX_ITEMS,
+      grip.preview.length
+    );
+    grip.preview.items = [];
+    for (let i = 0; i < previewLength; i++) {
+      const desc = obj.getOwnPropertyDescriptor(i);
+      if (!desc) {
+        break;
       }
+      grip.preview.items.push(desc.value);
     }
 
     return true;
@@ -788,45 +766,17 @@ previewers.Object = [
       preview.target = hooks.createValueGrip(target);
     }
 
-    const props = [];
-    if (
-      obj.class == "MouseEvent" ||
-      obj.class == "DragEvent" ||
-      obj.class == "PointerEvent" ||
-      obj.class == "SimpleGestureEvent" ||
-      obj.class == "WheelEvent"
-    ) {
-      props.push("buttons", "clientX", "clientY", "layerX", "layerY");
-    } else if (obj.class == "KeyboardEvent") {
-      const modifiers = [];
-      if (rawObj.altKey) {
-        modifiers.push("Alt");
-      }
-      if (rawObj.ctrlKey) {
-        modifiers.push("Control");
-      }
-      if (rawObj.metaKey) {
-        modifiers.push("Meta");
-      }
-      if (rawObj.shiftKey) {
-        modifiers.push("Shift");
-      }
+    if (obj.class == "KeyboardEvent") {
       preview.eventKind = "key";
-      preview.modifiers = modifiers;
-
-      props.push("key", "charCode", "keyCode");
-    } else if (obj.class == "TransitionEvent") {
-      props.push("propertyName", "pseudoElement");
-    } else if (obj.class == "AnimationEvent") {
-      props.push("animationName", "pseudoElement");
-    } else if (obj.class == "ClipboardEvent") {
-      props.push("clipboardData");
+      preview.modifiers = ObjectUtils.getModifiersForEvent(rawObj);
     }
+
+    const props = ObjectUtils.getPropsForEvent(obj.class);
 
     // Add event-specific properties.
     for (const prop of props) {
       let value = rawObj[prop];
-      if (value && (typeof value == "object" || typeof value == "function")) {
+      if (ObjectUtils.isObjectOrFunction(value)) {
         // Skip properties pointing to objects.
         if (hooks.getGripDepth() > 1) {
           continue;

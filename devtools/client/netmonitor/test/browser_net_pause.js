@@ -24,11 +24,11 @@ add_task(async function() {
   assertRequestCount(store, 1);
 
   let noRequest = true;
-  monitor.panelWin.api.once(EVENTS.NETWORK_EVENT, () => {
+  monitor.panelWin.api.once(TEST_EVENTS.NETWORK_EVENT, () => {
     noRequest = false;
   });
 
-  monitor.panelWin.api.once(EVENTS.NETWORK_EVENT_UPDATED, () => {
+  monitor.panelWin.api.once(TEST_EVENTS.NETWORK_EVENT_UPDATED, () => {
     noRequest = false;
   });
 
@@ -59,7 +59,7 @@ add_task(async function() {
  */
 function assertRequestCount(store, count) {
   is(
-    store.getState().requests.requests.size,
+    store.getState().requests.requests.length,
     count,
     "There should be correct number of requests"
   );
@@ -80,7 +80,7 @@ async function performRequestAndWait(tab, monitor) {
  * Execute simple GET request
  */
 async function performPausedRequest(connector, tab, monitor) {
-  const wait = connector.connector.webConsoleClient.once("networkEvent");
+  const wait = connector.connector.webConsoleFront.once("networkEvent");
   await ContentTask.spawn(tab.linkedBrowser, SIMPLE_SJS, async function(url) {
     await content.wrappedJSObject.performRequests(url);
   });

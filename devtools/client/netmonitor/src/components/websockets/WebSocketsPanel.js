@@ -16,23 +16,31 @@ const PropTypes = require("devtools/client/shared/vendor/react-prop-types");
 const {
   connect,
 } = require("devtools/client/shared/redux/visibility-handler-connect");
-const Actions = require("../../actions/index");
+const Actions = require("devtools/client/netmonitor/src/actions/index");
 const { findDOMNode } = require("devtools/client/shared/vendor/react-dom");
 const {
   getSelectedFrame,
   isSelectedFrameVisible,
-} = require("../../selectors/index");
+} = require("devtools/client/netmonitor/src/selectors/index");
 
 // Components
 const SplitBox = createFactory(
   require("devtools/client/shared/components/splitter/SplitBox")
 );
-const FrameListContent = createFactory(require("./FrameListContent"));
-const Toolbar = createFactory(require("./Toolbar"));
-const StatusBar = createFactory(require("./StatusBar"));
+const FrameListContent = createFactory(
+  require("devtools/client/netmonitor/src/components/websockets/FrameListContent")
+);
+const Toolbar = createFactory(
+  require("devtools/client/netmonitor/src/components/websockets/Toolbar")
+);
+const StatusBar = createFactory(
+  require("devtools/client/netmonitor/src/components/websockets/StatusBar")
+);
 
 loader.lazyGetter(this, "FramePayload", function() {
-  return createFactory(require("./FramePayload"));
+  return createFactory(
+    require("devtools/client/netmonitor/src/components/websockets/FramePayload")
+  );
 });
 
 /**
@@ -56,6 +64,10 @@ class WebSocketsPanel extends Component {
 
     this.searchboxRef = createRef();
     this.clearFilterText = this.clearFilterText.bind(this);
+    this.handleContainerElement = this.handleContainerElement.bind(this);
+    this.state = {
+      startPanelContainer: null,
+    };
   }
 
   componentDidUpdate(prevProps) {
@@ -82,6 +94,16 @@ class WebSocketsPanel extends Component {
     }
   }
 
+  /* Store the parent DOM element of the SplitBox startPanel's element.
+     We need this element for as an option for the IntersectionObserver */
+  handleContainerElement(element) {
+    if (!this.state.startPanelContainer) {
+      this.setState({
+        startPanelContainer: element,
+      });
+    }
+  }
+
   // Reset the filter text
   clearFilterText() {
     if (this.searchboxRef) {
@@ -90,7 +112,15 @@ class WebSocketsPanel extends Component {
   }
 
   render() {
-    const { frameDetailsOpen, connector, selectedFrame } = this.props;
+    const {
+      frameDetailsOpen,
+      connector,
+      selectedFrame,
+      channelId,
+    } = this.props;
+
+    const searchboxRef = this.searchboxRef;
+    const startPanelContainer = this.state.startPanelContainer;
 
     const initialHeight = Services.prefs.getIntPref(
       "devtools.netmonitor.ws.payload-preview-height"
@@ -99,7 +129,7 @@ class WebSocketsPanel extends Component {
     return div(
       { className: "monitor-panel" },
       Toolbar({
-        searchboxRef: this.searchboxRef,
+        searchboxRef,
       }),
       SplitBox({
         className: "devtools-responsive-container",
@@ -107,7 +137,12 @@ class WebSocketsPanel extends Component {
         minSize: "50px",
         maxSize: "80%",
         splitterSize: frameDetailsOpen ? 1 : 0,
-        startPanel: FrameListContent({ connector }),
+        onSelectContainerElement: this.handleContainerElement,
+        startPanel: FrameListContent({
+          connector,
+          startPanelContainer,
+          channelId,
+        }),
         endPanel:
           frameDetailsOpen &&
           FramePayload({

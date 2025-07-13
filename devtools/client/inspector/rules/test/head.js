@@ -1,7 +1,6 @@
 /* Any copyright is dedicated to the Public Domain.
  http://creativecommons.org/publicdomain/zero/1.0/ */
 /* eslint no-unused-vars: [2, {"vars": "local"}] */
-/* import-globals-from ../../../shared/test/telemetry-test-helpers.js */
 /* import-globals-from ../../test/head.js */
 "use strict";
 
@@ -386,7 +385,9 @@ var setProperty = async function(
 
   const onPreview = view.once("ruleview-changed");
   if (value === null) {
+    const onPopupOpened = once(view.popup, "popup-opened");
     EventUtils.synthesizeKey("VK_DELETE", {}, view.styleWindow);
+    await onPopupOpened;
   } else {
     EventUtils.sendString(value, view.styleWindow);
   }
@@ -718,8 +719,6 @@ function getPropertiesForRuleIndex(view, ruleIndex) {
 /**
  * Toggle a declaration disabled or enabled.
  *
- * @param {InspectorPanel} inspector
- *        The instance of InspectorPanel currently loaded in the toolbox.
  * @param {ruleView} view
  *        The rule-view instance
  * @param {Number} ruleIndex
@@ -728,18 +727,9 @@ function getPropertiesForRuleIndex(view, ruleIndex) {
  * @param {Object} declaration
  *        An object representing the declaration e.g. { color: "red" }.
  */
-async function toggleDeclaration(inspector, view, ruleIndex, declaration) {
-  const ruleEditor = getRuleViewRuleEditor(view, ruleIndex);
+async function toggleDeclaration(view, ruleIndex, declaration) {
+  const textProp = getTextProperty(view, ruleIndex, declaration);
   const [[name, value]] = Object.entries(declaration);
-
-  let textProp = null;
-  for (const currProp of ruleEditor.rule.textProps) {
-    if (currProp.name === name && currProp.value === value) {
-      textProp = currProp;
-      break;
-    }
-  }
-
   const dec = `${name}:${value}`;
   ok(textProp, `Declaration "${dec}" found`);
 
@@ -748,6 +738,75 @@ async function toggleDeclaration(inspector, view, ruleIndex, declaration) {
 
   await togglePropStatus(view, textProp);
   info("Toggled successfully.");
+}
+
+/**
+ * Update a declaration from a CSS rule in the Rules view
+ * by changing its property name, property value or both.
+ *
+ * @param {RuleView} view
+ *        Instance of RuleView.
+ * @param {Number} ruleIndex
+ *        The index of the CSS rule where to find the declaration.
+ * @param {Object} declaration
+ *        An object representing the target declaration e.g. { color: red }.
+ * @param {Object} newDeclaration
+ *        An object representing the desired updated declaration e.g. { display: none }.
+ */
+async function updateDeclaration(
+  view,
+  ruleIndex,
+  declaration,
+  newDeclaration = {}
+) {
+  const textProp = getTextProperty(view, ruleIndex, declaration);
+  const [[name, value]] = Object.entries(declaration);
+  const [[newName, newValue]] = Object.entries(newDeclaration);
+
+  if (newName && name !== newName) {
+    info(
+      `Updating declaration ${name}:${value};
+      Changing ${name} to ${newName}`
+    );
+    await renameProperty(view, textProp, newName);
+  }
+
+  if (newValue && value !== newValue) {
+    info(
+      `Updating declaration ${name}:${value};
+      Changing ${value} to ${newValue}`
+    );
+    await setProperty(view, textProp, newValue);
+  }
+}
+
+/**
+ * Get the TextProperty instance corresponding to a CSS declaration
+ * from a CSS rule in the Rules view.
+ *
+ * @param  {RuleView} view
+ *         Instance of RuleView.
+ * @param  {Number} ruleIndex
+ *         The index of the CSS rule where to find the declaration.
+ * @param  {Object} declaration
+ *         An object representing the target declaration e.g. { color: red }.
+ *         The first TextProperty instance which matches will be returned.
+ * @return {TextProperty}
+ */
+function getTextProperty(view, ruleIndex, declaration) {
+  const ruleEditor = getRuleViewRuleEditor(view, ruleIndex);
+  const [[name, value]] = Object.entries(declaration);
+  const textProp = ruleEditor.rule.textProps.find(prop => {
+    return prop.name === name && prop.value === value;
+  });
+
+  if (!textProp) {
+    throw Error(
+      `Declaration ${name}:${value} not found on rule at index ${ruleIndex}`
+    );
+  }
+
+  return textProp;
 }
 
 /**
@@ -930,6 +989,37 @@ function getPseudoClassCheckbox(view, pseudo) {
   return view.pseudoClassCheckboxes.filter(
     checkbox => checkbox.value === pseudo
   )[0];
+}
+
+/**
+ * Check that the CSS variable output has the expected class name and data attribute.
+ *
+ * @param {RulesView} view
+ *        The RulesView instance.
+ * @param {String} selector
+ *        Selector name for a rule. (e.g. "div", "div::before" and ".sample" etc);
+ * @param {String} propertyName
+ *        Property name (e.g. "color" and "padding-top" etc);
+ * @param {String} expectedClassName
+ *        The class name the variable should have.
+ * @param {String} expectedDatasetValue
+ *        The variable data attribute value.
+ */
+function checkCSSVariableOutput(
+  view,
+  selector,
+  propertyName,
+  expectedClassName,
+  expectedDatasetValue
+) {
+  const target = getRuleViewProperty(
+    view,
+    selector,
+    propertyName
+  ).valueSpan.querySelector(`.${expectedClassName}`);
+
+  ok(target, "The target element should exist");
+  is(target.dataset.variable, expectedDatasetValue);
 }
 
 /**

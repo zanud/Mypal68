@@ -5,7 +5,6 @@
 DevToolsModules(
     'frame-utils.js',
     'jit.js',
-    'telemetry.js',
     'tree-model.js',
     'waterfall-utils.js',
 )

@@ -34,6 +34,7 @@ pref("devtools.webconsole.sidebarToggle", true);
 pref("devtools.webconsole.groupWarningMessages", false);
 pref("devtools.webconsole.input.editor", false);
 pref("devtools.webconsole.input.autocomplete", true);
+pref("devtools.webconsole.input.eagerEvaluation", false);
 pref("devtools.browserconsole.contentMessages", true);
 pref("devtools.webconsole.input.editorWidth", 800);
 
@@ -57,7 +58,6 @@ global.loader = {
       "devtools/client/framework/devtools",
       "devtools/client/shared/keycodes",
       "devtools/client/shared/sourceeditor/editor",
-      "devtools/client/shared/telemetry",
       "devtools/shared/screenshot/save",
       "devtools/client/shared/focus",
     ];
@@ -107,7 +107,14 @@ requireHacker.global_hook("default", (path, module) => {
     react: () => getModule("devtools/client/shared/vendor/react-dev"),
     "devtools/client/shared/vendor/react": () =>
       getModule("devtools/client/shared/vendor/react-dev"),
-    chrome: () => `module.exports = { Cc: {}, Ci: {}, Cu: {} }`,
+    "chrome://mochitests/content/browser/devtools/client/webconsole/test/browser/stub-generator-helpers": () =>
+      getModule(
+        "devtools/client/webconsole/test/browser/stub-generator-helpers"
+      ),
+
+    chrome: () =>
+      `module.exports = { Cc: {}, Ci: {}, Cu: {}, components: {stack: {caller: ""}} }`,
+    ChromeUtils: () => `module.exports = { import: () => ({}) }`,
     // Some modules depend on Chrome APIs which don't work in mocha. When such a module
     // is required, replace it with a mock version.
     "devtools/shared/l10n": () =>
@@ -119,15 +126,11 @@ requireHacker.global_hook("default", (path, module) => {
     Services: () => `module.exports = require("devtools-modules/src/Services")`,
     "Services.default": () =>
       `module.exports = require("devtools-modules/src/Services")`,
-    "devtools/shared/client/object-client": () => `() => {}`,
-    "devtools/shared/client/long-string-client": () => `() => {}`,
+    "devtools/server/devtools-server": () =>
+      `module.exports = {DevToolsServer: {}}`,
     "devtools/client/shared/components/SmartTrace": () => "{}",
     "devtools/client/netmonitor/src/components/TabboxPanel": () => "{}",
     "devtools/client/webconsole/utils/context-menu": () => "{}",
-    "devtools/client/shared/telemetry": () => `module.exports = function() {
-      this.recordEvent = () => {};
-      this.getKeyedHistogramById = () => ({add: () => {}});
-    }`,
     "devtools/shared/event-emitter": () =>
       `module.exports = require("devtools-modules/src/utils/event-emitter")`,
     "devtools/client/shared/unicode-url": () =>
@@ -135,6 +138,7 @@ requireHacker.global_hook("default", (path, module) => {
     "devtools/shared/DevToolsUtils": () => "{}",
     "devtools/server/actors/reflow": () => "{}",
     "devtools/shared/layout/utils": () => "{getCurrentZoom = () => {}}",
+    "resource://gre/modules/AppConstants.jsm": () => "module.exports = {};",
   };
 
   if (paths.hasOwnProperty(path)) {

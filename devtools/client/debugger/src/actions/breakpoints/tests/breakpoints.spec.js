@@ -9,7 +9,6 @@ import {
   selectors,
   actions,
   makeSource,
-  getTelemetryEvents,
 } from "../../../utils/test-head";
 
 import { mockCommandClient } from "../../tests/helpers/mockCommandClient";
@@ -47,7 +46,6 @@ describe("breakpoints", () => {
     expect(selectors.getBreakpointCount(getState())).toEqual(1);
     const bp = selectors.getBreakpoint(getState(), loc1);
     expect(bp && bp.location).toEqual(loc1);
-    expect(getTelemetryEvents("add_breakpoint")).toHaveLength(1);
 
     const bpSources = selectors.getBreakpointSources(getState());
     expect(bpSources).toMatchSnapshot();

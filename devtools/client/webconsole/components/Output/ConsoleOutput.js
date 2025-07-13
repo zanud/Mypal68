@@ -19,7 +19,6 @@ const {
   getAllMessagesPayloadById,
   getAllNetworkMessagesUpdateById,
   getVisibleMessages,
-  getPausedExecutionPoint,
   getAllRepeatById,
   getAllWarningGroupsById,
   isMessageInWarningGroup,
@@ -36,39 +35,11 @@ loader.lazyRequireGetter(
   "devtools/client/webconsole/components/Output/MessageContainer",
   true
 );
-ChromeUtils.defineModuleGetter(
-  this,
-  "pointPrecedes",
-  "resource://devtools/shared/execution-point-utils.js"
-);
 
 const { MESSAGE_TYPE } = require("devtools/client/webconsole/constants");
 const {
   getInitialMessageCountForViewport,
 } = require("devtools/client/webconsole/utils/messages.js");
-
-function getClosestMessage(visibleMessages, messages, executionPoint) {
-  if (!executionPoint || !visibleMessages) {
-    return null;
-  }
-
-  const messageList = visibleMessages.map(id => messages.get(id));
-  const precedingMessages = messageList.filter(m => {
-    return (
-      m && m.executionPoint && pointPrecedes(m.executionPoint, executionPoint)
-    );
-  });
-  if (precedingMessages.length != 0) {
-    return precedingMessages.sort((a, b) => {
-      return pointPrecedes(a.executionPoint, b.executionPoint);
-    })[0];
-  }
-  return messageList
-    .filter(m => m && m.executionPoint)
-    .sort((a, b) => {
-      return pointPrecedes(b.executionPoint, a.executionPoint);
-    })[0];
-}
 
 class ConsoleOutput extends Component {
   static get propTypes() {
@@ -90,7 +61,6 @@ class ConsoleOutput extends Component {
       visibleMessages: PropTypes.array.isRequired,
       networkMessageActiveTabId: PropTypes.string.isRequired,
       onFirstMeaningfulPaint: PropTypes.func.isRequired,
-      pausedExecutionPoint: PropTypes.any,
     };
   }
 
@@ -199,7 +169,6 @@ class ConsoleOutput extends Component {
       serviceContainer,
       timestampsVisible,
       initialized,
-      pausedExecutionPoint,
     } = this.props;
 
     if (!initialized) {
@@ -212,12 +181,6 @@ class ConsoleOutput extends Component {
         );
       }
     }
-
-    const pausedMessage = getClosestMessage(
-      visibleMessages,
-      messages,
-      pausedExecutionPoint
-    );
 
     const messageNodes = visibleMessages.map(messageId =>
       createElement(MessageContainer, {
@@ -238,9 +201,7 @@ class ConsoleOutput extends Component {
             : false,
         networkMessageUpdate: networkMessagesUpdate[messageId],
         networkMessageActiveTabId,
-        pausedExecutionPoint,
         getMessage: () => messages.get(messageId),
-        isPaused: !!pausedMessage && pausedMessage.id == messageId,
         maybeScrollToBottom: this.maybeScrollToBottom,
       })
     );
@@ -278,7 +239,6 @@ function isScrolledToBottom(outputNode, scrollNode) {
 function mapStateToProps(state, props) {
   return {
     initialized: state.ui.initialized,
-    pausedExecutionPoint: getPausedExecutionPoint(state),
     messages: getAllMessagesById(state),
     visibleMessages: getVisibleMessages(state),
     messagesUi: getAllMessagesUiById(state),

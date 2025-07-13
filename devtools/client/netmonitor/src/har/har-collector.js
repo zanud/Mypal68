@@ -16,8 +16,8 @@ const trace = {
  * HTTP requests executed by the page (including inner iframes).
  */
 function HarCollector(options) {
-  this.webConsoleClient = options.webConsoleClient;
-  this.debuggerClient = options.debuggerClient;
+  this.webConsoleFront = options.webConsoleFront;
+  this.devToolsClient = options.devToolsClient;
 
   this.onNetworkEvent = this.onNetworkEvent.bind(this);
   this.onNetworkEventUpdate = this.onNetworkEventUpdate.bind(this);
@@ -36,19 +36,19 @@ HarCollector.prototype = {
   // Connection
 
   start: function() {
-    this.debuggerClient.on("serverNetworkEvent", this.onNetworkEvent);
-    this.debuggerClient.on(
+    this.devToolsClient.on("serverNetworkEvent", this.onNetworkEvent);
+    this.devToolsClient.on(
       "networkEventUpdate",
       this.onNetworkEventUpdate
     );
   },
 
   stop: function() {
-    this.debuggerClient.off(
+    this.devToolsClient.off(
       "serverNetworkEvent",
       this.onNetworkEvent
     );
-    this.debuggerClient.off(
+    this.devToolsClient.off(
       "networkEventUpdate",
       this.onNetworkEventUpdate
     );
@@ -167,7 +167,7 @@ HarCollector.prototype = {
 
   onNetworkEvent: function(packet) {
     // Skip events from different console actors.
-    if (packet.from != this.webConsoleClient.actor) {
+    if (packet.from != this.webConsoleFront.actor) {
       return;
     }
 
@@ -193,8 +193,8 @@ HarCollector.prototype = {
     }
 
     file = {
-      startedDeltaMillis: startTime - this.firstRequestStart,
-      startedMillis: startTime,
+      startedDeltaMs: startTime - this.firstRequestStart,
+      startedMs: startTime,
       method: method,
       url: url,
       isXHR: isXHR,
@@ -212,7 +212,7 @@ HarCollector.prototype = {
     // Skip events from unknown actors (not in the list).
     // It can happen when there are zombie requests received after
     // the target is closed or multiple tabs are attached through
-    // one connection (one DebuggerClient object).
+    // one connection (one DevToolsClient object).
     const file = this.getFile(packet.from);
     if (!file) {
       return;
@@ -296,7 +296,7 @@ HarCollector.prototype = {
 
   getData: function(actor, method, callback) {
     return new Promise(resolve => {
-      if (!this.webConsoleClient[method]) {
+      if (!this.webConsoleFront[method]) {
         console.error("HarCollector.getData: ERROR Unknown method!");
         resolve();
       }
@@ -308,7 +308,7 @@ HarCollector.prototype = {
         file
       );
 
-      this.webConsoleClient[method](actor, response => {
+      this.webConsoleFront[method](actor, response => {
         trace.log(
           "HarCollector.getData; RESPONSE " + method + ", " + file.url,
           response
@@ -451,7 +451,7 @@ HarCollector.prototype = {
    *         are available, or rejected if something goes wrong.
    */
   getString: function(stringGrip) {
-    const promise = this.webConsoleClient.getString(stringGrip);
+    const promise = this.webConsoleFront.getString(stringGrip);
     this.requests.push(promise);
     return promise;
   },

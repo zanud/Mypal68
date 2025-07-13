@@ -6,7 +6,6 @@
 /**
  * Tests if the POST requests display the correct information in the UI.
  */
-
 add_task(async function() {
   const { L10N } = require("devtools/client/netmonitor/src/utils/l10n");
 
@@ -33,12 +32,13 @@ add_task(async function() {
     const requestsListStatus = requestItem.querySelector(".status-code");
     EventUtils.sendMouseEvent({ type: "mouseover" }, requestsListStatus);
     await waitUntil(() => requestsListStatus.title);
+    await waitForDOMIfNeeded(requestItem, ".requests-list-timings-total");
   }
 
   verifyRequestItemTarget(
     document,
     getDisplayedRequests(store.getState()),
-    getSortedRequests(store.getState()).get(0),
+    getSortedRequests(store.getState())[0],
     "POST",
     SIMPLE_SJS + "?foo=bar&baz=42&type=urlencoded",
     {
@@ -53,7 +53,7 @@ add_task(async function() {
   verifyRequestItemTarget(
     document,
     getDisplayedRequests(store.getState()),
-    getSortedRequests(store.getState()).get(1),
+    getSortedRequests(store.getState())[1],
     "POST",
     SIMPLE_SJS + "?foo=bar&baz=42&type=multipart",
     {
@@ -67,7 +67,7 @@ add_task(async function() {
   );
 
   // Wait for all tree sections updated by react
-  wait = waitForDOM(document, "#params-panel .tree-section", 2);
+  const wait = waitForDOM(document, "#params-panel .tree-section", 3);
   EventUtils.sendMouseEvent(
     { type: "mousedown" },
     document.querySelectorAll(".request-list-item")[0]
@@ -98,26 +98,26 @@ add_task(async function() {
 
   return teardown(monitor);
 
-  function testParamsTab(type) {
+  async function testParamsTab(type) {
     const tabpanel = document.querySelector("#params-panel");
 
     function checkVisibility(box) {
       is(
         !tabpanel.querySelector(".treeTable"),
         !box.includes("params"),
-        "The request params doesn't have the indended visibility."
+        "The request params doesn't have the intended visibility."
       );
       is(
         tabpanel.querySelector(".CodeMirror-code") === null,
         !box.includes("editor"),
-        "The request post data doesn't have the indended visibility."
+        "The request post data doesn't have the intended visibility."
       );
     }
 
     is(
       tabpanel.querySelectorAll(".tree-section").length,
-      2,
-      "There should be 2 tree sections displayed in this tabpanel."
+      type == "urlencoded" ? 3 : 2,
+      "There should be correct number of tree sections displayed in this tabpanel."
     );
     is(
       tabpanel.querySelectorAll(".empty-notice").length,

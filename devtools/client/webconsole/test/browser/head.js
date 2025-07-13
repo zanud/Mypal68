@@ -1,12 +1,11 @@
 /* Any copyright is dedicated to the Public Domain.
  * http://creativecommons.org/publicdomain/zero/1.0/ */
 /* eslint no-unused-vars: [2, {"vars": "local"}] */
-/* import-globals-from ../../../shared/test/telemetry-test-helpers.js */
 
 "use strict";
 
 // Import helpers registering the test-actor in remote targets
-/* globals registerTestActor, getTestActor, Task, openToolboxForTab, gBrowser */
+/* globals getTestActor, Task, openToolboxForTab, gBrowser */
 Services.scriptloader.loadSubScript(
   "chrome://mochitests/content/browser/devtools/client/shared/test/test-actor-registry.js",
   this
@@ -127,7 +126,15 @@ function logAllStoreChanges(hud) {
         return { id, type, parameters, messageText };
       }
     );
-    info("messages : " + JSON.stringify(debugMessages));
+    info(
+      "messages : " +
+        JSON.stringify(debugMessages, function(key, value) {
+          if (value && value.getGrip) {
+            return value.getGrip();
+          }
+          return value;
+        })
+    );
   });
 }
 
@@ -352,7 +359,7 @@ function hideContextMenu(hud) {
 }
 
 function _getContextMenu(hud) {
-  const toolbox = gDevTools.getToolbox(hud.target);
+  const toolbox = hud.toolbox;
   const doc = toolbox ? toolbox.topWindow.document : hud.chromeWindow.document;
   return doc.getElementById("webconsole-menu");
 }
@@ -443,7 +450,7 @@ async function checkClickOnNode(
 ) {
   info("checking click on node location");
 
-  const onSourceInDebuggerOpened = once(hud.ui, "source-in-debugger-opened");
+  const onSourceInDebuggerOpened = once(hud, "source-in-debugger-opened");
 
   EventUtils.sendMouseEvent(
     { type: "click" },
@@ -1126,6 +1133,36 @@ function isReverseSearchInputFocused(hud) {
   return document.activeElement == reverseSearchInput && documentIsFocused;
 }
 
+function getEagerEvaluationElement(hud) {
+  return hud.ui.outputNode.querySelector(".eager-evaluation-result");
+}
+
+async function waitForEagerEvaluationResult(hud, text) {
+  await waitUntil(() => {
+    const elem = getEagerEvaluationElement(hud);
+    if (elem) {
+      if (text instanceof RegExp) {
+        return text.test(elem.innerText);
+      }
+      return elem.innerText == text;
+    }
+    return false;
+  });
+  ok(true, `Got eager evaluation result ${text}`);
+}
+
+// This just makes sure the eager evaluation result disappears. This will pass
+// even for inputs which eventually have a result because nothing will be shown
+// while the evaluation happens. Waiting here does make sure that a previous
+// input was processed and sent down to the server for evaluating.
+async function waitForNoEagerEvaluationResult(hud) {
+  await waitUntil(() => {
+    const elem = getEagerEvaluationElement(hud);
+    return elem && elem.innerText == "";
+  });
+  ok(true, `Eager evaluation result disappeared`);
+}
+
 /**
  * Selects a node in the inspector.
  *
@@ -1262,6 +1299,50 @@ function findObjectInspectorNode(oi, nodeLabel) {
  */
 function getAutocompletePopupLabels(popup) {
   return popup.getItems().map(item => item.label);
+}
+
+/**
+ * Check if the retrieved list of autocomplete labels of the specific popup
+ * includes all of the expected labels.
+ *
+ * @param {AutocompletPopup} popup
+ * @param {Array<String>} expected the array of expected labels
+ */
+function hasExactPopupLabels(popup, expected) {
+  return hasPopupLabels(popup, expected, true);
+}
+
+/**
+ * Check if the expected label is included in the list of autocomplete labels
+ * of the specific popup.
+ *
+ * @param {AutocompletPopup} popup
+ * @param {String} label the label to check
+ */
+function hasPopupLabel(popup, label) {
+  return hasPopupLabels(popup, [label]);
+}
+
+/**
+ * Validate the expected labels against the autocomplete labels.
+ *
+ * @param {AutocompletPopup} popup
+ * @param {Array<String>} expectedLabels
+ * @param {Boolean} checkAll
+ */
+function hasPopupLabels(popup, expectedLabels, checkAll = false) {
+  const autocompleteLabels = getAutocompletePopupLabels(popup);
+  if (checkAll) {
+    return (
+      autocompleteLabels.length === expectedLabels.length &&
+      autocompleteLabels.every((autoLabel, idx) => {
+        return expectedLabels.indexOf(autoLabel) === idx;
+      })
+    );
+  }
+  return expectedLabels.every(expectedLabel => {
+    return autocompleteLabels.includes(expectedLabel);
+  });
 }
 
 /**
@@ -1528,4 +1609,35 @@ function toggleLayout(hud) {
     [isMacOS ? "metaKey" : "ctrlKey"]: true,
   });
   return waitFor(() => isEditorModeEnabled(hud) === !enabled);
+}
+
+/**
+ * Wait until all lazily fetch requests in netmonitor get finished.
+ * Otherwise test will be shutdown too early and cause failure.
+ */
+async function waitForLazyRequests(toolbox) {
+  const { wrapper } = toolbox.getCurrentPanel().hud.ui;
+  return waitUntil(() => {
+    return !wrapper.networkDataProvider.lazyRequestData.size;
+  });
+}
+
+/**
+ * Clear the console output and wait for eventual object actors to be released.
+ *
+ * @param {WebConsole} hud
+ * @param {Object} An options object with the following properties:
+ *                 - {Boolean} keepStorage: true to prevent clearing the messages storage.
+ */
+async function clearOutput(hud, { keepStorage = false } = {}) {
+  const { ui } = hud;
+  const promises = [ui.once("messages-cleared")];
+
+  // If there's an object inspector, we need to wait for the actors to be released.
+  if (ui.outputNode.querySelector(".object-inspector")) {
+    promises.push(ui.once("fronts-released"));
+  }
+
+  ui.clearOutput(!keepStorage);
+  await Promise.all(promises);
 }

@@ -8,9 +8,13 @@
 
 const { Ci } = require("chrome");
 const Services = require("Services");
-const { HarCollector } = require("./har-collector");
-const { HarExporter } = require("./har-exporter");
-const { HarUtils } = require("./har-utils");
+const {
+  HarCollector,
+} = require("devtools/client/netmonitor/src/har/har-collector");
+const {
+  HarExporter,
+} = require("devtools/client/netmonitor/src/har/har-exporter");
+const { HarUtils } = require("devtools/client/netmonitor/src/har/har-utils");
 
 const prefDomain = "devtools.netmonitor.har.";
 
@@ -59,13 +63,13 @@ HarAutomation.prototype = {
 
   // Automation
 
-  startMonitoring: function(client, callback) {
+  startMonitoring: async function(client, callback) {
     if (!client) {
       return;
     }
 
-    this.debuggerClient = client;
-    this.webConsoleClient = this.toolbox.target.activeConsole;
+    this.devToolsClient = client;
+    this.webConsoleFront = await this.toolbox.target.getFront("console");
 
     this.tabWatcher = new TabWatcher(this.toolbox, this);
     this.tabWatcher.connect();
@@ -83,8 +87,8 @@ HarAutomation.prototype = {
     // A page is about to be loaded, start collecting HTTP
     // data from events sent from the backend.
     this.collector = new HarCollector({
-      webConsoleClient: this.webConsoleClient,
-      debuggerClient: this.debuggerClient,
+      webConsoleFront: this.webConsoleFront,
+      devToolsClient: this.devToolsClient,
     });
 
     this.collector.start();
@@ -196,7 +200,7 @@ HarAutomation.prototype = {
    * Fetches the full text of a string.
    */
   getString: function(stringGrip) {
-    return this.webConsoleClient.getString(stringGrip);
+    return this.webConsoleFront.getString(stringGrip);
   },
 };
 

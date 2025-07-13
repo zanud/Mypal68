@@ -472,8 +472,8 @@ describe("Error - stacktrace location click", () => {
     expect(locations.exists()).toBeTruthy();
 
     expect(locations.first().prop("title")).toBe(
-      "View source in debugger → " +
-        "resource://devtools/shared/client/debugger-client.js:856:9"
+      "View source in debugger ??? " +
+        "resource://devtools/shared/client/devtools-client.js:856:9"
     );
     locations.first().simulate("click", {
       type: "click",
@@ -483,13 +483,13 @@ describe("Error - stacktrace location click", () => {
     expect(onViewSourceInDebugger.mock.calls).toHaveLength(1);
     let mockCall = onViewSourceInDebugger.mock.calls[0][0];
     expect(mockCall.url).toEqual(
-      "resource://devtools/shared/client/debugger-client.js"
+      "resource://devtools/shared/client/devtools-client.js"
     );
     expect(mockCall.line).toEqual(856);
     expect(mockCall.column).toEqual(9);
 
     expect(locations.last().prop("title")).toBe(
-      "View source in debugger → " +
+      "View source in debugger ??? " +
         "resource://devtools/shared/ThreadSafeDevToolsUtils.js:109:14"
     );
     locations.last().simulate("click", {
@@ -718,5 +718,20 @@ describe("Error - Error with undefined-grip message", () => {
     );
 
     expect(tinyRenderedComponent).toMatchSnapshot();
+  });
+});
+
+describe("Error - Error with stack having frames with multiple @", () => {
+  const stub = stubs.get("Error with stack having frames with multiple @");
+
+  it("renders with expected text for Error object", () => {
+    const renderedComponent = shallow(
+      ErrorRep.rep({
+        object: stub,
+        customFormat: true,
+      })
+    );
+
+    expect(renderedComponent).toMatchSnapshot();
   });
 });

@@ -9,7 +9,7 @@ const { l10n } = require("../modules/l10n");
 const { DEBUG_TARGETS, REQUEST_PROCESSES_SUCCESS } = require("../constants");
 
 /**
- * This middleware converts tabs object that get from DebuggerClient.listProcesses() to
+ * This middleware converts tabs object that get from DevToolsClient.listProcesses() to
  * data which is used in DebugTargetItem.
  */
 const processComponentDataMiddleware = store => next => action => {

@@ -5,7 +5,7 @@
 // @flow
 
 import type { SettledValue, FulfilledValue } from "./utils/async-value";
-import type { SourcePayload } from "./client/firefox/types";
+import type { SourcePayload, LongStringFront } from "./client/firefox/types";
 import type { SourceActorId, SourceActor } from "./reducers/source-actors";
 import type { SourceBase } from "./reducers/sources";
 
@@ -16,6 +16,8 @@ export type SearchModifiers = {
   wholeWord: boolean,
   regexMatch: boolean,
 };
+
+export type URL = string;
 
 export type Mode =
   | String
@@ -60,12 +62,13 @@ export type QueuedSourceData =
 
 export type OriginalSourceData = {|
   id: string,
-  url: string,
+  url: URL,
 |};
 
 export type GeneratedSourceData = {
   thread: ThreadId,
   source: SourcePayload,
+  isServiceWorker: boolean,
 
   // Many of our tests rely on being able to set a specific ID for the Source
   // object. We may want to consider avoiding that eventually.
@@ -235,7 +238,7 @@ export type Frame = {
   location: SourceLocation,
   generatedLocation: SourceLocation,
   source: ?Source,
-  scope: Scope,
+  scope?: Scope,
   // FIXME Define this type more clearly
   this: Object,
   framework?: string,
@@ -243,7 +246,8 @@ export type Frame = {
   originalDisplayName?: string,
   originalVariables?: XScopeVariables,
   library?: string,
-  asyncCause?: string,
+  asyncCause: null | string,
+  state: "on-stack" | "suspended" | "dead",
 };
 
 export type ChromeFrame = {
@@ -295,7 +299,12 @@ export type Why =
   | ExceptionReason
   | {
       type: string,
+      message?: string,
       frameFinished?: Object,
+      nodeGrip?: Object,
+      ancestorGrip?: Object,
+      exception?: string,
+      action?: string,
     };
 
 /**
@@ -341,8 +350,8 @@ export type Expression = {
   value: Object,
   from: string,
   updating: boolean,
-  exception?: string,
-  error?: string,
+  exception?: string | LongStringFront,
+  error?: string | LongStringFront,
 };
 
 /**
@@ -402,15 +411,14 @@ export type SourceWithContentAndType<+Content: SourceContent> = $ReadOnly<{
 
 export type Source = {
   +id: SourceId,
-  +url: string,
+  +url: URL,
   +isBlackBoxed: boolean,
   +isPrettyPrinted: boolean,
-  +relativeUrl: string,
-  +introductionUrl: ?string,
-  +introductionType: ?string,
+  +relativeUrl: URL,
   +extensionName: ?string,
   +isExtension: boolean,
   +isWasm: boolean,
+  +isOriginal: boolean,
 };
 
 /**
@@ -462,23 +470,17 @@ export type Scope = {|
   scopeKind: string,
 |};
 
-export type MainThread = {
+export type ThreadType = "mainThread" | "worker" | "contentProcess";
+export type Thread = {
   +actor: ThreadId,
-  +url: string,
-  +type: number,
+  +url: URL,
+  +type: ThreadType,
   +name: string,
+  serviceWorkerStatus?: string,
 };
 
-export type Worker = {
-  +actor: ThreadId,
-  +url: string,
-  +type: number,
-  +name: string,
-};
-
-export type Thread = MainThread & Worker;
+export type Worker = Thread;
 export type ThreadList = Array<Thread>;
-export type WorkerList = Array<Worker>;
 
 export type Cancellable = {
   cancel: () => void,

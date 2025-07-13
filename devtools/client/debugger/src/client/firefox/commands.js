@@ -4,9 +4,9 @@
 
 // @flow
 
-import { prepareSourcePayload, createWorker } from "./create";
-import { supportsWorkers, updateWorkerTargets } from "./workers";
-import { features } from "../../utils/prefs";
+import { prepareSourcePayload, createThread, createFrame } from "./create";
+import { updateTargets } from "./targets";
+import { clientEvents } from "./events";
 
 import Reps from "devtools-reps";
 import type { Node } from "devtools-reps";
@@ -22,16 +22,17 @@ import type {
   Script,
   SourceId,
   SourceActor,
-  Worker,
   Range,
+  URL,
 } from "../../types";
 
 import type {
-  TabTarget,
-  DebuggerClient,
+  Target,
+  DevToolsClient,
   Grip,
   ThreadFront,
-  ObjectClient,
+  ObjectFront,
+  ExpressionResult,
   SourcesPacket,
 } from "./types";
 
@@ -40,38 +41,44 @@ import type {
   EventListenerActiveList,
 } from "../../actions/types";
 
-let workerTargets: Object;
-let threadFront: ThreadFront;
-let tabTarget: TabTarget;
-let debuggerClient: DebuggerClient;
+let targets: { [string]: Target };
+let currentThreadFront: ThreadFront;
+let currentTarget: Target;
+let devToolsClient: DevToolsClient;
 let sourceActors: { [ActorId]: SourceId };
 let breakpoints: { [string]: Object };
 let eventBreakpoints: ?EventListenerActiveList;
 
+const CALL_STACK_PAGE_SIZE = 1000;
+
 type Dependencies = {
   threadFront: ThreadFront,
-  tabTarget: TabTarget,
-  debuggerClient: DebuggerClient,
+  tabTarget: Target,
+  devToolsClient: DevToolsClient,
 };
 
 function setupCommands(dependencies: Dependencies) {
-  threadFront = dependencies.threadFront;
-  tabTarget = dependencies.tabTarget;
-  debuggerClient = dependencies.debuggerClient;
-  workerTargets = {};
+  currentThreadFront = dependencies.threadFront;
+  currentTarget = dependencies.tabTarget;
+  devToolsClient = dependencies.devToolsClient;
+  targets = {};
   sourceActors = {};
   breakpoints = {};
 }
 
-function createObjectClient(grip: Grip) {
-  return debuggerClient.createObjectClient(grip);
+function createObjectFront(grip: Grip): ObjectFront {
+  if (!grip.actor) {
+    throw new Error("Actor is missing");
+  }
+
+  return devToolsClient.createObjectFront(grip, currentThreadFront);
 }
 
 async function loadObjectProperties(root: Node) {
-  const utils = Reps.objectInspector.utils;
+  const { utils } = Reps.objectInspector;
   const properties = await utils.loadProperties.loadItemProperties(
     root,
-    createObjectClient
+    devToolsClient
   );
   return utils.node.getChildren({
     item: root,
@@ -83,22 +90,33 @@ function releaseActor(actor: String) {
   if (!actor) {
     return;
   }
+  const objFront = devToolsClient.getFrontByID(actor);
 
-  return debuggerClient.release(actor);
+  if (objFront) {
+    return objFront.release().catch(() => {});
+  }
 }
 
 function sendPacket(packet: Object) {
-  return debuggerClient.request(packet);
+  return devToolsClient.request(packet);
+}
+
+// Get a copy of the current targets.
+function getTargetsMap(): { string: Target } {
+  return Object.assign({}, targets);
 }
 
 function lookupTarget(thread: string) {
-  if (thread == threadFront.actor) {
-    return tabTarget;
+  if (thread == currentThreadFront.actor) {
+    return currentTarget;
   }
-  if (!workerTargets[thread]) {
+
+  const targetsMap = getTargetsMap();
+  if (!targetsMap[thread]) {
     throw new Error(`Unknown thread front: ${thread}`);
   }
-  return workerTargets[thread];
+
+  return targetsMap[thread];
 }
 
 function lookupThreadFront(thread: string) {
@@ -106,8 +124,9 @@ function lookupThreadFront(thread: string) {
   return target.threadFront;
 }
 
-function listWorkerThreadFronts() {
-  return (Object.values(workerTargets): any).map(target => target.threadFront).filter(t => !!t);
+function listThreadFronts() {
+  const targetList = (Object.values(getTargetsMap()): any);
+  return targetList.map(target => target.threadFront).filter(t => !!t);
 }
 
 function forEachThread(iteratee) {
@@ -117,7 +136,7 @@ function forEachThread(iteratee) {
   // resolve in FIFO order, and this could result in client and server state
   // going out of sync.
 
-  const promises = [threadFront, ...listWorkerThreadFronts()].map(
+  const promises = [currentThreadFront, ...listThreadFronts()].map(
     // If a thread shuts down while sending the message then it will
     // throw. Ignore these exceptions.
     t => iteratee(t).catch(e => console.log(e))
@@ -157,11 +176,11 @@ async function sourceContents({
 }
 
 function setXHRBreakpoint(path: string, method: string) {
-  return threadFront.setXHRBreakpoint(path, method);
+  return currentThreadFront.setXHRBreakpoint(path, method);
 }
 
 function removeXHRBreakpoint(path: string, method: string) {
-  return threadFront.removeXHRBreakpoint(path, method);
+  return currentThreadFront.removeXHRBreakpoint(path, method);
 }
 
 function addWatchpoint(
@@ -171,15 +190,15 @@ function addWatchpoint(
   watchpointType: string
 ) {
   if (currentTarget.traits.watchpoints) {
-    const objectClient = createObjectClient(object);
-    return objectClient.addWatchpoint(property, label, watchpointType);
+    const objectFront = createObjectFront(object);
+    return objectFront.addWatchpoint(property, label, watchpointType);
   }
 }
 
-function removeWatchpoint(object: Grip, property: string) {
+async function removeWatchpoint(object: Grip, property: string) {
   if (currentTarget.traits.watchpoints) {
-    const objectClient = createObjectClient(object);
-    return objectClient.removeWatchpoint(property);
+    const objectFront = createObjectFront(object);
+    await objectFront.removeWatchpoint(property);
   }
 }
 
@@ -190,12 +209,6 @@ function locationKey(location: BreakpointLocation) {
   const sourceId = location.sourceId || "";
   // $FlowIgnore
   return `${sourceUrl}:${sourceId}:${line}:${column}`;
-}
-
-function detachWorkers() {
-  for (const thread of listWorkerThreadFronts()) {
-    thread.detach();
-  }
 }
 
 function hasBreakpoint(location: BreakpointLocation) {
@@ -217,7 +230,10 @@ function removeBreakpoint(location: PendingLocation) {
   return forEachThread(thread => thread.removeBreakpoint(location));
 }
 
-async function evaluateInFrame(script: Script, options: EvaluateParam) {
+function evaluateInFrame(
+  script: Script,
+  options: EvaluateParam
+): Promise<{ result: ExpressionResult }> {
   return evaluate(script, options);
 }
 
@@ -227,34 +243,39 @@ async function evaluateExpressions(scripts: Script[], options: EvaluateParam) {
 
 type EvaluateParam = { thread: string, frameId: ?FrameId };
 
-function evaluate(
+async function evaluate(
   script: ?Script,
   { thread, frameId }: EvaluateParam = {}
-): Promise<{ result: Grip | null }> {
+): Promise<{ result: ExpressionResult }> {
   const params = { thread, frameActor: frameId };
-  if (!tabTarget || !script) {
-    return Promise.resolve({ result: null });
+  if (!currentTarget || !script) {
+    return { result: null };
   }
 
-  const target = thread ? lookupTarget(thread) : tabTarget;
-  const console = target.activeConsole;
-  if (!console) {
-    return Promise.resolve({ result: null });
+  const target = thread ? lookupTarget(thread) : currentTarget;
+  const consoleFront = await target.getFront("console");
+  if (!consoleFront) {
+    return { result: null };
   }
 
-  return console.evaluateJSAsync(script, params);
+  return consoleFront.evaluateJSAsync(script, params);
 }
 
-function autocomplete(
+async function autocomplete(
   input: string,
   cursor: number,
   frameId: ?string
 ): Promise<mixed> {
-  if (!tabTarget || !tabTarget.activeConsole || !input) {
-    return Promise.resolve({});
+  if (!currentTarget || !input) {
+    return {};
   }
+  const consoleFront = await currentTarget.getFront("console");
+  if (!consoleFront) {
+    return {};
+  }
+
   return new Promise(resolve => {
-    tabTarget.activeConsole.autocomplete(
+    consoleFront.autocomplete(
       input,
       cursor,
       result => resolve(result),
@@ -263,12 +284,12 @@ function autocomplete(
   });
 }
 
-function navigate(url: string): Promise<*> {
-  return tabTarget.navigateTo({ url });
+function navigate(url: URL): Promise<*> {
+  return currentTarget.navigateTo({ url });
 }
 
 function reload(): Promise<*> {
-  return tabTarget.reload();
+  return currentTarget.reload();
 }
 
 function getProperties(thread: string, grip: Grip): Promise<*> {
@@ -284,13 +305,17 @@ function getProperties(thread: string, grip: Grip): Promise<*> {
   });
 }
 
-async function getFrameScopes(frame: Frame): Promise<*> {
-  if (frame.scope) {
-    return frame.scope;
-  }
+async function getFrames(thread: string) {
+  const threadFront = lookupThreadFront(thread);
+  const response = await threadFront.getFrames(0, CALL_STACK_PAGE_SIZE);
+  return response.frames.map<?Frame>((frame, i) =>
+    createFrame(thread, frame, i)
+  );
+}
 
-  const sourceThreadFront = lookupThreadFront(frame.thread);
-  return sourceThreadFront.getEnvironment(frame.id);
+async function getFrameScopes(frame: Frame): Promise<*> {
+  const frameFront = lookupThreadFront(frame.thread).get(frame.id);
+  return frameFront.getEnvironment();
 }
 
 function pauseOnExceptions(
@@ -312,7 +337,7 @@ async function blackBox(
   isBlackBoxed: boolean,
   range?: Range
 ): Promise<*> {
-  const sourceFront = threadFront.source({ actor: sourceActor.actor });
+  const sourceFront = currentThreadFront.source({ actor: sourceActor.actor });
   if (isBlackBoxed) {
     await sourceFront.unblackBox(range);
   } else {
@@ -335,12 +360,10 @@ function setEventListenerBreakpoints(ids: string[]) {
 }
 
 // eslint-disable-next-line
-async function getEventListenerBreakpointTypes(): Promise<
-  EventListenerCategoryList
-> {
+async function getEventListenerBreakpointTypes(): Promise<EventListenerCategoryList> {
   let categories;
   try {
-    categories = await threadFront.getAvailableEventBreakpoints();
+    categories = await currentThreadFront.getAvailableEventBreakpoints();
 
     if (!Array.isArray(categories)) {
       // When connecting to older browser that had our placeholder
@@ -357,7 +380,7 @@ async function getEventListenerBreakpointTypes(): Promise<
   return categories || [];
 }
 
-function pauseGrip(thread: string, func: Function): ObjectClient {
+function pauseGrip(thread: string, func: Function): ObjectFront {
   return lookupThreadFront(thread).pauseGrip(func);
 }
 
@@ -379,8 +402,39 @@ async function toggleEventLogging(logEventBreakpoints: boolean) {
   );
 }
 
+function getAllThreadFronts() {
+  const fronts = [currentThreadFront];
+  for (const { threadFront } of (Object.values(targets): any)) {
+    fronts.push(threadFront);
+  }
+  return fronts;
+}
+
+// Fetch the sources for all the targets
 async function fetchSources(): Promise<Array<GeneratedSourceData>> {
-  return getSources(threadFront);
+  let sources = [];
+  for (const threadFront of getAllThreadFronts()) {
+    sources = sources.concat(await getSources(threadFront));
+  }
+  return sources;
+}
+
+async function fetchThreadSources(
+  thread: string
+): Promise<Array<GeneratedSourceData>> {
+  return getSources(lookupThreadFront(thread));
+}
+
+// Check if any of the targets were paused before we opened
+// the debugger. If one is paused. Fake a `pause` RDP event
+// by directly calling the client event listener.
+async function checkIfAlreadyPaused() {
+  for (const threadFront of getAllThreadFronts()) {
+    const pausedPacket = threadFront.getLastPausePacket();
+    if (pausedPacket) {
+      clientEvents.paused(threadFront, pausedPacket);
+    }
+  }
 }
 
 function getSourceForActor(actor: ActorId) {
@@ -390,53 +444,28 @@ function getSourceForActor(actor: ActorId) {
   return sourceActors[actor];
 }
 
-async function fetchWorkers(): Promise<Worker[]> {
-  if (features.windowlessWorkers) {
-    const options = {
-      breakpoints,
-      eventBreakpoints,
-      observeAsmJS: true,
-    };
+async function fetchThreads() {
+  const options = {
+    breakpoints,
+    eventBreakpoints,
+    observeAsmJS: true,
+  };
 
-    const newWorkerTargets = await updateWorkerTargets({
-      tabTarget,
-      debuggerClient,
-      threadFront,
-      workerTargets,
-      options,
-    });
+  await updateTargets({
+    currentTarget,
+    devToolsClient,
+    targets,
+    options,
+  });
 
-    // Fetch the sources and install breakpoints on any new workers.
-    const workerNames = Object.getOwnPropertyNames(newWorkerTargets);
-    for (const actor of workerNames) {
-      if (!workerTargets[actor]) {
-        const front = newWorkerTargets[actor].threadFront;
-
-        // This runs in the background and populates some data, but we also
-        // want to allow it to fail quietly. For instance, it is pretty easy
-        // for source clients to throw during the fetch if their thread
-        // shuts down, and this would otherwise cause test failures.
-        getSources(front).catch(e => console.error(e));
-      }
-    }
-
-    workerTargets = newWorkerTargets;
-
-    return workerNames.map(actor =>
-      createWorker(actor, workerTargets[actor].url)
-    );
-  }
-
-  if (!supportsWorkers(tabTarget)) {
-    return Promise.resolve([]);
-  }
-
-  const { workers } = await tabTarget.listWorkers();
-  return workers;
+  // eslint-disable-next-line
+  return (Object.entries(targets).map: any)(([actor, target]) =>
+    createThread((actor: any), (target: any))
+  );
 }
 
 function getMainThread() {
-  return threadFront.actor;
+  return currentThreadFront.actor;
 }
 
 async function getSourceActorBreakpointPositions(
@@ -475,10 +504,14 @@ async function getSourceActorBreakableLines({
   return actorLines;
 }
 
+function getFrontByID(actorID: String) {
+  return devToolsClient.getFrontByID(actorID);
+}
+
 const clientCommands = {
   autocomplete,
   blackBox,
-  createObjectClient,
+  createObjectFront,
   loadObjectProperties,
   releaseActor,
   interrupt,
@@ -506,18 +539,21 @@ const clientCommands = {
   reload,
   getProperties,
   getFrameScopes,
+  getFrames,
   pauseOnExceptions,
   toggleEventLogging,
   fetchSources,
+  fetchThreadSources,
+  checkIfAlreadyPaused,
   registerSourceActor,
-  fetchWorkers,
+  fetchThreads,
   getMainThread,
   sendPacket,
   setSkipPausing,
   setEventListenerBreakpoints,
   getEventListenerBreakpointTypes,
-  detachWorkers,
   lookupTarget,
+  getFrontByID,
 };
 
 export { setupCommands, clientCommands };

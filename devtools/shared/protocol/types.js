@@ -4,7 +4,7 @@
 
 "use strict";
 
-var { Actor } = require("./Actor");
+var { Actor } = require("devtools/shared/protocol/Actor");
 var { lazyLoadSpec, lazyLoadFront } = require("devtools/shared/specs/index");
 
 /**
@@ -314,8 +314,17 @@ types.addActorType = function(name) {
       // existing front on the connection, and create the front
       // if it isn't found.
       const actorID = typeof v === "string" ? v : v.actor;
-      // `ctx.conn` is a DebuggerClient
+      // `ctx.conn` is a DevToolsClient
       let front = ctx.conn.getFrontByID(actorID);
+
+      // When the type `${name}#actorid` is used, `v` is a string refering to the
+      // actor ID. We cannot read form information in this case and the actorID was
+      // already set when creating the front, so no need to do anything.
+      let form = null;
+      if (detail != "actorid") {
+        form = identityWrite(v);
+      }
+
       if (!front) {
         // If front isn't instantiated yet, create one.
         // Try lazy loading front if not already loaded.
@@ -333,14 +342,10 @@ types.addActorType = function(name) {
         const Class = type.frontClass;
         front = new Class(ctx.conn, targetFront, parentFront);
         front.actorID = actorID;
-        parentFront.manage(front);
-      }
 
-      // When the type `${name}#actorid` is used, `v` is a string refering to the
-      // actor ID. We only set the actorID just before and so do not need anything else.
-      if (detail != "actorid") {
-        v = identityWrite(v);
-        front.form(v, ctx);
+        parentFront.manage(front, form, ctx);
+      } else if (form) {
+        front.form(form, ctx);
       }
 
       return front;
@@ -365,6 +370,68 @@ types.addActorType = function(name) {
   return type;
 };
 
+types.addPolymorphicType = function(name, subtypes) {
+  // Assert that all subtypes are actors, as the marshalling implementation depends on that.
+  for (const subTypeName of subtypes) {
+    const subtype = types.getType(subTypeName);
+    if (subtype.category != "actor") {
+      throw new Error(
+        `In polymorphic type '${subtypes.join(
+          ","
+        )}', the type '${subTypeName}' isn't an actor`
+      );
+    }
+  }
+
+  return types.addType(name, {
+    category: "polymorphic",
+    read: (value, ctx) => {
+      // `value` is either a string which is an Actor ID or a form object
+      // where `actor` is an actor ID
+      const actorID = typeof value === "string" ? value : value.actor;
+      if (!actorID) {
+        throw new Error(
+          `Was expecting one of these actors '${subtypes}' but instead got value: '${value}'`
+        );
+      }
+
+      // Extract the typeName out of the actor ID, which should be composed like this
+      // ${DevToolsServerConnectionPrefix}.${typeName}${Number}
+      const typeName = actorID.match(/\.([a-zA-Z]+)\d+$/)[1];
+      if (!subtypes.includes(typeName)) {
+        throw new Error(
+          `Was expecting one of these actors '${subtypes}' but instead got an actor of type: '${typeName}'`
+        );
+      }
+
+      const subtype = types.getType(typeName);
+      return subtype.read(value, ctx);
+    },
+    write: (value, ctx) => {
+      if (!value) {
+        throw new Error(
+          `Was expecting one of these actors '${subtypes}' but instead got an empty value.`
+        );
+      }
+      // value is either an `Actor` or a `Front` and both classes exposes a `typeName`
+      const typeName = value.typeName;
+      if (!typeName) {
+        throw new Error(
+          `Was expecting one of these actors '${subtypes}' but instead got value: '${value}'. Did you pass a form instead of an Actor?`
+        );
+      }
+
+      if (!subtypes.includes(typeName)) {
+        throw new Error(
+          `Was expecting one of these actors '${subtypes}' but instead got an actor of type: '${typeName}'`
+        );
+      }
+
+      const subtype = types.getType(typeName);
+      return subtype.write(value, ctx);
+    },
+  });
+};
 types.addNullableType = function(subtype) {
   subtype = types.getType(subtype);
   return types.addType("nullable:" + subtype.name, {
@@ -482,22 +549,16 @@ exports.registerFront = function(cls) {
 };
 
 /**
- * Instantiate a global (preference, device) or target-scoped (webconsole, inspector)
- * front of the given type by picking its actor ID out of either the target or root
- * front's form.
+ * Instantiate a front of the given type.
  *
- * @param DebuggerClient client
- *    The DebuggerClient instance to use.
+ * @param DevToolsClient client
+ *    The DevToolsClient instance to use.
  * @param string typeName
  *    The type name of the front to instantiate. This is defined in its specifiation.
- * @param json form
- *    If we want to instantiate a global actor's front, this is the root front's form,
- *    otherwise we are instantiating a target-scoped front from the target front's form.
- * @param [Target|null] target
- *    If we are instantiating a target-scoped front, this is a reference to the front's
- *    Target instance, otherwise this is null.
+ * @returns Front
+ *    The created front.
  */
-function getFront(client, typeName, form, target = null) {
+function createFront(client, typeName, target = null) {
   const type = types.getType(typeName);
   if (!type) {
     throw new Error(`No spec for front type '${typeName}'.`);
@@ -508,28 +569,66 @@ function getFront(client, typeName, form, target = null) {
   // Use intermediate Class variable to please eslint requiring
   // a capital letter for all constructors.
   const Class = type.frontClass;
-  const instance = new Class(client, target, target);
-  const { formAttributeName } = instance;
+  return new Class(client, target, target);
+}
+
+/**
+ * Instantiate a global (preference, device) or target-scoped (webconsole, inspector)
+ * front of the given type by picking its actor ID out of either the target or root
+ * front's form.
+ *
+ * @param DevToolsClient client
+ *    The DevToolsClient instance to use.
+ * @param string typeName
+ *    The type name of the front to instantiate. This is defined in its specifiation.
+ * @param json form
+ *    If we want to instantiate a global actor's front, this is the root front's form,
+ *    otherwise we are instantiating a target-scoped front from the target front's form.
+ * @param [Target|null] target
+ *    If we are instantiating a target-scoped front, this is a reference to the front's
+ *    Target instance, otherwise this is null.
+ */
+async function getFront(client, typeName, form, target = null) {
+  const front = createFront(client, typeName, target);
+  const { formAttributeName } = front;
   if (!formAttributeName) {
     throw new Error(`Can't find the form attribute name for ${typeName}`);
   }
   // Retrive the actor ID from root or target actor's form
-  instance.actorID = form[formAttributeName];
-  if (!instance.actorID) {
+  front.actorID = form[formAttributeName];
+  if (!front.actorID) {
     throw new Error(
       `Can't find the actor ID for ${typeName} from root or target` +
         ` actor's form.`
     );
   }
-  // Historically, all global and target scoped front were the first protocol.js in the
-  // hierarchy of fronts. So that they have to self-own themself. But now, Root and Target
-  // are fronts and should own them. The only issue here is that we should manage the
-  // front *before* calling initialize which is going to try managing child fronts.
-  instance.manage(instance);
 
-  if (typeof instance.initialize == "function") {
-    return instance.initialize().then(() => instance);
+  if (!target) {
+    await front.manage(front);
+  } else {
+    await target.manage(front);
   }
-  return instance;
+
+  return front;
 }
 exports.getFront = getFront;
+
+/**
+ * Create a RootFront.
+ *
+ * @param DevToolsClient client
+ *    The DevToolsClient instance to use.
+ * @param Object packet
+ * @returns RootFront
+ */
+function createRootFront(client, packet) {
+  const rootFront = createFront(client, "root");
+  rootFront.form(packet);
+
+  // Root Front is a special case, managing itself as it doesn't have any parent.
+  // It will register itself to DevToolsClient as a Pool via Front._poolMap.
+  rootFront.manage(rootFront);
+
+  return rootFront;
+}
+exports.createRootFront = createRootFront;

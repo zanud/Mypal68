@@ -16,22 +16,36 @@ const {
   connect,
 } = require("devtools/client/shared/redux/visibility-handler-connect");
 const { findDOMNode } = require("devtools/client/shared/vendor/react-dom");
-const Actions = require("../actions/index");
-const { updateFormDataSections } = require("../utils/request-utils");
+const Actions = require("devtools/client/netmonitor/src/actions/index");
+const {
+  updateFormDataSections,
+} = require("devtools/client/netmonitor/src/utils/request-utils");
 const {
   getSelectedRequest,
   isSelectedRequestVisible,
-} = require("../selectors/index");
+} = require("devtools/client/netmonitor/src/selectors/index");
 
 // Components
 const SplitBox = createFactory(
   require("devtools/client/shared/components/splitter/SplitBox")
 );
-const RequestList = createFactory(require("./RequestList"));
-const Toolbar = createFactory(require("./Toolbar"));
+const RequestList = createFactory(
+  require("devtools/client/netmonitor/src/components/request-list/RequestList")
+);
+const Toolbar = createFactory(
+  require("devtools/client/netmonitor/src/components/Toolbar")
+);
 
 loader.lazyGetter(this, "NetworkDetailsPanel", function() {
-  return createFactory(require("./NetworkDetailsPanel"));
+  return createFactory(
+    require("devtools/client/netmonitor/src/components/NetworkDetailsPanel")
+  );
+});
+
+loader.lazyGetter(this, "NetworkActionBar", function() {
+  return createFactory(
+    require("devtools/client/netmonitor/src/components/NetworkActionBar")
+  );
 });
 
 // MediaQueryList object responsible for switching sidebar splitter
@@ -62,6 +76,7 @@ class MonitorPanel extends Component {
       sourceMapService: PropTypes.object,
       openLink: PropTypes.func,
       updateRequest: PropTypes.func.isRequired,
+      panelOpen: PropTypes.bool.isRequired,
     };
   }
 
@@ -80,6 +95,8 @@ class MonitorPanel extends Component {
   componentDidMount() {
     MediaQuerySingleRow.addListener(this.onLayoutChange);
     MediaQueryVert.addListener(this.onLayoutChange);
+    this.persistDetailsPanelSize();
+    this.persistActionBarSize();
   }
 
   componentWillReceiveProps(nextProps) {
@@ -96,7 +113,11 @@ class MonitorPanel extends Component {
   componentWillUnmount() {
     MediaQuerySingleRow.removeListener(this.onLayoutChange);
     MediaQueryVert.removeListener(this.onLayoutChange);
+    this.persistDetailsPanelSize();
+    this.persistActionBarSize();
+  }
 
+  persistDetailsPanelSize() {
     const { clientWidth, clientHeight } = findDOMNode(this.refs.endPanel) || {};
 
     if (this.state.isVerticalSpliter && clientWidth) {
@@ -108,6 +129,23 @@ class MonitorPanel extends Component {
     if (!this.state.isVerticalSpliter && clientHeight) {
       Services.prefs.setIntPref(
         "devtools.netmonitor.panes-network-details-height",
+        clientHeight
+      );
+    }
+  }
+
+  persistActionBarSize() {
+    const { clientWidth, clientHeight } =
+      findDOMNode(this.refs.actionBar) || {};
+    if (clientWidth) {
+      Services.prefs.setIntPref(
+        "devtools.netmonitor.panes-search-width",
+        clientWidth
+      );
+    }
+    if (clientHeight) {
+      Services.prefs.setIntPref(
+        "devtools.netmonitor.panes-search-height",
         clientHeight
       );
     }
@@ -130,11 +168,39 @@ class MonitorPanel extends Component {
     );
   }
 
+  renderActionBar() {
+    const { connector, isEmpty, panelOpen } = this.props;
+
+    const initialWidth = Services.prefs.getIntPref(
+      "devtools.netmonitor.panes-search-width"
+    );
+    const initialHeight = Services.prefs.getIntPref(
+      "devtools.netmonitor.panes-search-height"
+    );
+
+    return SplitBox({
+      className: "devtools-responsive-container",
+      initialWidth,
+      initialHeight,
+      minSize: "50px",
+      maxSize: "80%",
+      splitterSize: panelOpen ? 1 : 0,
+      startPanel:
+        panelOpen &&
+        NetworkActionBar({
+          ref: "actionBar",
+          connector,
+        }),
+      endPanel: RequestList({ isEmpty, connector }),
+      endPanelControl: false,
+      vert: true,
+    });
+  }
+
   render() {
     const {
       actions,
       connector,
-      isEmpty,
       networkDetailsOpen,
       openLink,
       openSplitConsole,
@@ -144,6 +210,7 @@ class MonitorPanel extends Component {
     const initialWidth = Services.prefs.getIntPref(
       "devtools.netmonitor.panes-network-details-width"
     );
+
     const initialHeight = Services.prefs.getIntPref(
       "devtools.netmonitor.panes-network-details-height"
     );
@@ -158,12 +225,12 @@ class MonitorPanel extends Component {
       }),
       SplitBox({
         className: "devtools-responsive-container",
-        initialWidth: initialWidth,
-        initialHeight: initialHeight,
+        initialWidth,
+        initialHeight,
         minSize: "50px",
         maxSize: "80%",
         splitterSize: networkDetailsOpen ? 1 : 0,
-        startPanel: RequestList({ isEmpty, connector }),
+        startPanel: this.renderActionBar(),
         endPanel:
           networkDetailsOpen &&
           NetworkDetailsPanel({
@@ -183,8 +250,9 @@ class MonitorPanel extends Component {
 
 module.exports = connect(
   state => ({
-    isEmpty: state.requests.requests.size == 0,
+    isEmpty: state.requests.requests.length == 0,
     networkDetailsOpen: state.ui.networkDetailsOpen,
+    panelOpen: state.search.panelOpen,
     request: getSelectedRequest(state),
     selectedRequestVisible: isSelectedRequestVisible(state),
   }),

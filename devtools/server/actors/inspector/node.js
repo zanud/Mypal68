@@ -134,7 +134,7 @@ loader.lazyRequireGetter(
 loader.lazyRequireGetter(
   this,
   "DOMHelpers",
-  "resource://devtools/client/shared/DOMHelpers.jsm",
+  "devtools/shared/dom-helpers",
   true
 );
 
@@ -368,8 +368,8 @@ const NodeActor = protocol.ActorClassWithSpec(nodeSpec, {
     if (
       SUBGRID_ENABLED &&
       (display === "grid" || display === "inline-grid") &&
-      (style.gridTemplateRows === "subgrid" ||
-        style.gridTemplateColumns === "subgrid")
+      (style.gridTemplateRows.startsWith("subgrid") ||
+        style.gridTemplateColumns.startsWith("subgrid"))
     ) {
       display = "subgrid";
     }
@@ -428,7 +428,7 @@ const NodeActor = protocol.ActorClassWithSpec(nodeSpec, {
   get _hasEventListeners() {
     // We need to pass a debugger instance from this compartment because
     // otherwise we can't make use of it inside the event-collector module.
-    const dbg = this.parent().targetActor.makeDebugger();
+    const dbg = this.getParent().targetActor.makeDebugger();
     return this._eventCollector.hasEventListeners(this.rawNode, dbg);
   },
 
@@ -491,7 +491,7 @@ const NodeActor = protocol.ActorClassWithSpec(nodeSpec, {
     }
     // Create debugger object for the customElement function.
     const global = Cu.getGlobalForObject(customElement);
-    const dbg = this.parent().targetActor.makeDebugger();
+    const dbg = this.getParent().targetActor.makeDebugger();
     const globalDO = dbg.addDebuggee(global);
     const customElementDO = globalDO.makeDebuggeeValue(customElement);
 
@@ -693,8 +693,7 @@ const NodeActor = protocol.ActorClassWithSpec(nodeSpec, {
     const { contentDocument, contentWindow } = this.rawNode;
     if (contentDocument && contentDocument.readyState !== "complete") {
       await new Promise(resolve => {
-        const domHelper = new DOMHelpers(contentWindow);
-        domHelper.onceDOMReady(resolve);
+        DOMHelpers.onceDOMReady(contentWindow, resolve);
       });
     }
   },

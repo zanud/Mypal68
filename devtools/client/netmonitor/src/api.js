@@ -7,18 +7,17 @@
 const EventEmitter = require("devtools/shared/event-emitter");
 
 const { bindActionCreators } = require("devtools/client/shared/vendor/redux");
-const { Connector } = require("./connector/index");
-const { configureStore } = require("./create-store");
-const { EVENTS } = require("./constants");
-const Actions = require("./actions/index");
-
-// Telemetry
-const Telemetry = require("devtools/client/shared/telemetry");
+const { Connector } = require("devtools/client/netmonitor/src/connector/index");
+const {
+  configureStore,
+} = require("devtools/client/netmonitor/src/create-store");
+const { EVENTS } = require("devtools/client/netmonitor/src/constants");
+const Actions = require("devtools/client/netmonitor/src/actions/index");
 
 const {
   getDisplayedRequestById,
   getSortedRequests,
-} = require("./selectors/index");
+} = require("devtools/client/netmonitor/src/selectors/index");
 
 /**
  * API object for NetMonitor panel (like a facade). This object can be
@@ -33,11 +32,8 @@ function NetMonitorAPI() {
   // Connector to the backend.
   this.connector = new Connector();
 
-  // Telemetry
-  this.telemetry = new Telemetry();
-
   // Configure store/state object.
-  this.store = configureStore(this.connector, this.telemetry);
+  this.store = configureStore(this.connector);
 
   // List of listeners for `devtools.network.onRequestFinished` WebExt API
   this._requestFinishedListeners = new Set();

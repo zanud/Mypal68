@@ -25,8 +25,6 @@ import { getThreadContext } from "../../../selectors";
 import Popover from "../../shared/Popover";
 import PreviewFunction from "../../shared/PreviewFunction";
 
-import { createObjectClient } from "../../../client/firefox";
-
 import "./Popup.css";
 
 import type { ThreadContext } from "../../../types";
@@ -69,7 +67,7 @@ export class Popup extends Component<Props> {
   }
 
   addHighlightToToken() {
-    const target = this.props.preview.target;
+    const { target } = this.props.preview;
     if (target) {
       target.classList.add("preview-token");
       addHighlightToTargetSiblings(target, this.props);
@@ -77,7 +75,7 @@ export class Popup extends Component<Props> {
   }
 
   removeHighlightFromToken() {
-    const target = this.props.preview.target;
+    const { target } = this.props.preview;
     if (target) {
       target.classList.remove("preview-token");
       removeHighlightForTargetSiblings(target);
@@ -89,29 +87,40 @@ export class Popup extends Component<Props> {
     if (!editorRef) {
       return "auto";
     }
-    return (
-      editorRef.getBoundingClientRect().height +
-      editorRef.getBoundingClientRect().top
-    );
+
+    const { height, top } = editorRef.getBoundingClientRect();
+    const maxHeight = height + top;
+    if (maxHeight < 250) {
+      return maxHeight;
+    }
+
+    return 250;
   };
 
   renderFunctionPreview() {
     const {
       cx,
       selectSourceURL,
-      preview: { result },
+      preview: { resultGrip },
     } = this.props;
+
+    if (!resultGrip) {
+      return null;
+    }
+
+    const { location } = resultGrip;
 
     return (
       <div
         className="preview-popup"
         onClick={() =>
-          selectSourceURL(cx, result.location.url, {
-            line: result.location.line,
+          location &&
+          selectSourceURL(cx, location.url, {
+            line: location.line,
           })
         }
       >
-        <PreviewFunction func={result} />
+        <PreviewFunction func={resultGrip} />
       </div>
     );
   }
@@ -144,7 +153,6 @@ export class Popup extends Component<Props> {
           disableWrap={true}
           focusable={false}
           openLink={openLink}
-          createObjectClient={grip => createObjectClient(grip)}
           onDOMNodeClick={grip => openElementInInspector(grip)}
           onInspectIconClick={grip => openElementInInspector(grip)}
           onDOMNodeMouseOver={grip => highlightDomElement(grip)}
@@ -157,12 +165,12 @@ export class Popup extends Component<Props> {
   renderSimplePreview() {
     const {
       openLink,
-      preview: { result },
+      preview: { resultGrip },
     } = this.props;
     return (
       <div className="preview-popup">
         {Rep({
-          object: result,
+          object: resultGrip,
           mode: MODE.LONG,
           openLink,
         })}
@@ -213,15 +221,18 @@ export class Popup extends Component<Props> {
 
   render() {
     const {
-      preview: { cursorPos, result },
+      preview: { cursorPos, resultGrip },
       editorRef,
     } = this.props;
-    const type = this.getPreviewType();
 
-    if (typeof result == "undefined" || result.optimizedOut) {
+    if (
+      typeof resultGrip == "undefined" ||
+      (resultGrip && resultGrip.optimizedOut)
+    ) {
       return null;
     }
 
+    const type = this.getPreviewType();
     return (
       <Popover
         targetPosition={cursorPos}
@@ -236,10 +247,12 @@ export class Popup extends Component<Props> {
   }
 }
 
-function addHighlightToTargetSiblings(target: Element, props: Object) {
-  // Look at target's pervious and next token siblings.
-  // If they are the same token type, and are also found in the preview expression,
-  // add the highlight class to them as well.
+export function addHighlightToTargetSiblings(target: Element, props: Object) {
+  // This function searches for related tokens that should also be highlighted when previewed.
+  // Here is the process:
+  // It conducts a search on the target's next siblings and then another search for the previous siblings.
+  // If a sibling is not an element node (nodeType === 1), the highlight is not added and the search is short-circuited.
+  // If the element sibling is the same token type as the target, and is also found in the preview expression, the highlight class is added.
 
   const tokenType = target.classList.item(0);
   const previewExpression = props.preview.expression;
@@ -249,28 +262,46 @@ function addHighlightToTargetSiblings(target: Element, props: Object) {
     previewExpression &&
     target.innerHTML !== previewExpression
   ) {
-    let nextSibling = target.nextElementSibling;
+    let nextSibling = target.nextSibling;
+    let nextElementSibling = target.nextElementSibling;
+
+    // Note: Declaring previous/next ELEMENT siblings as well because
+    // properties like innerHTML can't be checked on nextSibling
+    // without creating a flow error even if the node is an element type.
     while (
       nextSibling &&
-      nextSibling.className.includes(tokenType) &&
-      previewExpression.includes(nextSibling.innerHTML)
+      nextElementSibling &&
+      nextSibling.nodeType === 1 &&
+      nextElementSibling.className.includes(tokenType) &&
+      previewExpression.includes(nextElementSibling.innerHTML)
     ) {
-      nextSibling.classList.add("preview-token");
-      nextSibling = nextSibling.nextElementSibling;
+      // All checks passed, add highlight and continue the search.
+      nextElementSibling.classList.add("preview-token");
+
+      nextSibling = nextSibling.nextSibling;
+      nextElementSibling = nextElementSibling.nextElementSibling;
     }
-    let previousSibling = target.previousElementSibling;
+
+    let previousSibling = target.previousSibling;
+    let previousElementSibling = target.previousElementSibling;
+
     while (
       previousSibling &&
-      previousSibling.className.includes(tokenType) &&
-      previewExpression.includes(previousSibling.innerHTML)
+      previousElementSibling &&
+      previousSibling.nodeType === 1 &&
+      previousElementSibling.className.includes(tokenType) &&
+      previewExpression.includes(previousElementSibling.innerHTML)
     ) {
-      previousSibling.classList.add("preview-token");
-      previousSibling = previousSibling.previousElementSibling;
+      // All checks passed, add highlight and continue the search.
+      previousElementSibling.classList.add("preview-token");
+
+      previousSibling = previousSibling.previousSibling;
+      previousElementSibling = previousElementSibling.previousElementSibling;
     }
   }
 }
 
-function removeHighlightForTargetSiblings(target: Element) {
+export function removeHighlightForTargetSiblings(target: Element) {
   // Look at target's previous and next token siblings.
   // If they also have the highlight class 'preview-token',
   // remove that class.

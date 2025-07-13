@@ -3,7 +3,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 BROWSER_CHROME_MANIFESTS += ['test/browser.ini']
-XPCSHELL_TESTS_MANIFESTS += ['test/unit/xpcshell.ini']
+XPCSHELL_TESTS_MANIFESTS += ['test/xpcshell/xpcshell.ini']
 TEST_HARNESS_FILES.xpcshell.devtools.client.shared.test += [
     'test/shared-redux-head.js',
 ]
@@ -16,7 +16,6 @@ DIRS += [
     'source-map',
     'sourceeditor',
     'vendor',
-    'webpack',
     'widgets',
 ]
 
@@ -29,7 +28,6 @@ DevToolsModules(
     'curl.js',
     'demangle.js',
     'devices.js',
-    'DOMHelpers.jsm',
     'enum.js',
     'events.js',
     'focus.js',
@@ -38,7 +36,6 @@ DevToolsModules(
     'key-shortcuts.js',
     'keycodes.js',
     'link.js',
-    'natural-sort.js',
     'node-attribute-parser.js',
     'options-view.js',
     'output-parser.js',
@@ -50,7 +47,6 @@ DevToolsModules(
     'SplitView.jsm',
     'stylesheet-utils.js',
     'suggestion-picker.js',
-    'telemetry.js',
     'theme.js',
     'thread-utils.js',
     'undo.js',

@@ -61,7 +61,6 @@ function RuleEditor(ruleView, rule) {
   this.ruleView = ruleView;
   this.doc = this.ruleView.styleDocument;
   this.toolbox = this.ruleView.inspector.toolbox;
-  this.telemetry = this.toolbox.telemetry;
   this.rule = rule;
 
   this.isEditable = !rule.isSystem;
@@ -335,7 +334,7 @@ RuleEditor.prototype = {
       return;
     }
 
-    const target = this.ruleView.inspector.target;
+    const target = this.ruleView.inspector.currentTarget;
     if (Tools.styleEditor.isTargetSupported(target)) {
       gDevTools.showToolbox(target, "styleeditor").then(toolbox => {
         const { url, line, column } = this._currentLocation;
@@ -693,10 +692,6 @@ RuleEditor.prototype = {
     // Blur the editor field now and deal with adding declarations later when
     // the field gets destroyed (see _newPropertyDestroy)
     this.editor.input.blur();
-
-    this.telemetry.recordEvent("edit_rule", "ruleview", null, {
-      session_id: this.toolbox.sessionId,
-    });
   },
 
   /**

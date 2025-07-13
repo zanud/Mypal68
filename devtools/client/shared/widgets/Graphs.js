@@ -7,9 +7,7 @@ const {
   setNamedTimeout,
 } = require("devtools/client/shared/widgets/view-helpers");
 const { getCurrentZoom } = require("devtools/shared/layout/utils");
-const {
-  DOMHelpers,
-} = require("resource://devtools/client/shared/DOMHelpers.jsm");
+const { DOMHelpers } = require("devtools/shared/dom-helpers");
 
 loader.lazyRequireGetter(this, "EventEmitter", "devtools/shared/event-emitter");
 
@@ -1294,8 +1292,7 @@ AbstractCanvasGraph.createIframe = function(url, parent, callback) {
 
   // Use DOMHelpers to wait for the frame load. DOMHelpers relies on chromeEventHandler
   // so this will still work if DevTools are loaded in a content frame.
-  const domHelper = new DOMHelpers(iframe.contentWindow);
-  domHelper.onceDOMReady(function() {
+  DOMHelpers.onceDOMReady(iframe.contentWindow, function() {
     callback(iframe);
   });
 

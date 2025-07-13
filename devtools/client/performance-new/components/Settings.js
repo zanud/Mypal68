@@ -25,6 +25,7 @@ const DirectoryPicker = createFactory(
 );
 const {
   makeExponentialScale,
+  makePowerOf2Scale,
   formatFileSize,
   calculateOverhead,
 } = require("devtools/client/performance-new/utils");
@@ -181,6 +182,11 @@ const featureCheckboxes = [
     title: "Trace JS engine (Experimental, requires custom build.)",
   },
   {
+    name: "IPC Messages",
+    value: "ipcmessages",
+    title: "Track IPC messages.",
+  },
+  {
     name: "JS Allocations",
     value: "jsallocations",
     title: "Track JavaScript allocations (Experimental.)",
@@ -235,7 +241,10 @@ class Settings extends PureComponent {
     this._renderThreadsColumns = this._renderThreadsColumns.bind(this);
 
     this._intervalExponentialScale = makeExponentialScale(0.01, 100);
-    this._entriesExponentialScale = makeExponentialScale(100000, 100000000);
+    this._entriesExponentialScale = makePowerOf2Scale(
+      128 * 1024,
+      128 * 1024 * 1024
+    );
   }
 
   _renderNotches() {

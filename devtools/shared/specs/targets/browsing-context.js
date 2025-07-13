@@ -11,25 +11,22 @@ const {
 } = require("devtools/shared/protocol");
 
 types.addDictType("browsingContextTarget.attach", {
-  type: "string",
   threadActor: "number",
   cacheDisabled: "boolean",
   javascriptEnabled: "boolean",
   traits: "json",
 });
 
-types.addDictType("browsingContextTarget.detach", {
-  error: "nullable:string",
-  type: "nullable:string",
-});
-
 types.addDictType("browsingContextTarget.switchtoframe", {
-  error: "nullable:string",
-  message: "nullable:string",
+  message: "string",
 });
 
 types.addDictType("browsingContextTarget.listframes", {
   frames: "array:browsingContextTarget.window",
+});
+
+types.addDictType("browsingContextTarget.listRemoteFrames", {
+  frames: "array:frameDescriptor",
 });
 
 types.addDictType("browsingContextTarget.window", {
@@ -41,8 +38,7 @@ types.addDictType("browsingContextTarget.window", {
 });
 
 types.addDictType("browsingContextTarget.workers", {
-  error: "nullable:string",
-  workers: "nullable:array:workerTarget",
+  workers: "array:workerTarget",
 });
 
 types.addDictType("browsingContextTarget.reload", {
@@ -66,7 +62,7 @@ const browsingContextTargetSpecPrototype = {
     },
     detach: {
       request: {},
-      response: RetVal("browsingContextTarget.detach"),
+      response: {},
     },
     ensureCSSErrorReportingEnabled: {
       request: {},
@@ -103,6 +99,10 @@ const browsingContextTargetSpecPrototype = {
     listFrames: {
       request: {},
       response: RetVal("browsingContextTarget.listframes"),
+    },
+    listRemoteFrames: {
+      request: {},
+      response: RetVal("browsingContextTarget.listRemoteFrames"),
     },
     listWorkers: {
       request: {},

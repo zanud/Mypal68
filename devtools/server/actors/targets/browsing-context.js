@@ -6,6 +6,10 @@
 
 /* global XPCNativeWrapper */
 
+// protocol.js uses objects as exceptions in order to define
+// error packets.
+/* eslint-disable no-throw-literal */
+
 /*
  * BrowsingContextTargetActor is an abstract class used by target actors that hold
  * documents, such as frames, chrome windows, etc.
@@ -40,6 +44,12 @@ const {
 const {
   browsingContextTargetSpec,
 } = require("devtools/shared/specs/targets/browsing-context");
+loader.lazyRequireGetter(
+  this,
+  "FrameDescriptorActor",
+  "devtools/server/actors/descriptors/frame",
+  true
+);
 
 loader.lazyRequireGetter(
   this,
@@ -231,7 +241,7 @@ const browsingContextTargetPrototype = {
    * This class is subclassed by FrameTargetActor and others.
    * Subclasses are expected to implement a getter for the docShell property.
    *
-   * @param connection DebuggerServerConnection
+   * @param connection DevToolsServerConnection
    *        The conection to the client.
    */
   initialize: function(connection) {
@@ -273,6 +283,7 @@ const browsingContextTargetPrototype = {
 
     this._workerTargetActorList = null;
     this._workerTargetActorPool = null;
+    this._frameDescriptorActorPool = null;
     this._onWorkerTargetActorListChanged = this._onWorkerTargetActorListChanged.bind(
       this
     );
@@ -296,6 +307,16 @@ const browsingContextTargetPrototype = {
 
   get attached() {
     return !!this._attached;
+  },
+
+  /*
+   * Return a Debugger instance or create one if there is none yet
+   */
+  get dbg() {
+    if (!this._dbg) {
+      this._dbg = this.makeDebugger();
+    }
+    return this._dbg;
   },
 
   /**
@@ -344,6 +365,10 @@ const browsingContextTargetPrototype = {
       "`docShell` getter should be overridden by a subclass of " +
         "`BrowsingContextTargetActor`"
     );
+  },
+
+  get childBrowsingContexts() {
+    return this.docShell.browsingContext.getChildren();
   },
 
   /**
@@ -630,7 +655,7 @@ const browsingContextTargetPrototype = {
       // ignore
     }
     if (!win) {
-      return {
+      throw {
         error: "noWindow",
         message: "The related docshell is destroyed or not found",
       };
@@ -649,6 +674,49 @@ const browsingContextTargetPrototype = {
     return { frames: windows };
   },
 
+  listRemoteFrames() {
+    const frames = [];
+    const contextsToWalk = this.childBrowsingContexts;
+
+    if (contextsToWalk == 0) {
+      return { frames };
+    }
+
+    const pool = new Pool(this.conn);
+    while (contextsToWalk.length) {
+      const currentContext = contextsToWalk.pop();
+      let frameDescriptor = this._getKnownFrameDescriptor(currentContext.id);
+      if (!frameDescriptor) {
+        frameDescriptor = new FrameDescriptorActor(this.conn, currentContext);
+      }
+      pool.manage(frameDescriptor);
+      frames.push(frameDescriptor);
+      contextsToWalk.push(...currentContext.getChildren());
+    }
+    // Do not destroy the pool before transfering ownership to the newly created
+    // pool, so that we do not accidently destroy actors that are still in use.
+    if (this._frameDescriptorActorPool) {
+      this._frameDescriptorActorPool.destroy();
+    }
+
+    this._frameDescriptorActorPool = pool;
+
+    return { frames };
+  },
+
+  _getKnownFrameDescriptor(id) {
+    // if there is no pool, then we do not have any descriptors
+    if (!this._frameDescriptorActorPool) {
+      return null;
+    }
+    for (const descriptor of this._frameDescriptorActorPool.poolChildren()) {
+      if (descriptor.id === id) {
+        return descriptor;
+      }
+    }
+    return null;
+  },
+
   ensureWorkerTargetActorList() {
     if (this._workerTargetActorList === null) {
       this._workerTargetActorList = new WorkerTargetActorList(this.conn, {
@@ -665,7 +733,9 @@ const browsingContextTargetPrototype = {
 
   listWorkers(request) {
     if (!this.attached) {
-      return { error: "wrongState" };
+      throw {
+        error: "wrongState",
+      };
     }
 
     return this.ensureWorkerTargetActorList()
@@ -946,6 +1016,16 @@ const browsingContextTargetPrototype = {
       this._workerTargetActorPool = null;
     }
 
+    if (this._frameDescriptorActorPool !== null) {
+      this._frameDescriptorActorPool.destroy();
+      this._frameDescriptorActorPool = null;
+    }
+
+    if (this._dbg) {
+      this._dbg.disable();
+      this._dbg = null;
+    }
+
     this._attached = false;
 
     this.emit("tabDetached");
@@ -957,13 +1037,14 @@ const browsingContextTargetPrototype = {
 
   attach(request) {
     if (this.exited) {
-      return { type: "exited" };
+      throw {
+        error: "exited",
+      };
     }
 
     this._attach();
 
     return {
-      type: "tabAttached",
       threadActor: this.threadActor.actorID,
       cacheDisabled: this._getCacheDisabled(),
       javascriptEnabled: this._getJavascriptEnabled(),
@@ -973,10 +1054,12 @@ const browsingContextTargetPrototype = {
 
   detach(request) {
     if (!this._detach()) {
-      return { error: "wrongState" };
+      throw {
+        error: "wrongState",
+      };
     }
 
-    return { type: "detached" };
+    return {};
   },
 
   /**

@@ -25,7 +25,6 @@ import { setBreakpointPositions } from "./breakpointPositions";
 import { setSkipPausing } from "../pause/skipPausing";
 
 import { PROMISE } from "../utils/middleware/promise";
-import { recordEvent } from "../../utils/telemetry";
 import { comparePosition } from "../../utils/location";
 import { getTextAtPosition } from "../../utils/source";
 
@@ -104,8 +103,6 @@ export function addBreakpoint(
   shouldCancel: () => boolean = () => false
 ) {
   return async ({ dispatch, getState, sourceMaps, client }: ThunkArgs) => {
-    recordEvent("add_breakpoint");
-
     const { sourceId, column, line } = initialLocation;
 
     await dispatch(setBreakpointPositions({ cx, sourceId, line }));
@@ -182,8 +179,6 @@ export function addBreakpoint(
  */
 export function removeBreakpoint(cx: Context, initialBreakpoint: Breakpoint) {
   return ({ dispatch, getState, client }: ThunkArgs) => {
-    recordEvent("remove_breakpoint");
-
     const breakpoint = getBreakpoint(getState(), initialBreakpoint.location);
     if (!breakpoint) {
       return;

@@ -29,14 +29,14 @@ const threadFront = {
   }),
   getSourceActorBreakpointPositions: async () => ({}),
   getSourceActorBreakableLines: async () => [],
-  detachWorkers: () => {},
 };
 
 describe("navigation", () => {
   it("connect sets the debuggeeUrl", async () => {
     const { dispatch, getState } = createStore({
-      fetchWorkers: () => Promise.resolve([]),
+      fetchThreads: async () => [],
       getMainThread: () => "FakeThread",
+      evaluateExpressions: () => {},
     });
     await dispatch(
       actions.connect("http://test.com/foo", "actor", false, false)
@@ -87,7 +87,10 @@ describe("navigation", () => {
   it("navigation clears the file-search results", async () => {
     const { dispatch, getState, cx } = createStore(threadFront);
 
-    const searchResults = [{ line: 1, ch: 3 }, { line: 3, ch: 2 }];
+    const searchResults = [
+      { line: 1, ch: 3 },
+      { line: 3, ch: 2 },
+    ];
     dispatch(actions.updateSearchResults(cx, 2, 3, searchResults));
     expect(getFileSearchResults(getState())).toEqual({
       count: 2,

@@ -31,8 +31,8 @@ loader.lazyRequireGetter(
 );
 loader.lazyImporter(
   this,
-  "BrowserToolboxProcess",
-  "resource://devtools/client/framework/ToolboxProcess.jsm"
+  "BrowserToolboxLauncher",
+  "resource://devtools/client/framework/browser-toolbox/Launcher.jsm"
 );
 
 const {
@@ -421,7 +421,7 @@ DevTools.prototype = {
    */
   saveDevToolsSession: function(state) {
     state.browserConsole = BrowserConsoleManager.getBrowserConsoleSessionState();
-    state.browserToolbox = BrowserToolboxProcess.getBrowserToolboxSessionState();
+    state.browserToolbox = BrowserToolboxLauncher.getBrowserToolboxSessionState();
   },
 
   /**
@@ -429,7 +429,7 @@ DevTools.prototype = {
    */
   restoreDevToolsSession: function({ browserConsole, browserToolbox }) {
     if (browserToolbox) {
-      BrowserToolboxProcess.init();
+      BrowserToolboxLauncher.init();
     }
 
     if (browserConsole && !BrowserConsoleManager.getBrowserConsole()) {
@@ -544,6 +544,13 @@ DevTools.prototype = {
     toolbox.once("destroyed", () => {
       this._toolboxes.delete(target);
       this.emit("toolbox-destroyed", target);
+    });
+    // If the document navigates to another process, the current target will be
+    // destroyed in favor of a new one. So acknowledge this swap here.
+    toolbox.on("switch-target", newTarget => {
+      this._toolboxes.delete(target);
+      this._toolboxes.set(newTarget, toolbox);
+      target = newTarget;
     });
 
     await toolbox.open();

@@ -8,11 +8,17 @@ const { Cu } = require("chrome");
 const {
   setBreakpointAtEntryPoints,
 } = require("devtools/server/actors/breakpoint");
-const { ActorClassWithSpec } = require("devtools/shared/protocol");
+const { ActorClassWithSpec, Actor } = require("devtools/shared/protocol");
 const DevToolsUtils = require("devtools/shared/DevToolsUtils");
 const { assert } = DevToolsUtils;
-const { joinURI } = require("devtools/shared/path");
 const { sourceSpec } = require("devtools/shared/specs/source");
+const {
+  resolveSourceURL,
+  getSourcemapBaseURL,
+} = require("devtools/server/actors/utils/source-map-utils");
+const {
+  getDebuggerSourceURL,
+} = require("devtools/server/actors/utils/source-url");
 
 loader.lazyRequireGetter(
   this,
@@ -28,62 +34,46 @@ loader.lazyRequireGetter(
 );
 
 loader.lazyRequireGetter(this, "Services");
-loader.lazyGetter(this, "WebExtensionPolicy",
+loader.lazyGetter(
+  this,
+  "WebExtensionPolicy",
   () => Cu.getGlobalForObject(Cu).WebExtensionPolicy
 );
 
-function isEvalSource(source) {
-  const introType = source.introductionType;
-
-  // Script elements that are dynamically created are treated as eval sources.
-  // We detect these by looking at whether there was another script on the stack
-  // when the source was created.
-  if (introType == "scriptElement" && source.introductionScript) {
-    return true;
-  }
-
-  // These are all the sources that are essentially eval-ed (either
-  // by calling eval or passing a string to one of these functions).
-  return (
-    introType === "eval" ||
-    introType === "debugger eval" ||
-    introType === "Function" ||
-    introType === "eventHandler" ||
-    introType === "setTimeout" ||
-    introType === "setInterval"
-  );
-}
-
-exports.isEvalSource = isEvalSource;
+const windowsDrive = /^([a-zA-Z]:)/;
 
 function getSourceURL(source, window) {
-  if (isEvalSource(source)) {
-    // Eval sources have no urls, but they might have a `displayURL`
-    // created with the sourceURL pragma. If the introduction script
-    // is a non-eval script, generate an full absolute URL relative to it.
+  // Some eval sources have URLs, but we want to explcitly ignore those because
+  // they are generally useless strings like "eval" or "debugger eval code".
+  const resourceURL =
+    (getDebuggerSourceURL(source) || "").split(" -> ").pop() || null;
 
-    if (source.displayURL && source.introductionScript) {
-      if (source.introductionScript.source.url === "debugger eval code") {
-        if (window) {
-          // If this is a named eval script created from the console, make it
-          // relative to the current page. window is only available
-          // when we care about this.
-          return joinURI(window.location.href, source.displayURL);
-        }
-      } else if (!isEvalSource(source.introductionScript.source)) {
-        return joinURI(source.introductionScript.source.url, source.displayURL);
-      }
+  // A "//# sourceURL=" pragma should basically be treated as a source file's
+  // full URL, so that is what we want to use as the base if it is present.
+  // If this is not an absolute URL, this will mean the maps in the file
+  // will not have a valid base URL, but that is up to tooling that
+  let result = resolveSourceURL(source.displayURL, window);
+  if (!result) {
+    result = resolveSourceURL(resourceURL, window) || resourceURL;
+
+    // In XPCShell tests, the source URL isn't actually a URL, it's a file path.
+    // That causes issues because "C:/folder/file.js" is parsed as a URL with
+    // "c:" as the URL scheme, which causes the drive letter to be unexpectedly
+    // lower-cased when the parsed URL is re-serialized. To avoid that, we
+    // detect that case and re-uppercase it again. This is a bit gross and
+    // ideally it seems like XPCShell tests should use file:// URLs for files,
+    // but alas they do not.
+    if (
+      resourceURL &&
+      resourceURL.match(windowsDrive) &&
+      result.slice(0, 2) == resourceURL.slice(0, 2).toLowerCase()
+    ) {
+      result = resourceURL.slice(0, 2) + result.slice(2);
     }
-
-    return source.displayURL;
-  } else if (source.url === "debugger eval code") {
-    // Treat code evaluated by the console as unnamed eval scripts
-    return null;
   }
-  return source.url;
-}
 
-exports.getSourceURL = getSourceURL;
+  return result;
+}
 
 /**
  * A SourceActor provides information about the source of a script. Source
@@ -93,30 +83,30 @@ exports.getSourceURL = getSourceURL;
  *        The source object we are representing.
  * @param ThreadActor thread
  *        The current thread actor.
- * @param Boolean isInlineSource
- *        Optional. True if this is an inline source from a HTML or XUL page.
- * @param String contentType
- *        Optional. The content type of this source, if immediately available.
  */
 const SourceActor = ActorClassWithSpec(sourceSpec, {
   typeName: "source",
 
-  initialize: function({ source, thread, isInlineSource, contentType }) {
+  initialize: function({ source, thread }) {
+    Actor.prototype.initialize.call(this, thread.conn);
+
     this._threadActor = thread;
-    this._url = null;
+    this._url = undefined;
     this._source = source;
-    this._contentType = contentType;
-    this._isInlineSource = isInlineSource;
+    this.__isInlineSource = undefined;
     this._startLineColumnDisplacement = null;
-
-    this.source = this.source.bind(this);
-    this._getSourceText = this._getSourceText.bind(this);
-
-    this._init = null;
   },
 
-  get isInlineSource() {
-    return this._isInlineSource;
+  get _isInlineSource() {
+    const source = this._source;
+    if (this.__isInlineSource === undefined) {
+      // If the source has a usable displayURL, the source is treated as not
+      // inlined because it has its own URL.
+      this.__isInlineSource =
+        source.introductionType === "inlineScript" &&
+        !resolveSourceURL(source.displayURL, this.threadActor._parent.window);
+    }
+    return this.__isInlineSource;
   },
 
   get threadActor() {
@@ -132,7 +122,7 @@ const SourceActor = ActorClassWithSpec(sourceSpec, {
     return this.threadActor.breakpointActorMap;
   },
   get url() {
-    if (!this._url) {
+    if (this._url === undefined) {
       this._url = getSourceURL(this._source, this.threadActor._parent.window);
     }
     return this._url;
@@ -165,101 +155,105 @@ const SourceActor = ActorClassWithSpec(sourceSpec, {
   form: function() {
     const source = this._source;
 
-    let introductionUrl = null;
-    if (source.introductionScript) {
-      introductionUrl = source.introductionScript.source.url;
+    let introductionType = source.introductionType;
+    if (
+      introductionType === "srcScript" ||
+      introductionType === "inlineScript" ||
+      introductionType === "injectedScript"
+    ) {
+      // These three used to be one single type, so here we combine them all
+      // so that clients don't see any change in behavior.
+      introductionType = "scriptElement";
     }
 
     return {
       actor: this.actorID,
       extensionName: this.extensionName,
-      url: this.url ? this.url.split(" -> ").pop() : null,
+      url: this.url,
       isBlackBoxed: this.threadActor.sources.isBlackBoxed(this.url),
-      sourceMapURL: source ? source.sourceMapURL : null,
-      introductionUrl: introductionUrl
-        ? introductionUrl.split(" -> ").pop()
-        : null,
-      introductionType: source ? source.introductionType : null,
+      sourceMapBaseURL: getSourcemapBaseURL(
+        this.url,
+        this.threadActor._parent.window
+      ),
+      sourceMapURL: source.sourceMapURL,
+      introductionType,
     };
   },
 
   destroy: function() {
-    if (this.registeredPool && this.registeredPool.sourceActors) {
-      delete this.registeredPool.sourceActors[this.actorID];
+    const parent = this.getParent();
+    if (parent && parent.sourceActors) {
+      delete parent.sourceActors[this.actorID];
     }
+    Actor.prototype.destroy.call(this);
   },
 
-  _findDebuggeeScripts(query = null) {
-    query = { ...query };
-    assert(
-      !("url" in query) && !("source" in query),
-      "Debuggee source and URL are set automatically"
-    );
-
-    query.source = this._source;
-    return this.dbg.findScripts(query);
+  get _isWasm() {
+    return this._source.introductionType === "wasm";
   },
 
   _getSourceText: async function() {
-    const toResolvedContent = t => ({
-      content: t,
-      contentType: this._contentType,
-    });
-    const isWasm = this._source.introductionType === "wasm";
-
-    if (isWasm) {
+    if (this._isWasm) {
       const wasm = this._source.binary;
       const buffer = wasm.buffer;
       assert(
         wasm.byteOffset === 0 && wasm.byteLength === buffer.byteLength,
         "Typed array from wasm source binary must cover entire buffer"
       );
-      return toResolvedContent(buffer);
-    }
-
-    // If we are replaying then we can only use source saved during the
-    // original recording. If we try to fetch it now it may have changed or
-    // may no longer exist.
-    if (this.dbg.replaying) {
-      assert(!this._contentType);
-      return this.dbg.replayingContent(this.url);
+      return {
+        content: buffer,
+        contentType: "text/wasm",
+      };
     }
 
     // Use `source.text` if it exists, is not the "no source" string, and
-    // the content type of the source is JavaScript or it is synthesized
-    // wasm. It will be "no source" if the Debugger API wasn't able to load
+    // the source isn't one that is inlined into some larger file.
+    // It will be "no source" if the Debugger API wasn't able to load
     // the source because sources were discarded
-    // (javascript.options.discardSystemSource == true). Re-fetch non-JS
-    // sources to get the contentType from the headers.
-    if (
-      this._source &&
-      this._source.text !== "[no source]" &&
-      this._contentType &&
-      (this._contentType.includes("javascript") ||
-        this._contentType === "text/wasm")
-    ) {
-      // If the source doesn't start at line 1, line numbers in the client will
-      // not match up with those in the source. Pad the text with blank lines to
-      // fix this. This can show up for sources associated with inline scripts
-      // in HTML created via document.write() calls: the script's source line
-      // number is relative to the start of the written HTML, but we show the
-      // source's content by itself.
-      const padding = this._source.startLine
-        ? "\n".repeat(this._source.startLine - 1)
-        : "";
-      return toResolvedContent(padding + this._source.text);
+    // (javascript.options.discardSystemSource == true).
+    if (this._source.text !== "[no source]" && !this._isInlineSource) {
+      return {
+        content: this.actualText(),
+        contentType: "text/javascript",
+      };
     }
 
-    const result = await this.sources.urlContents(
+    return this.sources.urlContents(
       this.url,
       /* partial */ false,
-      /* canUseCache */ this.isInlineSource
+      /* canUseCache */ this._isInlineSource
     );
+  },
 
-    // Record the contentType we just learned during fetching
-    this._contentType = result.contentType;
+  // Get the actual text of this source, padded so that line numbers will match
+  // up with the source itself.
+  actualText() {
+    // If the source doesn't start at line 1, line numbers in the client will
+    // not match up with those in the source. Pad the text with blank lines to
+    // fix this. This can show up for sources associated with inline scripts
+    // in HTML created via document.write() calls: the script's source line
+    // number is relative to the start of the written HTML, but we show the
+    // source's content by itself.
+    const padding = this._source.startLine
+      ? "\n".repeat(this._source.startLine - 1)
+      : "";
+    return padding + this._source.text;
+  },
 
-    return result;
+  // Return whether the specified fetched contents includes the actual text of
+  // this source in the expected position.
+  contentMatches(fileContents) {
+    const lineBreak = /\r\n?|\n|\u2028|\u2029/;
+    const contentLines = fileContents.content.split(lineBreak);
+    const sourceLines = this._source.text.split(lineBreak);
+    let line = this._source.startLine - 1;
+    for (const sourceLine of sourceLines) {
+      const contentLine = contentLines[line++] || "";
+      if (!contentLine.includes(sourceLine)) {
+        return false;
+      }
+    }
+    return true;
   },
 
   getBreakableLines: async function() {
@@ -295,7 +289,7 @@ const SourceActor = ActorClassWithSpec(sourceSpec, {
     const fileContents = this.sources.urlContents(
       this.url,
       /* partial */ true,
-      /* canUseCache */ this.isInlineSource
+      /* canUseCache */ this._isInlineSource
     );
     if (fileContents.then) {
       return fileContents.then(contents =>
@@ -374,13 +368,47 @@ const SourceActor = ActorClassWithSpec(sourceSpec, {
     return location;
   },
 
-  getBreakpointPositions: async function(query) {
-    const {
-      start: { line: startLine = 0, column: startColumn = 0 } = {},
-      end: { line: endLine = Infinity, column: endColumn = Infinity } = {},
-    } = query || {};
+  // Get all toplevel scripts in the source. Transitive child scripts must be
+  // found by traversing the child script tree.
+  _getTopLevelDebuggeeScripts() {
+    if (this._scripts) {
+      return this._scripts;
+    }
 
-    const scripts = this._findDebuggeeScripts();
+    let scripts = this.dbg.findScripts({ source: this._source });
+
+    if (!this._isWasm) {
+      // There is no easier way to get the top-level scripts right now, so
+      // we have to build that up the list manually.
+      // Note: It is not valid to simply look for scripts where
+      // `.isFunction == false` because a source may have executed multiple
+      // where some have been GCed and some have not (bug 1627712).
+      const allScripts = new Set(scripts);
+      for (const script of allScripts) {
+        for (const child of script.getChildScripts()) {
+          allScripts.delete(child);
+        }
+      }
+      scripts = [...allScripts];
+    }
+
+    this._scripts = scripts;
+    return scripts;
+  },
+
+  resetDebuggeeScripts() {
+    this._scripts = null;
+  },
+
+  // Get toplevel scripts which contain all breakpoint positions for the source.
+  // This is different from _scripts if we detected that some scripts have been
+  // GC'ed and reparsed the source contents.
+  _getTopLevelBreakpointPositionScripts() {
+    if (this._breakpointPositionScripts) {
+      return this._breakpointPositionScripts;
+    }
+
+    let scripts = this._getTopLevelDebuggeeScripts();
 
     // We need to find all breakpoint positions, even if scripts associated with
     // this source have been GC'ed. We detect this by looking for a script which
@@ -395,8 +423,7 @@ const SourceActor = ActorClassWithSpec(sourceSpec, {
     // top level non-function script, but if there is a non-function script then
     // it must be at the top level and will keep all other scripts in the source
     // alive.
-    const isWasm = this._source.introductionType === "wasm";
-    if (!isWasm && !scripts.some(script => !script.isFunction)) {
+    if (!this._isWasm && !scripts.some(script => !script.isFunction)) {
       let newScript;
       try {
         newScript = this._source.reparse();
@@ -406,49 +433,83 @@ const SourceActor = ActorClassWithSpec(sourceSpec, {
         // parse errors in the refetched contents.
       }
       if (newScript) {
-        scripts.length = 0;
-        function addScripts(script) {
-          scripts.push(script);
-          script.getChildScripts().forEach(addScripts);
-        }
-        addScripts(newScript);
+        scripts = [newScript];
       }
     }
 
-    const positions = [];
-    for (const script of scripts) {
-      // This purely a performance boost to avoid needing to build an array
-      // of breakable points for scripts when we know we don't need it.
+    this._breakpointPositionScripts = scripts;
+    return scripts;
+  },
+
+  // Get all scripts in this source that might include content in the range
+  // specified by the given query.
+  _findDebuggeeScripts(query, forBreakpointPositions) {
+    const scripts = forBreakpointPositions
+      ? this._getTopLevelBreakpointPositionScripts()
+      : this._getTopLevelDebuggeeScripts();
+
+    const {
+      start: { line: startLine = 0, column: startColumn = 0 } = {},
+      end: { line: endLine = Infinity, column: endColumn = Infinity } = {},
+    } = query || {};
+
+    const rv = [];
+    addMatchingScripts(scripts);
+    return rv;
+
+    function scriptMatches(script) {
+      // These tests are approximate, as we can't easily get the script's end
+      // column.
+      let lineCount;
+      try {
+        lineCount = script.lineCount;
+      } catch (err) {
+        // Accessing scripts which were optimized out during parsing can throw
+        // an exception. Tolerate these so that we can still get positions for
+        // other scripts in the source.
+        return false;
+      }
+
       if (
         script.startLine > endLine ||
-        script.startLine + script.lineCount < startLine
+        script.startLine + lineCount <= startLine ||
+        (script.startLine == endLine && script.startColumn > endColumn)
       ) {
-        continue;
+        return false;
       }
 
-      const offsets = script.getPossibleBreakpoints();
-      for (const { lineNumber, columnNumber } of offsets) {
-        if (
-          lineNumber < startLine ||
-          (lineNumber === startLine && columnNumber < startColumn) ||
-          lineNumber > endLine ||
-          (lineNumber === endLine && columnNumber >= endColumn)
-        ) {
-          continue;
+      if (
+        lineCount == 1 &&
+        script.startLine == startLine &&
+        script.startColumn + script.sourceLength <= startColumn
+      ) {
+        return false;
+      }
+
+      return true;
+    }
+
+    function addMatchingScripts(childScripts) {
+      for (const script of childScripts) {
+        if (scriptMatches(script)) {
+          rv.push(script);
+          if (script.format === "js") {
+            addMatchingScripts(script.getChildScripts());
+          }
         }
-
-        // Adjust columns according to any inline script start column, so that
-        // column breakpoints show up correctly in the UI.
-        const position = await this._adjustInlineScriptLocation(
-          {
-            line: lineNumber,
-            column: columnNumber,
-          },
-          /* upward */ true
-        );
-
-        positions.push(position);
       }
+    }
+  },
+
+  getBreakpointPositions: async function(query) {
+    const scripts = this._findDebuggeeScripts(
+      query,
+      /* forBreakpoiontPositions */ true
+    );
+
+    const positions = [];
+    for (const script of scripts) {
+      await this._addScriptBreakpointPositions(query, script, positions);
     }
 
     return (
@@ -459,6 +520,37 @@ const SourceActor = ActorClassWithSpec(sourceSpec, {
           return lineDiff === 0 ? a.column - b.column : lineDiff;
         })
     );
+  },
+
+  async _addScriptBreakpointPositions(query, script, positions) {
+    const {
+      start: { line: startLine = 0, column: startColumn = 0 } = {},
+      end: { line: endLine = Infinity, column: endColumn = Infinity } = {},
+    } = query || {};
+
+    const offsets = script.getPossibleBreakpoints();
+    for (const { lineNumber, columnNumber } of offsets) {
+      if (
+        lineNumber < startLine ||
+        (lineNumber === startLine && columnNumber < startColumn) ||
+        lineNumber > endLine ||
+        (lineNumber === endLine && columnNumber >= endColumn)
+      ) {
+        continue;
+      }
+
+      // Adjust columns according to any inline script start column, so that
+      // column breakpoints show up correctly in the UI.
+      const position = await this._adjustInlineScriptLocation(
+        {
+          line: lineNumber,
+          column: columnNumber,
+        },
+        /* upward */ true
+      );
+
+      positions.push(position);
+    }
   },
 
   getBreakpointPositionsCompressed: async function(query) {
@@ -480,36 +572,34 @@ const SourceActor = ActorClassWithSpec(sourceSpec, {
    *         a field `source`. `source` can either be an ArrayBuffer or
    *         a LongString.
    */
-  source: function() {
-    return Promise.resolve(this._init)
-      .then(this._getSourceText)
-      .then(({ content, contentType }) => {
-        if (
-          typeof content === "object" &&
-          content &&
-          content.constructor &&
-          content.constructor.name === "ArrayBuffer"
-        ) {
-          return {
-            source: new ArrayBufferActor(this.threadActor.conn, content),
-            contentType,
-          };
-        }
-
+  source: async function() {
+    try {
+      const { content, contentType } = await this._getSourceText();
+      if (
+        typeof content === "object" &&
+        content &&
+        content.constructor &&
+        content.constructor.name === "ArrayBuffer"
+      ) {
         return {
-          source: new LongStringActor(this.threadActor.conn, content),
+          source: new ArrayBufferActor(this.threadActor.conn, content),
           contentType,
         };
-      })
-      .catch(error => {
-        reportError(error, "Got an exception during SA_onSource: ");
-        throw new Error(
-          "Could not load the source for " +
-            this.url +
-            ".\n" +
-            DevToolsUtils.safeErrorString(error)
-        );
-      });
+      }
+
+      return {
+        source: new LongStringActor(this.threadActor.conn, content),
+        contentType,
+      };
+    } catch (error) {
+      reportError(error, "Got an exception during SA_onSource: ");
+      throw new Error(
+        "Could not load the source for " +
+          this.url +
+          ".\n" +
+          DevToolsUtils.safeErrorString(error)
+      );
+    }
   },
 
   /**
@@ -582,7 +672,8 @@ const SourceActor = ActorClassWithSpec(sourceSpec, {
     if (column === undefined) {
       // Find all scripts that match the given source actor and line
       // number.
-      const scripts = this._findDebuggeeScripts({ line }).filter(
+      const query = { start: { line }, end: { line } };
+      const scripts = this._findDebuggeeScripts(query).filter(
         script => !actor.hasScript(script)
       );
 
@@ -628,7 +719,8 @@ const SourceActor = ActorClassWithSpec(sourceSpec, {
 
       // Find all scripts that match the given source actor, line,
       // and column number.
-      const scripts = this._findDebuggeeScripts({ line, column }).filter(
+      const query = { start: { line, column }, end: { line, column } };
+      const scripts = this._findDebuggeeScripts(query).filter(
         script => !actor.hasScript(script)
       );
 

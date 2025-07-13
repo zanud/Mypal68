@@ -82,7 +82,7 @@ The response is parsed using DOM parser and displayed as an XML markup.
 [2] List of Image mime-types: `devtools/client/webconsole/old/net/utils/json`
 [3] List of XML/HTML mime-types: `devtools/client/webconsole/old/net/utils/net`
 
-Response data are fetched using `LongStringClient`, so if data are bigger
+Response data are fetched using `LongStringFront`, so if data are bigger
 than defined limit (see `devtools/server/main.js - LONG_STRING_LENGTH)
 the user needs to manually require the rest (there is a link at the end
 of incomplete response body that allows this).
@@ -162,6 +162,6 @@ privileges and are ready to run inside content scope.
 * `Spinner` Represents a throbber displayed when the UI is waiting for
   incoming data.
 * `SizeLimit` Represents a link that can be used to fetch the
-  rest of data from the backend (debugger server). Used for HTTP post
+  rest of data from the backend (devtools server). Used for HTTP post
   and response bodies.
 * `XmlView` Renders XML markup.

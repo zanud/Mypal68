@@ -26,7 +26,7 @@ import getFunctionName from "./utils/getFunctionName";
 import { getFramework } from "./frameworks";
 
 import type { SimplePath, Node, TraversalAncestors } from "./utils/simple-path";
-
+import type { SourceId } from "../../types";
 import type { AstPosition, AstLocation } from "./types";
 
 export type SymbolDeclaration = {
@@ -165,7 +165,7 @@ function extractSymbol(path: SimplePath, symbols, state) {
     });
   }
 
-  if (t.isMemberExpression(path)) {
+  if (t.isMemberExpression(path) || t.isOptionalMemberExpression(path)) {
     const { start, end } = path.node.property.loc;
     symbols.memberExpressions.push({
       name: path.node.property.name,
@@ -189,7 +189,7 @@ function extractSymbol(path: SimplePath, symbols, state) {
   }
 
   if (t.isCallExpression(path)) {
-    const callee = path.node.callee;
+    const { callee } = path.node;
     const args = path.node.arguments;
     if (t.isMemberExpression(callee)) {
       const {
@@ -236,7 +236,7 @@ function extractSymbol(path: SimplePath, symbols, state) {
     }
 
     if (path.node.typeAnnotation) {
-      const column = path.node.typeAnnotation.loc.start.column;
+      const { column } = path.node.typeAnnotation.loc.start;
       end = { ...end, column };
     }
 
@@ -314,6 +314,7 @@ function extendSnippet(
   prevPath?: SimplePath
 ) {
   const computed = path?.node.computed;
+  const optional = path?.node.optional;
   const prevComputed = prevPath?.node.computed;
   const prevArray = t.isArrayExpression(prevPath);
   const array = t.isArrayExpression(path);
@@ -341,15 +342,24 @@ function extendSnippet(
     return `${name}${expression}`;
   }
 
+  if (optional) {
+    return `${name}?.${expression}`;
+  }
+
   return `${name}.${expression}`;
 }
 
-function getMemberSnippet(node: Node, expression: string = "") {
-  if (t.isMemberExpression(node)) {
+function getMemberSnippet(
+  node: Node,
+  expression: string = "",
+  optional = false
+) {
+  if (t.isMemberExpression(node) || t.isOptionalMemberExpression(node)) {
     const name = node.property.name;
     const snippet = getMemberSnippet(
       node.object,
-      extendSnippet(name, expression, { node })
+      extendSnippet(name, expression, { node }),
+      node.optional
     );
     return snippet;
   }
@@ -366,6 +376,9 @@ function getMemberSnippet(node: Node, expression: string = "") {
     if (isComputedExpression(expression)) {
       return `${node.name}${expression}`;
     }
+    if (optional) {
+      return `${node.name}?.${expression}`;
+    }
     return `${node.name}.${expression}`;
   }
 
@@ -381,7 +394,7 @@ function getObjectSnippet(
     return expression;
   }
 
-  const name = path.node.key.name;
+  const { name } = path.node.key;
 
   const extendedExpression = extendSnippet(name, expression, path, prevPath);
 
@@ -420,7 +433,7 @@ function getSnippet(
 
   if (t.isVariableDeclaration(path)) {
     const node = path.node.declarations[0];
-    const name = node.id.name;
+    const { name } = node.id;
     return extendSnippet(name, expression, path, prevPath);
   }
 
@@ -461,7 +474,7 @@ function getSnippet(
     return getObjectSnippet(parentPath, prevPath, expression);
   }
 
-  if (t.isMemberExpression(path)) {
+  if (t.isMemberExpression(path) || t.isOptionalMemberExpression(path)) {
     return getMemberSnippet(path.node, expression);
   }
 
@@ -480,7 +493,7 @@ export function clearSymbols() {
   symbolDeclarations = new Map();
 }
 
-export function getSymbols(sourceId: string): SymbolDeclarations {
+export function getSymbols(sourceId: SourceId): SymbolDeclarations {
   if (symbolDeclarations.has(sourceId)) {
     const symbols = symbolDeclarations.get(sourceId);
     if (symbols) {

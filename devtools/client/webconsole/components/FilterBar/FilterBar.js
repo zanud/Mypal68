@@ -15,6 +15,7 @@ const {
 const {
   getFilteredMessagesCount,
 } = require("devtools/client/webconsole/selectors/messages");
+const { getAllPrefs } = require("devtools/client/webconsole/selectors/prefs");
 const { getAllUi } = require("devtools/client/webconsole/selectors/ui");
 const actions = require("devtools/client/webconsole/actions/index");
 const { l10n } = require("devtools/client/webconsole/utils/messages");
@@ -47,6 +48,7 @@ class FilterBar extends Component {
       filter: PropTypes.object.isRequired,
       persistLogs: PropTypes.bool.isRequired,
       hidePersistLogsCheckbox: PropTypes.bool.isRequired,
+      eagerEvaluation: PropTypes.bool.isRequired,
       showContentMessages: PropTypes.bool.isRequired,
       hideShowContentMessagesCheckbox: PropTypes.bool.isRequired,
       filteredMessagesCount: PropTypes.object.isRequired,
@@ -54,6 +56,7 @@ class FilterBar extends Component {
       closeSplitConsole: PropTypes.func,
       displayMode: PropTypes.oneOf([...Object.values(FILTERBAR_DISPLAY_MODES)])
         .isRequired,
+      autocomplete: PropTypes.bool.isRequired,
     };
   }
 
@@ -102,17 +105,19 @@ class FilterBar extends Component {
       filteredMessagesCount,
       closeButtonVisible,
       displayMode,
+      eagerEvaluation,
+      autocomplete,
     } = this.props;
 
-    if (nextProps.filter !== filter) {
-      return true;
-    }
-
-    if (nextProps.persistLogs !== persistLogs) {
-      return true;
-    }
-
-    if (nextProps.showContentMessages !== showContentMessages) {
+    if (
+      nextProps.closeButtonVisible !== closeButtonVisible ||
+      nextProps.displayMode !== displayMode ||
+      nextProps.filter !== filter ||
+      nextProps.persistLogs !== persistLogs ||
+      nextProps.showContentMessages !== showContentMessages ||
+      nextProps.eagerEvaluation !== eagerEvaluation ||
+      nextProps.autocomplete !== autocomplete
+    ) {
       return true;
     }
 
@@ -123,19 +128,7 @@ class FilterBar extends Component {
       return true;
     }
 
-    if (nextProps.closeButtonVisible != closeButtonVisible) {
-      return true;
-    }
-
-    if (nextProps.displayMode != displayMode) {
-      return true;
-    }
-
     return false;
-  }
-
-  componentWillUnmount() {
-    this.resizeObserver.disconnect();
   }
 
   /**
@@ -148,6 +141,14 @@ class FilterBar extends Component {
    */
   maybeUpdateLayout() {
     const { dispatch, displayMode } = this.props;
+
+    // If we don't have the wrapperNode reference, or if the wrapperNode isn't connected
+    // anymore, we disconnect the resize observer (componentWillUnmount is never called
+    // on this component, so we have to do it here).
+    if (!this.wrapperNode || !this.wrapperNode.isConnected) {
+      this.resizeObserver.disconnect();
+      return;
+    }
 
     const filterInput = this.wrapperNode.querySelector(".devtools-searchbox");
     const { width: filterInputWidth } = filterInput.getBoundingClientRect();
@@ -346,10 +347,11 @@ class FilterBar extends Component {
             className: "devtools-separator",
           }),
         isWide && this.renderFiltersConfigBar(),
-        !hidePersistLogsCheckbox &&
-          dom.div({
-            className: "devtools-separator",
-          }),
+        !(hidePersistLogsCheckbox && hideShowContentMessagesCheckbox)
+          ? dom.div({
+              className: "devtools-separator",
+            })
+          : null,
         !hidePersistLogsCheckbox &&
           FilterCheckbox({
             label: l10n.getStr("webconsole.enablePersistentLogs.label"),
@@ -408,12 +410,15 @@ class FilterBar extends Component {
 
 function mapStateToProps(state) {
   const uiState = getAllUi(state);
+  const prefsState = getAllPrefs(state);
   return {
     filter: getAllFilters(state),
     persistLogs: uiState.persistLogs,
+    eagerEvaluation: prefsState.eagerEvaluation,
     showContentMessages: uiState.showContentMessages,
     filteredMessagesCount: getFilteredMessagesCount(state),
     closeButtonVisible: uiState.closeButtonVisible,
+    autocomplete: prefsState.autocomplete,
   };
 }
 

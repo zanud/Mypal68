@@ -5,7 +5,8 @@
 /* exported Toolbox, restartNetMonitor, teardown, waitForExplicitFinish,
    verifyRequestItemTarget, waitFor, waitForDispatch, testFilterButtons,
    performRequestsInContent, waitForNetworkEvents, selectIndexAndWaitForSourceEditor,
-   testColumnsAlignment, hideColumn, showColumn, performRequests, waitForRequestData */
+   testColumnsAlignment, hideColumn, showColumn, performRequests, waitForRequestData,
+   toggleBlockedUrl */
 
 "use strict";
 
@@ -34,7 +35,10 @@ const {
   getUrlHost,
   getUrlScheme,
 } = require("devtools/client/netmonitor/src/utils/request-utils");
-const { EVENTS } = require("devtools/client/netmonitor/src/constants");
+const {
+  EVENTS,
+  TEST_EVENTS,
+} = require("devtools/client/netmonitor/src/constants");
 const { L10N } = require("devtools/client/netmonitor/src/utils/l10n");
 
 /* eslint-disable no-unused-vars, max-len */
@@ -48,6 +52,11 @@ const WS_URL = "ws://127.0.0.1:8888/browser/devtools/client/netmonitor/test/";
 const WS_HTTP_URL =
   "http://127.0.0.1:8888/browser/devtools/client/netmonitor/test/";
 
+const WS_BASE_URL =
+  "http://mochi.test:8888/browser/devtools/client/netmonitor/test/";
+const WS_PAGE_URL = WS_BASE_URL + "html_ws-test-page.html";
+const WS_PAGE_EARLY_CONNECTION_URL =
+  WS_BASE_URL + "html_ws-early-connection-page.html";
 const API_CALLS_URL = EXAMPLE_URL + "html_api-calls-test-page.html";
 const SIMPLE_URL = EXAMPLE_URL + "html_simple-test-page.html";
 const NAVIGATE_URL = EXAMPLE_URL + "html_navigate-test-page.html";
@@ -77,6 +86,7 @@ const SORTING_URL = EXAMPLE_URL + "html_sorting-test-page.html";
 const FILTERING_URL = EXAMPLE_URL + "html_filter-test-page.html";
 const INFINITE_GET_URL = EXAMPLE_URL + "html_infinite-get-page.html";
 const CUSTOM_GET_URL = EXAMPLE_URL + "html_custom-get-page.html";
+const HTTPS_CUSTOM_GET_URL = HTTPS_EXAMPLE_URL + "html_custom-get-page.html";
 const SINGLE_GET_URL = EXAMPLE_URL + "html_single-get-page.html";
 const STATISTICS_URL = EXAMPLE_URL + "html_statistics-test-page.html";
 const CURL_URL = EXAMPLE_URL + "html_copy-as-curl.html";
@@ -86,6 +96,7 @@ const CORS_URL = EXAMPLE_URL + "html_cors-test-page.html";
 const PAUSE_URL = EXAMPLE_URL + "html_pause-test-page.html";
 const OPEN_REQUEST_IN_TAB_URL = EXAMPLE_URL + "html_open-request-in-tab.html";
 const CSP_URL = EXAMPLE_URL + "html_csp-test-page.html";
+const CSP_RESEND_URL = EXAMPLE_URL + "html_csp-resend-test-page.html";
 
 const SIMPLE_SJS = EXAMPLE_URL + "sjs_simple-test-server.sjs";
 const SIMPLE_UNSORTED_COOKIES_SJS =
@@ -94,6 +105,8 @@ const CONTENT_TYPE_SJS = EXAMPLE_URL + "sjs_content-type-test-server.sjs";
 const WS_CONTENT_TYPE_SJS = WS_HTTP_URL + "sjs_content-type-test-server.sjs";
 const HTTPS_CONTENT_TYPE_SJS =
   HTTPS_EXAMPLE_URL + "sjs_content-type-test-server.sjs";
+const SERVER_TIMINGS_TYPE_SJS =
+  HTTPS_EXAMPLE_URL + "sjs_timings-test-server.sjs";
 const STATUS_CODES_SJS = EXAMPLE_URL + "sjs_status-codes-test-server.sjs";
 const SORTING_SJS = EXAMPLE_URL + "sjs_sorting-test-server.sjs";
 const HTTPS_REDIRECT_SJS = EXAMPLE_URL + "sjs_https-redirect-test-server.sjs";
@@ -103,6 +116,7 @@ const HSTS_SJS = EXAMPLE_URL + "sjs_hsts-test-server.sjs";
 const METHOD_SJS = EXAMPLE_URL + "sjs_method-test-server.sjs";
 const SLOW_SJS = EXAMPLE_URL + "sjs_slow-test-server.sjs";
 const SET_COOKIE_SAME_SITE_SJS = EXAMPLE_URL + "sjs_set-cookie-same-site.sjs";
+const SEARCH_SJS = EXAMPLE_URL + "sjs_search-test-server.sjs";
 
 const HSTS_BASE_URL = EXAMPLE_URL;
 const HSTS_PAGE_URL = CUSTOM_GET_URL;
@@ -131,7 +145,7 @@ const gDefaultFilters = Services.prefs.getCharPref(
 // Reveal many columns for test
 Services.prefs.setCharPref(
   "devtools.netmonitor.visibleColumns",
-  '["cause","contentSize","cookies","domain","duration",' +
+  '["initiator","contentSize","cookies","domain","duration",' +
     '"endTime","file","url","latency","method","protocol",' +
     '"remoteip","responseTime","scheme","setCookies",' +
     '"startTime","status","transferred","type","waterfall"]'
@@ -144,11 +158,11 @@ Services.prefs.setCharPref(
     '{"name":"domain","minWidth":30,"width":10},' +
     '{"name":"file","minWidth":30,"width":25},' +
     '{"name":"url","minWidth":30,"width":25},' +
-    '{"name":"cause","minWidth":30,"width":10},' +
+    '{"name":"initiator","minWidth":30,"width":20},' +
     '{"name":"type","minWidth":30,"width":5},' +
     '{"name":"transferred","minWidth":30,"width":10},' +
     '{"name":"contentSize","minWidth":30,"width":5},' +
-    '{"name":"waterfall","minWidth":150,"width":25}]'
+    '{"name":"waterfall","minWidth":150,"width":15}]'
 );
 
 // Increase UI limit for responses rendered using CodeMirror in tests.
@@ -197,13 +211,16 @@ function waitForTimelineMarkers(monitor) {
       info(`Got marker: ${marker.name}`);
       markers.push(marker);
       if (markers.length == 2) {
-        monitor.panelWin.api.off(EVENTS.TIMELINE_EVENT, handleTimelineEvent);
+        monitor.panelWin.api.off(
+          TEST_EVENTS.TIMELINE_EVENT,
+          handleTimelineEvent
+        );
         info("Got two timeline markers, done waiting");
         resolve(markers);
       }
     }
 
-    monitor.panelWin.api.on(EVENTS.TIMELINE_EVENT, handleTimelineEvent);
+    monitor.panelWin.api.on(TEST_EVENTS.TIMELINE_EVENT, handleTimelineEvent);
   });
 }
 
@@ -254,13 +271,13 @@ function waitForAllRequestsFinished(monitor) {
       }
 
       // All requests are done - unsubscribe from events and resolve!
-      window.api.off(EVENTS.NETWORK_EVENT, onRequest);
+      window.api.off(TEST_EVENTS.NETWORK_EVENT, onRequest);
       window.api.off(EVENTS.PAYLOAD_READY, onTimings);
       info("All requests finished");
       resolve();
     }
 
-    window.api.on(EVENTS.NETWORK_EVENT, onRequest);
+    window.api.on(TEST_EVENTS.NETWORK_EVENT, onRequest);
     window.api.on(EVENTS.PAYLOAD_READY, onTimings);
   });
 }
@@ -351,15 +368,18 @@ function initNetMonitor(url, enableCache) {
       info(
         "Cache disabled when the current and all future toolboxes are open."
       );
+
+      const consoleFront = await target.getFront("console");
+
       // Remove any requests generated by the reload while toggling the cache to
       // avoid interfering with the test.
       isnot(
-        [...target.activeConsole.getNetworkEvents()].length,
+        [...consoleFront.getNetworkEvents()].length,
         0,
         "Request to reconfigure the tab was recorded."
       );
       info("Clearing requests in the console client.");
-      target.activeConsole.clearNetworkRequests();
+      await consoleFront.clearNetworkRequests();
       info("Clearing requests in the UI.");
 
       store.dispatch(Actions.clearRequests());
@@ -373,7 +393,7 @@ function restartNetMonitor(monitor, newUrl) {
   info("Restarting the specified network monitor.");
 
   return (async function() {
-    const tab = monitor.toolbox.target.tab;
+    const tab = monitor.toolbox.target.localTab;
     const url = newUrl || tab.linkedBrowser.currentURI.spec;
 
     await waitForAllNetworkUpdateEvents();
@@ -391,7 +411,7 @@ function teardown(monitor) {
   info("Destroying the specified network monitor.");
 
   return (async function() {
-    const tab = monitor.toolbox.target.tab;
+    const tab = monitor.toolbox.target.localTab;
 
     await waitForAllNetworkUpdateEvents();
     info("All pending requests finished.");
@@ -416,7 +436,7 @@ function waitForNetworkEvents(monitor, getRequests) {
         return;
       }
       networkEvent++;
-      maybeResolve(EVENTS.NETWORK_EVENT, actor, networkInfo);
+      maybeResolve(TEST_EVENTS.NETWORK_EVENT, actor, networkInfo);
     }
 
     function onPayloadReady(actor) {
@@ -451,13 +471,13 @@ function waitForNetworkEvents(monitor, getRequests) {
 
       // Wait until networkEvent & payloadReady finish for each request.
       if (networkEvent >= getRequests && payloadReady >= getRequests) {
-        panel.api.off(EVENTS.NETWORK_EVENT, onNetworkEvent);
+        panel.api.off(TEST_EVENTS.NETWORK_EVENT, onNetworkEvent);
         panel.api.off(EVENTS.PAYLOAD_READY, onPayloadReady);
         executeSoon(resolve);
       }
     }
 
-    panel.api.on(EVENTS.NETWORK_EVENT, onNetworkEvent);
+    panel.api.on(TEST_EVENTS.NETWORK_EVENT, onNetworkEvent);
     panel.api.on(EVENTS.PAYLOAD_READY, onPayloadReady);
   });
 }
@@ -472,8 +492,11 @@ function verifyRequestItemTarget(
 ) {
   info("> Verifying: " + method + " " + url + " " + data.toSource());
 
-  const visibleIndex = requestList.indexOf(requestItem);
+  const visibleIndex = requestList.findIndex(
+    needle => needle.id === requestItem.id
+  );
 
+  isnot(visibleIndex, -1, "The requestItem exists");
   info("Visible index of item: " + visibleIndex);
 
   const {
@@ -490,6 +513,7 @@ function verifyRequestItemTarget(
   } = data;
 
   const target = document.querySelectorAll(".request-list-item")[visibleIndex];
+
   // Bug 1414981 - Request URL should not show #hash
   const unicodeUrl = getUnicodeUrl(url.split("#")[0]);
   const ORIGINAL_FILE_URL = L10N.getFormatStr(
@@ -657,15 +681,18 @@ function verifyRequestItemTarget(
   }
   if (cause !== undefined) {
     const value = Array.from(
-      target.querySelector(".requests-list-cause").childNodes
-    ).filter(node => node.nodeType === Node.TEXT_NODE)[0].textContent;
+      target.querySelector(".requests-list-initiator").childNodes
+    )
+      .filter(node => node.nodeType === Node.ELEMENT_NODE)
+      .map(({ textContent }) => textContent)
+      .join("");
     const tooltip = target
-      .querySelector(".requests-list-cause")
+      .querySelector(".requests-list-initiator")
       .getAttribute("title");
     info("Displayed cause: " + value);
     info("Tooltip cause: " + tooltip);
-    is(value, cause.type, "The displayed cause is correct.");
-    is(tooltip, cause.type, "The tooltip cause is correct.");
+    ok(value.includes(cause.type), "The displayed cause is correct.");
+    ok(tooltip.includes(cause.type), "The tooltip cause is correct.");
   }
   if (type !== undefined) {
     const value = target.querySelector(".requests-list-type").textContent;
@@ -943,7 +970,7 @@ async function showColumn(monitor, column) {
 async function selectIndexAndWaitForSourceEditor(monitor, index) {
   const document = monitor.panelWin.document;
   const onResponseContent = monitor.panelWin.api.once(
-    EVENTS.RECEIVED_RESPONSE_CONTENT
+    TEST_EVENTS.RECEIVED_RESPONSE_CONTENT
   );
   // Select the request first, as it may try to fetch whatever is the current request's
   // responseContent if we select the ResponseTab first.
@@ -995,7 +1022,7 @@ function waitForRequestData(store, fields, id) {
     if (id) {
       item = getRequestById(store.getState(), id);
     } else {
-      item = getSortedRequests(store.getState()).get(0);
+      item = getSortedRequests(store.getState())[0];
     }
     if (!item) {
       return false;
@@ -1009,48 +1036,6 @@ function waitForRequestData(store, fields, id) {
   });
 }
 
-// Telemetry
-
-/**
- * Helper for verifying telemetry event.
- *
- * @param Object expectedEvent object representing expected event data.
- * @param Object query fields specifying category, method and object
- *                     of the target telemetry event.
- */
-function checkTelemetryEvent(expectedEvent, query) {
-  const events = queryTelemetryEvents(query);
-  is(events.length, 1, "There was only 1 event logged");
-
-  const [event] = events;
-  ok(event.session_id > 0, "There is a valid session_id in the logged event");
-
-  const f = e => JSON.stringify(e, null, 2);
-  is(
-    f(event),
-    f({
-      ...expectedEvent,
-      session_id: event.session_id,
-    }),
-    "The event has the expected data"
-  );
-}
-
-function queryTelemetryEvents(query) {
-  const ALL_CHANNELS = Ci.nsITelemetry.DATASET_ALL_CHANNELS;
-  const snapshot = Services.telemetry.snapshotEvents(ALL_CHANNELS, true);
-  const category = query.category || "devtools.main";
-  const object = query.object || "netmonitor";
-
-  const filtersChangedEvents = snapshot.parent.filter(
-    event =>
-      event[1] === category && event[2] === query.method && event[3] === object
-  );
-
-  // Return the `extra` field (which is event[5]e).
-  return filtersChangedEvents.map(event => event[5]);
-}
-
 function validateRequests(requests, monitor) {
   const { document, store, windowRequire } = monitor.panelWin;
 
@@ -1061,7 +1046,7 @@ function validateRequests(requests, monitor) {
   requests.forEach((spec, i) => {
     const { method, url, causeType, causeUri, stack } = spec;
 
-    const requestItem = getSortedRequests(store.getState()).get(i);
+    const requestItem = getSortedRequests(store.getState())[i];
     verifyRequestItemTarget(
       document,
       getDisplayedRequests(store.getState()),
@@ -1119,4 +1104,68 @@ function validateRequests(requests, monitor) {
 function getContextMenuItem(monitor, id) {
   const Menu = require("devtools/client/framework/menu");
   return Menu.getMenuElementById(id, monitor.panelWin.document);
+}
+
+/**
+ * Wait for DOM being in specific state. But, do not wait
+ * for change if it's in the expected state already.
+ */
+async function waitForDOMIfNeeded(target, selector, expectedLength = 1) {
+  return new Promise(resolve => {
+    const elements = target.querySelectorAll(selector);
+    if (elements.length == expectedLength) {
+      resolve(elements);
+    } else {
+      waitForDOM(target, selector, expectedLength).then(elems => {
+        resolve(elems);
+      });
+    }
+  });
+}
+
+/**
+ * Helper for blocking or unblocking a request via the list item's context menu.
+ *
+ * @param {Element} element
+ *        Target request list item to be right clicked to bring up its context menu.
+ * @param {Object} monitor
+ *        The netmonitor instance used for retrieving a context menu element.
+ * @param {Object} store
+ *        The redux store (wait-service middleware required).
+ * @param {String} action
+ *        The action, block or unblock, to construct a corresponding context menu id.
+ */
+async function toggleBlockedUrl(element, monitor, store, action = "block") {
+  EventUtils.sendMouseEvent({ type: "contextmenu" }, element);
+  const contextMenuId = `request-list-context-${action}-url`;
+  const contextBlockToggle = getContextMenuItem(monitor, contextMenuId);
+  const onRequestComplete = waitForDispatch(
+    store,
+    "REQUEST_BLOCKING_UPDATE_COMPLETE"
+  );
+  contextBlockToggle.click();
+
+  info(`Wait for selected request to be ${action}ed`);
+  await onRequestComplete;
+  info(`Selected request is now ${action}ed`);
+}
+
+/**
+ * Predicates used when sorting items.
+ *
+ * @param object first
+ *        The first item used in the comparison.
+ * @param object second
+ *        The second item used in the comparison.
+ * @return number
+ *         <0 to sort first to a lower index than second
+ *         =0 to leave first and second unchanged with respect to each other
+ *         >0 to sort second to a lower index than first
+ */
+
+function compareValues(first, second) {
+  if (first === second) {
+    return 0;
+  }
+  return first > second ? 1 : -1;
 }

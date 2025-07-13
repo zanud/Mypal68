@@ -146,17 +146,6 @@ const webconsoleSpecPrototype = {
       // response
       response: RetVal("console.cachedmessages"),
     },
-    evaluateJS: {
-      request: {
-        text: Option(0, "string"),
-        frameActor: Option(0, "string"),
-        url: Option(0, "string"),
-        selectedNodeActor: Option(0, "string"),
-        selectedObjectActor: Option(0, "string"),
-        mapped: Option(0, "nullable:json"),
-      },
-      response: RetVal("json"),
-    },
     evaluateJSAsync: {
       request: {
         text: Option(0, "string"),
@@ -165,6 +154,7 @@ const webconsoleSpecPrototype = {
         selectedNodeActor: Option(0, "string"),
         selectedObjectActor: Option(0, "string"),
         mapped: Option(0, "nullable:json"),
+        eager: Option(0, "nullable:boolean"),
       },
       response: RetVal("console.evaluatejsasync"),
     },
@@ -190,6 +180,7 @@ const webconsoleSpecPrototype = {
         frameActor: Arg(2, "nullable:string"),
         selectedNodeActor: Arg(3, "nullable:string"),
         authorizedEvaluations: Arg(4, "nullable:json"),
+        expressionVars: Arg(5, "nullable:json"),
       },
       response: RetVal("console.autocomplete"),
     },
@@ -245,6 +236,12 @@ const webconsoleSpecPrototype = {
     unblockRequest: {
       request: {
         filter: Arg(0, "json"),
+      },
+    },
+
+    setBlockedUrls: {
+      request: {
+        url: Arg(0, "json"),
       },
     },
   },

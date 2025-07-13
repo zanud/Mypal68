@@ -6,10 +6,11 @@
   --markup-hidden-attr-name-color: var(--grey-43);
   --markup-hidden-attr-value-color: var(--grey-55);
   --markup-hidden-punctuation-color: var(--grey-43);
-  --markup-pseudoclass-disk-color: var(--yellow-60);
+  --markup-pseudoclass-disk-color: #e9c600;
   --markup-hidden-tag-color: var(--grey-50);
   --markup-outline: var(--theme-splitter-color);
-  --markup-text-color-contrast: black;
+  --markup-drag-line: var(--grey-40);
+  --markup-drop-line: var(--blue-55);
 }
 
 .theme-dark:root {
@@ -18,7 +19,8 @@
   --markup-hidden-punctuation-color: #787878;
   --markup-hidden-tag-color: var(--grey-45);
   --markup-outline: var(--theme-selection-background);
-  --markup-text-color-contrast: var(--theme-selection-color);
+  --markup-drag-line: var(--grey-55);
+  --markup-drop-line: var(--blue-50);
 }
 
 * {
@@ -137,11 +139,11 @@ body.dragging .tag-line {
   /* Offset these by 1000px to make sure they cover the full width of the view */
   width: calc(100% + 1000px);
   left: -1000px;
-  background-color: var(--theme-body-color);
+  background-color: var(--markup-drag-line);
 }
 
 .tag-line.drop-target::before {
-  background-color: var(--theme-contrast-background);
+  background-color: var(--markup-drop-line);
 }
 
 /* In case the indicator is put on the closing .tag-line, the indentation level
@@ -354,33 +356,6 @@ ul.children + .tag-line::before {
   color: var(--theme-text-color-strong);
 }
 
-/* Whitespace only text nodes are sometimes shown in the markup-view, and when they do
-   they get a greyed-out whitespace symbol so users know what they are */
-.editor.text .whitespace {
-  padding: 0 .5em;
-}
-
-.editor.text .whitespace::before {
-  /* black circle (full) character */
-  content: "\25cf";
-  display: inline-block;
-  width: 12px;
-  height: 8px;
-  margin: 0 2px;
-  line-height: 7px;
-  font-size: 0.6em;
-  color: var(--theme-text-color-inactive);
-  border-radius: 3px;
-  border-style: solid;
-  border-width: 1px;
-  text-align: center;
-  vertical-align: middle;
-}
-
-.tag-line[selected] .editor.text .whitespace::before {
-  color: white;
-}
-
 .more-nodes {
   padding-left: 16px;
 }
@@ -446,9 +421,9 @@ ul.children + .tag-line::before {
 /* Selected nodes being flashed in the tree should have dark selected text. Here we target
    nodes with theme-selected text colors and apply a dark, accessible text color for when
    the yellow flashing background is applied. */
-.theme-selected.theme-bg-yellow-contrast ~ .editor,
-.theme-selected ~ .editor [class*="theme-fg-color"].theme-fg-contrast {
-  color: var(--markup-text-color-contrast);
+.theme-selected.theme-bg-contrast ~ .editor,
+.theme-selected ~ .editor .theme-fg-contrast {
+  color: var(--theme-contrast-color);
 }
 
 /* Applicable to the DOCTYPE */

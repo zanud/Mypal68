@@ -60,26 +60,54 @@ const getSelectedFrame = createSelector(
 const getDisplayedFramesSummary = createSelector(
   getDisplayedFrames,
   displayedFrames => {
-    let firstStartedMillis = +Infinity;
-    let lastEndedMillis = -Infinity;
+    let firstStartedMs = +Infinity;
+    let lastEndedMs = -Infinity;
+    let sentSize = 0;
+    let receivedSize = 0;
     let totalSize = 0;
 
     displayedFrames.forEach(frame => {
-      totalSize += frame.payload.length;
-      if (frame.timeStamp < firstStartedMillis) {
-        firstStartedMillis = frame.timeStamp;
+      if (frame.type == "received") {
+        receivedSize += frame.payload.length;
+      } else if (frame.type == "sent") {
+        sentSize += frame.payload.length;
       }
-      if (frame.timeStamp > lastEndedMillis) {
-        lastEndedMillis = frame.timeStamp;
+      totalSize += frame.payload.length;
+      if (frame.timeStamp < firstStartedMs) {
+        firstStartedMs = frame.timeStamp;
+      }
+      if (frame.timeStamp > lastEndedMs) {
+        lastEndedMs = frame.timeStamp;
       }
     });
 
     return {
       count: displayedFrames.length,
-      totalMillis: (lastEndedMillis - firstStartedMillis) / 1000,
+      totalMs: (lastEndedMs - firstStartedMs) / 1000,
+      sentSize,
+      receivedSize,
       totalSize,
     };
   }
+);
+
+/**
+ * Returns if the currentChannelId is closed
+ */
+const isCurrentChannelClosed = createSelector(
+  state => state.webSockets,
+  ({ closedConnections, currentChannelId }) =>
+    closedConnections.has(currentChannelId)
+);
+
+/**
+ * Returns the closed connection details of the currentChannelId
+ * Null, if the connection is still open
+ */
+const getClosedConnectionDetails = createSelector(
+  state => state.webSockets,
+  ({ closedConnections, currentChannelId }) =>
+    closedConnections.get(currentChannelId)
 );
 
 module.exports = {
@@ -87,4 +115,6 @@ module.exports = {
   isSelectedFrameVisible,
   getDisplayedFrames,
   getDisplayedFramesSummary,
+  isCurrentChannelClosed,
+  getClosedConnectionDetails,
 };

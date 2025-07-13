@@ -3,9 +3,6 @@
  * file, You can obtain one at <http://mozilla.org/MPL/2.0/>. */
 
 const { LocalizationHelper } = require("devtools/shared/l10n");
-const {
-  gDevToolsBrowser,
-} = require("devtools/client/framework/devtools-browser");
 loader.lazyRequireGetter(
   this,
   "openContentLink",
@@ -42,7 +39,7 @@ DebuggerPanel.prototype = {
     } = await this.panelWin.Debugger.bootstrap({
       threadFront: this.toolbox.threadFront,
       tabTarget: this.toolbox.target,
-      debuggerClient: this.toolbox.target.client,
+      devToolsClient: this.toolbox.target.client,
       workers: {
         sourceMaps: this.toolbox.sourceMapService,
         evaluationsParser: this.toolbox.parserService,
@@ -89,17 +86,12 @@ DebuggerPanel.prototype = {
     openContentLink(url);
   },
 
-  openWorkerToolbox: function(workerTargetFront) {
-    return gDevToolsBrowser.openWorkerToolbox(workerTargetFront, "jsdebugger");
-  },
-
   openConsoleAndEvaluate: async function(input) {
     const { hud } = await this.toolbox.selectTool("webconsole");
     hud.ui.wrapper.dispatchEvaluateExpression(input);
   },
 
   openInspector: async function() {
-    await this.toolbox.initInspector();
     this.toolbox.selectTool("inspector");
   },
 
@@ -121,18 +113,22 @@ DebuggerPanel.prototype = {
   },
 
   highlightDomElement: async function(gripOrFront) {
-    const nodeFront = await getNodeFront(gripOrFront, this.toolbox);
-    nodeFront.highlighterFront.highlight(nodeFront);
+    if (!this._highlight) {
+      const { highlight, unhighlight } = this.toolbox.getHighlighter();
+      this._highlight = highlight;
+      this._unhighlight = unhighlight;
+    }
+
+    return this._highlight(gripOrFront);
   },
 
-  unHighlightDomElement: async function(gripOrFront) {
-    try {
-      const nodeFront = await getNodeFront(gripOrFront, this.toolbox);
-      nodeFront.highlighterFront.unhighlight();
-    } catch (e) {
-      // This call might fail if called asynchrously after the toolbox is finished
-      // closing.
+  unHighlightDomElement: function() {
+    if (!this._unhighlight) {
+      return;
     }
+
+    const forceUnHighlightInTest = true;
+    return this._unhighlight(forceUnHighlightInTest);
   },
 
   getFrames: function() {

@@ -1,4 +1,4 @@
-# Debugger Client
+# DevTools Client
 
 The Debugger client is responsible for managing the communication between the
 client application and JS server.
@@ -39,7 +39,7 @@ should not notify the application that the thread has been paused or resumed.
 
 [protocol]: https://searchfox.org/mozilla-central/source/devtools/docs/backend/protocol.md
 [dt-connect]: https://github.com/firefox-devtools/devtools-core/tree/master/packages/devtools-connection
-[devtools-client.js]: https://searchfox.org/mozilla-central/source/devtools/shared/client/debugger-client.js
+[devtools-client.js]: https://searchfox.org/mozilla-central/source/devtools/shared/client/devtools-client.js
 
 ## Chrome
 

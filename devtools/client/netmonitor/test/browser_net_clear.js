@@ -21,9 +21,9 @@ add_task(async function() {
   assertNoRequestState();
 
   // Load one request and assert it shows up in the list
-  let onMonitorUpdated = waitForAllRequestsFinished(monitor);
+  let wait = waitForNetworkEvents(monitor, 1);
   tab.linkedBrowser.reload();
-  await onMonitorUpdated;
+  await wait;
 
   assertSingleRequestState();
 
@@ -32,9 +32,9 @@ add_task(async function() {
   assertNoRequestState();
 
   // Load a second request and make sure they still show up
-  onMonitorUpdated = waitForAllRequestsFinished(monitor);
+  wait = waitForNetworkEvents(monitor, 1);
   tab.linkedBrowser.reload();
-  await onMonitorUpdated;
+  await wait;
 
   assertSingleRequestState();
 
@@ -63,7 +63,7 @@ add_task(async function() {
    */
   function assertSingleRequestState() {
     is(
-      store.getState().requests.requests.size,
+      store.getState().requests.requests.length,
       1,
       "The request menu should have one item at this point."
     );
@@ -74,7 +74,7 @@ add_task(async function() {
    */
   function assertNoRequestState() {
     is(
-      store.getState().requests.requests.size,
+      store.getState().requests.requests.length,
       0,
       "The request menu should be empty at this point."
     );

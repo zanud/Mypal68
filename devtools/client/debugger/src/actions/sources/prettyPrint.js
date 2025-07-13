@@ -6,7 +6,6 @@
 import SourceMaps, { generatedToOriginalId } from "devtools-source-map";
 
 import assert from "../../utils/assert";
-import { recordEvent } from "../../utils/telemetry";
 import { remapBreakpoints } from "../breakpoints";
 
 import { setSymbols } from "./symbols";
@@ -30,7 +29,14 @@ import {
 
 import type { Action, ThunkArgs } from "../types";
 import { selectSource } from "./select";
-import type { Source, SourceContent, SourceActor, Context } from "../../types";
+import type {
+  Source,
+  SourceId,
+  SourceContent,
+  SourceActor,
+  Context,
+  SourceLocation,
+} from "../../types";
 
 export async function prettyPrintSource(
   sourceMaps: typeof SourceMaps,
@@ -60,10 +66,10 @@ export async function prettyPrintSource(
   };
 }
 
-export function createPrettySource(cx: Context, sourceId: string) {
+export function createPrettySource(cx: Context, sourceId: SourceId) {
   return async ({ dispatch, getState, sourceMaps }: ThunkArgs) => {
     const source = getSourceFromId(getState(), sourceId);
-    const url = getPrettySourceURL(source.url);
+    const url = getPrettySourceURL(source.url || source.id);
     const id = generatedToOriginalId(sourceId, url);
 
     const prettySource = {
@@ -73,25 +79,32 @@ export function createPrettySource(cx: Context, sourceId: string) {
       isBlackBoxed: false,
       isPrettyPrinted: true,
       isWasm: false,
-      introductionUrl: null,
-      introductionType: undefined,
       isExtension: false,
       extensionName: null,
+      isOriginal: true,
     };
 
     dispatch(({ type: "ADD_SOURCE", cx, source: prettySource }: Action));
-    await dispatch(selectSource(cx, prettySource.id));
+
+    await dispatch(selectSource(cx, id));
 
     return prettySource;
   };
 }
 
-function selectPrettyLocation(cx: Context, prettySource: Source) {
+function selectPrettyLocation(
+  cx: Context,
+  prettySource: Source,
+  generatedLocation: ?SourceLocation
+) {
   return async ({ dispatch, sourceMaps, getState }: ThunkArgs) => {
-    let location = getSelectedLocation(getState());
+    let location = generatedLocation
+      ? generatedLocation
+      : getSelectedLocation(getState());
 
-    if (location) {
+    if (location && location.line >= 1) {
       location = await sourceMaps.getOriginalLocation(location);
+
       return dispatch(
         selectSpecificLocation(cx, { ...location, sourceId: prettySource.id })
       );
@@ -113,19 +126,14 @@ function selectPrettyLocation(cx: Context, prettySource: Source) {
  *          A promise that resolves to [aSource, prettyText] or rejects to
  *          [aSource, error].
  */
-export function togglePrettyPrint(cx: Context, sourceId: string) {
+export function togglePrettyPrint(cx: Context, sourceId: SourceId) {
   return async ({ dispatch, getState, client, sourceMaps }: ThunkArgs) => {
     const source = getSource(getState(), sourceId);
     if (!source) {
       return {};
     }
 
-    if (!source.isPrettyPrinted) {
-      recordEvent("pretty_print");
-    }
-
     await dispatch(loadSourceText({ cx, source }));
-
     assert(
       isGenerated(source),
       "Pretty-printing only allowed on generated sources"
@@ -138,8 +146,9 @@ export function togglePrettyPrint(cx: Context, sourceId: string) {
       return dispatch(selectPrettyLocation(cx, prettySource));
     }
 
+    const selectedLocation = getSelectedLocation(getState());
     const newPrettySource = await dispatch(createPrettySource(cx, sourceId));
-    await dispatch(selectPrettyLocation(cx, newPrettySource));
+    dispatch(selectPrettyLocation(cx, newPrettySource, selectedLocation));
 
     const threadcx = getThreadContext(getState());
     await dispatch(mapFrames(threadcx));

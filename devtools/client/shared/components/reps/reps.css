@@ -142,6 +142,10 @@ html[dir="rtl"] .tree-node button:not(.expanded) {
   color: var(--string-color);
 }
 
+.objectBox-empty-string {
+  font-style: italic;
+}
+
 .objectBox-string a,
 .objectBox-string a:visited {
   color: currentColor;
@@ -400,6 +404,11 @@ button.invoke-getter {
 /* "more…" ellipsis */
 .more-ellipsis {
   color: var(--comment-node-color);
+}
+
+/* function parameters */
+.objectBox-function .param {
+  color: var(--theme-highlight-red);
 }
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this

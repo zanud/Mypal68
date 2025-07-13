@@ -81,7 +81,7 @@ add_task(async function() {
     "method",
     "domain",
     "file",
-    "cause",
+    "initiator",
     "type",
     "transferred",
   ]);

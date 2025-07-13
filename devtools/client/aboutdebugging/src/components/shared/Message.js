@@ -14,10 +14,13 @@ const PropTypes = require("devtools/client/shared/vendor/react-prop-types");
 const FluentReact = require("devtools/client/shared/vendor/fluent-react");
 const Localized = createFactory(FluentReact.Localized);
 
-const { MESSAGE_LEVEL } = require("../../constants");
+const {
+  MESSAGE_LEVEL,
+} = require("devtools/client/aboutdebugging/src/constants");
 
 const ICONS = {
-  [MESSAGE_LEVEL.ERROR]: "chrome://devtools/skin/images/aboutdebugging-error.svg",
+  [MESSAGE_LEVEL.ERROR]:
+    "chrome://devtools/skin/images/aboutdebugging-error.svg",
   [MESSAGE_LEVEL.INFO]:
     "chrome://devtools/skin/images/aboutdebugging-information.svg",
   [MESSAGE_LEVEL.WARNING]: "chrome://global/skin/icons/warning.svg",

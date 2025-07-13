@@ -10,8 +10,8 @@ const {
   createFactory,
 } = require("devtools/client/shared/vendor/react");
 const PropTypes = require("devtools/client/shared/vendor/react-prop-types");
-const { L10N } = require("../utils/l10n");
-const { PANELS } = require("../constants");
+const { L10N } = require("devtools/client/netmonitor/src/utils/l10n");
+const { PANELS } = require("devtools/client/netmonitor/src/constants");
 
 // Components
 const Tabbar = createFactory(
@@ -20,15 +20,33 @@ const Tabbar = createFactory(
 const TabPanel = createFactory(
   require("devtools/client/shared/components/tabs/Tabs").TabPanel
 );
-const CookiesPanel = createFactory(require("./CookiesPanel"));
-const HeadersPanel = createFactory(require("./HeadersPanel"));
-const WebSocketsPanel = createFactory(require("./websockets/WebSocketsPanel"));
-const ParamsPanel = createFactory(require("./ParamsPanel"));
-const CachePanel = createFactory(require("./CachePanel"));
-const ResponsePanel = createFactory(require("./ResponsePanel"));
-const SecurityPanel = createFactory(require("./SecurityPanel"));
-const StackTracePanel = createFactory(require("./StackTracePanel"));
-const TimingsPanel = createFactory(require("./TimingsPanel"));
+const CookiesPanel = createFactory(
+  require("devtools/client/netmonitor/src/components/CookiesPanel")
+);
+const HeadersPanel = createFactory(
+  require("devtools/client/netmonitor/src/components/HeadersPanel")
+);
+const WebSocketsPanel = createFactory(
+  require("devtools/client/netmonitor/src/components/websockets/WebSocketsPanel")
+);
+const ParamsPanel = createFactory(
+  require("devtools/client/netmonitor/src/components/ParamsPanel")
+);
+const CachePanel = createFactory(
+  require("devtools/client/netmonitor/src/components/CachePanel")
+);
+const ResponsePanel = createFactory(
+  require("devtools/client/netmonitor/src/components/ResponsePanel")
+);
+const SecurityPanel = createFactory(
+  require("devtools/client/netmonitor/src/components/SecurityPanel")
+);
+const StackTracePanel = createFactory(
+  require("devtools/client/netmonitor/src/components/StackTracePanel")
+);
+const TimingsPanel = createFactory(
+  require("devtools/client/netmonitor/src/components/TimingsPanel")
+);
 
 const COLLAPSE_DETAILS_PANE = L10N.getStr("collapseDetailsPane");
 const CACHE_TITLE = L10N.getStr("netmonitor.tab.cache");
@@ -59,6 +77,7 @@ class TabboxPanel extends Component {
       toggleNetworkDetails: PropTypes.func,
       openNetworkDetails: PropTypes.func.isRequired,
       showWebSocketsTab: PropTypes.bool,
+      targetSearchResult: PropTypes.object,
     };
   }
 
@@ -90,6 +109,7 @@ class TabboxPanel extends Component {
       sourceMapService,
       toggleNetworkDetails,
       showWebSocketsTab,
+      targetSearchResult,
     } = this.props;
 
     if (!request) {
@@ -130,6 +150,7 @@ class TabboxPanel extends Component {
           connector,
           openLink,
           request,
+          targetSearchResult,
         })
       ),
       showWebSocketsPanel &&
@@ -153,6 +174,7 @@ class TabboxPanel extends Component {
           connector,
           openLink,
           request,
+          targetSearchResult,
         })
       ),
       TabPanel(
@@ -161,7 +183,12 @@ class TabboxPanel extends Component {
           title: PARAMS_TITLE,
           className: "panel-with-code",
         },
-        ParamsPanel({ connector, openLink, request })
+        ParamsPanel({
+          connector,
+          openLink,
+          request,
+          targetSearchResult,
+        })
       ),
       TabPanel(
         {
@@ -169,7 +196,12 @@ class TabboxPanel extends Component {
           title: RESPONSE_TITLE,
           className: "panel-with-code",
         },
-        ResponsePanel({ request, openLink, connector })
+        ResponsePanel({
+          request,
+          openLink,
+          connector,
+          targetSearchResult,
+        })
       ),
       (request.fromCache || request.status == "304") &&
         TabPanel(
@@ -189,8 +221,7 @@ class TabboxPanel extends Component {
           request,
         })
       ),
-      request.cause &&
-        request.cause.stacktraceAvailable &&
+      request.cause?.stacktraceAvailable &&
         TabPanel(
           {
             id: PANELS.STACK_TRACE,

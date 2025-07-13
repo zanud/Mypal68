@@ -20,21 +20,20 @@ const { PREFS } = require("devtools/client/webconsole/constants");
 const { getPrefsService } = require("devtools/client/webconsole/utils/prefs");
 
 // Reducers
-const { reducers } = require("./reducers/index");
+const { reducers } = require("devtools/client/webconsole/reducers/index");
 
 // Middlewares
-const eventTelemetry = require("./middleware/event-telemetry");
-const historyPersistence = require("./middleware/history-persistence");
+const historyPersistence = require("devtools/client/webconsole/middleware/history-persistence");
 const {
   thunkWithOptions,
 } = require("devtools/client/shared/redux/middleware/thunk-with-options");
 
 // Enhancers
-const enableBatching = require("./enhancers/batching");
-const enableActorReleaser = require("./enhancers/actor-releaser");
-const ensureCSSErrorReportingEnabled = require("./enhancers/css-error-reporting");
-const enableNetProvider = require("./enhancers/net-provider");
-const enableMessagesCacheClearing = require("./enhancers/message-cache-clearing");
+const enableBatching = require("devtools/client/webconsole/enhancers/batching");
+const enableActorReleaser = require("devtools/client/webconsole/enhancers/actor-releaser");
+const ensureCSSErrorReportingEnabled = require("devtools/client/webconsole/enhancers/css-error-reporting");
+const enableNetProvider = require("devtools/client/webconsole/enhancers/net-provider");
+const enableMessagesCacheClearing = require("devtools/client/webconsole/enhancers/message-cache-clearing");
 
 /**
  * Create and configure store for the Console panel. This is the place
@@ -48,6 +47,7 @@ function configureStore(webConsoleUI, options = {}) {
     options.logLimit || Math.max(getIntPref("devtools.hud.loglimit"), 1);
   const sidebarToggle = getBoolPref(PREFS.FEATURES.SIDEBAR_TOGGLE);
   const autocomplete = getBoolPref(PREFS.FEATURES.AUTOCOMPLETE);
+  const eagerEvaluation = getBoolPref(PREFS.FEATURES.EAGER_EVALUATION);
   const groupWarnings = getBoolPref(PREFS.FEATURES.GROUP_WARNINGS);
   const historyCount = getIntPref(PREFS.UI.INPUT_HISTORY_COUNT);
 
@@ -56,6 +56,7 @@ function configureStore(webConsoleUI, options = {}) {
       logLimit,
       sidebarToggle,
       autocomplete,
+      eagerEvaluation,
       historyCount,
       groupWarnings,
     }),
@@ -81,22 +82,12 @@ function configureStore(webConsoleUI, options = {}) {
     }),
   };
 
-  // Prepare middleware.
-  const services = options.services || {};
-
   const middleware = applyMiddleware(
     thunkWithOptions.bind(null, {
       prefsService,
-      services,
-      // Needed for the ObjectInspector
-      client: {
-        createObjectClient: services.createObjectClient,
-        createLongStringClient: services.createLongStringClient,
-        releaseActor: services.releaseActor,
-      },
+      ...options.thunkArgs,
     }),
     historyPersistence,
-    eventTelemetry.bind(null, options.telemetry, options.sessionId)
   );
 
   return createStore(

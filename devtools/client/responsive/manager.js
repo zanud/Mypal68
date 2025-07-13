@@ -4,6 +4,7 @@
 
 "use strict";
 
+const Services = require("Services");
 const promise = require("promise");
 const EventEmitter = require("devtools/shared/event-emitter");
 
@@ -45,7 +46,12 @@ loader.lazyRequireGetter(
   "devtools/client/framework/devtools",
   true
 );
-loader.lazyRequireGetter(this, "Telemetry", "devtools/client/shared/telemetry");
+loader.lazyRequireGetter(
+  this,
+  "gDevToolsBrowser",
+  "devtools/client/framework/devtools-browser",
+  true
+);
 
 /**
  * ResponsiveUIManager is the external API for the browser UI, etc. to use when
@@ -58,14 +64,6 @@ class ResponsiveUIManager {
     this.handleMenuCheck = this.handleMenuCheck.bind(this);
 
     EventEmitter.decorate(this);
-  }
-
-  get telemetry() {
-    if (!this._telemetry) {
-      this._telemetry = new Telemetry();
-    }
-
-    return this._telemetry;
   }
 
   /**
@@ -116,56 +114,21 @@ class ResponsiveUIManager {
       return promise.reject(new Error("RDM only available for remote tabs."));
     }
     if (!this.isActiveForTab(tab)) {
+      if (Services.prefs.getBoolPref("devtools.responsive.browserUI.enabled")) {
+        await gDevToolsBrowser.loadBrowserStyleSheet(window);
+      }
+
       this.initMenuCheckListenerFor(window);
 
       const ui = new ResponsiveUI(this, window, tab);
       this.activeTabs.set(tab, ui);
 
-      // Explicitly not await on telemetry to avoid delaying RDM opening
-      this.recordTelemetryOpen(window, tab, options);
-
       await this.setMenuCheckFor(tab, window);
-      await ui.inited;
+      await ui.initialize();
       this.emit("on", { tab });
     }
 
     return this.getResponsiveUIForTab(tab);
-  }
-
-  /**
-   * Record all telemetry probes related to RDM opening.
-   */
-  async recordTelemetryOpen(window, tab, options) {
-    // Track whether a toolbox was opened before RDM was opened.
-    const isKnownTab = TargetFactory.isKnownTab(tab);
-    let toolbox;
-    if (isKnownTab) {
-      const target = await TargetFactory.forTab(tab);
-      toolbox = gDevTools.getToolbox(target);
-    }
-    const hostType = toolbox ? toolbox.hostType : "none";
-    const hasToolbox = !!toolbox;
-
-    if (hasToolbox) {
-      this.telemetry.scalarAdd("devtools.responsive.toolbox_opened_first", 1);
-    }
-
-    this.telemetry.recordEvent("activate", "responsive_design", null, {
-      host: hostType,
-      width: Math.ceil(window.outerWidth / 50) * 50,
-      session_id: toolbox ? toolbox.sessionId : -1,
-    });
-
-    // Track opens keyed by the UI entry point used.
-    let { trigger } = options;
-    if (!trigger) {
-      trigger = "unknown";
-    }
-    this.telemetry.keyedScalarAdd(
-      "devtools.responsive.open_trigger",
-      trigger,
-      1
-    );
   }
 
   /**
@@ -201,27 +164,7 @@ class ResponsiveUIManager {
       }
       this.emit("off", { tab });
       await this.setMenuCheckFor(tab, window);
-
-      // Explicitly not await on telemetry to avoid delaying RDM closing
-      this.recordTelemetryClose(window, tab);
     }
-  }
-
-  async recordTelemetryClose(window, tab) {
-    const isKnownTab = TargetFactory.isKnownTab(tab);
-    let toolbox;
-    if (isKnownTab) {
-      const target = await TargetFactory.forTab(tab);
-      toolbox = gDevTools.getToolbox(target);
-    }
-
-    const hostType = toolbox ? toolbox.hostType : "none";
-
-    this.telemetry.recordEvent("deactivate", "responsive_design", null, {
-      host: hostType,
-      width: Math.ceil(window.outerWidth / 50) * 50,
-      session_id: toolbox ? toolbox.sessionId : -1,
-    });
   }
 
   /**

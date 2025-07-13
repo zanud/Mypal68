@@ -11,13 +11,12 @@ DIRS += [
 
 DevToolsModules(
     'accessibility.js',
-    'actor-registry.js',
     'animation.js',
     'array-buffer.js',
     'changes.js',
+    'content-viewer.js',
     'css-properties.js',
     'device.js',
-    'emulation.js',
     'environment.js',
     'frame.js',
     'framerate.js',
@@ -37,6 +36,7 @@ DevToolsModules(
     'preference.js',
     'property-iterator.js',
     'reflow.js',
+    'responsive.js',
     'root.js',
     'screenshot.js',
     'source.js',

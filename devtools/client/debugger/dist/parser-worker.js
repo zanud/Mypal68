@@ -6709,8 +6709,8 @@ WorkerDispatcher.prototype = {
   start(url, win = window) {
     this.worker = new win.Worker(url);
 
-    this.worker.onerror = () => {
-      console.error(`Error in worker ${url}`);
+    this.worker.onerror = err => {
+      console.error(`Error in worker ${url}`, err.message);
     };
   },
 
@@ -7078,12 +7078,12 @@ const sourceOptions = {
   generated: {
     sourceType: "unambiguous",
     tokens: true,
-    plugins: ["objectRestSpread"]
+    plugins: ["objectRestSpread", "optionalChaining", "nullishCoalescingOperator"]
   },
   original: {
     sourceType: "unambiguous",
     tokens: true,
-    plugins: ["jsx", "flow", "doExpressions", "decorators-legacy", "objectRestSpread", "classProperties", "exportDefaultFrom", "exportNamespaceFrom", "asyncGenerators", "functionBind", "functionSent", "dynamicImport", "react-jsx"]
+    plugins: ["jsx", "flow", "doExpressions", "optionalChaining", "nullishCoalescingOperator", "decorators-legacy", "objectRestSpread", "classProperties", "exportDefaultFrom", "exportNamespaceFrom", "asyncGenerators", "functionBind", "functionSent", "dynamicImport", "react-jsx"]
   }
 };
 
@@ -7111,7 +7111,8 @@ function htmlParser({
   line
 }) {
   return parse(source, {
-    startLine: line
+    startLine: line,
+    ...sourceOptions.generated
   });
 }
 
@@ -7154,7 +7155,7 @@ function parseVueScript(code) {
 function parseConsoleScript(text, opts) {
   try {
     return _parse(text, {
-      plugins: ["objectRestSpread", "dynamicImport"],
+      plugins: ["objectRestSpread", "dynamicImport", "nullishCoalescingOperator", "optionalChaining"],
       ...opts,
       allowAwaitOutsideFunction: true
     });
@@ -15559,8 +15560,7 @@ function getUniqueIdentifiers(identifiers) {
   }
 
   return newIdentifiers;
-}
-/* eslint-disable complexity */
+} // eslint-disable-next-line complexity
 
 
 function extractSymbol(path, symbols, state) {
@@ -15632,7 +15632,7 @@ function extractSymbol(path, symbols, state) {
     });
   }
 
-  if (t.isMemberExpression(path)) {
+  if (t.isMemberExpression(path) || t.isOptionalMemberExpression(path)) {
     const {
       start,
       end
@@ -15665,7 +15665,9 @@ function extractSymbol(path, symbols, state) {
   }
 
   if (t.isCallExpression(path)) {
-    const callee = path.node.callee;
+    const {
+      callee
+    } = path.node;
     const args = path.node.arguments;
 
     if (t.isMemberExpression(callee)) {
@@ -15676,7 +15678,7 @@ function extractSymbol(path, symbols, state) {
         }
       } = callee;
       symbols.callExpressions.push({
-        name: name,
+        name,
         values: args.filter(arg => arg.value).map(arg => arg.value),
         location: loc
       });
@@ -15734,7 +15736,9 @@ function extractSymbol(path, symbols, state) {
     }
 
     if (path.node.typeAnnotation) {
-      const column = path.node.typeAnnotation.loc.start.column;
+      const {
+        column
+      } = path.node.typeAnnotation.loc.start;
       end = { ...end,
         column
       };
@@ -15770,8 +15774,6 @@ function extractSymbol(path, symbols, state) {
     symbols.identifiers.push(...(0, _helpers.getPatternIdentifiers)(nodeId));
   }
 }
-/* eslint-enable complexity */
-
 
 function extractSymbols(sourceId) {
   const symbols = {
@@ -15817,6 +15819,7 @@ function extendSnippet(name, expression, path, prevPath) {
   var _path$node$property, _path$node$property$e;
 
   const computed = path === null || path === void 0 ? void 0 : path.node.computed;
+  const optional = path === null || path === void 0 ? void 0 : path.node.optional;
   const prevComputed = prevPath === null || prevPath === void 0 ? void 0 : prevPath.node.computed;
   const prevArray = t.isArrayExpression(prevPath);
   const array = t.isArrayExpression(path);
@@ -15846,15 +15849,19 @@ function extendSnippet(name, expression, path, prevPath) {
     return `${name}${expression}`;
   }
 
+  if (optional) {
+    return `${name}?.${expression}`;
+  }
+
   return `${name}.${expression}`;
 }
 
-function getMemberSnippet(node, expression = "") {
-  if (t.isMemberExpression(node)) {
+function getMemberSnippet(node, expression = "", optional = false) {
+  if (t.isMemberExpression(node) || t.isOptionalMemberExpression(node)) {
     const name = node.property.name;
     const snippet = getMemberSnippet(node.object, extendSnippet(name, expression, {
       node
-    }));
+    }), node.optional);
     return snippet;
   }
 
@@ -15871,6 +15878,10 @@ function getMemberSnippet(node, expression = "") {
       return `${node.name}${expression}`;
     }
 
+    if (optional) {
+      return `${node.name}?.${expression}`;
+    }
+
     return `${node.name}.${expression}`;
   }
 
@@ -15878,22 +15889,20 @@ function getMemberSnippet(node, expression = "") {
 }
 
 function getObjectSnippet(path, prevPath, expression = "") {
-  var _path$parentPath;
-
   if (!path) {
     return expression;
   }
 
-  const name = path.node.key.name;
+  const {
+    name
+  } = path.node.key;
   const extendedExpression = extendSnippet(name, expression, path, prevPath);
   const nextPrevPath = path;
-  const nextPath = (_path$parentPath = path.parentPath) === null || _path$parentPath === void 0 ? void 0 : _path$parentPath.parentPath;
+  const nextPath = path.parentPath && path.parentPath.parentPath;
   return getSnippet(nextPath, nextPrevPath, extendedExpression);
 }
 
 function getArraySnippet(path, prevPath, expression) {
-  var _path$parentPath2;
-
   if (!prevPath.parentPath) {
     throw new Error("Assertion failure - path should exist");
   }
@@ -15901,7 +15910,7 @@ function getArraySnippet(path, prevPath, expression) {
   const index = `${prevPath.parentPath.containerIndex}`;
   const extendedExpression = extendSnippet(index, expression, path, prevPath);
   const nextPrevPath = path;
-  const nextPath = (_path$parentPath2 = path.parentPath) === null || _path$parentPath2 === void 0 ? void 0 : _path$parentPath2.parentPath;
+  const nextPath = path.parentPath && path.parentPath.parentPath;
   return getSnippet(nextPath, nextPrevPath, extendedExpression);
 }
 
@@ -15912,7 +15921,9 @@ function getSnippet(path, prevPath, expression = "") {
 
   if (t.isVariableDeclaration(path)) {
     const node = path.node.declarations[0];
-    const name = node.id.name;
+    const {
+      name
+    } = node.id;
     return extendSnippet(name, expression, path, prevPath);
   }
 
@@ -15923,8 +15934,7 @@ function getSnippet(path, prevPath, expression = "") {
       return expression;
     }
 
-    const name = node.name;
-    const prop = extendSnippet(name, expression, path, prevPath);
+    const prop = extendSnippet(node.name, expression, path, prevPath);
     return prop;
   }
 
@@ -15940,8 +15950,7 @@ function getSnippet(path, prevPath, expression = "") {
   }
 
   if (t.isIdentifier(path)) {
-    const node = path.node;
-    return `${node.name}.${expression}`;
+    return `${path.node.name}.${expression}`;
   }
 
   if (t.isObjectProperty(path)) {
@@ -15949,11 +15958,11 @@ function getSnippet(path, prevPath, expression = "") {
   }
 
   if (t.isObjectExpression(path)) {
-    const parentPath = prevPath && prevPath.parentPath;
+    const parentPath = prevPath === null || prevPath === void 0 ? void 0 : prevPath.parentPath;
     return getObjectSnippet(parentPath, prevPath, expression);
   }
 
-  if (t.isMemberExpression(path)) {
+  if (t.isMemberExpression(path) || t.isOptionalMemberExpression(path)) {
     return getMemberSnippet(path.node, expression);
   }
 
@@ -17807,7 +17816,9 @@ function getFunctionName(node, parent) {
   }) || t.isClassMethod(node, {
     computed: false
   })) {
-    const key = node.key;
+    const {
+      key
+    } = node;
 
     if (t.isIdentifier(key)) {
       return key.name;
@@ -17831,7 +17842,9 @@ function getFunctionName(node, parent) {
   t.isClassProperty(parent, {
     value: node
   }) && !parent.computed) {
-    const key = parent.key;
+    const {
+      key
+    } = parent;
 
     if (t.isIdentifier(key)) {
       return key.name;
@@ -41639,7 +41652,9 @@ function _interopRequireWildcard(obj) { if (obj && obj.__esModule) { return obj;
 // createClass or extend
 function fromCallExpression(callExpression) {
   const whitelist = ["extend", "createClass"];
-  const callee = callExpression.node.callee;
+  const {
+    callee
+  } = callExpression.node;
 
   if (!callee) {
     return null;
@@ -41663,7 +41678,9 @@ function fromCallExpression(callExpression) {
     return null;
   }
 
-  const left = assignment.node.left;
+  const {
+    left
+  } = assignment.node;
 
   if (left.name) {
     return name;
@@ -41679,7 +41696,9 @@ function fromCallExpression(callExpression) {
 
 
 function fromPrototype(assignment) {
-  const left = assignment.node.left;
+  const {
+    left
+  } = assignment.node;
 
   if (!left) {
     return null;
@@ -41968,7 +41987,9 @@ const scopeCollectionVisitor = {
         refs: []
       };
     } else if (t.isFunction(node)) {
-      let scope = state.scope;
+      let {
+        scope
+      } = state;
 
       if (t.isFunctionExpression(node) && isNode(node.id, "Identifier")) {
         scope = pushTempScope(state, "block", "Function Expression", {
@@ -42298,7 +42319,9 @@ const scopeCollectionVisitor = {
     // rather than jumping stright to 'parentScope'.
 
     for (let scope = currentScope; scope && scope !== parentScope; scope = scope.parent) {
-      const freeVariables = state.freeVariables;
+      const {
+        freeVariables
+      } = state;
       state.freeVariables = state.freeVariableStack.pop();
       const parentFreeVariables = state.freeVariables; // Match up any free variables that match this scope's bindings and
       // merge then into the refs.
@@ -42364,8 +42387,10 @@ function buildMetaBindings(sourceId, node, ancestors, parentIndex = ancestors.le
   const grandparent = ancestors[parentIndex - 1].node; // Consider "0, foo" to be equivalent to "foo".
 
   if (t.isSequenceExpression(parent) && parent.expressions.length === 2 && t.isNumericLiteral(parent.expressions[0]) && parent.expressions[1] === node) {
-    let start = parent.loc.start;
-    let end = parent.loc.end;
+    let {
+      start,
+      end
+    } = parent.loc;
 
     if (t.isCallExpression(grandparent, {
       callee: parent
@@ -43682,7 +43707,7 @@ function _getNextStep(statement, sourceId, position) {
 
   if (nextStatement) {
     return { ...nextStatement.node.loc.start,
-      sourceId: sourceId
+      sourceId
     };
   }
 

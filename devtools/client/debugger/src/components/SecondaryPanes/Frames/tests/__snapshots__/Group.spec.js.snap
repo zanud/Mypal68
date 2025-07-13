@@ -18,6 +18,7 @@ exports[`Group displays a group 1`] = `
       expanded={false}
       frame={
         Object {
+          "asyncCause": null,
           "displayName": "foo",
           "generatedLocation": Object {
             "line": 4,
@@ -44,15 +45,15 @@ exports[`Group displays a group 1`] = `
           "source": Object {
             "extensionName": null,
             "id": "source",
-            "introductionType": undefined,
-            "introductionUrl": null,
             "isBlackBoxed": false,
             "isExtension": false,
+            "isOriginal": false,
             "isPrettyPrinted": false,
             "isWasm": false,
             "relativeUrl": "url",
             "url": "url",
           },
+          "state": "on-stack",
           "this": Object {},
           "thread": "FakeThread",
         }
@@ -91,6 +92,7 @@ exports[`Group passes the getFrameTitle prop to the Frame components 1`] = `
       expanded={true}
       frame={
         Object {
+          "asyncCause": null,
           "displayName": "renderFoo",
           "generatedLocation": Object {
             "line": 55,
@@ -117,15 +119,15 @@ exports[`Group passes the getFrameTitle prop to the Frame components 1`] = `
           "source": Object {
             "extensionName": null,
             "id": "source",
-            "introductionType": undefined,
-            "introductionUrl": null,
             "isBlackBoxed": false,
             "isExtension": false,
+            "isOriginal": false,
             "isPrettyPrinted": false,
             "isWasm": false,
             "relativeUrl": "http://myfile.com/mahscripts.js",
             "url": "http://myfile.com/mahscripts.js",
           },
+          "state": "on-stack",
           "this": Object {},
           "thread": "FakeThread",
         }
@@ -163,6 +165,7 @@ exports[`Group passes the getFrameTitle prop to the Frame components 1`] = `
       displayFullUrl={false}
       frame={
         Object {
+          "asyncCause": null,
           "displayName": "renderFoo",
           "generatedLocation": Object {
             "line": 55,
@@ -189,15 +192,15 @@ exports[`Group passes the getFrameTitle prop to the Frame components 1`] = `
           "source": Object {
             "extensionName": null,
             "id": "source",
-            "introductionType": undefined,
-            "introductionUrl": null,
             "isBlackBoxed": false,
             "isExtension": false,
+            "isOriginal": false,
             "isPrettyPrinted": false,
             "isWasm": false,
             "relativeUrl": "http://myfile.com/mahscripts.js",
             "url": "http://myfile.com/mahscripts.js",
           },
+          "state": "on-stack",
           "this": Object {},
           "thread": "FakeThread",
         }
@@ -206,10 +209,12 @@ exports[`Group passes the getFrameTitle prop to the Frame components 1`] = `
       getFrameTitle={[Function]}
       hideLocation={true}
       key="1"
+      panel="webconsole"
       selectFrame={[MockFunction]}
-      selectable={true}
+      selectLocation={[MockFunction]}
       selectedFrame={
         Object {
+          "asyncCause": null,
           "displayName": "foo",
           "generatedLocation": Object {
             "line": 4,
@@ -236,15 +241,15 @@ exports[`Group passes the getFrameTitle prop to the Frame components 1`] = `
           "source": Object {
             "extensionName": null,
             "id": "source",
-            "introductionType": undefined,
-            "introductionUrl": null,
             "isBlackBoxed": false,
             "isExtension": false,
+            "isOriginal": false,
             "isPrettyPrinted": false,
             "isWasm": false,
             "relativeUrl": "url",
             "url": "url",
           },
+          "state": "on-stack",
           "this": Object {},
           "thread": "FakeThread",
         }
@@ -270,6 +275,7 @@ exports[`Group passes the getFrameTitle prop to the Frame components 1`] = `
       displayFullUrl={false}
       frame={
         Object {
+          "asyncCause": null,
           "displayName": "a",
           "generatedLocation": Object {
             "line": 55,
@@ -296,15 +302,15 @@ exports[`Group passes the getFrameTitle prop to the Frame components 1`] = `
           "source": Object {
             "extensionName": null,
             "id": "source",
-            "introductionType": undefined,
-            "introductionUrl": null,
             "isBlackBoxed": false,
             "isExtension": false,
+            "isOriginal": false,
             "isPrettyPrinted": false,
             "isWasm": false,
             "relativeUrl": "http://myfile.com/back.js",
             "url": "http://myfile.com/back.js",
           },
+          "state": "on-stack",
           "this": Object {},
           "thread": "FakeThread",
         }
@@ -313,10 +319,12 @@ exports[`Group passes the getFrameTitle prop to the Frame components 1`] = `
       getFrameTitle={[Function]}
       hideLocation={true}
       key="2"
+      panel="webconsole"
       selectFrame={[MockFunction]}
-      selectable={true}
+      selectLocation={[MockFunction]}
       selectedFrame={
         Object {
+          "asyncCause": null,
           "displayName": "foo",
           "generatedLocation": Object {
             "line": 4,
@@ -343,15 +351,15 @@ exports[`Group passes the getFrameTitle prop to the Frame components 1`] = `
           "source": Object {
             "extensionName": null,
             "id": "source",
-            "introductionType": undefined,
-            "introductionUrl": null,
             "isBlackBoxed": false,
             "isExtension": false,
+            "isOriginal": false,
             "isPrettyPrinted": false,
             "isWasm": false,
             "relativeUrl": "url",
             "url": "url",
           },
+          "state": "on-stack",
           "this": Object {},
           "thread": "FakeThread",
         }
@@ -377,6 +385,7 @@ exports[`Group passes the getFrameTitle prop to the Frame components 1`] = `
       displayFullUrl={false}
       frame={
         Object {
+          "asyncCause": null,
           "displayName": "b",
           "generatedLocation": Object {
             "line": 55,
@@ -403,15 +412,15 @@ exports[`Group passes the getFrameTitle prop to the Frame components 1`] = `
           "source": Object {
             "extensionName": null,
             "id": "source",
-            "introductionType": undefined,
-            "introductionUrl": null,
             "isBlackBoxed": false,
             "isExtension": false,
+            "isOriginal": false,
             "isPrettyPrinted": false,
             "isWasm": false,
             "relativeUrl": "http://myfile.com/back.js",
             "url": "http://myfile.com/back.js",
           },
+          "state": "on-stack",
           "this": Object {},
           "thread": "FakeThread",
         }
@@ -420,10 +429,12 @@ exports[`Group passes the getFrameTitle prop to the Frame components 1`] = `
       getFrameTitle={[Function]}
       hideLocation={true}
       key="3"
+      panel="webconsole"
       selectFrame={[MockFunction]}
-      selectable={true}
+      selectLocation={[MockFunction]}
       selectedFrame={
         Object {
+          "asyncCause": null,
           "displayName": "foo",
           "generatedLocation": Object {
             "line": 4,
@@ -450,15 +461,15 @@ exports[`Group passes the getFrameTitle prop to the Frame components 1`] = `
           "source": Object {
             "extensionName": null,
             "id": "source",
-            "introductionType": undefined,
-            "introductionUrl": null,
             "isBlackBoxed": false,
             "isExtension": false,
+            "isOriginal": false,
             "isPrettyPrinted": false,
             "isWasm": false,
             "relativeUrl": "url",
             "url": "url",
           },
+          "state": "on-stack",
           "this": Object {},
           "thread": "FakeThread",
         }
@@ -489,6 +500,7 @@ exports[`Group renders group with anonymous functions 1`] = `
       expanded={false}
       frame={
         Object {
+          "asyncCause": null,
           "displayName": "display-1",
           "generatedLocation": Object {
             "line": 55,
@@ -515,15 +527,15 @@ exports[`Group renders group with anonymous functions 1`] = `
           "source": Object {
             "extensionName": null,
             "id": "source",
-            "introductionType": undefined,
-            "introductionUrl": null,
             "isBlackBoxed": false,
             "isExtension": false,
+            "isOriginal": false,
             "isPrettyPrinted": false,
             "isWasm": false,
             "relativeUrl": "http://myfile.com/mahscripts.js",
             "url": "http://myfile.com/mahscripts.js",
           },
+          "state": "on-stack",
           "this": Object {},
           "thread": "FakeThread",
         }
@@ -562,6 +574,7 @@ exports[`Group renders group with anonymous functions 2`] = `
       expanded={true}
       frame={
         Object {
+          "asyncCause": null,
           "displayName": "display-1",
           "generatedLocation": Object {
             "line": 55,
@@ -588,15 +601,15 @@ exports[`Group renders group with anonymous functions 2`] = `
           "source": Object {
             "extensionName": null,
             "id": "source",
-            "introductionType": undefined,
-            "introductionUrl": null,
             "isBlackBoxed": false,
             "isExtension": false,
+            "isOriginal": false,
             "isPrettyPrinted": false,
             "isWasm": false,
             "relativeUrl": "http://myfile.com/mahscripts.js",
             "url": "http://myfile.com/mahscripts.js",
           },
+          "state": "on-stack",
           "this": Object {},
           "thread": "FakeThread",
         }
@@ -634,6 +647,7 @@ exports[`Group renders group with anonymous functions 2`] = `
       displayFullUrl={false}
       frame={
         Object {
+          "asyncCause": null,
           "displayName": "display-1",
           "generatedLocation": Object {
             "line": 55,
@@ -660,15 +674,15 @@ exports[`Group renders group with anonymous functions 2`] = `
           "source": Object {
             "extensionName": null,
             "id": "source",
-            "introductionType": undefined,
-            "introductionUrl": null,
             "isBlackBoxed": false,
             "isExtension": false,
+            "isOriginal": false,
             "isPrettyPrinted": false,
             "isWasm": false,
             "relativeUrl": "http://myfile.com/mahscripts.js",
             "url": "http://myfile.com/mahscripts.js",
           },
+          "state": "on-stack",
           "this": Object {},
           "thread": "FakeThread",
         }
@@ -676,10 +690,12 @@ exports[`Group renders group with anonymous functions 2`] = `
       frameworkGroupingOn={true}
       hideLocation={true}
       key="1"
+      panel="webconsole"
       selectFrame={[MockFunction]}
-      selectable={true}
+      selectLocation={[MockFunction]}
       selectedFrame={
         Object {
+          "asyncCause": null,
           "displayName": "foo",
           "generatedLocation": Object {
             "line": 4,
@@ -706,15 +722,15 @@ exports[`Group renders group with anonymous functions 2`] = `
           "source": Object {
             "extensionName": null,
             "id": "source",
-            "introductionType": undefined,
-            "introductionUrl": null,
             "isBlackBoxed": false,
             "isExtension": false,
+            "isOriginal": false,
             "isPrettyPrinted": false,
             "isWasm": false,
             "relativeUrl": "url",
             "url": "url",
           },
+          "state": "on-stack",
           "this": Object {},
           "thread": "FakeThread",
         }
@@ -740,6 +756,7 @@ exports[`Group renders group with anonymous functions 2`] = `
       displayFullUrl={false}
       frame={
         Object {
+          "asyncCause": null,
           "displayName": "display-2",
           "generatedLocation": Object {
             "line": 55,
@@ -766,15 +783,15 @@ exports[`Group renders group with anonymous functions 2`] = `
           "source": Object {
             "extensionName": null,
             "id": "source",
-            "introductionType": undefined,
-            "introductionUrl": null,
             "isBlackBoxed": false,
             "isExtension": false,
+            "isOriginal": false,
             "isPrettyPrinted": false,
             "isWasm": false,
             "relativeUrl": "http://myfile.com/back.js",
             "url": "http://myfile.com/back.js",
           },
+          "state": "on-stack",
           "this": Object {},
           "thread": "FakeThread",
         }
@@ -782,10 +799,12 @@ exports[`Group renders group with anonymous functions 2`] = `
       frameworkGroupingOn={true}
       hideLocation={true}
       key="2"
+      panel="webconsole"
       selectFrame={[MockFunction]}
-      selectable={true}
+      selectLocation={[MockFunction]}
       selectedFrame={
         Object {
+          "asyncCause": null,
           "displayName": "foo",
           "generatedLocation": Object {
             "line": 4,
@@ -812,15 +831,15 @@ exports[`Group renders group with anonymous functions 2`] = `
           "source": Object {
             "extensionName": null,
             "id": "source",
-            "introductionType": undefined,
-            "introductionUrl": null,
             "isBlackBoxed": false,
             "isExtension": false,
+            "isOriginal": false,
             "isPrettyPrinted": false,
             "isWasm": false,
             "relativeUrl": "url",
             "url": "url",
           },
+          "state": "on-stack",
           "this": Object {},
           "thread": "FakeThread",
         }
@@ -846,6 +865,7 @@ exports[`Group renders group with anonymous functions 2`] = `
       displayFullUrl={false}
       frame={
         Object {
+          "asyncCause": null,
           "displayName": "display-3",
           "generatedLocation": Object {
             "line": 55,
@@ -872,15 +892,15 @@ exports[`Group renders group with anonymous functions 2`] = `
           "source": Object {
             "extensionName": null,
             "id": "source",
-            "introductionType": undefined,
-            "introductionUrl": null,
             "isBlackBoxed": false,
             "isExtension": false,
+            "isOriginal": false,
             "isPrettyPrinted": false,
             "isWasm": false,
             "relativeUrl": "http://myfile.com/back.js",
             "url": "http://myfile.com/back.js",
           },
+          "state": "on-stack",
           "this": Object {},
           "thread": "FakeThread",
         }
@@ -888,10 +908,12 @@ exports[`Group renders group with anonymous functions 2`] = `
       frameworkGroupingOn={true}
       hideLocation={true}
       key="3"
+      panel="webconsole"
       selectFrame={[MockFunction]}
-      selectable={true}
+      selectLocation={[MockFunction]}
       selectedFrame={
         Object {
+          "asyncCause": null,
           "displayName": "foo",
           "generatedLocation": Object {
             "line": 4,
@@ -918,15 +940,15 @@ exports[`Group renders group with anonymous functions 2`] = `
           "source": Object {
             "extensionName": null,
             "id": "source",
-            "introductionType": undefined,
-            "introductionUrl": null,
             "isBlackBoxed": false,
             "isExtension": false,
+            "isOriginal": false,
             "isPrettyPrinted": false,
             "isWasm": false,
             "relativeUrl": "url",
             "url": "url",
           },
+          "state": "on-stack",
           "this": Object {},
           "thread": "FakeThread",
         }

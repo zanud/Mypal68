@@ -15,7 +15,7 @@
 
 const { Ci } = require("chrome");
 const Services = require("Services");
-const { DebuggerServer } = require("devtools/server/debugger-server");
+const { DevToolsServer } = require("devtools/server/devtools-server");
 const {
   getChildDocShells,
   BrowsingContextTargetActor,
@@ -43,7 +43,7 @@ const parentProcessTargetPrototype = extend({}, browsingContextTargetPrototype);
  * RootActor.getProcess request. ParentProcessTargetActor exposes all target-scoped actors
  * via its form() request, like BrowsingContextTargetActor.
  *
- * @param connection DebuggerServerConnection
+ * @param connection DevToolsServerConnection
  *        The connection to the client.
  * @param window Window object (optional)
  *        If the upper class already knows against which window the actor should attach,
@@ -63,7 +63,7 @@ parentProcessTargetPrototype.initialize = function(connection, window) {
 
   // Defines the default docshell selected for the target actor
   if (!window) {
-    window = Services.wm.getMostRecentWindow(DebuggerServer.chromeWindowType);
+    window = Services.wm.getMostRecentWindow(DevToolsServer.chromeWindowType);
   }
 
   // Default to any available top level window if there is no expected window
@@ -99,6 +99,25 @@ Object.defineProperty(parentProcessTargetPrototype, "docShells", {
     }
 
     return docShells;
+  },
+});
+
+/**
+ * Getter for the list of all browsingContexts in the parent process.
+ * We use specialized code in order to retrieve <browser>'s browsing context for
+ * each browser's tab. BrowsingContext.getChildren method doesn't return the
+ * tab's BrowsingContext because they are of "content" type, while the root
+ * BrowsingContext of the parent process target is of "chrome" type.
+ *
+ * @return {Array}
+ */
+Object.defineProperty(parentProcessTargetPrototype, "childBrowsingContexts", {
+  get: function() {
+    // Iterate over all `browser` elements that are remote, and return their
+    // browsing context.
+    return [
+      ...this.window.document.querySelectorAll(`browser[remote="true"]`),
+    ].map(browser => browser.browsingContext);
   },
 });
 

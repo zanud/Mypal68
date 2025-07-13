@@ -13,7 +13,7 @@ const { require } = BrowserLoader({
   baseURI: "resource://devtools/client/responsive/",
   window,
 });
-const Telemetry = require("devtools/client/shared/telemetry");
+const Services = require("Services");
 
 const {
   createFactory,
@@ -22,30 +22,34 @@ const {
 const ReactDOM = require("devtools/client/shared/vendor/react-dom");
 const { Provider } = require("devtools/client/shared/vendor/react-redux");
 
-const message = require("./utils/message");
-const App = createFactory(require("./components/App"));
-const Store = require("./store");
-const { loadDevices, restoreDeviceState } = require("./actions/devices");
+const message = require("devtools/client/responsive/utils/message");
+const App = createFactory(require("devtools/client/responsive/components/App"));
+const Store = require("devtools/client/responsive/store");
+const {
+  loadDevices,
+  restoreDeviceState,
+} = require("devtools/client/responsive/actions/devices");
 const {
   addViewport,
   resizeViewport,
   zoomViewport,
-} = require("./actions/viewports");
-const { changeDisplayPixelRatio } = require("./actions/ui");
+} = require("devtools/client/responsive/actions/viewports");
+const {
+  changeDisplayPixelRatio,
+} = require("devtools/client/responsive/actions/ui");
 
 // Exposed for use by tests
 window.require = require;
 
-const bootstrap = {
-  telemetry: new Telemetry(),
+if (Services.prefs.getBoolPref("devtools.responsive.browserUI.enabled")) {
+  // Tell the ResponsiveUIManager that the frame script has begun initializing.
+  message.post(window, "script-init");
+}
 
+const bootstrap = {
   store: null,
 
   async init() {
-    // responsive is not connected with a toolbox so we pass -1 as the
-    // toolbox session id.
-    this.telemetry.toolOpened("responsive", -1, this);
-
     const store = (this.store = Store());
     const provider = createElement(Provider, { store }, App());
     ReactDOM.render(provider, document.querySelector("#root"));
@@ -54,11 +58,6 @@ const bootstrap = {
 
   destroy() {
     this.store = null;
-
-    // responsive is not connected with a toolbox so we pass -1 as the
-    // toolbox session id.
-    this.telemetry.toolClosed("responsive", -1, this);
-    this.telemetry = null;
   },
 
   /**
@@ -127,7 +126,7 @@ function onDevicePixelRatioChange() {
 /**
  * Called by manager.js to add the initial viewport based on the original page.
  */
-window.addInitialViewport = ({ uri, userContextId }) => {
+window.addInitialViewport = ({ userContextId }) => {
   try {
     onDevicePixelRatioChange();
     bootstrap.dispatch(changeDisplayPixelRatio(window.devicePixelRatio));

@@ -4,20 +4,25 @@
 
 "use strict";
 
-var { Actor, ActorClassWithSpec } = require("./protocol/Actor");
-var { Pool } = require("./protocol/Pool");
+var { Actor, ActorClassWithSpec } = require("devtools/shared/protocol/Actor");
+var { Pool } = require("devtools/shared/protocol/Pool");
 var {
   types,
   registeredTypes,
   registerFront,
   getFront,
-} = require("./protocol/types");
-var { method } = require("./protocol/utils");
-var { Front } = require("./protocol/Front");
-var { FrontClassWithSpec } = require("./protocol/Front/FrontClassWithSpec");
-var { Arg, Option } = require("./protocol/Request");
-const { RetVal } = require("./protocol/Response");
-const { generateActorSpec } = require("./protocol/Actor/generateActorSpec");
+  createRootFront,
+} = require("devtools/shared/protocol/types");
+var { method } = require("devtools/shared/protocol/utils");
+var { Front } = require("devtools/shared/protocol/Front");
+var {
+  FrontClassWithSpec,
+} = require("devtools/shared/protocol/Front/FrontClassWithSpec");
+var { Arg, Option } = require("devtools/shared/protocol/Request");
+const { RetVal } = require("devtools/shared/protocol/Response");
+const {
+  generateActorSpec,
+} = require("devtools/shared/protocol/Actor/generateActorSpec");
 
 exports.Front = Front;
 exports.Pool = Pool;
@@ -31,6 +36,7 @@ exports.Option = Option;
 exports.RetVal = RetVal;
 exports.registerFront = registerFront;
 exports.getFront = getFront;
+exports.createRootFront = createRootFront;
 exports.method = method;
 
 exports.dumpActorSpec = function(type) {

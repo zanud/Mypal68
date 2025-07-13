@@ -3,7 +3,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 /* eslint no-unused-vars: [2, {"vars": "local", "args": "none"}] */
 /* import-globals-from shared-head.js */
-/* import-globals-from telemetry-test-helpers.js */
 
 "use strict";
 
@@ -13,9 +12,7 @@ Services.scriptloader.loadSubScript(
   this
 );
 
-const { DOMHelpers } = ChromeUtils.import(
-  "resource://devtools/client/shared/DOMHelpers.jsm"
-);
+const { DOMHelpers } = require("devtools/shared/dom-helpers");
 const { Hosts } = require("devtools/client/framework/toolbox-hosts");
 
 const TEST_URI_ROOT = "http://example.com/browser/devtools/client/shared/test/";
@@ -119,12 +116,11 @@ const createHost = async function(
   const iframe = await host.create();
 
   await new Promise(resolve => {
-    const domHelper = new DOMHelpers(iframe.contentWindow);
     iframe.setAttribute("src", src);
-    domHelper.onceDOMReady(resolve);
+    DOMHelpers.onceDOMReady(iframe.contentWindow, resolve);
   });
 
-  return [host, iframe.contentWindow, iframe.contentDocument];
+  return { host: host, win: iframe.contentWindow, doc: iframe.contentDocument };
 };
 
 /**

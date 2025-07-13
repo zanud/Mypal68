@@ -30,9 +30,6 @@ loader.lazyRequireGetter(
   "devtools/client/framework/devtools-browser",
   true
 );
-loader.lazyRequireGetter(this, "Telemetry", "devtools/client/shared/telemetry");
-
-let telemetry = null;
 
 // Keep list of inserted DOM Elements in order to remove them on unload
 // Maps browser xul document => list of DOM Elements
@@ -94,7 +91,6 @@ function createToolMenuElements(toolDefinition, doc) {
     try {
       const window = event.target.ownerDocument.defaultView;
       await gDevToolsBrowser.selectToolCommand(window, id, Cu.now());
-      sendEntryPointTelemetry(window);
     } catch (e) {
       console.error(`Exception while opening ${id}: ${e}\n${e.stack}`);
     }
@@ -114,29 +110,6 @@ function createToolMenuElements(toolDefinition, doc) {
   return {
     menuitem,
   };
-}
-
-/**
- * Send entry point telemetry explaining how the devtools were launched when
- * launched from the System Menu.. This functionality also lives inside
- * `devtools/startup/devtools-startup.js` but that codepath is only used the
- * first time a toolbox is opened for a tab.
- */
-function sendEntryPointTelemetry(window) {
-  if (!telemetry) {
-    telemetry = new Telemetry();
-  }
-
-  telemetry.addEventProperty(window, "open", "tools", null, "shortcut", "");
-
-  telemetry.addEventProperty(
-    window,
-    "open",
-    "tools",
-    null,
-    "entrypoint",
-    "SystemMenu"
-  );
 }
 
 /**
@@ -230,7 +203,7 @@ function addAllToolsToMenu(doc) {
 function addTopLevelItems(doc) {
   const menuItems = doc.createDocumentFragment();
 
-  const { menuitems } = require("../menus");
+  const { menuitems } = require("devtools/client/menus");
   for (const item of menuitems) {
     if (item.separator) {
       const separator = doc.createXULElement("menuseparator");

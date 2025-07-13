@@ -12,9 +12,6 @@ const L10N = new LocalizationHelper(
   "devtools/client/locales/inspector.properties"
 );
 
-const TELEMETRY_PICKER_EYEDROPPER_OPEN_COUNT =
-  "DEVTOOLS_PICKER_EYEDROPPER_OPENED_COUNT";
-
 const XHTML_NS = "http://www.w3.org/1999/xhtml";
 
 /**
@@ -87,7 +84,7 @@ class SwatchColorPickerTooltip extends SwatchBasedEditorTooltip {
     const name = this.activeSwatch.dataset.propertyName;
 
     if (this.isContrastCompatible === undefined) {
-      const target = this.inspector.target;
+      const target = this.inspector.currentTarget;
       this.isContrastCompatible = await target.actorHasMethod(
         "domnode",
         "getClosestBackgroundColor"
@@ -161,11 +158,7 @@ class SwatchColorPickerTooltip extends SwatchBasedEditorTooltip {
   }
 
   _openEyeDropper() {
-    const { inspectorFront, toolbox, telemetry } = this.inspector;
-
-    telemetry
-      .getHistogramById(TELEMETRY_PICKER_EYEDROPPER_OPEN_COUNT)
-      .add(true);
+    const { inspectorFront, toolbox } = this.inspector;
 
     // cancelling picker(if it is already selected) on opening eye-dropper
     toolbox.nodePicker.cancel();

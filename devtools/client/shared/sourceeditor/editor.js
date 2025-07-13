@@ -149,7 +149,7 @@ function Editor(config) {
     themeSwitching: true,
     autocomplete: false,
     autocompleteOpts: {},
-    // Expect a CssProperties object (see devtools/shared/fronts/css-properties.js)
+    // Expect a CssProperties object (see devtools/client/fronts/css-properties.js)
     cssProperties: null,
     // Set to true to prevent the search addon to be activated.
     disableSearchAddon: false,
@@ -1317,7 +1317,7 @@ Editor.prototype = {
     // The autocomplete module will overwrite this.initializeAutoCompletion
     // with a mode specific autocompletion handler.
     if (!this.initializeAutoCompletion) {
-      this.extend(require("./autocomplete"));
+      this.extend(require("devtools/client/shared/sourceeditor/autocomplete"));
     }
 
     if (this.config.autocomplete && Services.prefs.getBoolPref(AUTOCOMPLETE)) {

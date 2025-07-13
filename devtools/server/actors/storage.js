@@ -7,11 +7,12 @@
 const { Cc, Ci, Cu, CC } = require("chrome");
 const protocol = require("devtools/shared/protocol");
 const { LongStringActor } = require("devtools/server/actors/string");
-const { DebuggerServer } = require("devtools/server/debugger-server");
+const { DevToolsServer } = require("devtools/server/devtools-server");
 const Services = require("Services");
 const defer = require("devtools/shared/defer");
 const { isWindowIncluded } = require("devtools/shared/layout/utils");
 const specs = require("devtools/shared/specs/storage");
+const { parseItemValue } = require("devtools/shared/storage/utils");
 loader.lazyGetter(this, "ExtensionProcessScript", () => {
   return require("resource://gre/modules/ExtensionProcessScript.jsm")
     .ExtensionProcessScript;
@@ -36,7 +37,7 @@ const DEFAULT_VALUE = "value";
 loader.lazyRequireGetter(
   this,
   "naturalSortCaseInsensitive",
-  "devtools/client/shared/natural-sort",
+  "devtools/shared/natural-sort",
   true
 );
 
@@ -514,7 +515,7 @@ StorageActors.createActor(
       // We need to remove the cookie listeners early in E10S mode so we need to
       // use a conditional here to ensure that we only attempt to remove them in
       // single process mode.
-      if (!DebuggerServer.isInChildProcess) {
+      if (!DevToolsServer.isInChildProcess) {
         this.removeCookieObservers();
       }
 
@@ -780,7 +781,7 @@ StorageActors.createActor(
     maybeSetupChildProcess() {
       cookieHelpers.onCookieChanged = this.onCookieChanged.bind(this);
 
-      if (!DebuggerServer.isInChildProcess) {
+      if (!DevToolsServer.isInChildProcess) {
         this.getCookiesFromHost = cookieHelpers.getCookiesFromHost.bind(
           cookieHelpers
         );
@@ -803,6 +804,7 @@ StorageActors.createActor(
 
       const mm = this.conn.parentMessageManager;
 
+      // eslint-disable-next-line no-restricted-properties
       this.conn.setupInParent({
         module: "devtools/server/actors/storage",
         setupParent: "setupParentProcessForCookies",
@@ -1403,6 +1405,120 @@ const extensionStorageHelpers = {
   // a separate extensionStorage actor targeting that addon. The addonId is passed into the listener,
   // so that changes propagate only if the storage actor has a matching addonId.
   onChangedChildListeners: new Set(),
+  /**
+   * Editing is supported only for serializable types. Examples of unserializable
+   * types include Map, Set and ArrayBuffer.
+   */
+  isEditable(value) {
+    // Bug 1542038: the managed storage area is never editable
+    for (const { test } of Object.values(this.supportedTypes)) {
+      if (test(value)) {
+        return true;
+      }
+    }
+    return false;
+  },
+  isPrimitive(value) {
+    const primitiveValueTypes = ["string", "number", "boolean"];
+    return primitiveValueTypes.includes(typeof value) || value === null;
+  },
+  isObjectLiteral(value) {
+    return (
+      value &&
+      typeof value === "object" &&
+      Cu.getClassName(value, true) === "Object"
+    );
+  },
+  // Nested arrays or object literals are only editable 2 levels deep
+  isArrayOrObjectLiteralEditable(obj) {
+    const topLevelValuesArr = Array.isArray(obj) ? obj : Object.values(obj);
+    if (
+      topLevelValuesArr.some(
+        value =>
+          !this.isPrimitive(value) &&
+          !Array.isArray(value) &&
+          !this.isObjectLiteral(value)
+      )
+    ) {
+      // At least one value is too complex to parse
+      return false;
+    }
+    const arrayOrObjects = topLevelValuesArr.filter(
+      value => Array.isArray(value) || this.isObjectLiteral(value)
+    );
+    if (arrayOrObjects.length === 0) {
+      // All top level values are primitives
+      return true;
+    }
+
+    // One or more top level values was an array or object literal.
+    // All of these top level values must themselves have only primitive values
+    // for the object to be editable
+    for (const nestedObj of arrayOrObjects) {
+      const secondLevelValuesArr = Array.isArray(nestedObj)
+        ? nestedObj
+        : Object.values(nestedObj);
+      if (secondLevelValuesArr.some(value => !this.isPrimitive(value))) {
+        return false;
+      }
+    }
+    return true;
+  },
+  typesFromString: {
+    // Helper methods to parse string values in editItem
+    jsonifiable: {
+      test(str) {
+        try {
+          JSON.parse(str);
+        } catch (e) {
+          return false;
+        }
+        return true;
+      },
+      parse(str) {
+        return JSON.parse(str);
+      },
+    },
+  },
+  supportedTypes: {
+    // Helper methods to determine the value type of an item in isEditable
+    array: {
+      test(value) {
+        if (Array.isArray(value)) {
+          return extensionStorageHelpers.isArrayOrObjectLiteralEditable(value);
+        }
+        return false;
+      },
+    },
+    boolean: {
+      test(value) {
+        return typeof value === "boolean";
+      },
+    },
+    null: {
+      test(value) {
+        return value === null;
+      },
+    },
+    number: {
+      test(value) {
+        return typeof value === "number";
+      },
+    },
+    object: {
+      test(value) {
+        if (extensionStorageHelpers.isObjectLiteral(value)) {
+          return extensionStorageHelpers.isArrayOrObjectLiteralEditable(value);
+        }
+        return false;
+      },
+    },
+    string: {
+      test(value) {
+        return typeof value === "string";
+      },
+    },
+  },
 
   // Sets the parent process message manager
   setPpmm(ppmm) {
@@ -1772,11 +1888,14 @@ if (Services.prefs.getBoolPref(EXTENSION_STORAGE_ENABLED_PREF, false)) {
           storeMap.set(key, value);
         }
 
-        // Show the storage actor in the add-on storage inspector even when there
-        // is no extension page currently open
-        const storageData = {};
-        storageData[host] = this.getNamesForHost(host);
-        this.storageActor.update("added", this.typeName, storageData);
+        if (this.storageActor.parentActor.fallbackWindow) {
+          // Show the storage actor in the add-on storage inspector even when there
+          // is no extension page currently open
+          // This strategy may need to change depending on the outcome of Bug 1597900
+          const storageData = {};
+          storageData[host] = this.getNamesForHost(host);
+          this.storageActor.update("added", this.typeName, storageData);
+        }
       },
 
       async getStoragePrincipal(addonId) {
@@ -1813,7 +1932,9 @@ if (Services.prefs.getBoolPref(EXTENSION_STORAGE_ENABLED_PREF, false)) {
 
       /**
        * Converts a storage item to an "extensionobject" as defined in
-       * devtools/shared/specs/storage.js
+       * devtools/shared/specs/storage.js. Behavior largely mirrors the "indexedDB" storage actor,
+       * except where it would throw an unhandled error (i.e. for a `BigInt` or `undefined`
+       * `item.value`).
        * @param {Object} item - The storage item to convert
        * @param {String} item.name - The storage item key
        * @param {*} item.value - The storage item value
@@ -1824,48 +1945,122 @@ if (Services.prefs.getBoolPref(EXTENSION_STORAGE_ENABLED_PREF, false)) {
           return null;
         }
 
-        const { name, value } = item;
+        let { name, value } = item;
+        let isValueEditable = extensionStorageHelpers.isEditable(value);
 
-        let newValue;
-        if (typeof value === "string") {
-          newValue = value;
-        } else {
-          try {
-            newValue = JSON.stringify(value) || String(value);
-          } catch (error) {
-            // throws for bigint
-            newValue = String(value);
-          }
-
-          // JavaScript objects that are not JSON stringifiable will be represented
-          // by the string "Object"
-          if (newValue === "{}") {
-            newValue = "Object";
-          }
+        // `JSON.stringify()` throws for `BigInt`, adds extra quotes to strings and `Date` strings,
+        // and doesn't modify `undefined`.
+        switch (typeof value) {
+          case "bigint":
+            value = `${value.toString()}n`;
+            break;
+          case "string":
+            break;
+          case "undefined":
+            value = "undefined";
+            break;
+          default:
+            value = JSON.stringify(value);
+            if (
+              // can't use `instanceof` across frame boundaries
+              Object.prototype.toString.call(item.value) === "[object Date]"
+            ) {
+              value = JSON.parse(value);
+            }
         }
 
         // FIXME: Bug 1318029 - Due to a bug that is thrown whenever a
-        // LongStringActor string reaches DebuggerServer.LONG_STRING_LENGTH we need
+        // LongStringActor string reaches DevToolsServer.LONG_STRING_LENGTH we need
         // to trim the value. When the bug is fixed we should stop trimming the
         // string here.
-        const maxLength = DebuggerServer.LONG_STRING_LENGTH - 1;
-        if (newValue.length > maxLength) {
-          newValue = newValue.substr(0, maxLength);
+        const maxLength = DevToolsServer.LONG_STRING_LENGTH - 1;
+        if (value.length > maxLength) {
+          value = value.substr(0, maxLength);
+          isValueEditable = false;
         }
 
         return {
           name,
-          value: new LongStringActor(this.conn, newValue || ""),
+          value: new LongStringActor(this.conn, value),
           area: "local", // Bug 1542038, 1542039: set the correct storage area
+          isValueEditable,
         };
       },
 
       getFields() {
         return [
           { name: "name", editable: false },
-          { name: "value", editable: false },
+          { name: "value", editable: true },
           { name: "area", editable: false },
+          { name: "isValueEditable", editable: false, private: true },
         ];
+      },
+
+      onItemUpdated(action, host, names) {
+        this.storageActor.update(action, this.typeName, {
+          [host]: names,
+        });
+      },
+
+      async editItem({ host, field, items, oldValue }) {
+        const db = this.dbConnectionForHost.get(host);
+        if (!db) {
+          return;
+        }
+
+        const { name, value } = items;
+
+        let parsedValue = parseItemValue(value);
+        if (parsedValue === value) {
+          const { typesFromString } = extensionStorageHelpers;
+          for (const { test, parse } of Object.values(typesFromString)) {
+            if (test(value)) {
+              parsedValue = parse(value);
+              break;
+            }
+          }
+        }
+        const changes = await db.set({ [name]: parsedValue });
+        this.fireOnChangedExtensionEvent(host, changes);
+
+        this.onItemUpdated("changed", host, [name]);
+      },
+
+      async removeItem(host, name) {
+        const db = this.dbConnectionForHost.get(host);
+        if (!db) {
+          return;
+        }
+
+        const changes = await db.remove(name);
+        this.fireOnChangedExtensionEvent(host, changes);
+
+        this.onItemUpdated("deleted", host, [name]);
+      },
+
+      async removeAll(host) {
+        const db = this.dbConnectionForHost.get(host);
+        if (!db) {
+          return;
+        }
+
+        const changes = await db.clear();
+        this.fireOnChangedExtensionEvent(host, changes);
+
+        this.onItemUpdated("cleared", host, []);
+      },
+
+      /**
+       * Let the extension know that storage data has been changed by the user from
+       * the storage inspector.
+       */
+      fireOnChangedExtensionEvent(host, changes) {
+        // Bug 1542038, 1542039: Which message to send depends on the storage area
+        const uuid = new URL(host).host;
+        Services.cpmm.sendAsyncMessage(
+          `Extension:StorageLocalOnChanged:${uuid}`,
+          changes
+        );
       },
     }
   );
@@ -2398,10 +2593,10 @@ StorageActors.createActor(
       let value = JSON.stringify(item.value);
 
       // FIXME: Bug 1318029 - Due to a bug that is thrown whenever a
-      // LongStringActor string reaches DebuggerServer.LONG_STRING_LENGTH we need
+      // LongStringActor string reaches DevToolsServer.LONG_STRING_LENGTH we need
       // to trim the value. When the bug is fixed we should stop trimming the
       // string here.
-      const maxLength = DebuggerServer.LONG_STRING_LENGTH - 1;
+      const maxLength = DevToolsServer.LONG_STRING_LENGTH - 1;
       if (value.length > maxLength) {
         value = value.substr(0, maxLength);
       }
@@ -2439,7 +2634,7 @@ StorageActors.createActor(
     },
 
     maybeSetupChildProcess() {
-      if (!DebuggerServer.isInChildProcess) {
+      if (!DevToolsServer.isInChildProcess) {
         this.backToChild = (func, rv) => rv;
         this.clearDBStore = indexedDBHelpers.clearDBStore;
         this.findIDBPathsForHost = indexedDBHelpers.findIDBPathsForHost;
@@ -2461,6 +2656,7 @@ StorageActors.createActor(
 
       const mm = this.conn.parentMessageManager;
 
+      // eslint-disable-next-line no-restricted-properties
       this.conn.setupInParent({
         module: "devtools/server/actors/storage",
         setupParent: "setupParentProcessForIndexedDB",
@@ -3266,7 +3462,6 @@ const StorageActor = protocol.ActorClassWithSpec(specs.storageSpec, {
     this.childWindowPool = null;
     this.parentActor = null;
     this.boundUpdate = null;
-    this.registeredPool = null;
     this._pendingResponse = null;
 
     protocol.Actor.prototype.destroy.call(this);
