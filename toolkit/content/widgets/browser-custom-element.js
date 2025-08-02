@@ -1139,25 +1139,6 @@
       this.frameLoader.browsingContext.notifyMediaMutedChanged(false);
     }
 
-    pauseMedia(disposable) {
-      let suspendedReason;
-      if (disposable) {
-        suspendedReason = "mediaControlPaused";
-      } else {
-        suspendedReason = "lostAudioFocusTransiently";
-      }
-
-      this.messageManager.sendAsyncMessage("AudioPlayback", {
-        type: suspendedReason,
-      });
-    }
-
-    stopMedia() {
-      this.messageManager.sendAsyncMessage("AudioPlayback", {
-        type: "mediaControlStopped",
-      });
-    }
-
     resumeMedia() {
       this.frameLoader.browsingContext.notifyStartDelayedAutoplayMedia();
       if (this._hasAnyPlayingMediaBeenBlocked) {

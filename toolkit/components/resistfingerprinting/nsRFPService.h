@@ -91,8 +91,8 @@ struct SpoofingKeyboardCode {
 };
 
 struct SpoofingKeyboardInfo {
-  KeyNameIndex mKeyIdx;
   nsString mKey;
+  KeyNameIndex mKeyIdx;
   SpoofingKeyboardCode mSpoofingCode;
 };
 

@@ -613,10 +613,10 @@ nsFormFillController::OnTextEntered(Event* aEvent, bool itemWasSelected,
 
   IgnoredErrorResult ignored;
   RefPtr<Event> event = mFocusedInput->OwnerDoc()->CreateEvent(
-      NS_LITERAL_STRING("Events"), CallerType::System, ignored);
+      u"Events"_ns, CallerType::System, ignored);
   NS_ENSURE_STATE(event);
 
-  event->InitEvent(NS_LITERAL_STRING("DOMAutoComplete"), true, true);
+  event->InitEvent(u"DOMAutoComplete"_ns, true, true);
 
   // XXXjst: We mark this event as a trusted event, it's up to the
   // callers of this to ensure that it's only called from trusted
@@ -1200,7 +1200,7 @@ nsFormFillController::ShowPopup() {
   input->GetTextValue(value);
   if (value.Length() > 0) {
     // Show the popup with a filtered result set
-    controller->SetSearchString(EmptyString());
+    controller->SetSearchString(u""_ns);
     bool unused = false;
     controller->HandleText(&unused);
   } else {

@@ -7,7 +7,6 @@
 
 #include "nsINavHistoryService.h"
 
-#include "nsICollation.h"
 #include "nsIStringBundle.h"
 #include "nsITimer.h"
 #include "nsMaybeWeakPtr.h"
@@ -22,6 +21,8 @@
 #include "Database.h"
 #include "mozilla/Atomics.h"
 #include "mozilla/Attributes.h"
+#include "mozilla/intl/Collator.h"
+#include "mozilla/UniquePtr.h"
 #include "mozIStorageVacuumParticipant.h"
 
 #ifdef XP_WIN
@@ -166,7 +167,7 @@ class nsNavHistory final : public nsSupportsWeakReference,
    * objects for places components.
    */
   nsIStringBundle* GetBundle();
-  nsICollation* GetCollation();
+  const mozilla::intl::Collator* GetCollator();
   void GetStringFromName(const char* aName, nsACString& aResult);
   void GetAgeInDaysString(int32_t aInt, const char* aName, nsACString& aResult);
   static void GetMonthName(const PRExplodedTime& aTime, nsACString& aResult);
@@ -224,12 +225,6 @@ class nsNavHistory final : public nsSupportsWeakReference,
   nsresult URIToResultNode(nsIURI* aURI, nsNavHistoryQueryOptions* aOptions,
                            nsNavHistoryResultNode** aResult);
 
-  // used by other places components to send history notifications (for example,
-  // when the favicon has changed)
-  void SendPageChangedNotification(nsIURI* aURI, uint32_t aChangedAttribute,
-                                   const nsAString& aValue,
-                                   const nsACString& aGUID);
-
   /**
    * Returns current number of days stored in history.
    */
@@ -239,13 +234,6 @@ class nsNavHistory final : public nsSupportsWeakReference,
   static PRTime NormalizeTime(uint32_t aRelative, PRTime aOffset);
 
   typedef nsDataHashtable<nsCStringHashKey, nsCString> StringHash;
-
-  /**
-   * Indicates if it is OK to notify history observers or not.
-   *
-   * @return true if it is OK to notify, false otherwise.
-   */
-  bool canNotify() { return mCanNotify; }
 
   enum RecentEventFlags {
     RECENT_TYPED = 1 << 0,      // User typed in URL recently
@@ -348,33 +336,6 @@ class nsNavHistory final : public nsSupportsWeakReference,
   void UpdateDaysOfHistory(PRTime visitTime);
 
   /**
-   * Fires onTitleChanged event to nsINavHistoryService observers
-   */
-  void NotifyTitleChange(nsIURI* aURI, const nsString& title,
-                         const nsACString& aGUID);
-
-  /**
-   * Fires onFrecencyChanged event to nsINavHistoryService observers
-   */
-  void NotifyFrecencyChanged(const nsACString& aSpec, int32_t aNewFrecency,
-                             const nsACString& aGUID, bool aHidden,
-                             PRTime aLastVisitDate);
-
-  /**
-   * Fires onManyFrecenciesChanged event to nsINavHistoryService observers
-   */
-  void NotifyManyFrecenciesChanged();
-
-  /**
-   * Posts a runnable to the main thread that calls NotifyFrecencyChanged.
-   */
-  void DispatchFrecencyChangedNotification(const nsACString& aSpec,
-                                           int32_t aNewFrecency,
-                                           const nsACString& aGUID,
-                                           bool aHidden,
-                                           PRTime aLastVisitDate) const;
-
-  /**
    * Returns true if frecency is currently being decayed.
    *
    * @return True if frecency is being decayed, false if not.
@@ -408,13 +369,17 @@ class nsNavHistory final : public nsSupportsWeakReference,
       const RefPtr<nsNavHistoryQuery>& aQuery,
       nsNavHistoryQueryOptions* aOptions);
 
-  void DecayFrecencyCompleted(uint16_t reason);
+  void DecayFrecencyCompleted();
+
+  static void InvalidateDaysOfHistory();
 
  private:
   ~nsNavHistory();
 
   // used by GetHistoryService
   static nsNavHistory* gHistoryService;
+
+  static mozilla::Atomic<int32_t> sDaysOfHistory;
 
  protected:
   // Database handle.
@@ -458,16 +423,13 @@ class nsNavHistory final : public nsSupportsWeakReference,
                          nsNavHistoryQueryOptions* aOptions,
                          nsCOMArray<nsNavHistoryResultNode>* aResults);
 
-  // observers
-  nsMaybeWeakPtrArray<nsINavHistoryObserver> mObservers;
-
   // effective tld service
   nsCOMPtr<nsIEffectiveTLDService> mTLDService;
   nsCOMPtr<nsIIDNService> mIDNService;
 
   // localization
   nsCOMPtr<nsIStringBundle> mBundle;
-  nsCOMPtr<nsICollation> mCollation;
+  mozilla::UniquePtr<const mozilla::intl::Collator> mCollator;
 
   // recent events
   typedef nsDataHashtable<nsCStringHashKey, int64_t> RecentEventHash;
@@ -518,12 +480,8 @@ class nsNavHistory final : public nsSupportsWeakReference,
 
   int64_t mTagsFolder;
 
-  int32_t mDaysOfHistory;
   int64_t mLastCachedStartOfDay;
   int64_t mLastCachedEndOfDay;
-
-  // Used to enable and disable the observer notifications
-  bool mCanNotify;
 
   // Used to cache the call to CryptAcquireContext, which is expensive
   // when called thousands of times
@@ -537,13 +495,13 @@ class nsNavHistory final : public nsSupportsWeakReference,
 
 /* Returns true if the given URI represents a history query. */
 inline bool IsQueryURI(const nsCString& uri) {
-  return StringBeginsWith(uri, NS_LITERAL_CSTRING(PLACES_URI_PREFIX));
+  return StringBeginsWith(uri, nsLiteralCString(PLACES_URI_PREFIX));
 }
 
 /* Extracts the query string from a query URI. */
 inline const nsDependentCSubstring QueryURIToQuery(const nsCString& uri) {
   NS_ASSERTION(IsQueryURI(uri), "should only be called for query URIs");
-  return Substring(uri, NS_LITERAL_CSTRING(PLACES_URI_PREFIX).Length());
+  return Substring(uri, nsLiteralCString(PLACES_URI_PREFIX).Length());
 }
 
 #endif  // nsNavHistory_h_

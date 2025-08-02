@@ -10,37 +10,6 @@ const { ActorChild } = ChromeUtils.import(
 );
 
 class AudioPlaybackChild extends ActorChild {
-  handleMediaControlMessage(msg) {
-    let utils = this.content.windowUtils;
-    let suspendTypes = Ci.nsISuspendedTypes;
-    switch (msg) {
-      case "mute":
-        utils.audioMuted = true;
-        break;
-      case "unmute":
-        utils.audioMuted = false;
-        break;
-      case "lostAudioFocus":
-        utils.mediaSuspend = suspendTypes.SUSPENDED_PAUSE_DISPOSABLE;
-        break;
-      case "lostAudioFocusTransiently":
-        utils.mediaSuspend = suspendTypes.SUSPENDED_PAUSE;
-        break;
-      case "gainAudioFocus":
-        utils.mediaSuspend = suspendTypes.NONE_SUSPENDED;
-        break;
-      case "mediaControlPaused":
-        utils.mediaSuspend = suspendTypes.SUSPENDED_PAUSE_DISPOSABLE;
-        break;
-      case "mediaControlStopped":
-        utils.mediaSuspend = suspendTypes.SUSPENDED_STOP_DISPOSABLE;
-        break;
-      default:
-        dump("Error : wrong media control msg!\n");
-        break;
-    }
-  }
-
   observe(subject, topic, data) {
     if (topic === "audio-playback") {
       if (subject && subject.top == this.content) {

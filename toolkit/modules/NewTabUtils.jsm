@@ -555,19 +555,6 @@ var BlockedLinks = {
  */
 var PlacesProvider = {
   /**
-   * A count of how many batch updates are under way (batches may be nested, so
-   * we keep a counter instead of a simple bool).
-   **/
-  _batchProcessingDepth: 0,
-
-  /**
-   * A flag that tracks whether onFrecencyChanged was notified while a batch
-   * operation was in progress, to tell us whether to take special action after
-   * the batch operation completes.
-   **/
-  _batchCalledFrecencyChanged: false,
-
-  /**
    * Set this to change the maximum number of links the provider will provide.
    */
   maxNumLinks: HISTORY_RESULTS_LIMIT,
@@ -576,11 +563,13 @@ var PlacesProvider = {
    * Must be called before the provider is used.
    */
   init: function PlacesProvider_init() {
-    PlacesUtils.history.addObserver(this, true);
     this._placesObserver = new PlacesWeakCallbackWrapper(
       this.handlePlacesEvents.bind(this)
     );
-    PlacesObservers.addListener(["page-visited"], this._placesObserver);
+    PlacesObservers.addListener(
+      ["page-visited", "page-title-changed", "pages-rank-changed"],
+      this._placesObserver
+    );
   },
 
   /**
@@ -675,93 +664,31 @@ var PlacesProvider = {
 
   _observers: [],
 
-  /**
-   * Called by the history service.
-   */
-  onBeginUpdateBatch() {
-    this._batchProcessingDepth += 1;
-  },
-
-  onEndUpdateBatch() {
-    this._batchProcessingDepth -= 1;
-    if (this._batchProcessingDepth == 0 && this._batchCalledFrecencyChanged) {
-      this.onManyFrecenciesChanged();
-      this._batchCalledFrecencyChanged = false;
-    }
-  },
-
   handlePlacesEvents(aEvents) {
-    if (!this._batchProcessingDepth) {
-      for (let event of aEvents) {
-        if (event.visitCount == 1 && event.lastKnownTitle) {
-          this.onTitleChanged(event.url, event.lastKnownTitle, event.pageGuid);
+    for (let event of aEvents) {
+      switch (event.type) {
+        case "page-visited": {
+          if (event.visitCount == 1 && event.lastKnownTitle) {
+            this._callObservers("onLinkChanged", {
+              url: event.url,
+              title: event.lastKnownTitle,
+            });
+          }
+          break;
+        }
+        case "page-title-changed": {
+          this._callObservers("onLinkChanged", {
+            url: event.url,
+            title: event.title,
+          });
+          break;
+        }
+        case "pages-rank-changed": {
+          this._callObservers("onManyLinksChanged");
+          break;
         }
       }
     }
-  },
-
-  onDeleteURI: function PlacesProvider_onDeleteURI(aURI, aGUID, aReason) {
-    // let observers remove sensetive data associated with deleted visit
-    this._callObservers("onDeleteURI", {
-      url: aURI.spec,
-    });
-  },
-
-  onClearHistory() {
-    this._callObservers("onClearHistory");
-  },
-
-  /**
-   * Called by the history service.
-   */
-  onFrecencyChanged: function PlacesProvider_onFrecencyChanged(
-    aURI,
-    aNewFrecency,
-    aGUID,
-    aHidden,
-    aLastVisitDate
-  ) {
-    // If something is doing a batch update of history entries we don't want
-    // to do lots of work for each record. So we just track the fact we need
-    // to call onManyFrecenciesChanged() once the batch is complete.
-    if (this._batchProcessingDepth > 0) {
-      this._batchCalledFrecencyChanged = true;
-      return;
-    }
-    // The implementation of the query in getLinks excludes hidden and
-    // unvisited pages, so it's important to exclude them here, too.
-    if (!aHidden && aLastVisitDate) {
-      this._callObservers("onLinkChanged", {
-        url: aURI.spec,
-        frecency: aNewFrecency,
-        lastVisitDate: aLastVisitDate,
-        type: "history",
-      });
-    }
-  },
-
-  /**
-   * Called by the history service.
-   */
-  onManyFrecenciesChanged: function PlacesProvider_onManyFrecenciesChanged() {
-    this._callObservers("onManyLinksChanged");
-  },
-
-  /**
-   * Called by the history service.
-   */
-  onTitleChanged: function PlacesProvider_onTitleChanged(
-    aURI,
-    aNewTitle,
-    aGUID
-  ) {
-    if (aURI instanceof Ci.nsIURI) {
-      aURI = aURI.spec;
-    }
-    this._callObservers("onLinkChanged", {
-      url: aURI,
-      title: aNewTitle,
-    });
   },
 
   _callObservers: function PlacesProvider__callObservers(aMethodName, aArg) {
@@ -775,11 +702,6 @@ var PlacesProvider = {
       }
     }
   },
-
-  QueryInterface: ChromeUtils.generateQI([
-    Ci.nsINavHistoryObserver,
-    Ci.nsISupportsWeakReference,
-  ]),
 };
 
 /**
@@ -2173,7 +2095,6 @@ var NewTabUtils = {
   allPages: AllPages,
   pinnedLinks: PinnedLinks,
   blockedLinks: BlockedLinks,
-  placesProvider: PlacesProvider,
   activityStreamLinks: ActivityStreamLinks,
   activityStreamProvider: ActivityStreamProvider,
 };

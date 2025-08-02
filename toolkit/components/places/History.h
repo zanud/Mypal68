@@ -70,14 +70,8 @@ class History final : public BaseHistory,
    *
    * @param aVisitData
    *        The visit data to use to populate a new row in moz_places.
-   * @param aShouldNotifyFrecencyChanged
-   *        Whether to dispatch OnFrecencyChanged notifications.
-   *        Defaults to true. Set to false if you (the caller) are
-   *        doing many inserts and will dispatch your own
-   *        OnManyFrecenciesChanged notification.
    */
-  nsresult InsertPlace(VisitData& aVisitData,
-                       bool aShouldNotifyFrecencyChanged = true);
+  nsresult InsertPlace(VisitData& aVisitData);
 
   /**
    * Updates an entry in moz_places with the data in aVisitData.
@@ -129,8 +123,10 @@ class History final : public BaseHistory,
     return mDB->GetStatement(aQuery);
   }
 
-  bool IsShuttingDown() const { return mShuttingDown; }
-  Mutex& GetShutdownMutex() { return mShutdownMutex; }
+  bool IsShuttingDown() {
+    MutexAutoLock lockedScope(mShuttingDownMutex);
+    return mShuttingDown;
+  }
 
   /**
    * Helper function to append a new URI to mRecentlyVisitedURIs. See
@@ -139,9 +135,6 @@ class History final : public BaseHistory,
    * @param {bool} aHidden The hidden status of the visit being appended.
    */
   void AppendToRecentlyVisitedURIs(nsIURI* aURI, bool aHidden);
-
-  void NotifyVisitedParent(
-      const nsTArray<mozilla::dom::VisitedQueryResult>& aURIs);
 
  private:
   virtual ~History();
@@ -177,14 +170,20 @@ class History final : public BaseHistory,
 
   static History* gService;
 
-  // Ensures new tasks aren't started on destruction.
+  // Ensures new tasks aren't started on destruction. Should only be changed on
+  // the main thread.
   bool mShuttingDown;
-  // This mutex guards mShuttingDown. Code running in other threads that might
-  // schedule tasks that use the database should grab it and check the value of
-  // mShuttingDown. If we are already shutting down, the code must gracefully
-  // avoid using the db. If we are not, the lock will prevent shutdown from
-  // starting in an unexpected moment.
-  Mutex mShutdownMutex;
+  // This mutex guards mShuttingDown and should be acquired on the helper
+  // thread.
+  Mutex mShuttingDownMutex;
+  // Code running in the helper thread can acquire this mutex to block shutdown
+  // from proceeding until done, otherwise it may be impossible to get
+  // statements to execute and an insert operation could be interrupted in the
+  // middle.
+  Mutex mBlockShutdownMutex;
+
+  // Allow private access from the helper thread to acquire mutexes.
+  friend class InsertVisitedURIs;
 
   /**
    * mRecentlyVisitedURIs remembers URIs which have been recently added to

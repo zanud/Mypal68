@@ -2090,7 +2090,10 @@ class BookmarkObserverRecorder {
         index: info.position,
         url: info.urlHref || "",
         title: info.title,
-        dateAdded: info.dateAdded,
+        // Note that both the database and the legacy `onItem{Moved, Removed,
+        // Changed}` notifications use microsecond timestamps, but
+        // `PlacesBookmarkAddition` uses milliseconds.
+        dateAdded: info.dateAdded / 1000,
         guid: info.guid,
         parentGuid: info.parentGuid,
         source: PlacesUtils.bookmarks.SOURCES.SYNC,
@@ -2186,9 +2189,6 @@ class BookmarkObserverRecorder {
   async notifyBookmarkObservers() {
     MirrorLog.trace("Notifying bookmark observers");
     let observers = PlacesUtils.bookmarks.getObservers();
-    for (let observer of observers) {
-      this.notifyObserver(observer, "onBeginUpdateBatch");
-    }
     await Async.yieldingForEach(
       this.guidChangedArgs,
       args => {
@@ -2240,9 +2240,7 @@ class BookmarkObserverRecorder {
       },
       yieldState
     );
-    for (let observer of observers) {
-      this.notifyObserver(observer, "onEndUpdateBatch");
-    }
+    MirrorLog.trace("Notified bookmark observers");
   }
 
   notifyObserversWithInfo(observers, name, info) {

@@ -226,7 +226,7 @@ add_task(async function e10sLostKeys() {
   let initialValue = findBar._findField.value;
 
   await EventUtils.synthesizeAndWaitKey(
-    "f",
+    "F",
     { accelKey: true },
     window,
     null,

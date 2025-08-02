@@ -92,12 +92,7 @@ var PlacesDBUtils = {
    * @returns {Array} An empty array.
    */
   async _refreshUI() {
-    // Send batch update notifications to update the UI.
-    let observers = PlacesUtils.history.getObservers();
-    for (let observer of observers) {
-      observer.onBeginUpdateBatch();
-      observer.onEndUpdateBatch();
-    }
+    PlacesObservers.notifyListeners([new PlacesPurgeCaches()]);
     return [];
   },
 
@@ -967,9 +962,9 @@ var PlacesDBUtils = {
 
     // Get maximum number of unique URIs.
     try {
-      let limitURIs = Services.prefs.getIntPref(
-        "places.history.expiration.transient_current_max_pages"
-      );
+      let limitURIs = await Cc["@mozilla.org/places/expiration;1"]
+        .getService(Ci.nsISupports)
+        .wrappedJSObject.getPagesLimit();
       logs.push(
         "History can store a maximum of " + limitURIs + " unique pages"
       );

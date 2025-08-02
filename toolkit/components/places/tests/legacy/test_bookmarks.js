@@ -40,13 +40,6 @@ var bookmarksObserver = {
     }
   },
 
-  onBeginUpdateBatch() {
-    this._beginUpdateBatch = true;
-  },
-  onEndUpdateBatch() {
-    this._endUpdateBatch = true;
-  },
-
   onItemChanged(
     id,
     property,
@@ -63,11 +56,6 @@ var bookmarksObserver = {
     this._itemChangedProperty = property;
     this._itemChangedValue = value;
     this._itemChangedOldValue = oldValue;
-  },
-  onItemVisited(id, visitID, time) {
-    this._itemVisitedId = id;
-    this._itemVisitedVistId = visitID;
-    this._itemVisitedTime = time;
   },
   onItemMoved(id, oldParent, oldIndex, newParent, newIndex, itemType) {
     this._itemMovedId = id;

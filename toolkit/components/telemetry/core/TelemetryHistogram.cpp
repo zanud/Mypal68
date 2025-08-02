@@ -138,10 +138,10 @@ struct HistogramInfo {
   uint16_t label_index;
   uint16_t key_index;
   uint16_t store_index;
+  RecordedProcessType record_in_processes;
   bool keyed;
   uint8_t histogramType;
   uint8_t dataset;
-  RecordedProcessType record_in_processes;
   SupportedProduct products;
 
   const char* name() const;
@@ -3183,12 +3183,14 @@ nsresult TelemetryHistogram::SerializeHistograms(mozilla::JSONWriter& aWriter) {
 
   // Make the JSON calls on the stashed histograms for every process
   for (uint32_t process = 0; process < processHistArray.length(); ++process) {
-    aWriter.StartObjectProperty(GetNameForProcessID(ProcessID(process)));
+    aWriter.StartObjectProperty(
+        mozilla::MakeStringSpan(GetNameForProcessID(ProcessID(process))));
 
     for (const HistogramSnapshotInfo& hData : processHistArray[process]) {
       HistogramID id = hData.histogramID;
 
-      aWriter.StartObjectProperty(gHistogramInfos[id].name());
+      aWriter.StartObjectProperty(
+          mozilla::MakeStringSpan(gHistogramInfos[id].name()));
       internal_ReflectHistogramToJSON(hData.data, aWriter);
       aWriter.EndObject();
     }
@@ -3228,7 +3230,8 @@ nsresult TelemetryHistogram::SerializeKeyedHistograms(
 
   // Serialize the keyed histograms for every process.
   for (uint32_t process = 0; process < processHistArray.length(); ++process) {
-    aWriter.StartObjectProperty(GetNameForProcessID(ProcessID(process)));
+    aWriter.StartObjectProperty(
+        mozilla::MakeStringSpan(GetNameForProcessID(ProcessID(process))));
 
     const KeyedHistogramSnapshotsArray& hArray = processHistArray[process];
     for (size_t i = 0; i < hArray.length(); ++i) {
@@ -3236,12 +3239,12 @@ nsresult TelemetryHistogram::SerializeKeyedHistograms(
       HistogramID id = hData.histogramId;
       const HistogramInfo& info = gHistogramInfos[id];
 
-      aWriter.StartObjectProperty(info.name());
+      aWriter.StartObjectProperty(mozilla::MakeStringSpan(info.name()));
 
       // Each key is a new object with a "sum" and a "counts" property.
       for (auto iter = hData.data.ConstIter(); !iter.Done(); iter.Next()) {
         HistogramSnapshotData& keyData = iter.Data();
-        aWriter.StartObjectProperty(PromiseFlatCString(iter.Key()).get());
+        aWriter.StartObjectProperty(PromiseFlatCString(iter.Key()));
         internal_ReflectHistogramToJSON(keyData, aWriter);
         aWriter.EndObject();
       }

@@ -155,6 +155,19 @@ var PlacesTestUtils = Object.freeze({
   },
 
   /**
+   * Clears any favicons stored in the database.
+   */
+  async clearFavicons() {
+    return new Promise(resolve => {
+      Services.obs.addObserver(function observer() {
+        Services.obs.removeObserver(observer, "places-favicons-expired");
+        resolve();
+      }, "places-favicons-expired");
+      PlacesUtils.favicons.expireAllFavicons();
+    });
+  },
+
+  /**
    * Waits for all pending async statements on the default connection.
    *
    * @return {Promise}
@@ -377,24 +390,20 @@ var PlacesTestUtils = Object.freeze({
         function listener(events) {
           if (!conditionFn || conditionFn(events)) {
             PlacesObservers.removeListener([notification], listener);
-            resolve();
+            resolve(events);
           }
         }
         PlacesObservers.addListener([notification], listener);
       });
     }
 
-    let iface =
-      type == "bookmarks"
-        ? Ci.nsINavBookmarkObserver
-        : Ci.nsINavHistoryObserver;
     return new Promise(resolve => {
       let proxifiedObserver = new Proxy(
         {},
         {
           get: (target, name) => {
             if (name == "QueryInterface") {
-              return ChromeUtils.generateQI([iface]);
+              return ChromeUtils.generateQI([Ci.nsINavBookmarkObserver]);
             }
             if (name == notification) {
               return (...args) => {

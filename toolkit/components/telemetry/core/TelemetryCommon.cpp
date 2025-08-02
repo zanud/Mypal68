@@ -5,6 +5,7 @@
 #include "TelemetryCommon.h"
 
 #include <cstring>
+#include "js/String.h"
 #include "mozilla/TimeStamp.h"
 #include "mozilla/Preferences.h"
 #include "nsComponentManagerUtils.h"

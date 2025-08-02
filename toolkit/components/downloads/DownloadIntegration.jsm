@@ -61,11 +61,6 @@ ChromeUtils.defineModuleGetter(
 ChromeUtils.defineModuleGetter(this, "OS", "resource://gre/modules/osfile.jsm");
 ChromeUtils.defineModuleGetter(
   this,
-  "PlacesUtils",
-  "resource://gre/modules/PlacesUtils.jsm"
-);
-ChromeUtils.defineModuleGetter(
-  this,
   "Services",
   "resource://gre/modules/Services.jsm"
 );
@@ -1090,34 +1085,40 @@ var DownloadObserver = {
  */
 var DownloadHistoryObserver = function(aList) {
   this._list = aList;
-  PlacesUtils.history.addObserver(this);
+
+  const placesObserver = new PlacesWeakCallbackWrapper(
+    this.handlePlacesEvents.bind(this)
+  );
+  PlacesObservers.addListener(
+    ["history-cleared", "page-removed"],
+    placesObserver
+  );
 };
 
-this.DownloadHistoryObserver.prototype = {
+DownloadHistoryObserver.prototype = {
   /**
    * DownloadList object linked to this observer.
    */
   _list: null,
 
-  QueryInterface: ChromeUtils.generateQI([Ci.nsINavHistoryObserver]),
-
-  // nsINavHistoryObserver
-  onDeleteURI: function DL_onDeleteURI(aURI, aGUID) {
-    this._list.removeFinished(download =>
-      aURI.equals(NetUtil.newURI(download.source.url))
-    );
+  handlePlacesEvents(events) {
+    for (const event of events) {
+      switch (event.type) {
+        case "history-cleared": {
+          this._list.removeFinished();
+          break;
+        }
+        case "page-removed": {
+          if (event.isRemovedFromStore) {
+            this._list.removeFinished(
+              download => event.url === download.source.url
+            );
+          }
+          break;
+        }
+      }
+    }
   },
-
-  // nsINavHistoryObserver
-  onClearHistory: function DL_onClearHistory() {
-    this._list.removeFinished();
-  },
-
-  onTitleChanged() {},
-  onBeginUpdateBatch() {},
-  onEndUpdateBatch() {},
-  onPageChanged() {},
-  onDeleteVisits() {},
 };
 
 /**
@@ -1145,7 +1146,7 @@ var DownloadAutoSaveView = function(aList, aStore) {
   );
 };
 
-this.DownloadAutoSaveView.prototype = {
+DownloadAutoSaveView.prototype = {
   /**
    * DownloadList object linked to this view.
    */

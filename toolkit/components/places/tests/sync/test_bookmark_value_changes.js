@@ -11,6 +11,7 @@ add_task(async function setup() {
 
 add_task(async function test_value_combo() {
   let buf = await openMirror("value_combo");
+  let now = Date.now();
 
   info("Set up mirror with existing bookmark to update");
   await PlacesUtils.bookmarks.insertTree({
@@ -84,6 +85,7 @@ add_task(async function test_value_combo() {
         title: "Get Firefox",
         bmkUri: "http://getfirefox.com",
         tags: ["taggy", "browsers"],
+        dateAdded: now,
       },
       {
         id: "tFolder_____",
@@ -91,6 +93,7 @@ add_task(async function test_value_combo() {
         type: "folder",
         title: "Mail",
         children: ["tbBmk_______"],
+        dateAdded: now,
       },
       {
         id: "tbBmk_______",
@@ -99,13 +102,19 @@ add_task(async function test_value_combo() {
         title: "Get Thunderbird",
         bmkUri: "http://getthunderbird.com",
         keyword: "tb",
+        dateAdded: now,
       },
     ])
   );
 
   info("Apply remote");
-  let observer = expectBookmarkChangeNotifications({ skipTags: true });
+  let observer = expectBookmarkChangeNotifications({
+    skipTags: true,
+    ignoreDates: false,
+  });
+  let localTimeSeconds = Math.floor(now / 1000);
   let changesToUpload = await buf.apply({
+    localTimeSeconds,
     notifyInStableOrder: true,
   });
   deepEqual(
@@ -175,6 +184,7 @@ add_task(async function test_value_combo() {
         guid: "fxBmk_______",
         parentGuid: PlacesUtils.bookmarks.toolbarGuid,
         source: PlacesUtils.bookmarks.SOURCES.SYNC,
+        dateAdded: now,
       },
     },
     {
@@ -189,6 +199,7 @@ add_task(async function test_value_combo() {
         guid: "tFolder_____",
         parentGuid: PlacesUtils.bookmarks.toolbarGuid,
         source: PlacesUtils.bookmarks.SOURCES.SYNC,
+        dateAdded: now,
       },
     },
     {
@@ -203,6 +214,7 @@ add_task(async function test_value_combo() {
         guid: "tbBmk_______",
         parentGuid: "tFolder_____",
         source: PlacesUtils.bookmarks.SOURCES.SYNC,
+        dateAdded: now,
       },
     },
     {
@@ -234,6 +246,7 @@ add_task(async function test_value_combo() {
         parentGuid: PlacesUtils.bookmarks.menuGuid,
         oldValue: "Mozilla",
         source: PlacesUtils.bookmarks.SOURCES.SYNC,
+        lastModified: localTimeSeconds * 1000 * 1000,
       },
     },
   ]);
@@ -2552,6 +2565,69 @@ add_task(async function test_duplicate_url_rows() {
 
   await storeChangesInMirror(buf, changesToUpload);
   deepEqual(await buf.fetchUnmergedGuids(), [], "Should merge all items");
+
+  await buf.finalize();
+  await PlacesUtils.bookmarks.eraseEverything();
+  await PlacesSyncUtils.bookmarks.reset();
+});
+
+add_task(async function test_duplicate_local_tags() {
+  let buf = await openMirror("duplicate_local_tags");
+  let now = new Date();
+
+  info("Insert A");
+  await PlacesUtils.bookmarks.insert({
+    guid: "bookmarkAAAA",
+    parentGuid: PlacesUtils.bookmarks.menuGuid,
+    title: "A",
+    url: "http://example.com/a",
+    dateAdded: now,
+  });
+
+  // Each tag folder should have unique tag entries, but the tagging service
+  // doesn't enforce this. We should still sync the correct set of tags,
+  // though, even if there are duplicates for the same URL.
+  info("Manually insert local tags for A");
+  for (let [tag, dupes] of [["one", 2], ["two", 1], ["three", 2]]) {
+    let tagFolderInfo = await PlacesUtils.bookmarks.insert({
+      parentGuid: PlacesUtils.bookmarks.tagsGuid,
+      title: tag,
+      type: PlacesUtils.bookmarks.TYPE_FOLDER,
+    });
+    for (let i = 0; i < dupes; ++i) {
+      await PlacesUtils.bookmarks.insert({
+        parentGuid: tagFolderInfo.guid,
+        url: "http://example.com/a",
+      });
+    }
+  }
+
+  let tagsForA = PlacesUtils.tagging.getTagsForURI(
+    Services.io.newURI("http://example.com/a")
+  );
+  deepEqual(
+    tagsForA.sort(),
+    ["one", "one", "three", "three", "two"],
+    "Tagging service should return duplicate tags"
+  );
+
+  info("Apply remote");
+  let changesToUpload = await buf.apply();
+  deepEqual(
+    changesToUpload.bookmarkAAAA.cleartext,
+    {
+      id: "bookmarkAAAA",
+      type: "bookmark",
+      parentid: "menu",
+      hasDupe: true,
+      parentName: BookmarksMenuTitle,
+      dateAdded: now.getTime(),
+      bmkUri: "http://example.com/a",
+      title: "A",
+      tags: ["one", "three", "two"],
+    },
+    "Should upload A with tags"
+  );
 
   await buf.finalize();
   await PlacesUtils.bookmarks.eraseEverything();

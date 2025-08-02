@@ -62,10 +62,10 @@
  *
  *
  *
- * Each successful operation notifies through the nsINavHistoryObserver
- * interface. To listen to such notifications you must register using
- * nsINavHistoryService `addObserver` and `removeObserver` methods.
- * @see nsINavHistoryObserver
+ * Each successful operation notifies through the PlacesObservers. To listen to such
+ * notifications you must register using
+ * PlacesObservers `addListener` and `removeListener` methods.
+ * @see PlacesObservers
  */
 
 var EXPORTED_SYMBOLS = ["History"];
@@ -73,16 +73,12 @@ var EXPORTED_SYMBOLS = ["History"];
 const { XPCOMUtils } = ChromeUtils.import(
   "resource://gre/modules/XPCOMUtils.jsm"
 );
-ChromeUtils.defineModuleGetter(
-  this,
-  "NetUtil",
-  "resource://gre/modules/NetUtil.jsm"
-);
-ChromeUtils.defineModuleGetter(
-  this,
-  "PlacesUtils",
-  "resource://gre/modules/PlacesUtils.jsm"
-);
+
+XPCOMUtils.defineLazyModuleGetters(this, {
+  AppConstants: "resource://gre/modules/AppConstants.jsm",
+  PlacesUtils: "resource://gre/modules/PlacesUtils.jsm",
+  Services: "resource://gre/modules/Services.jsm",
+});
 
 XPCOMUtils.defineLazyServiceGetter(
   this,
@@ -119,11 +115,23 @@ function notify(observers, notification, args = []) {
   for (let observer of observers) {
     try {
       observer[notification](...args);
-    } catch (ex) {}
+    } catch (ex) {
+      if (
+        ex.result != Cr.NS_ERROR_XPC_JSOBJECT_HAS_NO_FUNCTION_NAMED &&
+        (AppConstants.DEBUG || Cu.isInAutomation)
+      ) {
+        Cu.reportError(ex);
+      }
+    }
   }
 }
 
 var History = Object.freeze({
+  ANNOTATION_EXPIRE_NEVER: 4,
+  // Constants for the type of annotation.
+  ANNOTATION_TYPE_STRING: 3,
+  ANNOTATION_TYPE_INT64: 5,
+
   /**
    * Fetch the available information for one page.
    *
@@ -214,7 +222,7 @@ var History = Object.freeze({
   /**
    * Adds a number of visits for a single page.
    *
-   * Any change may be observed through nsINavHistoryObserver
+   * Any change may be observed through PlacesObservers.
    *
    * @param pageInfo: (PageInfo)
    *      Information on a page. This `PageInfo` MUST contain
@@ -261,7 +269,7 @@ var History = Object.freeze({
   /**
    * Adds a number of visits for a number of pages.
    *
-   * Any change may be observed through nsINavHistoryObserver
+   * Any change may be observed through PlacesObservers.
    *
    * @param pageInfos: (Array<PageInfo>)
    *      Information on a page. This `PageInfo` MUST contain
@@ -331,7 +339,7 @@ var History = Object.freeze({
   /**
    * Remove pages from the database.
    *
-   * Any change may be observed through nsINavHistoryObserver
+   * Any change may be observed through PlacesObservers.
    *
    *
    * @param page: (URL or nsIURI)
@@ -414,7 +422,7 @@ var History = Object.freeze({
   /**
    * Remove visits matching specific characteristics.
    *
-   * Any change may be observed through nsINavHistoryObserver.
+   * Any change may be observed through PlacesObservers.
    *
    * @param filter: (object)
    *      The `object` may contain some of the following
@@ -508,7 +516,7 @@ var History = Object.freeze({
   /**
    * Remove pages from the database based on a filter.
    *
-   * Any change may be observed through nsINavHistoryObserver
+   * Any change may be observed through PlacesObservers
    *
    *
    * @param filter: An object containing a non empty subset of the following
@@ -853,9 +861,8 @@ var invalidateFrecencies = async function(db, idList) {
   for (let chunk of PlacesUtils.chunkArray(idList, db.variableLimit)) {
     await db.execute(
       `UPDATE moz_places
-       SET frecency = NOTIFY_FRECENCY(
-         CALCULATE_FRECENCY(id), url, guid, hidden, last_visit_date
-       ) WHERE id in (${sqlBindPlaceholders(chunk)})`,
+       SET frecency = CALCULATE_FRECENCY(id)
+       WHERE id in (${sqlBindPlaceholders(chunk)})`,
       chunk
     );
     await db.execute(
@@ -866,6 +873,9 @@ var invalidateFrecencies = async function(db, idList) {
       chunk
     );
   }
+
+  PlacesObservers.notifyListeners([new PlacesRanking()]);
+
   // Trigger frecency updates for all affected origins.
   await db.execute(`DELETE FROM moz_updateoriginsupdate_temp`);
 };
@@ -908,10 +918,10 @@ var clear = async function(db) {
                         WHERE frecency > 0`);
   });
 
-  let observers = PlacesUtils.history.getObservers();
-  notify(observers, "onClearHistory");
-  // Notify frecency change observers.
-  notify(observers, "onManyFrecenciesChanged");
+  PlacesObservers.notifyListeners([
+    new PlacesHistoryCleared(),
+    new PlacesRanking(),
+  ]);
 
   // Trigger frecency updates for all affected origins.
   await db.execute(`DELETE FROM moz_updateoriginsupdate_temp`);
@@ -1021,40 +1031,64 @@ function removeOrphanIcons(db) {
  *          - hasForeign: (boolean) If `true`, the page has at least
  *              one foreign reference (i.e. a bookmark), so the page should
  *              be kept and its frecency updated.
- * @param transition: (Number)
+ * @param transitionType: (Number)
  *      Set to a valid TRANSITIONS value to indicate all transitions of a
- *      certain type have been removed, otherwise defaults to -1 (unknown value).
+ *      certain type have been removed, otherwise defaults to 0 (unknown value).
  * @return (Promise)
  */
-var notifyCleanup = async function(db, pages, transition = -1) {
+var notifyCleanup = async function(db, pages, transitionType = 0) {
+  const notifications = [];
   let notifiedCount = 0;
-  let observers = PlacesUtils.history.getObservers();
-
-  let reason = Ci.nsINavHistoryObserver.REASON_DELETED;
+  let bookmarkObservers = PlacesUtils.bookmarks.getObservers();
 
   for (let page of pages) {
-    let uri = NetUtil.newURI(page.url.href);
-    let guid = page.guid;
-    if (page.hasVisits || page.hasForeign) {
-      // We have removed all visits, but the page is still alive, e.g.
-      // because of a bookmark.
-      notify(observers, "onDeleteVisits", [
-        uri,
-        page.hasVisits > 0,
-        guid,
-        reason,
-        transition,
-      ]);
-    } else {
-      // The page has been entirely removed.
-      notify(observers, "onDeleteURI", [uri, guid, reason]);
-    }
-    if (++notifiedCount % NOTIFICATION_CHUNK_SIZE == 0) {
-      // Every few notifications, yield time back to the main
-      // thread to avoid jank.
-      await Promise.resolve();
+    const isRemovedFromStore = !page.hasVisits && !page.hasForeign;
+    notifications.push(
+      new PlacesVisitRemoved({
+        url: Services.io.newURI(page.url.href).spec,
+        pageGuid: page.guid,
+        reason: PlacesVisitRemoved.REASON_DELETED,
+        transitionType,
+        isRemovedFromStore,
+        isPartialVisistsRemoval: !isRemovedFromStore && page.hasVisits > 0,
+      })
+    );
+
+    if (page.hasForeign && !page.hasVisits) {
+      PlacesUtils.bookmarks
+        .fetch({ url: page.url }, async bookmark => {
+          let itemId = await PlacesUtils.promiseItemId(bookmark.guid);
+          let parentId = await PlacesUtils.promiseItemId(bookmark.parentGuid);
+          notify(
+            bookmarkObservers,
+            "onItemChanged",
+            [
+              itemId,
+              "cleartime",
+              false,
+              "",
+              0,
+              PlacesUtils.bookmarks.TYPE_BOOKMARK,
+              parentId,
+              bookmark.guid,
+              bookmark.parentGuid,
+              "",
+              PlacesUtils.bookmarks.SOURCES.DEFAULT,
+            ],
+            { concurrent: true }
+          );
+
+          if (++notifiedCount % NOTIFICATION_CHUNK_SIZE == 0) {
+            // Every few notifications, yield time back to the main
+            // thread to avoid jank.
+            await Promise.resolve();
+          }
+        })
+        .catch(Cu.reportError);
     }
   }
+
+  PlacesObservers.notifyListeners(notifications);
 };
 
 /**
@@ -1580,31 +1614,27 @@ var insertMany = function(db, pageInfos, onResult, onError) {
   }
 
   return new Promise((resolve, reject) => {
-    asyncHistory.updatePlaces(
-      infos,
-      {
-        handleError: (resultCode, result) => {
-          let pageInfo = mergeUpdateInfoIntoPageInfo(result);
-          onErrorData.push(pageInfo);
-        },
-        handleResult: result => {
-          let pageInfo = mergeUpdateInfoIntoPageInfo(result);
-          onResultData.push(pageInfo);
-        },
-        ignoreErrors: !onError,
-        ignoreResults: !onResult,
-        handleCompletion: updatedCount => {
-          notifyOnResult(onResultData, onResult);
-          notifyOnResult(onErrorData, onError);
-          if (updatedCount > 0) {
-            resolve();
-          } else {
-            reject({ message: "No items were added to history." });
-          }
-        },
+    asyncHistory.updatePlaces(infos, {
+      handleError: (resultCode, result) => {
+        let pageInfo = mergeUpdateInfoIntoPageInfo(result);
+        onErrorData.push(pageInfo);
       },
-      true
-    );
+      handleResult: result => {
+        let pageInfo = mergeUpdateInfoIntoPageInfo(result);
+        onResultData.push(pageInfo);
+      },
+      ignoreErrors: !onError,
+      ignoreResults: !onResult,
+      handleCompletion: updatedCount => {
+        notifyOnResult(onResultData, onResult);
+        notifyOnResult(onErrorData, onError);
+        if (updatedCount > 0) {
+          resolve();
+        } else {
+          reject({ message: "No items were added to history." });
+        }
+      },
+    });
   });
 };
 
@@ -1685,8 +1715,8 @@ var update = async function(db, pageInfo) {
           // accessing page annotations via the annotation service.
           let type =
             typeof content == "string"
-              ? Ci.nsIAnnotationService.TYPE_STRING
-              : Ci.nsIAnnotationService.TYPE_INT64;
+              ? History.ANNOTATION_TYPE_STRING
+              : History.ANNOTATION_TYPE_INT64;
           let date = PlacesUtils.toPRTime(new Date());
 
           // This will replace the id every time an annotation is updated. This is
@@ -1705,7 +1735,7 @@ var update = async function(db, pageInfo) {
               id,
               anno_name: anno,
               content,
-              expiration: PlacesUtils.annotations.EXPIRE_NEVER,
+              expiration: History.ANNOTATION_EXPIRE_NEVER,
               type,
               // The date fields are unused, so we just set them both to the latest.
               date_added: date,

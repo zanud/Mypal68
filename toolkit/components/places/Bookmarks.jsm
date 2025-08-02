@@ -843,8 +843,9 @@ var Bookmarks = Object.freeze({
             item.url.href != updatedItem.url.href
           ) {
             // ...though we don't wait for the calculation.
-            updateFrecency(db, [item.url]).catch(Cu.reportError);
-            updateFrecency(db, [updatedItem.url]).catch(Cu.reportError);
+            updateFrecency(db, [item.url, updatedItem.url]).catch(
+              Cu.reportError
+            );
           }
 
           // Notify onItemChanged to listeners.
@@ -1284,7 +1285,9 @@ var Bookmarks = Object.freeze({
 
       await removeBookmarks(removeItems, options);
 
-      // Notify onItemRemoved to listeners.
+      // Notify bookmark-removed to listeners.
+      let notifications = [];
+
       for (let item of removeItems) {
         let observers = PlacesUtils.bookmarks.getObservers();
         let isUntagging = item._grandParentId == PlacesUtils.tagsFolderId;
@@ -1292,19 +1295,22 @@ var Bookmarks = Object.freeze({
         if (item.type == Bookmarks.TYPE_BOOKMARK) {
           url = item.hasOwnProperty("url") ? item.url.href : null;
         }
-        let notification = new PlacesBookmarkRemoved({
-          id: item._id,
-          url,
-          itemType: item.type,
-          parentId: item._parentId,
-          index: item.index,
-          guid: item.guid,
-          parentGuid: item.parentGuid,
-          source: options.source,
-          isTagging: isUntagging,
-          isDescendantRemoval: false,
-        });
-        PlacesObservers.notifyListeners([notification]);
+
+        notifications.push(
+          new PlacesBookmarkRemoved({
+            id: item._id,
+            url,
+            itemType: item.type,
+            parentId: item._parentId,
+            index: item.index,
+            guid: item.guid,
+            parentGuid: item.parentGuid,
+            source: options.source,
+            isTagging: isUntagging,
+            isDescendantRemoval: false,
+          })
+        );
+
         if (isUntagging) {
           for (let entry of await fetchBookmarksByURL(item, {
             concurrent: true,
@@ -1325,6 +1331,8 @@ var Bookmarks = Object.freeze({
           }
         }
       }
+
+      PlacesObservers.notifyListeners(notifications);
     })();
   },
 
@@ -1377,7 +1385,7 @@ var Bookmarks = Object.freeze({
         // We don't wait for the frecency calculation.
         if (urls && urls.length) {
           await PlacesUtils.keywords.eraseEverything();
-          updateFrecency(db, urls, true).catch(Cu.reportError);
+          updateFrecency(db, urls).catch(Cu.reportError);
         }
       }
     );
@@ -2230,7 +2238,7 @@ function insertBookmarkTree(items, source, parent, urls, lastAddedForParent) {
       });
 
       // We don't wait for the frecency calculation.
-      updateFrecency(db, urls, true).catch(Cu.reportError);
+      updateFrecency(db, urls).catch(Cu.reportError);
 
       return items;
     }
@@ -2705,7 +2713,7 @@ function removeBookmarks(items, options) {
 
       if (urls.length) {
         await PlacesUtils.keywords.removeFromURLsIfNotBookmarked(urls);
-        updateFrecency(db, urls, urls.length > 1).catch(Cu.reportError);
+        updateFrecency(db, urls).catch(Cu.reportError);
       }
     }
   );
@@ -3001,25 +3009,15 @@ function validateBookmarkObject(name, input, behavior) {
  *        the Sqlite.jsm connection handle.
  * @param urls
  *        the array of URLs to update.
- * @param [optional] collapseNotifications
- *        whether we can send just one onManyFrecenciesChanged
- *        notification instead of sending one notification for every URL.
  */
-var updateFrecency = async function(db, urls, collapseNotifications = false) {
+var updateFrecency = async function(db, urls) {
   let hrefs = urls.map(url => url.href);
-  let frecencyClause = "CALCULATE_FRECENCY(id)";
-  if (!collapseNotifications) {
-    frecencyClause =
-      "NOTIFY_FRECENCY(" +
-      frecencyClause +
-      ", url, guid, hidden, last_visit_date)";
-  }
   // We just use the hashes, since updating a few additional urls won't hurt.
   for (let chunk of PlacesUtils.chunkArray(hrefs, db.variableLimit)) {
     await db.execute(
       `UPDATE moz_places
        SET hidden = (url_hash BETWEEN hash("place", "prefix_lo") AND hash("place", "prefix_hi")),
-           frecency = ${frecencyClause}
+           frecency = CALCULATE_FRECENCY(id)
        WHERE url_hash IN (${sqlBindPlaceholders(chunk, "hash(", ")")})`,
       chunk
     );
@@ -3028,10 +3026,7 @@ var updateFrecency = async function(db, urls, collapseNotifications = false) {
   // Trigger frecency updates for all affected origins.
   await db.executeCached(`DELETE FROM moz_updateoriginsupdate_temp`);
 
-  if (collapseNotifications) {
-    let observers = PlacesUtils.history.getObservers();
-    notify(observers, "onManyFrecenciesChanged");
-  }
+  PlacesObservers.notifyListeners([new PlacesRanking()]);
 };
 
 /**
@@ -3214,28 +3209,30 @@ var removeFoldersContents = async function(db, folderGuids, options) {
   // Notify listeners in reverse order to serve children before parents.
   let { source = Bookmarks.SOURCES.DEFAULT } = options;
   let observers = PlacesUtils.bookmarks.getObservers();
-  let notification = [];
+  let notifications = [];
   for (let item of itemsRemoved.reverse()) {
     let isUntagging = item._grandParentId == PlacesUtils.tagsFolderId;
     let url = "";
     if (item.type == Bookmarks.TYPE_BOOKMARK) {
       url = item.hasOwnProperty("url") ? item.url.href : null;
     }
-    notification = new PlacesBookmarkRemoved({
-      id: item._id,
-      url,
-      parentId: item._parentId,
-      index: item.index,
-      itemType: item.type,
-      guid: item.guid,
-      parentGuid: item.parentGuid,
-      source,
-      isTagging: isUntagging,
-      isDescendantRemoval: !PlacesUtils.bookmarks.userContentRoots.includes(
-        item.parentGuid
-      ),
-    });
-    PlacesObservers.notifyListeners([notification]);
+    notifications.push(
+      new PlacesBookmarkRemoved({
+        id: item._id,
+        url,
+        parentId: item._parentId,
+        index: item.index,
+        itemType: item.type,
+        guid: item.guid,
+        parentGuid: item.parentGuid,
+        source,
+        isTagging: isUntagging,
+        isDescendantRemoval: !PlacesUtils.bookmarks.userContentRoots.includes(
+          item.parentGuid
+        ),
+      })
+    );
+
     if (isUntagging) {
       for (let entry of await fetchBookmarksByURL(item, true)) {
         notify(observers, "onItemChanged", [
@@ -3254,6 +3251,11 @@ var removeFoldersContents = async function(db, folderGuids, options) {
       }
     }
   }
+
+  if (notifications.length) {
+    PlacesObservers.notifyListeners(notifications);
+  }
+
   return itemsRemoved.filter(item => "url" in item).map(item => item.url);
 };
 

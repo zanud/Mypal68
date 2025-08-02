@@ -287,29 +287,28 @@ NarrateControls.prototype = {
         // On Linux, the name is usually the unlocalized language name.
         // Use a localized language name, and have the language tag in
         // parenthisis. This is to avoid six languages called "English".
-        return gStrings.formatStringFromName(
-          "voiceLabel",
-          [this._getLanguageName(voice.lang) || voice.name, voice.lang]
-        );
+        return gStrings.formatStringFromName("voiceLabel", [
+          this._getLanguageName(voice.lang) || voice.name,
+          voice.lang,
+        ]);
       default:
         // On Mac the language is not included in the name, find a localized
         // language name or show the tag if none exists.
         // This is the ideal naming scheme so it is also the "default".
-        return gStrings.formatStringFromName(
-          "voiceLabel",
-          [voice.name, this._getLanguageName(voice.lang) || voice.lang]
-        );
+        return gStrings.formatStringFromName("voiceLabel", [
+          voice.name,
+          this._getLanguageName(voice.lang) || voice.lang,
+        ]);
     }
   },
 
   _getLanguageName(lang) {
     try {
-      // This may throw if the lang doesn't match.
-      // XXX: Replace with Intl.Locale once bug 1433303 lands.
-      let langCode = lang.match(/^[a-z]{2,3}/)[0];
+      // This may throw if the lang can't be parsed.
+      let langCode = new Services.intl.Locale(lang).language;
 
       return Services.intl.getLanguageDisplayNames(undefined, [langCode]);
-    } catch (e) {
+    } catch {
       return "";
     }
   },

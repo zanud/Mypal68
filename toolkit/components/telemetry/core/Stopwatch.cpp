@@ -6,6 +6,8 @@
 
 #include "TelemetryHistogram.h"
 
+#include "js/MapAndSet.h"
+#include "js/WeakMap.h"
 #include "mozilla/dom/ScriptSettings.h"
 #include "mozilla/ClearOnShutdown.h"
 #include "mozilla/TimeStamp.h"

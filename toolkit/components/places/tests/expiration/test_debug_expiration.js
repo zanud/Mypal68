@@ -222,6 +222,141 @@ add_task(async function test_expire_unlimited() {
   await PlacesUtils.history.clear();
 });
 
+add_task(async function test_expire_icons() {
+  const dataUrl =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAA" +
+    "AAAA6fptVAAAACklEQVQI12NgAAAAAgAB4iG8MwAAAABJRU5ErkJggg==";
+
+  const entries = [
+    {
+      desc: "Expired because it redirects",
+      page: "http://source.old.org/",
+      icon: "http://source.old.org/test_icon.png",
+      expired: true,
+      redirect: "http://dest.old.org/",
+      removed: true,
+    },
+    {
+      desc: "Not expired because recent",
+      page: "http://source.new.org/",
+      icon: "http://source.new.org/test_icon.png",
+      expired: false,
+      redirect: "http://dest.new.org/",
+      removed: false,
+    },
+    {
+      desc: "Not expired because does not match, even if old",
+      page: "http://stay.moz.org/",
+      icon: "http://stay.moz.org/test_icon.png",
+      expired: true,
+      removed: false,
+    },
+    {
+      desc: "Not expired because does not have a root icon, even if old",
+      page: "http://noroot.ref.org/#test",
+      icon: "http://noroot.ref.org/test_icon.png",
+      expired: true,
+      removed: false,
+    },
+    {
+      desc: "Expired because has a root icon",
+      page: "http://root.ref.org/#test",
+      icon: "http://root.ref.org/test_icon.png",
+      root: "http://root.ref.org/favicon.ico",
+      expired: true,
+      removed: true,
+    },
+    {
+      desc: "Not expired because recent",
+      page: "http://new.ref.org/#test",
+      icon: "http://new.ref.org/test_icon.png",
+      expired: false,
+      root: "http://new.ref.org/favicon.ico",
+      removed: false,
+    },
+  ];
+
+  for (let entry of entries) {
+    if (entry.redirect) {
+      await PlacesTestUtils.addVisits(entry.page);
+      await PlacesTestUtils.addVisits({
+        uri: entry.redirect,
+        transition: TRANSITION_REDIRECT_PERMANENT,
+        referrer: entry.page,
+      });
+    } else {
+      await PlacesTestUtils.addVisits(entry.page);
+    }
+
+    PlacesUtils.favicons.replaceFaviconDataFromDataURL(
+      Services.io.newURI(entry.icon),
+      dataUrl,
+      0,
+      Services.scriptSecurityManager.getSystemPrincipal()
+    );
+    await PlacesTestUtils.addFavicons(new Map([[entry.page, entry.icon]]));
+    Assert.equal(
+      await getFaviconUrlForPage(entry.page),
+      entry.icon,
+      "Sanity check the icon exists"
+    );
+
+    if (entry.root) {
+      PlacesUtils.favicons.replaceFaviconDataFromDataURL(
+        Services.io.newURI(entry.root),
+        dataUrl,
+        0,
+        Services.scriptSecurityManager.getSystemPrincipal()
+      );
+      await PlacesTestUtils.addFavicons(new Map([[entry.page, entry.root]]));
+    }
+    if (entry.expired) {
+      // Set an expired time on the icon.
+      await PlacesUtils.withConnectionWrapper("expireFavicon", async db => {
+        await db.execute(
+          `UPDATE moz_icons SET expire_ms = 1 WHERE icon_url = :url`,
+          { url: entry.icon }
+        );
+        if (entry.root) {
+          await db.execute(
+            `UPDATE moz_icons SET expire_ms = 1 WHERE icon_url = :url`,
+            { url: entry.root }
+          );
+        }
+      });
+    }
+  }
+
+  info("Run expiration");
+  await promiseForceExpirationStep(-1);
+
+  info("Check expiration");
+  // Remove the root icons before checking the associated icons have been expired.
+  await PlacesUtils.withConnectionWrapper("test_debug_expiration.js", db =>
+    db.execute(`DELETE FROM moz_icons WHERE root = 1`)
+  );
+  for (let entry of entries) {
+    Assert.ok(page_in_database(entry.page));
+
+    if (entry.removed) {
+      await Assert.rejects(
+        getFaviconUrlForPage(entry.page),
+        /Unable to find an icon/,
+        entry.desc
+      );
+    } else {
+      Assert.equal(
+        await getFaviconUrlForPage(entry.page),
+        entry.icon,
+        entry.desc
+      );
+    }
+  }
+
+  // Clean up.
+  await PlacesUtils.history.clear();
+});
+
 function run_test() {
   // Set interval to a large value so we don't expire on it.
   setInterval(3600); // 1h

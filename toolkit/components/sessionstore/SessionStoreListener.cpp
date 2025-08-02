@@ -205,12 +205,11 @@ nsresult TabListener::Init() {
   if (!eventTarget) {
     return NS_OK;
   }
-  eventTarget->AddSystemEventListener(NS_LITERAL_STRING("mozvisualscroll"),
-                                      this, false);
-  eventTarget->AddSystemEventListener(NS_LITERAL_STRING("input"), this, false);
+  eventTarget->AddSystemEventListener(u"mozvisualscroll"_ns, this, false);
+  eventTarget->AddSystemEventListener(u"input"_ns, this, false);
   mEventListenerRegistered = true;
-  eventTarget->AddSystemEventListener(
-      NS_LITERAL_STRING("MozSessionStorageChanged"), this, false);
+  eventTarget->AddSystemEventListener(u"MozSessionStorageChanged"_ns, this,
+                                      false);
   mStorageChangeListenerRegistered = true;
   return NS_OK;
 }
@@ -430,7 +429,7 @@ nsresult TabListener::Observe(nsISupports* aSubject, const char* aTopic,
 nsCString CollectPosition(Document& aDocument) {
   PresShell* presShell = aDocument.GetPresShell();
   if (!presShell) {
-    return EmptyCString();
+    return ""_ns;
   }
   nsPoint scrollPos = presShell->GetVisualViewportOffset();
   int scrollX = nsPresContext::AppUnitsToIntCSSPixels(scrollPos.x);
@@ -439,7 +438,7 @@ nsCString CollectPosition(Document& aDocument) {
     return nsPrintfCString("%d,%d", scrollX, scrollY);
   }
 
-  return EmptyCString();
+  return ""_ns;
 }
 
 int CollectPositions(BrowsingContext* aBrowsingContext,
@@ -479,7 +478,7 @@ void ContentSessionStore::GetScrollPositions(
     nsTArray<nsCString>& aPositions, nsTArray<int32_t>& aPositionDescendants) {
   if (mScrollChanged == PAGELOADEDSTART) {
     aPositionDescendants.AppendElement(0);
-    aPositions.AppendElement(EmptyCString());
+    aPositions.AppendElement(""_ns);
   } else {
     CollectPositions(nsDocShell::Cast(mDocShell)->GetBrowsingContext(),
                      aPositions, aPositionDescendants);
@@ -572,8 +571,8 @@ nsTArray<InputFormData> ContentSessionStore::GetInputs(
     mFormDataChanged = NO_CHANGE;
     InputFormData input;
     input.descendants = 0;
-    input.innerHTML = EmptyString();
-    input.url = EmptyCString();
+    input.innerHTML.Truncate();
+    input.url.Truncate();
     input.numId = 0;
     input.numXPath = 0;
     inputs.AppendElement(input);
@@ -592,16 +591,23 @@ bool ContentSessionStore::AppendSessionStorageChange(StorageEvent* aEvent) {
     return false;
   }
 
-  nsAutoString origin;
-  aEvent->GetUrl(origin);
-  nsCOMPtr<nsIURI> newUri;
-  nsresult rv =
-      NS_NewURI(getter_AddRefs(newUri), NS_ConvertUTF16toUTF8(origin));
+  RefPtr<Storage> changingStorage = aEvent->GetStorageArea();
+  if (!changingStorage) {
+    return false;
+  }
+
+  nsCOMPtr<nsIPrincipal> storagePrincipal = changingStorage->StoragePrincipal();
+  if (!storagePrincipal) {
+    return false;
+  }
+
+  nsAutoCString origin;
+  nsresult rv = storagePrincipal->GetOrigin(origin);
   if (NS_FAILED(rv)) {
     return false;
   }
 
-  newUri->GetPrePath(*mOrigins.AppendElement());
+  mOrigins.AppendElement(origin);
   aEvent->GetKey(*mKeys.AppendElement());
   aEvent->GetNewValue(*mValues.AppendElement());
   mStorageStatus = STORAGECHANGE;
@@ -758,8 +764,8 @@ void TabListener::ResetStorageChangeListener() {
   if (!eventTarget) {
     return;
   }
-  eventTarget->AddSystemEventListener(
-      NS_LITERAL_STRING("MozSessionStorageChanged"), this, false);
+  eventTarget->AddSystemEventListener(u"MozSessionStorageChanged"_ns, this,
+                                      false);
   mStorageChangeListenerRegistered = true;
 }
 
@@ -770,8 +776,8 @@ void TabListener::RemoveStorageChangeListener() {
 
   nsCOMPtr<EventTarget> eventTarget = GetEventTarget();
   if (eventTarget) {
-    eventTarget->RemoveSystemEventListener(
-        NS_LITERAL_STRING("MozSessionStorageChanged"), this, false);
+    eventTarget->RemoveSystemEventListener(u"MozSessionStorageChanged"_ns, this,
+                                           false);
     mStorageChangeListenerRegistered = false;
   }
 }
@@ -789,15 +795,14 @@ void TabListener::RemoveListeners() {
     nsCOMPtr<EventTarget> eventTarget = GetEventTarget();
     if (eventTarget) {
       if (mEventListenerRegistered) {
-        eventTarget->RemoveSystemEventListener(
-            NS_LITERAL_STRING("mozvisualscroll"), this, false);
-        eventTarget->RemoveSystemEventListener(NS_LITERAL_STRING("input"), this,
+        eventTarget->RemoveSystemEventListener(u"mozvisualscroll"_ns, this,
                                                false);
+        eventTarget->RemoveSystemEventListener(u"input"_ns, this, false);
         mEventListenerRegistered = false;
       }
       if (mStorageChangeListenerRegistered) {
-        eventTarget->RemoveSystemEventListener(
-            NS_LITERAL_STRING("MozSessionStorageChanged"), this, false);
+        eventTarget->RemoveSystemEventListener(u"MozSessionStorageChanged"_ns,
+                                               this, false);
         mStorageChangeListenerRegistered = false;
       }
     }

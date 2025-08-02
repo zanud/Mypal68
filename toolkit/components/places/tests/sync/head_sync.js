@@ -303,7 +303,7 @@ BookmarkObserver.prototype = {
             source: event.source,
           };
           if (!this.ignoreDates) {
-            params.dateAdded = event.dateAdded * 1000;
+            params.dateAdded = event.dateAdded;
           }
           this.notifications.push({ name: "bookmark-added", params });
           break;
@@ -337,8 +337,6 @@ BookmarkObserver.prototype = {
       }
     }
   },
-  onBeginUpdateBatch() {},
-  onEndUpdateBatch() {},
   onItemChanged(
     itemId,
     property,
@@ -369,7 +367,6 @@ BookmarkObserver.prototype = {
     }
     this.notifications.push({ name: "onItemChanged", params });
   },
-  onItemVisited() {},
   onItemMoved(
     itemId,
     oldParentId,

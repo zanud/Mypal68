@@ -24,17 +24,18 @@ const MAX_THUMBNAIL_AGE_SECS = 172800; // 2 days == 60*60*24*2 == 172800 secs.
  */
 const THUMBNAIL_DIRECTORY = "thumbnails";
 
-ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm", this);
-ChromeUtils.import("resource://gre/modules/PromiseWorker.jsm", this);
-ChromeUtils.import("resource://gre/modules/osfile.jsm", this);
+const { XPCOMUtils } = ChromeUtils.import(
+  "resource://gre/modules/XPCOMUtils.jsm"
+);
+const { BasePromiseWorker } = ChromeUtils.import(
+  "resource://gre/modules/PromiseWorker.jsm"
+);
+const { OS } = ChromeUtils.import("resource://gre/modules/osfile.jsm");
 
 XPCOMUtils.defineLazyGlobalGetters(this, ["FileReader"]);
 
 XPCOMUtils.defineLazyModuleGetters(this, {
   Services: "resource://gre/modules/Services.jsm",
-  FileUtils: "resource://gre/modules/FileUtils.jsm",
-  PlacesUtils: "resource://gre/modules/PlacesUtils.jsm",
-  Deprecated: "resource://gre/modules/Deprecated.jsm",
   AsyncShutdown: "resource://gre/modules/AsyncShutdown.jsm",
   PageThumbUtils: "resource://gre/modules/PageThumbUtils.jsm",
   PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.jsm",
@@ -117,11 +118,35 @@ var PageThumbs = {
   init: function PageThumbs_init() {
     if (!this._initialized) {
       this._initialized = true;
-      PlacesUtils.history.addObserver(PageThumbsHistoryObserver, true);
+
+      this._placesObserver = new PlacesWeakCallbackWrapper(
+        this.handlePlacesEvents.bind(this)
+      );
+      PlacesObservers.addListener(
+        ["history-cleared", "page-removed"],
+        this._placesObserver
+      );
 
       // Migrate the underlying storage, if needed.
       PageThumbsStorageMigrator.migrate();
       PageThumbsExpiration.init();
+    }
+  },
+
+  handlePlacesEvents(events) {
+    for (const event of events) {
+      switch (event.type) {
+        case "history-cleared": {
+          PageThumbsStorage.wipe();
+          break;
+        }
+        case "page-removed": {
+          if (event.isRemovedFromStore) {
+            PageThumbsStorage.remove(event.url);
+          }
+          break;
+        }
+      }
     }
   },
 
@@ -750,16 +775,6 @@ var PageThumbsStorage = {
       }
     };
   },
-
-  // Deprecated, please do not use
-  getFileForURL: function Storage_getFileForURL_DEPRECATED(aURL) {
-    Deprecated.warning(
-      "PageThumbs.getFileForURL is deprecated. Please use PageThumbs.getFilePathForURL and OS.File",
-      "https://developer.mozilla.org/docs/JavaScript_OS.File"
-    );
-    // Note: Once this method has been removed, we can get rid of the dependency towards FileUtils
-    return new FileUtils.File(PageThumbsStorageService.getFilePathForURL(aURL));
-  },
 };
 
 var PageThumbsStorageMigrator = {
@@ -891,24 +906,3 @@ var PageThumbsWorker = new BasePromiseWorker(
 // As the PageThumbsWorker performs I/O, we can receive instances of
 // OS.File.Error, so we need to install a decoder.
 PageThumbsWorker.ExceptionHandlers["OS.File.Error"] = OS.File.Error.fromMsg;
-
-var PageThumbsHistoryObserver = {
-  onDeleteURI(aURI, aGUID) {
-    PageThumbsStorage.remove(aURI.spec);
-  },
-
-  onClearHistory() {
-    PageThumbsStorage.wipe();
-  },
-
-  onTitleChanged() {},
-  onBeginUpdateBatch() {},
-  onEndUpdateBatch() {},
-  onPageChanged() {},
-  onDeleteVisits() {},
-
-  QueryInterface: ChromeUtils.generateQI([
-    Ci.nsINavHistoryObserver,
-    Ci.nsISupportsWeakReference,
-  ]),
-};

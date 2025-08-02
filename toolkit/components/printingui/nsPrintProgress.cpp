@@ -84,10 +84,10 @@ NS_IMETHODIMP nsPrintProgress::OpenProgressDialog(
     // Open the dialog.
     nsCOMPtr<nsPIDOMWindowOuter> newWindow;
 
-    rv = piOwnerWindow->OpenDialog(
-        NS_ConvertASCIItoUTF16(dialogURL), NS_LITERAL_STRING("_blank"),
-        NS_LITERAL_STRING("chrome,titlebar,dependent,centerscreen"), array,
-        getter_AddRefs(newWindow));
+    rv = piOwnerWindow->OpenDialog(NS_ConvertASCIItoUTF16(dialogURL),
+                                   u"_blank"_ns,
+                                   u"chrome,titlebar,dependent,centerscreen"_ns,
+                                   array, getter_AddRefs(newWindow));
   }
 
   return rv;

@@ -22,10 +22,11 @@
  * table changes.
  */
 #  define CREATE_HISTORYVISITS_AFTERINSERT_TRIGGER                           \
-    NS_LITERAL_CSTRING(                                                      \
+    nsLiteralCString(                                                        \
         "CREATE TEMP TRIGGER moz_historyvisits_afterinsert_v2_trigger "      \
         "AFTER INSERT ON moz_historyvisits FOR EACH ROW "                    \
         "BEGIN "                                                             \
+        "SELECT invalidate_days_of_history();"                               \
         "SELECT store_last_inserted_id('moz_historyvisits', NEW.id); "       \
         "UPDATE moz_places SET "                                             \
         "visit_count = visit_count + (SELECT NEW.visit_type NOT IN "         \
@@ -36,10 +37,11 @@
         "END")
 
 #  define CREATE_HISTORYVISITS_AFTERDELETE_TRIGGER                      \
-    NS_LITERAL_CSTRING(                                                 \
+    nsLiteralCString(                                                   \
         "CREATE TEMP TRIGGER moz_historyvisits_afterdelete_v2_trigger " \
         "AFTER DELETE ON moz_historyvisits FOR EACH ROW "               \
         "BEGIN "                                                        \
+        "SELECT invalidate_days_of_history();"                          \
         "UPDATE moz_places SET "                                        \
         "visit_count = visit_count - (SELECT OLD.visit_type NOT IN "    \
         "(" EXCLUDED_VISIT_TYPES                                        \
@@ -97,7 +99,7 @@
 
 // This trigger runs on inserts into moz_places.
 #  define CREATE_PLACES_AFTERINSERT_TRIGGER                                 \
-    NS_LITERAL_CSTRING(                                                     \
+    nsLiteralCString(                                                       \
         "CREATE TEMP TRIGGER moz_places_afterinsert_trigger "               \
         "AFTER INSERT ON moz_places FOR EACH ROW "                          \
         "BEGIN "                                                            \
@@ -111,7 +113,7 @@
 // This trigger corresponds to the previous trigger.  It runs on deletes on
 // moz_updateoriginsinsert_temp -- logically, after inserts on moz_places.
 #  define CREATE_UPDATEORIGINSINSERT_AFTERDELETE_TRIGGER \
-    NS_LITERAL_CSTRING( \
+    nsLiteralCString( \
   "CREATE TEMP TRIGGER moz_updateoriginsinsert_afterdelete_trigger " \
   "AFTER DELETE ON moz_updateoriginsinsert_temp FOR EACH ROW " \
   "BEGIN " \
@@ -135,7 +137,7 @@
 
 // This trigger runs on deletes on moz_places.
 #  define CREATE_PLACES_AFTERDELETE_TRIGGER                         \
-    NS_LITERAL_CSTRING(                                             \
+    nsLiteralCString(                                               \
         "CREATE TEMP TRIGGER moz_places_afterdelete_trigger "       \
         "AFTER DELETE ON moz_places FOR EACH ROW "                  \
         "BEGIN "                                                    \
@@ -150,7 +152,7 @@
 // This trigger corresponds to the previous trigger.  It runs on deletes on
 // moz_updateoriginsdelete_temp -- logically, after deletes on moz_places.
 #  define CREATE_UPDATEORIGINSDELETE_AFTERDELETE_TRIGGER \
-    NS_LITERAL_CSTRING( \
+    nsLiteralCString( \
   "CREATE TEMP TRIGGER moz_updateoriginsdelete_afterdelete_trigger " \
   "AFTER DELETE ON moz_updateoriginsdelete_temp FOR EACH ROW " \
   "BEGIN " \
@@ -185,7 +187,7 @@
 // moz_place, which would be expensive; and (2) decay does not change the
 // ordering of frecencies since all frecencies decay by the same percentage.
 #  define CREATE_PLACES_AFTERUPDATE_FRECENCY_TRIGGER                      \
-    NS_LITERAL_CSTRING(                                                   \
+    nsLiteralCString(                                                     \
         "CREATE TEMP TRIGGER moz_places_afterupdate_frecency_trigger "    \
         "AFTER UPDATE OF frecency ON moz_places FOR EACH ROW "            \
         "WHEN NOT is_frecency_decaying() "                                \
@@ -201,7 +203,7 @@
 // moz_updateoriginsupdate_temp -- logically, after updates to
 // moz_places.frecency.
 #  define CREATE_UPDATEORIGINSUPDATE_AFTERDELETE_TRIGGER \
-    NS_LITERAL_CSTRING( \
+    nsLiteralCString( \
   "CREATE TEMP TRIGGER moz_updateoriginsupdate_afterdelete_trigger " \
   "AFTER DELETE ON moz_updateoriginsupdate_temp FOR EACH ROW " \
   "BEGIN " \
@@ -222,7 +224,7 @@
  *       nsPlacesAutoComplete.js
  */
 #  define CREATE_REMOVEOPENPAGE_CLEANUP_TRIGGER                            \
-    NS_LITERAL_CSTRING(                                                    \
+    nsLiteralCString(                                                      \
         "CREATE TEMPORARY TRIGGER moz_openpages_temp_afterupdate_trigger " \
         "AFTER UPDATE OF open_count ON moz_openpages_temp FOR EACH ROW "   \
         "WHEN NEW.open_count = 0 "                                         \
@@ -233,7 +235,7 @@
         "END")
 
 #  define CREATE_BOOKMARKS_FOREIGNCOUNT_AFTERDELETE_TRIGGER                    \
-    NS_LITERAL_CSTRING(                                                        \
+    nsLiteralCString(                                                          \
         "CREATE TEMP TRIGGER moz_bookmarks_foreign_count_afterdelete_trigger " \
         "AFTER DELETE ON moz_bookmarks FOR EACH ROW "                          \
         "BEGIN "                                                               \
@@ -243,7 +245,7 @@
         "END")
 
 #  define CREATE_BOOKMARKS_FOREIGNCOUNT_AFTERINSERT_TRIGGER                    \
-    NS_LITERAL_CSTRING(                                                        \
+    nsLiteralCString(                                                          \
         "CREATE TEMP TRIGGER moz_bookmarks_foreign_count_afterinsert_trigger " \
         "AFTER INSERT ON moz_bookmarks FOR EACH ROW "                          \
         "BEGIN "                                                               \
@@ -255,7 +257,7 @@
         "END")
 
 #  define CREATE_BOOKMARKS_FOREIGNCOUNT_AFTERUPDATE_TRIGGER                    \
-    NS_LITERAL_CSTRING(                                                        \
+    nsLiteralCString(                                                          \
         "CREATE TEMP TRIGGER moz_bookmarks_foreign_count_afterupdate_trigger " \
         "AFTER UPDATE OF fk, syncChangeCounter ON moz_bookmarks FOR EACH ROW " \
         "BEGIN "                                                               \
@@ -270,7 +272,7 @@
         "END")
 
 #  define CREATE_KEYWORDS_FOREIGNCOUNT_AFTERDELETE_TRIGGER                    \
-    NS_LITERAL_CSTRING(                                                       \
+    nsLiteralCString(                                                         \
         "CREATE TEMP TRIGGER moz_keywords_foreign_count_afterdelete_trigger " \
         "AFTER DELETE ON moz_keywords FOR EACH ROW "                          \
         "BEGIN "                                                              \
@@ -280,7 +282,7 @@
         "END")
 
 #  define CREATE_KEYWORDS_FOREIGNCOUNT_AFTERINSERT_TRIGGER                    \
-    NS_LITERAL_CSTRING(                                                       \
+    nsLiteralCString(                                                         \
         "CREATE TEMP TRIGGER moz_keywords_foreign_count_afterinsert_trigger " \
         "AFTER INSERT ON moz_keywords FOR EACH ROW "                          \
         "BEGIN "                                                              \
@@ -290,7 +292,7 @@
         "END")
 
 #  define CREATE_KEYWORDS_FOREIGNCOUNT_AFTERUPDATE_TRIGGER                    \
-    NS_LITERAL_CSTRING(                                                       \
+    nsLiteralCString(                                                         \
         "CREATE TEMP TRIGGER moz_keywords_foreign_count_afterupdate_trigger " \
         "AFTER UPDATE OF place_id ON moz_keywords FOR EACH ROW "              \
         "BEGIN "                                                              \
@@ -303,7 +305,7 @@
         "END")
 
 #  define CREATE_ICONS_AFTERINSERT_TRIGGER                      \
-    NS_LITERAL_CSTRING(                                         \
+    nsLiteralCString(                                           \
         "CREATE TEMP TRIGGER moz_icons_afterinsert_v1_trigger " \
         "AFTER INSERT ON moz_icons FOR EACH ROW "               \
         "BEGIN "                                                \
@@ -311,7 +313,7 @@
         "END")
 
 #  define CREATE_BOOKMARKS_DELETED_AFTERINSERT_TRIGGER                      \
-    NS_LITERAL_CSTRING(                                                     \
+    nsLiteralCString(                                                       \
         "CREATE TEMP TRIGGER moz_bookmarks_deleted_afterinsert_v1_trigger " \
         "AFTER INSERT ON moz_bookmarks_deleted FOR EACH ROW "               \
         "BEGIN "                                                            \
@@ -319,7 +321,7 @@
         "END")
 
 #  define CREATE_BOOKMARKS_DELETED_AFTERDELETE_TRIGGER                      \
-    NS_LITERAL_CSTRING(                                                     \
+    nsLiteralCString(                                                       \
         "CREATE TEMP TRIGGER moz_bookmarks_deleted_afterdelete_v1_trigger " \
         "AFTER DELETE ON moz_bookmarks_deleted FOR EACH ROW "               \
         "BEGIN "                                                            \
