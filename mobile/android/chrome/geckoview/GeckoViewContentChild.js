@@ -300,11 +300,6 @@ class GeckoViewContentChild extends GeckoViewChildModule {
         break;
 
       case "GeckoView:SetActive":
-        if (content && aMsg.data.suspendMedia) {
-          content.windowUtils.mediaSuspend = aMsg.data.active
-            ? Ci.nsISuspendedTypes.NONE_SUSPENDED
-            : Ci.nsISuspendedTypes.SUSPENDED_PAUSE;
-        }
         break;
 
       case "GeckoView:UpdateInitData":
