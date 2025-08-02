@@ -30,7 +30,7 @@ version = "0.2"
 version = "0.4"
 
 [dependencies.rand]
-version = "0.6"
+version = "0.7"
 
 [dependencies.runloop]
 version = "0.1.0"

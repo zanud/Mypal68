@@ -40,7 +40,7 @@ version = "0.4"
 version = "1.2"
 
 [dependencies.rand]
-version = "0.6"
+version = "0.7"
 
 [dependencies.slab]
 version = "0.4.1"

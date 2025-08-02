@@ -25,7 +25,7 @@ repository = "https://github.com/Stebalien/tempfile"
 version = "0.1"
 
 [dependencies.rand]
-version = "0.6"
+version = "0.7"
 
 [dependencies.remove_dir_all]
 version = "0.5"
