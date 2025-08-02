@@ -16,9 +16,9 @@
 #include "ds/MemoryProtectionExceptionHandler.h"
 #include "gc/Statistics.h"
 #include "jit/AtomicOperations.h"
-#include "jit/ExecutableAllocator.h"
 #include "jit/Ion.h"
 #include "jit/JitCommon.h"
+#include "jit/ProcessExecutableMemory.h"
 #include "js/Utility.h"
 
 #if JS_HAS_INTL_API
@@ -111,6 +111,7 @@ static void SetupCanonicalNaN() {
   } while (0)
 
 extern "C" void install_rust_panic_hook();
+extern "C" void install_rust_oom_hook();
 
 JS_PUBLIC_API const char* JS::detail::InitWithFailureDiagnostic(
     bool isDebugBuild) {
@@ -129,8 +130,10 @@ JS_PUBLIC_API const char* JS::detail::InitWithFailureDiagnostic(
 
   libraryInitState = InitState::Initializing;
 
-#ifndef NO_RUST_PANIC_HOOK
+#ifdef JS_STANDALONE
+  // The rust hooks are initialized by Gecko on non-standalone builds.
   install_rust_panic_hook();
+  install_rust_oom_hook();
 #endif
 
   PRMJ_NowInit();
@@ -213,6 +216,11 @@ JS_PUBLIC_API const char* JS::detail::InitWithFailureDiagnostic(
 
 #ifdef JS_TRACE_LOGGING
   RETURN_IF_FAIL(JS::InitTraceLogger());
+#endif
+
+#ifndef JS_CODEGEN_NONE
+  // Normally this is forced by the compilation of atomic operations.
+  MOZ_ASSERT(js::jit::CPUFlagsHaveBeenComputed());
 #endif
 
   libraryInitState = InitState::Running;

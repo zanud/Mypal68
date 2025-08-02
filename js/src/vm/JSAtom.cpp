@@ -252,7 +252,7 @@ bool JSRuntime::initializeAtoms(JSContext* cx) {
    mozilla::HashStringKnownLength("Symbol." #NAME,              \
                                   sizeof("Symbol." #NAME) - 1), \
    "Symbol." #NAME},
-          JS_FOR_EACH_WELL_KNOWN_SYMBOL(COMMON_NAME_INFO)
+      JS_FOR_EACH_WELL_KNOWN_SYMBOL(COMMON_NAME_INFO)
 #undef COMMON_NAME_INFO
   };
 
@@ -444,23 +444,14 @@ static void TracePermanentAtoms(JSTracer* trc, AtomSet::Range atoms) {
   }
 }
 
-void JSRuntime::tracePermanentAtoms(JSTracer* trc) {
+void JSRuntime::tracePermanentAtomsDuringInit(JSTracer* trc) {
   // Permanent atoms only need to be traced in the runtime which owns them.
   if (parentRuntime) {
     return;
   }
 
-  // Static strings are not included in the permanent atoms table.
-  if (staticStrings) {
-    staticStrings->trace(trc);
-  }
-
   if (permanentAtomsDuringInit_) {
     TracePermanentAtoms(trc, permanentAtomsDuringInit_->all());
-  }
-
-  if (permanentAtoms_) {
-    TracePermanentAtoms(trc, permanentAtoms_->all());
   }
 }
 
@@ -633,6 +624,8 @@ size_t AtomsTable::sizeOfIncludingThis(
 bool JSRuntime::initMainAtomsTables(JSContext* cx) {
   MOZ_ASSERT(!parentRuntime);
   MOZ_ASSERT(!permanentAtomsPopulated());
+
+  gc.freezePermanentAtoms();
 
   // The permanent atoms table has now been populated.
   permanentAtoms_ =

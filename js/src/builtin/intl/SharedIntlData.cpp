@@ -30,6 +30,7 @@
 #include "unicode/unum.h"
 #include "unicode/utypes.h"
 #include "vm/JSAtom.h"
+#include "vm/JSContext.h"
 #include "vm/StringType.h"
 
 using js::HashNumber;
@@ -280,6 +281,14 @@ bool js::intl::SharedIntlData::tryCanonicalizeTimeZoneConsistentWithIANA(
   }
 
   return true;
+}
+
+JS::Result<js::intl::SharedIntlData::TimeZoneSet::Iterator>
+js::intl::SharedIntlData::availableTimeZonesIteration(JSContext* cx) {
+  if (!ensureTimeZones(cx)) {
+    return cx->alreadyReportedError();
+  }
+  return availableTimeZones.iter();
 }
 
 js::intl::SharedIntlData::LocaleHasher::Lookup::Lookup(JSLinearString* locale)

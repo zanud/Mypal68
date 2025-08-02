@@ -20,7 +20,6 @@
 #ifdef JS_CODEGEN_ARM64
 #  include "jit/arm64/vixl/Cpu-vixl.h"
 #endif
-#include "jit/AtomicOperations.h"
 #include "jit/FlushICache.h"  // js::jit::FlushICache
 #include "threading/LockGuard.h"
 #include "threading/Mutex.h"
@@ -757,9 +756,11 @@ bool js::jit::ReprotectRegion(void* start, size_t size,
                               ProtectionSetting protection,
                               MustFlushICache flushICache) {
   // Flush ICache when making code executable, before we modify |size|.
-  if (flushICache == MustFlushICache::Yes) {
+  if (flushICache == MustFlushICache::LocalThreadOnly ||
+      flushICache == MustFlushICache::AllThreads) {
     MOZ_ASSERT(protection == ProtectionSetting::Executable);
-    jit::FlushICache(start, size);
+    bool codeIsThreadLocal = flushICache == MustFlushICache::LocalThreadOnly;
+    jit::FlushICache(start, size, codeIsThreadLocal);
   }
 
   // Calculate the start of the page containing this region,

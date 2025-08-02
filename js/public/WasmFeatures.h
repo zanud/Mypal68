@@ -80,6 +80,11 @@
 #else
 #  define WASM_MEMORY64_ENABLED 0
 #endif
+#ifdef ENABLE_WASM_MOZ_INTGEMM
+#  define WASM_MOZ_INTGEMM_ENABLED 1
+#else
+#  define WASM_MOZ_INTGEMM_ENABLED 0
+#endif
 
 // clang-format off
 #ifdef ENABLE_WASM_SIMD
@@ -137,7 +142,16 @@
                /* flag predicate     */ !IsFuzzingIon(cx) &&                  \
                    !IsFuzzingCranelift(cx),                                   \
                /* shell flag         */ "memory64",                           \
-               /* preference name    */ "memory64")
+               /* preference name    */ "memory64")                           \
+  EXPERIMENTAL(/* capitalized name   */ MozIntGemm,                           \
+               /* lower case name    */ mozIntGemm,                           \
+               /* compile predicate  */ WASM_MOZ_INTGEMM_ENABLED,             \
+               /* compiler predicate */ BaselineAvailable(cx) ||              \
+                  IonAvailable(cx),                                           \
+               /* flag predicate     */ IsSimdPrivilegedContext(cx) &&        \
+                  !IsFuzzingCranelift(cx),                                    \
+               /* shell flag         */ "moz-intgemm",                        \
+               /* preference name    */ "moz_intgemm")
 #else
 #define JS_FOR_WASM_FEATURES(EXPERIMENTAL)                                    \
   EXPERIMENTAL(                                                               \
@@ -170,7 +184,16 @@
                /* flag predicate     */ !IsFuzzingIon(cx) &&                  \
                    !IsFuzzingCranelift(cx),                                   \
                /* shell flag         */ "memory64",                           \
-               /* preference name    */ "memory64")
+               /* preference name    */ "memory64")                           \
+  EXPERIMENTAL(/* capitalized name   */ MozIntGemm,                           \
+               /* lower case name    */ mozIntGemm,                           \
+               /* compile predicate  */ WASM_MOZ_INTGEMM_ENABLED,             \
+               /* compiler predicate */ BaselineAvailable(cx) ||              \
+                  IonAvailable(cx),                                           \
+               /* flag predicate     */ IsSimdPrivilegedContext(cx) &&        \
+                  !IsFuzzingCranelift(cx),                                    \
+               /* shell flag         */ "moz-intgemm",                        \
+               /* preference name    */ "moz_intgemm")
 #endif
 // clang-format on
 

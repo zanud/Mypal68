@@ -5,15 +5,12 @@
 #include "jit/RangeAnalysis.h"
 
 #include "mozilla/MathAlgorithms.h"
-#include "mozilla/TemplateLib.h"
 
 #include <algorithm>
 
 #include "jsmath.h"
-#include "jsnum.h"
 
 #include "jit/CompileInfo.h"
-#include "jit/Ion.h"
 #include "jit/IonAnalysis.h"
 #include "jit/JitSpewer.h"
 #include "jit/MIR.h"
@@ -1818,7 +1815,7 @@ void MArrayBufferViewByteOffset::computeRange(TempAllocator& alloc) {
 void MTypedArrayElementSize::computeRange(TempAllocator& alloc) {
   constexpr auto MaxTypedArraySize = sizeof(double);
 
-#define ASSERT_MAX_SIZE(T, N)                   \
+#define ASSERT_MAX_SIZE(_, T, N)                \
   static_assert(sizeof(T) <= MaxTypedArraySize, \
                 "unexpected typed array type exceeding 64-bits storage");
   JS_FOR_EACH_TYPED_ARRAY(ASSERT_MAX_SIZE)
@@ -1905,6 +1902,10 @@ void MNaNToZero::computeRange(TempAllocator& alloc) {
 ///////////////////////////////////////////////////////////////////////////////
 // Range Analysis
 ///////////////////////////////////////////////////////////////////////////////
+
+static BranchDirection NegateBranchDirection(BranchDirection dir) {
+  return (dir == FALSE_BRANCH) ? TRUE_BRANCH : FALSE_BRANCH;
+}
 
 bool RangeAnalysis::analyzeLoop(MBasicBlock* header) {
   MOZ_ASSERT(header->hasUniqueBackedge());

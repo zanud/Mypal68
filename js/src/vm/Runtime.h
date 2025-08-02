@@ -20,8 +20,6 @@
 
 #include <algorithm>
 
-#include "jsapi.h"
-
 #include "builtin/AtomicsObject.h"
 #ifdef JS_HAS_INTL_API
 #  include "builtin/intl/SharedIntlData.h"
@@ -32,6 +30,8 @@
 #include "gc/Tracer.h"
 #include "js/AllocationRecording.h"
 #include "js/BuildId.h"  // JS::BuildIdOp
+#include "js/CompilationAndEvaluation.h"
+#include "js/Context.h"
 #include "js/Debug.h"
 #include "js/experimental/CTypes.h"      // JS::CTypesActivityCallback
 #include "js/experimental/SourceHook.h"  // js::SourceHook
@@ -39,16 +39,23 @@
 #include "js/GCVector.h"
 #include "js/HashTable.h"
 #include "js/Initialization.h"
+#include "js/MemoryCallbacks.h"
 #include "js/Modules.h"  // JS::Module{DynamicImport,Metadata,Resolve}Hook
 #ifdef DEBUG
 #  include "js/Proxy.h"  // For AutoEnterPolicy
 #endif
+#include "js/ScriptPrivate.h"
+#include "js/Stack.h"
 #include "js/Stream.h"  // JS::AbortSignalIsAborted
+#include "js/StreamConsumer.h"
 #include "js/Symbol.h"
 #include "js/UniquePtr.h"
 #include "js/Utility.h"
 #include "js/Vector.h"
+#include "js/WaitCallbacks.h"
 #include "js/Warnings.h"  // JS::WarningReporter
+#include "js/WrapperCallbacks.h"
+#include "js/Zone.h"
 #include "threading/Thread.h"
 #include "vm/Caches.h"
 #include "vm/CodeCoverage.h"
@@ -66,6 +73,7 @@
 #include "wasm/WasmTypeDecls.h"
 
 struct JSClass;
+struct JSErrorInterceptor;
 
 namespace js {
 
@@ -89,11 +97,6 @@ class Simulator;
 namespace js {
 
 extern MOZ_COLD void ReportOutOfMemory(JSContext* cx);
-
-/* Different signature because the return type has [[nodiscard]]_TYPE. */
-extern MOZ_COLD mozilla::GenericErrorResult<OOM> ReportOutOfMemoryResult(
-    JSContext* cx);
-
 extern MOZ_COLD void ReportAllocationOverflow(JSContext* maybecx);
 
 class Activation;
@@ -829,7 +832,7 @@ struct JSRuntime {
   }
 
   bool initMainAtomsTables(JSContext* cx);
-  void tracePermanentAtoms(JSTracer* trc);
+  void tracePermanentAtomsDuringInit(JSTracer* trc);
 
   // Cached well-known symbols (ES6 rev 24 6.1.5.1). Like permanent atoms,
   // these are shared with the parentRuntime, if any.
@@ -975,7 +978,7 @@ struct JSRuntime {
     autoWritableJitCodeActive_ = b;
   }
 
-  /* See comment for JS::SetOutOfMemoryCallback in jsapi.h. */
+  /* See comment for JS::SetOutOfMemoryCallback in js/MemoryCallbacks.h. */
   js::MainThreadData<JS::OutOfMemoryCallback> oomCallback;
   js::MainThreadData<void*> oomCallbackData;
 

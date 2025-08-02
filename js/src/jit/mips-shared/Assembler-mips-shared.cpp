@@ -207,6 +207,7 @@ size_t AssemblerMIPSShared::bytesNeeded() const {
 
 // write a blob of binary into the instruction stream
 BufferOffset AssemblerMIPSShared::writeInst(uint32_t x, uint32_t* dest) {
+  MOZ_ASSERT(hasCreator());
   if (dest == nullptr) {
     return m_buffer.putInt(x);
   }
@@ -1955,7 +1956,7 @@ Instruction* Instruction::next() { return this + 1; }
 InstImm AssemblerMIPSShared::invertBranch(InstImm branch,
                                           BOffImm16 skipOffset) {
   uint32_t rt = 0;
-  Opcode op = (Opcode)(branch.extractOpcode() << OpcodeShift);
+  OpcodeField op = (OpcodeField)(branch.extractOpcode() << OpcodeShift);
   switch (op) {
     case op_beq:
       branch.setBOffImm16(skipOffset);
@@ -2032,7 +2033,7 @@ void AssemblerMIPSShared::UpdateLuiOriValue(Instruction* inst0,
 
 #ifdef JS_JITSPEW
 void AssemblerMIPSShared::decodeBranchInstAndSpew(InstImm branch) {
-  Opcode op = (Opcode)(branch.extractOpcode() << OpcodeShift);
+  OpcodeField op = (OpcodeField)(branch.extractOpcode() << OpcodeShift);
   uint32_t rt_id;
   uint32_t rs_id;
   uint32_t immi = branch.extractImm16Value();

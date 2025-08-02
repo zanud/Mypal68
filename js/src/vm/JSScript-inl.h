@@ -9,8 +9,6 @@
 
 #include <utility>
 
-#include "jit/BaselineJIT.h"
-#include "jit/IonAnalysis.h"
 #include "jit/IonScript.h"
 #include "jit/JitScript.h"
 #include "vm/GeneratorObject.h"  // js::AsyncGeneratorObject

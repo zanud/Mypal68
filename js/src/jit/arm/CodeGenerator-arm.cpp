@@ -1097,7 +1097,7 @@ void CodeGenerator::visitPopcntI(LPopcntI* ins) {
   Register input = ToRegister(ins->input());
   Register output = ToRegister(ins->output());
 
-  Register tmp = ToRegister(ins->temp());
+  Register tmp = ToRegister(ins->temp0());
 
   masm.popcnt32(input, output, tmp);
 }
@@ -1395,12 +1395,12 @@ void CodeGenerator::visitUnbox(LUnbox* unbox) {
 
 void CodeGenerator::visitDouble(LDouble* ins) {
   const LDefinition* out = ins->getDef(0);
-  masm.loadConstantDouble(ins->getDouble(), ToFloatRegister(out));
+  masm.loadConstantDouble(ins->value(), ToFloatRegister(out));
 }
 
 void CodeGenerator::visitFloat32(LFloat32* ins) {
   const LDefinition* out = ins->getDef(0);
-  masm.loadConstantFloat32(ins->getFloat(), ToFloatRegister(out));
+  masm.loadConstantFloat32(ins->value(), ToFloatRegister(out));
 }
 
 void CodeGeneratorARM::splitTagForTest(const ValueOperand& value,
@@ -1868,6 +1868,10 @@ void CodeGenerator::visitWasmSelect(LWasmSelect* ins) {
   }
 }
 
+void CodeGenerator::visitWasmCompareAndSelect(LWasmCompareAndSelect* ins) {
+  emitWasmCompareAndSelect(ins);
+}
+
 void CodeGenerator::visitWasmReinterpret(LWasmReinterpret* lir) {
   MOZ_ASSERT(gen->compilingWasm());
   MWasmReinterpret* ins = lir->mir();
@@ -2024,39 +2028,6 @@ void CodeGenerator::visitWasmLoad(LWasmLoad* lir) { emitWasmLoad(lir); }
 
 void CodeGenerator::visitWasmLoadI64(LWasmLoadI64* lir) { emitWasmLoad(lir); }
 
-template <typename T>
-void CodeGeneratorARM::emitWasmUnalignedLoad(T* lir) {
-  const MWasmLoad* mir = lir->mir();
-  MIRType resultType = mir->type();
-
-  Register ptr = ToRegister(lir->ptrCopy());
-  Register tmp1 = ToRegister(lir->getTemp(1));
-
-  if (resultType == MIRType::Int64) {
-    masm.wasmUnalignedLoadI64(mir->access(), HeapReg, ptr, ptr,
-                              ToOutRegister64(lir), tmp1);
-  } else if (IsFloatingPointType(resultType)) {
-    Register tmp2(ToRegister(lir->getTemp(2)));
-    Register tmp3(Register::Invalid());
-    if (mir->access().byteSize() == 8) {
-      tmp3 = ToRegister(lir->getTemp(3));
-    }
-    masm.wasmUnalignedLoadFP(mir->access(), HeapReg, ptr, ptr,
-                             ToFloatRegister(lir->output()), tmp1, tmp2, tmp3);
-  } else {
-    masm.wasmUnalignedLoad(mir->access(), HeapReg, ptr, ptr,
-                           ToRegister(lir->output()), tmp1);
-  }
-}
-
-void CodeGenerator::visitWasmUnalignedLoad(LWasmUnalignedLoad* lir) {
-  emitWasmUnalignedLoad(lir);
-}
-
-void CodeGenerator::visitWasmUnalignedLoadI64(LWasmUnalignedLoadI64* lir) {
-  emitWasmUnalignedLoad(lir);
-}
-
 void CodeGenerator::visitWasmAddOffset(LWasmAddOffset* lir) {
   MWasmAddOffset* mir = lir->mir();
   Register base = ToRegister(lir->base());
@@ -2100,37 +2071,6 @@ void CodeGenerator::visitWasmStore(LWasmStore* lir) { emitWasmStore(lir); }
 
 void CodeGenerator::visitWasmStoreI64(LWasmStoreI64* lir) {
   emitWasmStore(lir);
-}
-
-template <typename T>
-void CodeGeneratorARM::emitWasmUnalignedStore(T* lir) {
-  const MWasmStore* mir = lir->mir();
-  MIRType valueType = mir->value()->type();
-  Register ptr = ToRegister(lir->ptrCopy());
-  Register valOrTmp = ToRegister(lir->valueHelper());
-
-  if (valueType == MIRType::Int64) {
-    masm.wasmUnalignedStoreI64(
-        mir->access(),
-        ToRegister64(lir->getInt64Operand(LWasmUnalignedStoreI64::ValueIndex)),
-        HeapReg, ptr, ptr, valOrTmp);
-  } else if (valueType == MIRType::Float32 || valueType == MIRType::Double) {
-    FloatRegister value =
-        ToFloatRegister(lir->getOperand(LWasmUnalignedStore::ValueIndex));
-    masm.wasmUnalignedStoreFP(mir->access(), value, HeapReg, ptr, ptr,
-                              valOrTmp);
-  } else {
-    masm.wasmUnalignedStore(mir->access(), valOrTmp, HeapReg, ptr, ptr,
-                            Register::Invalid());
-  }
-}
-
-void CodeGenerator::visitWasmUnalignedStore(LWasmUnalignedStore* lir) {
-  emitWasmUnalignedStore(lir);
-}
-
-void CodeGenerator::visitWasmUnalignedStoreI64(LWasmUnalignedStoreI64* lir) {
-  emitWasmUnalignedStore(lir);
 }
 
 void CodeGenerator::visitAsmJSStoreHeap(LAsmJSStoreHeap* ins) {
@@ -2459,6 +2399,12 @@ void CodeGenerator::visitEffectiveAddress(LEffectiveAddress* ins) {
 void CodeGenerator::visitNegI(LNegI* ins) {
   Register input = ToRegister(ins->input());
   masm.ma_neg(input, ToRegister(ins->output()));
+}
+
+void CodeGenerator::visitNegI64(LNegI64* ins) {
+  Register64 input = ToRegister64(ins->getInt64Operand(0));
+  MOZ_ASSERT(input == ToOutRegister64(ins));
+  masm.neg64(input);
 }
 
 void CodeGenerator::visitNegD(LNegD* ins) {
@@ -3130,7 +3076,7 @@ void CodeGenerator::visitNearbyIntF(LNearbyIntF*) { MOZ_CRASH("NYI"); }
 #ifdef ENABLE_WASM_SIMD
 void CodeGenerator::visitSimd128(LSimd128* ins) { MOZ_CRASH("No SIMD"); }
 
-void CodeGenerator::visitWasmBitselectSimd128(LWasmBitselectSimd128* ins) {
+void CodeGenerator::visitWasmTernarySimd128(LWasmTernarySimd128* ins) {
   MOZ_CRASH("No SIMD");
 }
 
@@ -3150,6 +3096,11 @@ void CodeGenerator::visitWasmVariableShiftSimd128(
 
 void CodeGenerator::visitWasmConstantShiftSimd128(
     LWasmConstantShiftSimd128* ins) {
+  MOZ_CRASH("No SIMD");
+}
+
+void CodeGenerator::visitWasmSignReplicationSimd128(
+    LWasmSignReplicationSimd128* ins) {
   MOZ_CRASH("No SIMD");
 }
 
@@ -3193,6 +3144,14 @@ void CodeGenerator::visitWasmReduceAndBranchSimd128(
 
 void CodeGenerator::visitWasmReduceSimd128ToInt64(
     LWasmReduceSimd128ToInt64* ins) {
+  MOZ_CRASH("No SIMD");
+}
+
+void CodeGenerator::visitWasmLoadLaneSimd128(LWasmLoadLaneSimd128* ins) {
+  MOZ_CRASH("No SIMD");
+}
+
+void CodeGenerator::visitWasmStoreLaneSimd128(LWasmStoreLaneSimd128* ins) {
   MOZ_CRASH("No SIMD");
 }
 #endif

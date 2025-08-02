@@ -8,7 +8,6 @@
 
 #include "mozilla/Assertions.h"  // MOZ_ASSERT
 
-#include "jsapi.h"    // JS_ReportErrorNumberASCII
 #include "jspubtd.h"  // JSProto_WritableStream
 
 #include "builtin/streams/ClassSpecMacro.h"           // JS_STREAMS_CLASS_SPEC
@@ -18,6 +17,7 @@
 #include "builtin/streams/WritableStreamOperations.h"  // js::WritableStream{Abort,Close{,QueuedOrInFlight}}
 #include "js/CallArgs.h"                               // JS::CallArgs{,FromVp}
 #include "js/Class.h"  // JS{Function,Property}Spec, JS_{FS,PS}_END, JSCLASS_SLOT0_IS_NSISUPPORTS, JS_NULL_CLASS_OPS
+#include "js/ErrorReport.h"           // JS_ReportErrorNumberASCII
 #include "js/friend/ErrorMessages.h"  // js::GetErrorMessage, JSMSG_*
 #include "js/RealmOptions.h"          // JS::RealmCreationOptions
 #include "js/RootingAPI.h"            // JS::Handle, JS::Rooted
@@ -67,7 +67,7 @@ bool WritableStream::constructor(JSContext* cx, unsigned argc, Value* vp) {
   // Implicit in the spec: argument default values.
   Rooted<Value> underlyingSink(cx, args.get(0));
   if (underlyingSink.isUndefined()) {
-    JSObject* emptyObj = NewBuiltinClassInstance<PlainObject>(cx);
+    JSObject* emptyObj = NewPlainObject(cx);
     if (!emptyObj) {
       return false;
     }
@@ -76,7 +76,7 @@ bool WritableStream::constructor(JSContext* cx, unsigned argc, Value* vp) {
 
   Rooted<Value> strategy(cx, args.get(1));
   if (strategy.isUndefined()) {
-    JSObject* emptyObj = NewBuiltinClassInstance<PlainObject>(cx);
+    JSObject* emptyObj = NewPlainObject(cx);
     if (!emptyObj) {
       return false;
     }

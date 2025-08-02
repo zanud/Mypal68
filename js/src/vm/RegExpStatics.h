@@ -14,7 +14,6 @@
 namespace js {
 
 class GlobalObject;
-class RegExpStaticsObject;
 
 class RegExpStatics {
   /* The latest RegExp output, set after execution. */
@@ -41,7 +40,7 @@ class RegExpStatics {
 
  public:
   RegExpStatics() { clear(); }
-  static RegExpStaticsObject* create(JSContext* cx);
+  static UniquePtr<RegExpStatics> create(JSContext* cx);
 
  private:
   bool executeLazy(JSContext* cx);
@@ -81,6 +80,10 @@ class RegExpStatics {
     TraceNullableEdge(trc, &matchesInput, "res->matchesInput");
     TraceNullableEdge(trc, &lazySource, "res->lazySource");
     TraceNullableEdge(trc, &pendingInput, "res->pendingInput");
+  }
+
+  size_t sizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf) const {
+    return mallocSizeOf(this) + matches.sizeOfExcludingThis(mallocSizeOf);
   }
 
   /* Value creators. */

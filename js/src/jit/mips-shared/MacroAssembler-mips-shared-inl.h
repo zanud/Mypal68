@@ -167,6 +167,11 @@ void MacroAssembler::mul32(Register rhs, Register srcDest) {
   as_mul(srcDest, srcDest, rhs);
 }
 
+void MacroAssembler::mul32(Imm32 imm, Register srcDest) {
+  move32(imm, SecondScratchReg);
+  mul32(SecondScratchReg, srcDest);
+}
+
 void MacroAssembler::mulFloat32(FloatRegister src, FloatRegister dest) {
   as_muls(dest, dest, src);
 }
@@ -235,6 +240,17 @@ void MacroAssembler::neg32(Register reg) { ma_negu(reg, reg); }
 void MacroAssembler::negateDouble(FloatRegister reg) { as_negd(reg, reg); }
 
 void MacroAssembler::negateFloat(FloatRegister reg) { as_negs(reg, reg); }
+
+void MacroAssembler::abs32(Register src, Register dest) {
+  // TODO: There's probably a better way to do this.
+  if (src != dest) {
+    move32(src, dest);
+  }
+  Label positive;
+  branchTest32(Assembler::NotSigned, dest, dest, &positive);
+  neg32(dest);
+  bind(&positive);
+}
 
 void MacroAssembler::absFloat32(FloatRegister src, FloatRegister dest) {
   as_abss(dest, src);
@@ -1002,12 +1018,6 @@ void MacroAssembler::spectreZeroRegister(Condition cond, Register scratch,
 
 // ========================================================================
 // Memory access primitives.
-void MacroAssembler::storeFloat32x3(FloatRegister src, const Address& dest) {
-  MOZ_CRASH("NYI");
-}
-void MacroAssembler::storeFloat32x3(FloatRegister src, const BaseIndex& dest) {
-  MOZ_CRASH("NYI");
-}
 
 void MacroAssembler::storeUncanonicalizedDouble(FloatRegister src,
                                                 const Address& addr) {

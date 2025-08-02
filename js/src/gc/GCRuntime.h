@@ -286,11 +286,15 @@ class GCRuntime {
   void finishRoots();
   void finish();
 
+  void freezePermanentAtoms();
+  void freezePermanentAtomsOfKind(AllocKind kind, ArenaList& arenaList);
+  void restorePermanentAtoms();
+  void restorePermanentAtomsOfKind(AllocKind kind, ArenaList& arenaList);
+
   JS::HeapState heapState() const { return heapState_; }
 
   inline bool hasZealMode(ZealMode mode);
   inline void clearZealMode(ZealMode mode);
-  inline bool upcomingZealousGC();
   inline bool needZealousGC();
   inline bool hasIncrementalTwoSliceZealMode();
 
@@ -399,6 +403,8 @@ class GCRuntime {
 
  public:
   // Internal public interface
+  ZoneVector& zones() { return zones_.ref(); }
+  gcstats::Statistics& stats() { return stats_.ref(); }
   State state() const { return incrementalState; }
   bool isHeapCompacting() const { return state() == State::Compact; }
   bool isForegroundSweeping() const { return state() == State::Sweep; }
@@ -410,7 +416,6 @@ class GCRuntime {
   void waitForBackgroundTasks();
 
   void lockGC() { lock.lock(); }
-
   void unlockGC() { lock.unlock(); }
 
 #ifdef DEBUG
@@ -661,7 +666,9 @@ class GCRuntime {
 
   void requestMajorGC(JS::GCReason reason);
   SliceBudget defaultBudget(JS::GCReason reason, int64_t millis);
-  void maybeIncreaseSliceBudget(SliceBudget& budget);
+  bool maybeIncreaseSliceBudget(SliceBudget& budget);
+  bool maybeIncreaseSliceBudgetForLongCollections(SliceBudget& budget);
+  bool maybeIncreaseSliceBudgetForUrgentCollections(SliceBudget& budget);
   IncrementalResult budgetIncrementalGC(bool nonincrementalByAPI,
                                         JS::GCReason reason,
                                         SliceBudget& budget);
@@ -701,7 +708,7 @@ class GCRuntime {
   bool shouldRepeatForDeadZone(JS::GCReason reason);
 
   void incrementalSlice(SliceBudget& budget, const MaybeGCOptions& options,
-                        JS::GCReason reason);
+                        JS::GCReason reason, bool budgetWasIncreased);
 
   void waitForBackgroundTasksBeforeSlice();
   bool mightSweepInThisSlice(bool nonIncremental);
@@ -739,6 +746,27 @@ class GCRuntime {
   void checkNoRuntimeRoots(AutoGCSession& session);
   void maybeDoCycleCollection();
   void findDeadCompartments();
+
+  // Gray marking must be done after all black marking is complete. However,
+  // we do not have write barriers on XPConnect roots. Therefore, XPConnect
+  // roots must be accumulated in the first slice of incremental GC. We
+  // accumulate these roots in each zone's gcGrayRoots vector and then mark
+  // them later, after black marking is complete for each compartment. This
+  // accumulation can fail, but in that case we switch to non-incremental GC.
+  enum class GrayBufferState { Unused, Okay, Failed };
+
+  bool hasValidGrayRootsBuffer() const {
+    return grayBufferState == GrayBufferState::Okay;
+  }
+
+  // Clear each zone's gray buffers, but do not change the current state.
+  void resetBufferedGrayRoots();
+
+  // Reset the gray buffering state to Unused.
+  void clearBufferedGrayRoots() {
+    grayBufferState = GrayBufferState::Unused;
+    resetBufferedGrayRoots();
+  }
 
   friend class BackgroundMarkTask;
   IncrementalProgress markUntilBudgetExhausted(
@@ -839,7 +867,7 @@ class GCRuntime {
   };
 
   IncrementalProgress waitForBackgroundTask(
-      GCParallelTask& task, const SliceBudget& budget,
+      GCParallelTask& task, const SliceBudget& budget, bool shouldPauseMutator,
       ShouldTriggerSliceWhenFinished triggerSlice);
 
   void maybeRequestGCAfterBackgroundTask(const AutoLockHelperThreadState& lock);
@@ -867,20 +895,16 @@ class GCRuntime {
  public:
   JSRuntime* const rt;
 
-  /* Embedders can use this zone and group however they wish. */
-  UnprotectedData<JS::Zone*> systemZone;
-
-  // All zones in the runtime, except the atoms zone.
- private:
-  MainThreadOrGCTaskData<ZoneVector> zones_;
-
- public:
-  ZoneVector& zones() { return zones_.ref(); }
-
   // The unique atoms zone.
   WriteOnceData<Zone*> atomsZone;
 
+  // Embedders can use this zone however they wish.
+  MainThreadData<JS::Zone*> systemZone;
+
  private:
+  // All zones in the runtime, except the atoms zone.
+  MainThreadOrGCTaskData<ZoneVector> zones_;
+
   // Any activity affecting the heap.
   mozilla::Atomic<JS::HeapState, mozilla::SequentiallyConsistent> heapState_;
   friend class AutoHeapSession;
@@ -889,8 +913,6 @@ class GCRuntime {
   UnprotectedData<gcstats::Statistics> stats_;
 
  public:
-  gcstats::Statistics& stats() { return stats_.ref(); }
-
   js::StringStats stringStats;
 
   GCMarker marker;
@@ -914,6 +936,10 @@ class GCRuntime {
   AtomMarkingRuntime atomMarking;
 
  private:
+  // Arenas used for permanent atoms and static strings created at startup.
+  MainThreadData<ArenaList> permanentAtoms;
+  MainThreadData<ArenaList> permanentFatInlineAtoms;
+
   // When chunks are empty, they reside in the emptyChunks pool and are
   // re-used as needed or eventually expired if not re-used. The emptyChunks
   // pool gets refilled from the background allocation task heuristically so
@@ -956,26 +982,7 @@ class GCRuntime {
   /* During shutdown, the GC needs to clean up every possible object. */
   MainThreadData<bool> cleanUpEverything;
 
-  // Gray marking must be done after all black marking is complete. However,
-  // we do not have write barriers on XPConnect roots. Therefore, XPConnect
-  // roots must be accumulated in the first slice of incremental GC. We
-  // accumulate these roots in each zone's gcGrayRoots vector and then mark
-  // them later, after black marking is complete for each compartment. This
-  // accumulation can fail, but in that case we switch to non-incremental GC.
-  enum class GrayBufferState { Unused, Okay, Failed };
   MainThreadOrGCTaskData<GrayBufferState> grayBufferState;
-  bool hasValidGrayRootsBuffer() const {
-    return grayBufferState == GrayBufferState::Okay;
-  }
-
-  // Clear each zone's gray buffers, but do not change the current state.
-  void resetBufferedGrayRoots();
-
-  // Reset the gray buffering state to Unused.
-  void clearBufferedGrayRoots() {
-    grayBufferState = GrayBufferState::Unused;
-    resetBufferedGrayRoots();
-  }
 
   /*
    * The gray bits can become invalid if UnmarkGray overflows the stack. A
@@ -1265,8 +1272,6 @@ inline void GCRuntime::clearZealMode(ZealMode mode) {
   MOZ_ASSERT(!hasZealMode(mode));
 }
 
-inline bool GCRuntime::upcomingZealousGC() { return nextScheduled == 1; }
-
 inline bool GCRuntime::needZealousGC() {
   if (nextScheduled > 0 && --nextScheduled == 0) {
     if (hasZealMode(ZealMode::Alloc) || hasZealMode(ZealMode::GenerationalGC) ||
@@ -1294,7 +1299,6 @@ inline bool GCRuntime::hasIncrementalTwoSliceZealMode() {
 #else
 inline bool GCRuntime::hasZealMode(ZealMode mode) { return false; }
 inline void GCRuntime::clearZealMode(ZealMode mode) {}
-inline bool GCRuntime::upcomingZealousGC() { return false; }
 inline bool GCRuntime::needZealousGC() { return false; }
 inline bool GCRuntime::hasIncrementalTwoSliceZealMode() { return false; }
 #endif

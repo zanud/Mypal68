@@ -406,6 +406,12 @@ void MacroAssembler::mul32(Register rhs, Register srcDest) {
   as_mul(srcDest, srcDest, rhs);
 }
 
+void MacroAssembler::mul32(Imm32 imm, Register srcDest) {
+  ScratchRegisterScope scratch(*this);
+  move32(imm, scratch);
+  mul32(scratch, srcDest);
+}
+
 void MacroAssembler::mulPtr(Register rhs, Register srcDest) {
   as_mul(srcDest, srcDest, rhs);
 }
@@ -557,18 +563,20 @@ void MacroAssembler::negateDouble(FloatRegister reg) { ma_vneg(reg, reg); }
 
 void MacroAssembler::negateFloat(FloatRegister reg) { ma_vneg_f32(reg, reg); }
 
-void MacroAssembler::absFloat32(FloatRegister src, FloatRegister dest) {
-  if (src != dest) {
-    ma_vmov_f32(src, dest);
+void MacroAssembler::abs32(Register src, Register dest) {
+  as_cmp(src, Imm8(0));
+  as_rsb(dest, src, Imm8(0), LeaveCC, LessThan);
+  if (dest != src) {
+    as_mov(dest, O2Reg(src), LeaveCC, GreaterThanOrEqual);
   }
-  ma_vabs_f32(dest, dest);
+}
+
+void MacroAssembler::absFloat32(FloatRegister src, FloatRegister dest) {
+  ma_vabs_f32(src, dest);
 }
 
 void MacroAssembler::absDouble(FloatRegister src, FloatRegister dest) {
-  if (src != dest) {
-    ma_vmov(src, dest);
-  }
-  ma_vabs(dest, dest);
+  ma_vabs(src, dest);
 }
 
 void MacroAssembler::sqrtFloat32(FloatRegister src, FloatRegister dest) {
@@ -1172,28 +1180,62 @@ void MacroAssembler::branch32(Condition cond, wasm::SymbolicAddress lhs,
 
 void MacroAssembler::branch64(Condition cond, const Address& lhs, Imm64 val,
                               Label* label) {
-  MOZ_ASSERT(cond == Assembler::NotEqual,
+  MOZ_ASSERT(cond == Assembler::NotEqual || cond == Assembler::Equal,
              "other condition codes not supported");
 
-  branch32(cond, lhs, val.firstHalf(), label);
+  Label done;
+
+  if (cond == Assembler::Equal) {
+    branch32(Assembler::NotEqual, lhs, val.firstHalf(), &done);
+  } else {
+    branch32(Assembler::NotEqual, lhs, val.firstHalf(), label);
+  }
   branch32(cond, Address(lhs.base, lhs.offset + sizeof(uint32_t)),
            val.secondHalf(), label);
+
+  bind(&done);
+}
+
+void MacroAssembler::branch64(Condition cond, const Address& lhs,
+                              Register64 rhs, Label* label) {
+  MOZ_ASSERT(cond == Assembler::NotEqual || cond == Assembler::Equal,
+             "other condition codes not supported");
+
+  Label done;
+
+  if (cond == Assembler::Equal) {
+    branch32(Assembler::NotEqual, lhs, rhs.low, &done);
+  } else {
+    branch32(Assembler::NotEqual, lhs, rhs.low, label);
+  }
+  branch32(cond, Address(lhs.base, lhs.offset + sizeof(uint32_t)), rhs.high,
+           label);
+
+  bind(&done);
 }
 
 void MacroAssembler::branch64(Condition cond, const Address& lhs,
                               const Address& rhs, Register scratch,
                               Label* label) {
-  MOZ_ASSERT(cond == Assembler::NotEqual,
+  MOZ_ASSERT(cond == Assembler::NotEqual || cond == Assembler::Equal,
              "other condition codes not supported");
   MOZ_ASSERT(lhs.base != scratch);
   MOZ_ASSERT(rhs.base != scratch);
 
+  Label done;
+
   load32(rhs, scratch);
-  branch32(cond, lhs, scratch, label);
+  if (cond == Assembler::Equal) {
+    branch32(Assembler::NotEqual, lhs, scratch, &done);
+  } else {
+    branch32(Assembler::NotEqual, lhs, scratch, label);
+  }
 
   load32(Address(rhs.base, rhs.offset + sizeof(uint32_t)), scratch);
   branch32(cond, Address(lhs.base, lhs.offset + sizeof(uint32_t)), scratch,
            label);
+
+  bind(&done);
 }
 
 void MacroAssembler::branch64(Condition cond, Register64 lhs, Imm64 val,
@@ -2181,13 +2223,6 @@ void MacroAssembler::storeUncanonicalizedFloat32(FloatRegister src,
   uint32_t scale = Imm32::ShiftOf(addr.scale).value;
   ma_vstr(src.asSingle(), addr.base, addr.index, scratch, scratch2, scale,
           addr.offset);
-}
-
-void MacroAssembler::storeFloat32x3(FloatRegister src, const Address& dest) {
-  MOZ_CRASH("NYI");
-}
-void MacroAssembler::storeFloat32x3(FloatRegister src, const BaseIndex& dest) {
-  MOZ_CRASH("NYI");
 }
 
 void MacroAssembler::memoryBarrier(MemoryBarrierBits barrier) {

@@ -235,8 +235,8 @@ static void StatsRealmCallback(JSContext* cx, void* data, Realm* realm,
   realm->addSizeOfIncludingThis(
       rtStats->mallocSizeOf_, &realmStats.realmObject, &realmStats.realmTables,
       &realmStats.innerViewsTable, &realmStats.objectMetadataTable,
-      &realmStats.savedStacksSet, &realmStats.varNamesSet,
-      &realmStats.nonSyntacticLexicalScopesTable, &realmStats.jitRealm);
+      &realmStats.savedStacksSet, &realmStats.nonSyntacticLexicalScopesTable,
+      &realmStats.jitRealm);
 }
 
 static void StatsArenaCallback(JSRuntime* rt, void* data, gc::Arena* arena,
@@ -338,7 +338,8 @@ static void StatsCellCallback(JSRuntime* rt, void* data, JS::GCCellPtr cellptr,
         info.objectsGCHeap += Nursery::nurseryCellHeaderSize();
       }
 
-      obj->addSizeOfExcludingThis(rtStats->mallocSizeOf_, &info);
+      obj->addSizeOfExcludingThis(rtStats->mallocSizeOf_, &info,
+                                  &rtStats->runtime);
 
       // These classes require special handling due to shared resources which
       // we must be careful not to report twice.

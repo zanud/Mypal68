@@ -112,8 +112,9 @@ class SimInstruction {
   Type instructionType() const;
 
   // Accessors for the different named fields used in the MIPS encoding.
-  inline Opcode opcodeValue() const {
-    return static_cast<Opcode>(bits(OpcodeShift + OpcodeBits - 1, OpcodeShift));
+  inline OpcodeField opcodeValue() const {
+    return static_cast<OpcodeField>(
+        bits(OpcodeShift + OpcodeBits - 1, OpcodeShift));
   }
 
   inline int rsValue() const {
@@ -168,8 +169,8 @@ class SimInstruction {
   }
 
   // Return the fields at their original place in the instruction encoding.
-  inline Opcode opcodeFieldRaw() const {
-    return static_cast<Opcode>(instructionBits() & OpcodeMask);
+  inline OpcodeField opcodeFieldRaw() const {
+    return static_cast<OpcodeField>(instructionBits() & OpcodeMask);
   }
 
   inline int rsFieldRaw() const {
@@ -203,7 +204,7 @@ class SimInstruction {
 
   // Get the secondary field according to the opcode.
   inline int secondaryValue() const {
-    Opcode op = opcodeFieldRaw();
+    OpcodeField op = opcodeFieldRaw();
     switch (op) {
       case op_special:
       case op_special2:
@@ -2344,7 +2345,7 @@ void Simulator::configureTypeRegister(SimInstruction* instr, int64_t& alu_out,
   // decodeTypeRegister correctly.
 
   // Instruction fields.
-  const Opcode op = instr->opcodeFieldRaw();
+  const OpcodeField op = instr->opcodeFieldRaw();
   const int32_t rs_reg = instr->rsValue();
   const int64_t rs = getRegister(rs_reg);
   const int32_t rt_reg = instr->rtValue();
@@ -2778,7 +2779,7 @@ void Simulator::configureTypeRegister(SimInstruction* instr, int64_t& alu_out,
 // Handle execution based on instruction types.
 void Simulator::decodeTypeRegister(SimInstruction* instr) {
   // Instruction fields.
-  const Opcode op = instr->opcodeFieldRaw();
+  const OpcodeField op = instr->opcodeFieldRaw();
   const int32_t rs_reg = instr->rsValue();
   const int64_t rs = getRegister(rs_reg);
   const int32_t rt_reg = instr->rtValue();
@@ -3407,7 +3408,7 @@ void Simulator::decodeTypeRegister(SimInstruction* instr) {
 // Type 2: instructions using a 16 bits immediate. (e.g. addi, beq).
 void Simulator::decodeTypeImmediate(SimInstruction* instr) {
   // Instruction fields.
-  Opcode op = instr->opcodeFieldRaw();
+  OpcodeField op = instr->opcodeFieldRaw();
   int64_t rs = getRegister(instr->rsValue());
   int32_t rt_reg = instr->rtValue();  // Destination register.
   int64_t rt = getRegister(rt_reg);

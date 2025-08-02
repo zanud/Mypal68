@@ -64,9 +64,6 @@ uint32_t wasm::ObservedCPUFeatures() {
 #elif defined(JS_CODEGEN_ARM64)
   MOZ_ASSERT(jit::GetARM64Flags() <= (UINT32_MAX >> ARCH_BITS));
   return ARM64 | (jit::GetARM64Flags() << ARCH_BITS);
-#elif defined(JS_CODEGEN_MIPS32)
-  MOZ_ASSERT(jit::GetMIPSFlags() <= (UINT32_MAX >> ARCH_BITS));
-  return MIPS | (jit::GetMIPSFlags() << ARCH_BITS);
 #elif defined(JS_CODEGEN_MIPS64)
   MOZ_ASSERT(jit::GetMIPSFlags() <= (UINT32_MAX >> ARCH_BITS));
   return MIPS64 | (jit::GetMIPSFlags() << ARCH_BITS);
@@ -562,6 +559,20 @@ void CompilerEnvironment::computeParameters() {
   state_ = Computed;
 }
 
+// Check that this architecture either:
+// - is cache-coherent, which is the case for most tier-1 architectures we care
+// about.
+// - or has the ability to invalidate the instruction cache of all threads, so
+// background compilation in tiered compilation can be synchronized across all
+// threads.
+static bool IsICacheSafe() {
+#ifdef JS_CODEGEN_ARM64
+  return jit::CanFlushICacheFromBackgroundThreads();
+#else
+  return true;
+#endif
+}
+
 void CompilerEnvironment::computeParameters(Decoder& d) {
   MOZ_ASSERT(!isComputed());
 
@@ -592,7 +603,7 @@ void CompilerEnvironment::computeParameters(Decoder& d) {
   }
 
   if (baselineEnabled && hasSecondTier && CanUseExtraThreads() &&
-      (TieringBeneficial(codeSectionSize) || forceTiering)) {
+      (TieringBeneficial(codeSectionSize) || forceTiering) && IsICacheSafe()) {
     mode_ = CompileMode::Tier1;
     tier_ = Tier::Baseline;
   } else {

@@ -19,6 +19,7 @@
 
 #include <algorithm>
 
+#include "jit/ABIArgGenerator.h"
 #include "jit/CodeGenerator.h"
 #include "jit/CompileInfo.h"
 #include "jit/Ion.h"
@@ -94,7 +95,7 @@ class FunctionCompiler {
   };
 
   using ControlFlowPatchVector = Vector<ControlFlowPatch, 0, SystemAllocPolicy>;
-  using ControlFlowPatchsVector =
+  using ControlFlowPatchVectorVector =
       Vector<ControlFlowPatchVector, 0, SystemAllocPolicy>;
 
   const ModuleEnvironment& moduleEnv_;
@@ -113,7 +114,7 @@ class FunctionCompiler {
 
   uint32_t loopDepth_;
   uint32_t blockDepth_;
-  ControlFlowPatchsVector blockPatches_;
+  ControlFlowPatchVectorVector blockPatches_;
 
   // TLS pointer argument to the current function.
   MWasmParameter* tlsPointer_;
@@ -680,8 +681,7 @@ class FunctionCompiler {
   //
   // The expectation is that Ion will only ever support SIMD on x86 and x64,
   // since Cranelift will be the optimizing compiler for Arm64, ARMv7 will cease
-  // to be a tier-1 platform soon, and MIPS32 and MIPS64 will never implement
-  // SIMD.
+  // to be a tier-1 platform soon, and MIPS64 will never implement SIMD.
   //
   // The division of the operations into MIR nodes reflects that expectation,
   // and is a good fit for x86/x64.  Should the expectation change we'll
@@ -719,21 +719,6 @@ class FunctionCompiler {
 
     MOZ_ASSERT(lhs->type() == MIRType::Simd128 &&
                rhs->type() == MIRType::Int32);
-
-    if (op == wasm::SimdOp::I64x2ShrS) {
-      if (!rhs->isConstant()) {
-        // x86/x64 specific? The masm interface for this shift requires the
-        // client to mask variable shift counts.  It's OK if later optimizations
-        // transform a variable count to a constant count here. (And then
-        // optimizations should also be able to fold the mask, though this is
-        // not crucial.)
-        MConstant* mask = MConstant::New(alloc(), Int32Value(63));
-        curBlock_->add(mask);
-        MBitAnd* maskedShift = MBitAnd::New(alloc(), rhs, mask, MIRType::Int32);
-        curBlock_->add(maskedShift);
-        rhs = maskedShift;
-      }
-    }
 
     auto* ins = MWasmShiftSimd128::New(alloc(), lhs, rhs, op);
     curBlock_->add(ins);
@@ -792,16 +777,17 @@ class FunctionCompiler {
   }
 
   // (v128, v128, v128) -> v128 effect-free operations
-  MDefinition* bitselectSimd128(MDefinition* v1, MDefinition* v2,
-                                MDefinition* control) {
+  MDefinition* ternarySimd128(MDefinition* v0, MDefinition* v1, MDefinition* v2,
+                              SimdOp op) {
     if (inDeadCode()) {
       return nullptr;
     }
 
-    MOZ_ASSERT(v1->type() == MIRType::Simd128);
-    MOZ_ASSERT(v2->type() == MIRType::Simd128);
-    MOZ_ASSERT(control->type() == MIRType::Simd128);
-    auto* ins = MWasmBitselectSimd128::New(alloc(), v1, v2, control);
+    MOZ_ASSERT(v0->type() == MIRType::Simd128 &&
+               v1->type() == MIRType::Simd128 &&
+               v2->type() == MIRType::Simd128);
+
+    auto* ins = MWasmTernarySimd128::New(alloc(), v0, v1, v2, op);
     curBlock_->add(ins);
     return ins;
   }
@@ -828,11 +814,20 @@ class FunctionCompiler {
       return nullptr;
     }
 
-    // Expand load-and-splat as integer load followed by splat.
     MemoryAccessDesc access(viewType, addr.align, addr.offset,
                             bytecodeIfNotAsmJS());
-    ValType resultType =
-        viewType == Scalar::Int64 ? ValType::I64 : ValType::I32;
+
+    // Generate better code (on x86)
+    if (viewType == Scalar::Float64) {
+      access.setSplatSimd128Load();
+      return load(addr.base, &access, ValType::V128);
+    }
+
+    ValType resultType = ValType::I32;
+    if (viewType == Scalar::Float32) {
+      resultType = ValType::F32;
+      splatOp = wasm::SimdOp::F32x4Splat;
+    }
     auto* scalar = load(addr.base, &access, resultType);
     if (!inDeadCode() && !scalar) {
       return nullptr;
@@ -846,14 +841,12 @@ class FunctionCompiler {
       return nullptr;
     }
 
-    MemoryAccessDesc access(Scalar::Int64, addr.align, addr.offset,
+    // Generate better code (on x86) by loading as a double with an
+    // operation that sign extends directly.
+    MemoryAccessDesc access(Scalar::Float64, addr.align, addr.offset,
                             bytecodeIfNotAsmJS());
-    // Expand load-and-extend as integer load followed by widen.
-    auto* scalar = load(addr.base, &access, ValType::I64);
-    if (!inDeadCode() && !scalar) {
-      return nullptr;
-    }
-    return scalarToSimd128(scalar, op);
+    access.setWidenSimd128Load(op);
+    return load(addr.base, &access, ValType::V128);
   }
 
   MDefinition* loadZeroSimd128(Scalar::Type viewType, size_t numBytes,
@@ -1605,7 +1598,7 @@ class FunctionCompiler {
       return true;
     }
 
-    const FuncType& funcType = moduleEnv_.types[funcTypeIndex].funcType();
+    const FuncType& funcType = (*moduleEnv_.types)[funcTypeIndex].funcType();
     const TypeIdDesc& funcTypeId = moduleEnv_.typeIds[funcTypeIndex];
 
     CalleeDesc callee;
@@ -2740,7 +2733,7 @@ static bool EmitCallIndirect(FunctionCompiler& f, bool oldStyle) {
     return true;
   }
 
-  const FuncType& funcType = f.moduleEnv().types[funcTypeIndex].funcType();
+  const FuncType& funcType = (*f.moduleEnv().types)[funcTypeIndex].funcType();
 
   CallCompileState call;
   if (!EmitCallArgs(f, funcType, args, &call)) {
@@ -3635,6 +3628,13 @@ static bool EmitMemCopyInline(FunctionCompiler& f, MDefinition* dst,
 
   // Compute the number of copies of each width we will need to do
   size_t remainder = length;
+#ifdef ENABLE_WASM_SIMD
+  size_t numCopies16 = 0;
+  if (MacroAssembler::SupportsFastUnalignedFPAccesses()) {
+    numCopies16 = remainder / sizeof(V128);
+    remainder %= sizeof(V128);
+  }
+#endif
 #ifdef JS_64BIT
   size_t numCopies8 = remainder / sizeof(uint64_t);
   remainder %= sizeof(uint64_t);
@@ -3650,6 +3650,18 @@ static bool EmitMemCopyInline(FunctionCompiler& f, MDefinition* dst,
   // byte is out-of-bounds.
   size_t offset = 0;
   DefVector loadedValues;
+
+#ifdef ENABLE_WASM_SIMD
+  for (uint32_t i = 0; i < numCopies16; i++) {
+    MemoryAccessDesc access(Scalar::Simd128, 1, offset, f.bytecodeOffset());
+    auto* load = f.load(src, &access, ValType::V128);
+    if (!load || !loadedValues.append(load)) {
+      return false;
+    }
+
+    offset += sizeof(V128);
+  }
+#endif
 
 #ifdef JS_64BIT
   for (uint32_t i = 0; i < numCopies8; i++) {
@@ -3730,6 +3742,16 @@ static bool EmitMemCopyInline(FunctionCompiler& f, MDefinition* dst,
   }
 #endif
 
+#ifdef ENABLE_WASM_SIMD
+  for (uint32_t i = 0; i < numCopies16; i++) {
+    offset -= sizeof(V128);
+
+    MemoryAccessDesc access(Scalar::Simd128, 1, offset, f.bytecodeOffset());
+    auto* value = loadedValues.popCopy();
+    f.store(dst, &access, value);
+  }
+#endif
+
   return true;
 }
 
@@ -3746,8 +3768,8 @@ static bool EmitMemCopy(FunctionCompiler& f) {
     return true;
   }
 
-  if (MacroAssembler::SupportsFastUnalignedAccesses() && len->isConstant() &&
-      len->type() == MIRType::Int32 && len->toConstant()->toInt32() != 0 &&
+  if (len->isConstant() && len->type() == MIRType::Int32 &&
+      len->toConstant()->toInt32() != 0 &&
       uint32_t(len->toConstant()->toInt32()) <= MaxInlineMemoryCopyLength) {
     return EmitMemCopyInline(f, dst, src, len);
   }
@@ -3882,6 +3904,13 @@ static bool EmitMemFillInline(FunctionCompiler& f, MDefinition* start,
 
   // Compute the number of copies of each width we will need to do
   size_t remainder = length;
+#ifdef ENABLE_WASM_SIMD
+  size_t numCopies16 = 0;
+  if (MacroAssembler::SupportsFastUnalignedFPAccesses()) {
+    numCopies16 = remainder / sizeof(V128);
+    remainder %= sizeof(V128);
+  }
+#endif
 #ifdef JS_64BIT
   size_t numCopies8 = remainder / sizeof(uint64_t);
   remainder %= sizeof(uint64_t);
@@ -3893,6 +3922,9 @@ static bool EmitMemFillInline(FunctionCompiler& f, MDefinition* start,
   size_t numCopies1 = remainder;
 
   // Generate splatted definitions for wider fills as needed
+#ifdef ENABLE_WASM_SIMD
+  MDefinition* val16 = numCopies16 ? f.constant(V128(value)) : nullptr;
+#endif
 #ifdef JS_64BIT
   MDefinition* val8 =
       numCopies8 ? f.constant(int64_t(SplatByteToUInt<uint64_t>(value, 8)))
@@ -3942,6 +3974,15 @@ static bool EmitMemFillInline(FunctionCompiler& f, MDefinition* start,
   }
 #endif
 
+#ifdef ENABLE_WASM_SIMD
+  for (uint32_t i = 0; i < numCopies16; i++) {
+    offset -= sizeof(V128);
+
+    MemoryAccessDesc access(Scalar::Simd128, 1, offset, f.bytecodeOffset());
+    f.store(start, &access, val16);
+  }
+#endif
+
   return true;
 }
 
@@ -3955,8 +3996,8 @@ static bool EmitMemFill(FunctionCompiler& f) {
     return true;
   }
 
-  if (MacroAssembler::SupportsFastUnalignedAccesses() && len->isConstant() &&
-      len->type() == MIRType::Int32 && len->toConstant()->toInt32() != 0 &&
+  if (len->isConstant() && len->type() == MIRType::Int32 &&
+      len->toConstant()->toInt32() != 0 &&
       uint32_t(len->toConstant()->toInt32()) <= MaxInlineMemoryFillLength &&
       val->isConstant() && val->type() == MIRType::Int32) {
     return EmitMemFillInline(f, start, val, len);
@@ -4346,6 +4387,18 @@ static bool EmitBinarySimd128(FunctionCompiler& f, bool commutative,
   return true;
 }
 
+static bool EmitTernarySimd128(FunctionCompiler& f, wasm::SimdOp op) {
+  MDefinition* v0;
+  MDefinition* v1;
+  MDefinition* v2;
+  if (!f.iter().readTernary(ValType::V128, &v0, &v1, &v2)) {
+    return false;
+  }
+
+  f.iter().setResult(f.ternarySimd128(v0, v1, v2, op));
+  return true;
+}
+
 static bool EmitShiftSimd128(FunctionCompiler& f, SimdOp op) {
   MDefinition* lhs;
   MDefinition* rhs;
@@ -4409,18 +4462,6 @@ static bool EmitReplaceLaneSimd128(FunctionCompiler& f, ValType laneType,
   }
 
   f.iter().setResult(f.replaceLaneSimd128(lhs, rhs, laneIndex, op));
-  return true;
-}
-
-static bool EmitBitselectSimd128(FunctionCompiler& f) {
-  MDefinition* v1;
-  MDefinition* v2;
-  MDefinition* control;
-  if (!f.iter().readVectorSelect(&v1, &v2, &control)) {
-    return false;
-  }
-
-  f.iter().setResult(f.bitselectSimd128(v1, v2, control));
   return true;
 }
 
@@ -4514,6 +4555,7 @@ static bool EmitStoreLaneSimd128(FunctionCompiler& f, uint32_t laneSize) {
   f.storeLaneSimd128(laneSize, addr, laneIndex, src);
   return true;
 }
+
 #endif
 
 static bool EmitIntrinsic(FunctionCompiler& f, IntrinsicOp op) {
@@ -5300,7 +5342,7 @@ static bool EmitBodyExprs(FunctionCompiler& f) {
           case uint32_t(SimdOp::F64x2ReplaceLane):
             CHECK(EmitReplaceLaneSimd128(f, ValType::F64, 2, SimdOp(op.b1)));
           case uint32_t(SimdOp::V128Bitselect):
-            CHECK(EmitBitselectSimd128(f));
+            CHECK(EmitTernarySimd128(f, SimdOp(op.b1)));
           case uint32_t(SimdOp::V8x16Shuffle):
             CHECK(EmitShuffleSimd128(f));
           case uint32_t(SimdOp::V8x16LoadSplat):
@@ -5308,9 +5350,9 @@ static bool EmitBodyExprs(FunctionCompiler& f) {
           case uint32_t(SimdOp::V16x8LoadSplat):
             CHECK(EmitLoadSplatSimd128(f, Scalar::Uint16, SimdOp::I16x8Splat));
           case uint32_t(SimdOp::V32x4LoadSplat):
-            CHECK(EmitLoadSplatSimd128(f, Scalar::Uint32, SimdOp::I32x4Splat));
+            CHECK(EmitLoadSplatSimd128(f, Scalar::Float32, SimdOp::I32x4Splat));
           case uint32_t(SimdOp::V64x2LoadSplat):
-            CHECK(EmitLoadSplatSimd128(f, Scalar::Int64, SimdOp::I64x2Splat));
+            CHECK(EmitLoadSplatSimd128(f, Scalar::Float64, SimdOp::I64x2Splat));
           case uint32_t(SimdOp::I16x8LoadS8x8):
           case uint32_t(SimdOp::I16x8LoadU8x8):
           case uint32_t(SimdOp::I32x4LoadS16x4):
@@ -5338,6 +5380,18 @@ static bool EmitBodyExprs(FunctionCompiler& f) {
             CHECK(EmitStoreLaneSimd128(f, 4));
           case uint32_t(SimdOp::V128Store64Lane):
             CHECK(EmitStoreLaneSimd128(f, 8));
+#  ifdef ENABLE_WASM_RELAXED_SIMD
+          case uint32_t(SimdOp::F32x4RelaxedFma):
+          case uint32_t(SimdOp::F32x4RelaxedFms):
+          case uint32_t(SimdOp::F64x2RelaxedFma):
+          case uint32_t(SimdOp::F64x2RelaxedFms): {
+            if (!f.moduleEnv().v128RelaxedEnabled()) {
+              return f.iter().unrecognizedOpcode(&op);
+            }
+            CHECK(EmitTernarySimd128(f, SimdOp(op.b1)));
+          }
+#  endif
+
           default:
             return f.iter().unrecognizedOpcode(&op);
         }  // switch (op.b1)
@@ -5717,7 +5771,7 @@ bool wasm::IonCompileFunctions(const ModuleEnvironment& moduleEnv,
     if (!locals.appendAll(funcType.args())) {
       return false;
     }
-    if (!DecodeLocalEntries(d, moduleEnv.types, moduleEnv.features, &locals)) {
+    if (!DecodeLocalEntries(d, *moduleEnv.types, moduleEnv.features, &locals)) {
       return false;
     }
 
@@ -5771,7 +5825,7 @@ bool wasm::IonCompileFunctions(const ModuleEnvironment& moduleEnv,
       ArgTypeVector args(funcType);
       if (!codegen.generateWasm(funcTypeId, prologueTrapOffset, args,
                                 trapExitLayout, trapExitLayoutNumWords,
-                                &offsets, &code->stackMaps)) {
+                                &offsets, &code->stackMaps, &d)) {
         return false;
       }
 
@@ -5801,8 +5855,8 @@ bool wasm::IonCompileFunctions(const ModuleEnvironment& moduleEnv,
 
 bool js::wasm::IonPlatformSupport() {
 #if defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_X86) ||    \
-    defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_MIPS32) || \
-    defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_ARM64)
+    defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_MIPS64) || \
+    defined(JS_CODEGEN_ARM64)
   return true;
 #else
   return false;

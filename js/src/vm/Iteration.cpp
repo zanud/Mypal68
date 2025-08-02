@@ -585,11 +585,11 @@ static PropertyIteratorObject* NewPropertyIteratorObject(JSContext* cx) {
     return nullptr;
   }
 
-  JSObject* obj;
-  JS_TRY_VAR_OR_RETURN_NULL(
-      cx, obj,
-      NativeObject::create(cx, ITERATOR_FINALIZE_KIND,
-                           GetInitialHeap(GenericObject, clasp), shape));
+  JSObject* obj = NativeObject::create(
+      cx, ITERATOR_FINALIZE_KIND, GetInitialHeap(GenericObject, clasp), shape);
+  if (!obj) {
+    return nullptr;
+  }
 
   PropertyIteratorObject* res = &obj->as<PropertyIteratorObject>();
 
@@ -639,7 +639,9 @@ static PropertyIteratorObject* CreatePropertyIterator(
 
   ObjectRealm& realm = objBeingIterated ? ObjectRealm::get(objBeingIterated)
                                         : ObjectRealm::get(propIter);
-  RegisterEnumerator(realm, ni);
+  if (!ni->isEmptyIteratorSingleton()) {
+    RegisterEnumerator(realm, ni);
+  }
 
   return propIter;
 }
@@ -991,60 +993,62 @@ PlainObject* js::CreateIterResultObject(JSContext* cx, HandleValue value,
 
   // Step 2.
   Rooted<PlainObject*> templateObject(
-      cx, cx->realm()->getOrCreateIterResultTemplateObject(cx));
+      cx, GlobalObject::getOrCreateIterResultTemplateObject(cx));
   if (!templateObject) {
     return nullptr;
   }
 
-  PlainObject* resultObj;
-  JS_TRY_VAR_OR_RETURN_NULL(
-      cx, resultObj, PlainObject::createWithTemplate(cx, templateObject));
+  PlainObject* resultObj = PlainObject::createWithTemplate(cx, templateObject);
+  if (!resultObj) {
+    return nullptr;
+  }
 
   // Step 3.
-  resultObj->setSlot(Realm::IterResultObjectValueSlot, value);
+  resultObj->setSlot(GlobalObject::IterResultObjectValueSlot, value);
 
   // Step 4.
-  resultObj->setSlot(Realm::IterResultObjectDoneSlot,
+  resultObj->setSlot(GlobalObject::IterResultObjectDoneSlot,
                      done ? TrueHandleValue : FalseHandleValue);
 
   // Step 5.
   return resultObj;
 }
 
-PlainObject* Realm::getOrCreateIterResultTemplateObject(JSContext* cx) {
-  MOZ_ASSERT(cx->realm() == this);
-
-  if (iterResultTemplate_) {
-    return iterResultTemplate_;
+PlainObject* GlobalObject::getOrCreateIterResultTemplateObject(JSContext* cx) {
+  HeapPtr<PlainObject*>& obj = cx->global()->data().iterResultTemplate;
+  if (obj) {
+    return obj;
   }
 
   PlainObject* templateObj =
       createIterResultTemplateObject(cx, WithObjectPrototype::Yes);
-  iterResultTemplate_.set(templateObj);
-  return iterResultTemplate_;
+  obj.init(templateObj);
+  return obj;
 }
 
-PlainObject* Realm::getOrCreateIterResultWithoutPrototypeTemplateObject(
+/* static */
+PlainObject* GlobalObject::getOrCreateIterResultWithoutPrototypeTemplateObject(
     JSContext* cx) {
-  MOZ_ASSERT(cx->realm() == this);
-
-  if (iterResultWithoutPrototypeTemplate_) {
-    return iterResultWithoutPrototypeTemplate_;
+  HeapPtr<PlainObject*>& obj =
+      cx->global()->data().iterResultWithoutPrototypeTemplate;
+  if (obj) {
+    return obj;
   }
 
   PlainObject* templateObj =
       createIterResultTemplateObject(cx, WithObjectPrototype::No);
-  iterResultWithoutPrototypeTemplate_.set(templateObj);
-  return iterResultWithoutPrototypeTemplate_;
+  obj.init(templateObj);
+  return obj;
 }
 
-PlainObject* Realm::createIterResultTemplateObject(
+/* static */
+PlainObject* GlobalObject::createIterResultTemplateObject(
     JSContext* cx, WithObjectPrototype withProto) {
   // Create template plain object
   Rooted<PlainObject*> templateObject(
       cx, withProto == WithObjectPrototype::Yes
-              ? NewTenuredBuiltinClassInstance<PlainObject>(cx)
-              : NewObjectWithGivenProto<PlainObject>(cx, nullptr));
+              ? NewPlainObject(cx, TenuredObject)
+              : NewPlainObjectWithProto(cx, nullptr));
   if (!templateObject) {
     return nullptr;
   }
@@ -1064,10 +1068,10 @@ PlainObject* Realm::createIterResultTemplateObject(
 #ifdef DEBUG
   // Make sure that the properties are in the right slots.
   ShapePropertyIter<NoGC> iter(templateObject->shape());
-  MOZ_ASSERT(iter->slot() == Realm::IterResultObjectDoneSlot &&
+  MOZ_ASSERT(iter->slot() == GlobalObject::IterResultObjectDoneSlot &&
              iter->key() == NameToId(cx->names().done));
   iter++;
-  MOZ_ASSERT(iter->slot() == Realm::IterResultObjectValueSlot &&
+  MOZ_ASSERT(iter->slot() == GlobalObject::IterResultObjectValueSlot &&
              iter->key() == NameToId(cx->names().value));
 #endif
 
@@ -1261,6 +1265,21 @@ RegExpStringIteratorObject* js::NewRegExpStringIterator(JSContext* cx) {
   return NewObjectWithGivenProto<RegExpStringIteratorObject>(cx, proto);
 }
 
+// static
+PropertyIteratorObject* GlobalObject::getOrCreateEmptyIterator(JSContext* cx) {
+  if (!cx->global()->data().emptyIterator) {
+    RootedIdVector props(cx);  // Empty
+    PropertyIteratorObject* iter =
+        CreatePropertyIterator(cx, nullptr, props, 0, 0);
+    if (!iter) {
+      return nullptr;
+    }
+    MOZ_ASSERT(iter->getNativeIterator()->isEmptyIteratorSingleton());
+    cx->global()->data().emptyIterator.init(iter);
+  }
+  return cx->global()->data().emptyIterator;
+}
+
 JSObject* js::ValueToIterator(JSContext* cx, HandleValue vp) {
   RootedObject obj(cx);
   if (vp.isObject()) {
@@ -1272,8 +1291,7 @@ JSObject* js::ValueToIterator(JSContext* cx, HandleValue vp) {
      * that |for (var p in <null or undefined>) <loop>;| never executes
      * <loop>, per ES5 12.6.4.
      */
-    RootedIdVector props(cx);  // Empty
-    return CreatePropertyIterator(cx, nullptr, props, 0, 0);
+    return GlobalObject::getOrCreateEmptyIterator(cx);
   } else {
     obj = ToObject(cx, vp);
     if (!obj) {
@@ -1285,19 +1303,26 @@ JSObject* js::ValueToIterator(JSContext* cx, HandleValue vp) {
 }
 
 void js::CloseIterator(JSObject* obj) {
-  if (obj->is<PropertyIteratorObject>()) {
-    /* Remove enumerators from the active list, which is a stack. */
-    NativeIterator* ni = obj->as<PropertyIteratorObject>().getNativeIterator();
-
-    ni->unlink();
-
-    MOZ_ASSERT(ni->isActive());
-    ni->markInactive();
-
-    // Reset the enumerator; it may still be in the cached iterators for
-    // this thread and can be reused.
-    ni->resetPropertyCursorForReuse();
+  if (!obj->is<PropertyIteratorObject>()) {
+    return;
   }
+
+  // Remove iterator from the active list, which is a stack. The shared iterator
+  // used for for-in with null/undefined is immutable and unlinked.
+
+  NativeIterator* ni = obj->as<PropertyIteratorObject>().getNativeIterator();
+  if (ni->isEmptyIteratorSingleton()) {
+    return;
+  }
+
+  ni->unlink();
+
+  MOZ_ASSERT(ni->isActive());
+  ni->markInactive();
+
+  // Reset the enumerator; it may still be in the cached iterators for
+  // this thread and can be reused.
+  ni->resetPropertyCursorForReuse();
 }
 
 bool js::IteratorCloseForException(JSContext* cx, HandleObject obj) {
@@ -1356,6 +1381,9 @@ bool js::IteratorCloseForException(JSContext* cx, HandleObject obj) {
 void js::UnwindIteratorForUncatchableException(JSObject* obj) {
   if (obj->is<PropertyIteratorObject>()) {
     NativeIterator* ni = obj->as<PropertyIteratorObject>().getNativeIterator();
+    if (ni->isEmptyIteratorSingleton()) {
+      return;
+    }
     ni->unlink();
   }
 }

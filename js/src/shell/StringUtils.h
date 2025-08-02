@@ -7,9 +7,8 @@
 #ifndef shell_StringUtils_h
 #define shell_StringUtils_h
 
-#include "jsapi.h"
-
 #include "js/StableStringChars.h"
+#include "js/String.h"
 
 namespace js {
 namespace shell {

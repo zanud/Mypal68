@@ -279,24 +279,28 @@ ArgumentsObject* ArgumentsObject::createTemplateObject(JSContext* cx,
   }
 
   AutoSetNewObjectMetadata metadata(cx);
-  JSObject* base;
-  JS_TRY_VAR_OR_RETURN_NULL(
-      cx, base,
-      NativeObject::create(cx, FINALIZE_KIND, gc::TenuredHeap, shape));
+  JSObject* base =
+      NativeObject::create(cx, FINALIZE_KIND, gc::TenuredHeap, shape);
+  if (!base) {
+    return nullptr;
+  }
 
   ArgumentsObject* obj = &base->as<js::ArgumentsObject>();
   obj->initFixedSlot(ArgumentsObject::DATA_SLOT, PrivateValue(nullptr));
   return obj;
 }
 
-ArgumentsObject* Realm::maybeArgumentsTemplateObject(bool mapped) const {
-  return mapped ? mappedArgumentsTemplate_ : unmappedArgumentsTemplate_;
+ArgumentsObject* GlobalObject::maybeArgumentsTemplateObject(bool mapped) const {
+  return mapped ? data().mappedArgumentsTemplate
+                : data().unmappedArgumentsTemplate;
 }
 
-ArgumentsObject* Realm::getOrCreateArgumentsTemplateObject(JSContext* cx,
-                                                           bool mapped) {
-  WeakHeapPtr<ArgumentsObject*>& obj =
-      mapped ? mappedArgumentsTemplate_ : unmappedArgumentsTemplate_;
+/* static */
+ArgumentsObject* GlobalObject::getOrCreateArgumentsTemplateObject(JSContext* cx,
+                                                                  bool mapped) {
+  GlobalObjectData& data = cx->global()->data();
+  HeapPtr<ArgumentsObject*>& obj =
+      mapped ? data.mappedArgumentsTemplate : data.unmappedArgumentsTemplate;
 
   ArgumentsObject* templateObj = obj;
   if (templateObj) {
@@ -308,7 +312,7 @@ ArgumentsObject* Realm::getOrCreateArgumentsTemplateObject(JSContext* cx,
     return nullptr;
   }
 
-  obj.set(templateObj);
+  obj.init(templateObj);
   return templateObj;
 }
 
@@ -318,7 +322,7 @@ ArgumentsObject* ArgumentsObject::create(JSContext* cx, HandleFunction callee,
                                          unsigned numActuals, CopyArgs& copy) {
   bool mapped = callee->baseScript()->hasMappedArgsObj();
   ArgumentsObject* templateObj =
-      cx->realm()->getOrCreateArgumentsTemplateObject(cx, mapped);
+      GlobalObject::getOrCreateArgumentsTemplateObject(cx, mapped);
   if (!templateObj) {
     return nullptr;
   }
@@ -336,10 +340,11 @@ ArgumentsObject* ArgumentsObject::create(JSContext* cx, HandleFunction callee,
     // to make sure we set the metadata for this arguments object first.
     AutoSetNewObjectMetadata metadata(cx);
 
-    JSObject* base;
-    JS_TRY_VAR_OR_RETURN_NULL(
-        cx, base,
-        NativeObject::create(cx, FINALIZE_KIND, gc::DefaultHeap, shape));
+    JSObject* base =
+        NativeObject::create(cx, FINALIZE_KIND, gc::DefaultHeap, shape);
+    if (!base) {
+      return nullptr;
+    }
     obj = &base->as<ArgumentsObject>();
 
     data = reinterpret_cast<ArgumentsData*>(

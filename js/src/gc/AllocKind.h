@@ -18,9 +18,18 @@
 #include "js/TraceKind.h"
 #include "js/Utility.h"
 
+class JSDependentString;
+class JSExternalString;
+class JSFatInlineString;
+class JSLinearString;
+class JSRope;
+class JSThinInlineString;
+
 namespace js {
 
 class CompactPropMap;
+class FatInlineAtom;
+class NormalAtom;
 class NormalPropMap;
 class DictionaryPropMap;
 
@@ -42,8 +51,8 @@ namespace gc {
 // clang-format off
 #define FOR_EACH_OBJECT_ALLOCKIND(D) \
  /* AllocKind              TraceKind     TypeName           SizedType          BGFinal Nursery Compact */ \
-    D(FUNCTION,            Object,       JSObject,          JSFunction,        true,   true,   true) \
-    D(FUNCTION_EXTENDED,   Object,       JSObject,          FunctionExtended,  true,   true,   true) \
+    D(FUNCTION,            Object,       JSObject,          JSObject_Slots4,   true,   true,   true) \
+    D(FUNCTION_EXTENDED,   Object,       JSObject,          JSObject_Slots6,   true,   true,   true) \
     D(OBJECT0,             Object,       JSObject,          JSObject_Slots0,   false,  false,  true) \
     D(OBJECT0_BACKGROUND,  Object,       JSObject,          JSObject_Slots0,   true,   true,   true) \
     D(OBJECT2,             Object,       JSObject,          JSObject_Slots2,   false,  false,  true) \
@@ -180,6 +189,43 @@ using AllAllocKindArray =
 template <typename ValueType>
 using ObjectAllocKindArray =
     mozilla::EnumeratedArray<AllocKind, AllocKind::OBJECT_LIMIT, ValueType>;
+
+/*
+ * Map from C++ type to alloc kind for non-object types. JSObject does not have
+ * a 1:1 mapping, so must use Arena::thingSize.
+ *
+ * The AllocKind is available as MapTypeToAllocKind<SomeType>::kind.
+ *
+ * There are specializations for strings since more than one derived string type
+ * shares the same alloc kind.
+ */
+template <typename T>
+struct MapTypeToAllocKind {};
+#define EXPAND_MAPTYPETOALLOCKIND(allocKind, traceKind, type, sizedType, \
+                                  bgFinal, nursery, compact)             \
+  template <>                                                            \
+  struct MapTypeToAllocKind<type> {                                      \
+    static const AllocKind kind = AllocKind::allocKind;                  \
+  };
+FOR_EACH_NONOBJECT_ALLOCKIND(EXPAND_MAPTYPETOALLOCKIND)
+#undef EXPAND_MAPTYPETOALLOCKIND
+
+template <>
+struct MapTypeToAllocKind<JSDependentString> {
+  static const AllocKind kind = AllocKind::STRING;
+};
+template <>
+struct MapTypeToAllocKind<JSRope> {
+  static const AllocKind kind = AllocKind::STRING;
+};
+template <>
+struct MapTypeToAllocKind<JSLinearString> {
+  static const AllocKind kind = AllocKind::STRING;
+};
+template <>
+struct MapTypeToAllocKind<JSThinInlineString> {
+  static const AllocKind kind = AllocKind::STRING;
+};
 
 static inline JS::TraceKind MapAllocToTraceKind(AllocKind kind) {
   static const JS::TraceKind map[] = {

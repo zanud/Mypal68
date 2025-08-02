@@ -10,7 +10,6 @@
 
 #include "jit/JitFrames.h"
 #include "jit/MacroAssembler.h"
-#include "jit/MoveEmitter.h"
 #include "js/ScalarType.h"  // js::Scalar::Type
 
 #include "jit/MacroAssembler-inl.h"
@@ -155,6 +154,40 @@ MacroAssemblerX86Shared::SimdData* MacroAssemblerX86Shared::getSimdData(
   return getConstant<SimdData, SimdMap>(v, simdMap_, simds_);
 }
 
+void MacroAssemblerX86Shared::binarySimd128(
+    const SimdConstant& rhs, FloatRegister lhsDest,
+    void (MacroAssembler::*regOp)(const Operand&, FloatRegister, FloatRegister),
+    void (MacroAssembler::*constOp)(const SimdConstant&, FloatRegister)) {
+  ScratchSimd128Scope scratch(asMasm());
+  if (maybeInlineSimd128Int(rhs, scratch)) {
+    (asMasm().*regOp)(Operand(scratch), lhsDest, lhsDest);
+  } else {
+    (asMasm().*constOp)(rhs, lhsDest);
+  }
+}
+
+void MacroAssemblerX86Shared::binarySimd128(
+    const SimdConstant& rhs, FloatRegister lhs,
+    void (MacroAssembler::*regOp)(const Operand&, FloatRegister),
+    void (MacroAssembler::*constOp)(const SimdConstant&, FloatRegister)) {
+  ScratchSimd128Scope scratch(asMasm());
+  if (maybeInlineSimd128Int(rhs, scratch)) {
+    (asMasm().*regOp)(Operand(scratch), lhs);
+  } else {
+    (asMasm().*constOp)(rhs, lhs);
+  }
+}
+
+void MacroAssemblerX86Shared::bitwiseTestSimd128(const SimdConstant& rhs,
+                                                 FloatRegister lhs) {
+  ScratchSimd128Scope scratch(asMasm());
+  if (maybeInlineSimd128Int(rhs, scratch)) {
+    vptest(scratch, lhs);
+  } else {
+    asMasm().vptestSimd128(rhs, lhs);
+  }
+}
+
 void MacroAssemblerX86Shared::minMaxDouble(FloatRegister first,
                                            FloatRegister second, bool canBeNaN,
                                            bool isMax) {
@@ -248,24 +281,6 @@ void MacroAssemblerX86Shared::minMaxFloat32(FloatRegister first,
 
   bind(&done);
 }
-
-#ifdef ENABLE_WASM_SIMD
-bool MacroAssembler::MustScalarizeShiftSimd128(wasm::SimdOp op) {
-  return op == wasm::SimdOp::I64x2ShrS;
-}
-
-bool MacroAssembler::MustMaskShiftCountSimd128(wasm::SimdOp op, int32_t* mask) {
-  if (op == wasm::SimdOp::I64x2ShrS) {
-    *mask = 63;
-    return true;
-  }
-  return false;
-}
-
-bool MacroAssembler::MustScalarizeShiftSimd128(wasm::SimdOp op, Imm32 imm) {
-  return op == wasm::SimdOp::I64x2ShrS && (imm.value & 63) > 31;
-}
-#endif
 
 //{{{ check_macroassembler_style
 // ===============================================================
@@ -406,7 +421,7 @@ void MacroAssembler::PushRegsInMask(LiveRegisterSet set) {
     } else if (reg.isSingle()) {
       storeFloat32(reg, spillAddress);
     } else if (reg.isSimd128()) {
-      storeUnalignedSimd128Float(reg, spillAddress);
+      storeUnalignedSimd128(reg, spillAddress);
     } else {
       MOZ_CRASH("Unknown register type.");
     }
@@ -455,7 +470,7 @@ void MacroAssembler::storeRegsInMask(LiveRegisterSet set, Address dest,
     } else if (reg.isSingle()) {
       storeFloat32(reg, dest);
     } else if (reg.isSimd128()) {
-      storeUnalignedSimd128Float(reg, dest);
+      storeUnalignedSimd128(reg, dest);
     } else {
       MOZ_CRASH("Unknown register type.");
     }
@@ -502,7 +517,7 @@ void MacroAssembler::PopRegsInMaskIgnore(LiveRegisterSet set,
     } else if (reg.isSingle()) {
       loadFloat32(spillAddress, reg);
     } else if (reg.isSimd128()) {
-      loadUnalignedSimd128Float(spillAddress, reg);
+      loadUnalignedSimd128(spillAddress, reg);
     } else {
       MOZ_CRASH("Unknown register type.");
     }
@@ -1604,7 +1619,7 @@ void MacroAssembler::floorFloat32ToInt32(FloatRegister src, Register dest,
     // Round toward -Infinity.
     {
       ScratchFloat32Scope scratch(*this);
-      vroundss(X86Encoding::RoundDown, src, scratch, scratch);
+      vroundss(X86Encoding::RoundDown, src, scratch);
       truncateFloat32ToInt32(scratch, dest, fail);
     }
   } else {
@@ -1659,7 +1674,7 @@ void MacroAssembler::floorDoubleToInt32(FloatRegister src, Register dest,
     // Round toward -Infinity.
     {
       ScratchDoubleScope scratch(*this);
-      vroundsd(X86Encoding::RoundDown, src, scratch, scratch);
+      vroundsd(X86Encoding::RoundDown, src, scratch);
       truncateDoubleToInt32(scratch, dest, fail);
     }
   } else {
@@ -1723,7 +1738,7 @@ void MacroAssembler::ceilFloat32ToInt32(FloatRegister src, Register dest,
     // x <= -1 or x > -0
     bind(&lessThanOrEqualMinusOne);
     // Round toward +Infinity.
-    vroundss(X86Encoding::RoundUp, src, scratch, scratch);
+    vroundss(X86Encoding::RoundUp, src, scratch);
     truncateFloat32ToInt32(scratch, dest, fail);
     return;
   }
@@ -1768,7 +1783,7 @@ void MacroAssembler::ceilDoubleToInt32(FloatRegister src, Register dest,
     // x <= -1 or x > -0
     bind(&lessThanOrEqualMinusOne);
     // Round toward +Infinity.
-    vroundsd(X86Encoding::RoundUp, src, scratch, scratch);
+    vroundsd(X86Encoding::RoundUp, src, scratch);
     truncateDoubleToInt32(scratch, dest, fail);
     return;
   }
@@ -1887,7 +1902,7 @@ void MacroAssembler::roundFloat32ToInt32(FloatRegister src, Register dest,
       // Add 0.5 and round toward -Infinity. The result is stored in the temp
       // register (currently contains 0.5).
       addFloat32(src, temp);
-      vroundss(X86Encoding::RoundDown, temp, scratch, scratch);
+      vroundss(X86Encoding::RoundDown, temp, scratch);
 
       // Truncate.
       truncateFloat32ToInt32(scratch, dest, fail);
@@ -1973,7 +1988,7 @@ void MacroAssembler::roundDoubleToInt32(FloatRegister src, Register dest,
       // Add 0.5 and round toward -Infinity. The result is stored in the temp
       // register (currently contains 0.5).
       addDouble(src, temp);
-      vroundsd(X86Encoding::RoundDown, temp, scratch, scratch);
+      vroundsd(X86Encoding::RoundDown, temp, scratch);
 
       // Truncate.
       truncateDoubleToInt32(scratch, dest, fail);
@@ -2007,6 +2022,18 @@ void MacroAssembler::roundDoubleToInt32(FloatRegister src, Register dest,
   }
 
   bind(&end);
+}
+
+void MacroAssembler::nearbyIntDouble(RoundingMode mode, FloatRegister src,
+                                     FloatRegister dest) {
+  MOZ_ASSERT(HasRoundInstruction(mode));
+  vroundsd(Assembler::ToX86RoundingMode(mode), src, dest);
+}
+
+void MacroAssembler::nearbyIntFloat32(RoundingMode mode, FloatRegister src,
+                                      FloatRegister dest) {
+  MOZ_ASSERT(HasRoundInstruction(mode));
+  vroundss(Assembler::ToX86RoundingMode(mode), src, dest);
 }
 
 void MacroAssembler::copySignDouble(FloatRegister lhs, FloatRegister rhs,

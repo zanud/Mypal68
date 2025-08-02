@@ -60,14 +60,12 @@ void js::ZoneAllocator::updateMemoryCountersOnGCStart() {
 }
 
 void js::ZoneAllocator::updateGCStartThresholds(GCRuntime& gc,
-                                                JS::GCOptions options,
                                                 const js::AutoLockGC& lock) {
   bool isAtomsZone = JS::Zone::from(this)->isAtomsZone();
-  gcHeapThreshold.updateStartThreshold(gcHeapSize.retainedBytes(), options,
-                                       gc.tunables, gc.schedulingState,
-                                       isAtomsZone, lock);
-  mallocHeapThreshold.updateStartThreshold(mallocHeapSize.retainedBytes(),
-                                           gc.tunables, lock);
+  gcHeapThreshold.updateStartThreshold(gcHeapSize.retainedBytes(), gc.tunables,
+                                       gc.schedulingState, isAtomsZone, lock);
+  mallocHeapThreshold.updateStartThreshold(
+      mallocHeapSize.retainedBytes(), gc.tunables, gc.schedulingState, lock);
 }
 
 void js::ZoneAllocator::setGCSliceThresholds(GCRuntime& gc) {
@@ -191,7 +189,7 @@ JS::Zone::Zone(JSRuntime* rt, Kind kind)
 
   // We can't call updateGCStartThresholds until the Zone has been constructed.
   AutoLockGC lock(rt);
-  updateGCStartThresholds(rt->gc, JS::GCOptions::Normal, lock);
+  updateGCStartThresholds(rt->gc, lock);
 }
 
 Zone::~Zone() {
@@ -289,26 +287,25 @@ void Zone::sweepEphemeronTablesAfterMinorGC() {
       continue;
     }
 
-    // Key been moved. The value is an array of <map,key> pairs; update all
-    // keys in that array.
+    // Key been moved. The value is an array of <color,cell> pairs; update all
+    // cells in that array.
     EphemeronEdgeVector& entries = r.front().value;
     SweepEphemeronEdgesWhileMinorSweeping(entries);
 
     // Live (moved) nursery cell. Append entries to gcEphemeronEdges.
-    auto* entry = gcEphemeronEdges().get(key);
+    EphemeronEdgeTable& tenuredEdges = gcEphemeronEdges();
+    auto* entry = tenuredEdges.get(key);
     if (!entry) {
-      if (!gcEphemeronEdges().put(key, gc::EphemeronEdgeVector())) {
+      if (!tenuredEdges.put(key, gc::EphemeronEdgeVector())) {
         AutoEnterOOMUnsafeRegion oomUnsafe;
         oomUnsafe.crash("Failed to tenure weak keys entry");
       }
-      entry = gcEphemeronEdges().get(key);
+      entry = tenuredEdges.get(key);
     }
 
-    for (auto& markable : entries) {
-      if (!entry->value.append(markable)) {
-        AutoEnterOOMUnsafeRegion oomUnsafe;
-        oomUnsafe.crash("Failed to tenure weak keys entry");
-      }
+    if (!entry->value.appendAll(entries)) {
+      AutoEnterOOMUnsafeRegion oomUnsafe;
+      oomUnsafe.crash("Failed to tenure weak keys entry");
     }
 
     // If the key has a delegate, then it will map to a WeakKeyEntryVector

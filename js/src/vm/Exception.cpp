@@ -4,7 +4,7 @@
 
 #include "js/Exception.h"
 
-#include "jsapi.h"  // AssertHeapIsIdle
+#include "js/Context.h"  // js::AssertHeapIsIdle
 #include "vm/JSContext.h"
 #include "vm/SavedFrame.h"
 

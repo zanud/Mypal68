@@ -20,7 +20,6 @@
 class JSScript;
 class JSTracer;
 struct JSRuntime;
-class JSScript;
 
 namespace JS {
 class Zone;

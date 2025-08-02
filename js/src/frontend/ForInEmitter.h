@@ -32,7 +32,7 @@ class EmitterScope;
 //     emit(init);
 //     forIn.emitBody();
 //     emit(body);
-//     forIn.emitEnd(Some(offset_of_for));
+//     forIn.emitEnd(offset_of_for);
 //
 class MOZ_STACK_CLASS ForInEmitter {
   BytecodeEmitter* bce_;
@@ -103,12 +103,10 @@ class MOZ_STACK_CLASS ForInEmitter {
   //   ^
   //   |
   //   forPos
-  //
-  // Can be Nothing() if not available.
   [[nodiscard]] bool emitIterated();
   [[nodiscard]] bool emitInitialize();
   [[nodiscard]] bool emitBody();
-  [[nodiscard]] bool emitEnd(const mozilla::Maybe<uint32_t>& forPos);
+  [[nodiscard]] bool emitEnd(uint32_t forPos);
 };
 
 } /* namespace frontend */

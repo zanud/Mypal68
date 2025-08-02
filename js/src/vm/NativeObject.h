@@ -12,7 +12,6 @@
 #include <algorithm>
 #include <stdint.h>
 
-#include "jsfriendapi.h"
 #include "NamespaceImports.h"
 
 #include "gc/Barrier.h"
@@ -621,9 +620,9 @@ class NativeObject : public JSObject {
 
   inline bool isInWholeCellBuffer() const;
 
-  static inline JS::Result<NativeObject*, JS::OOM> create(
-      JSContext* cx, gc::AllocKind kind, gc::InitialHeap heap,
-      HandleShape shape, gc::AllocSite* site = nullptr);
+  static inline NativeObject* create(JSContext* cx, gc::AllocKind kind,
+                                     gc::InitialHeap heap, HandleShape shape,
+                                     gc::AllocSite* site = nullptr);
 
 #ifdef DEBUG
   static void enableShapeConsistencyChecks();
@@ -653,40 +652,29 @@ class NativeObject : public JSObject {
 
   friend class TenuringTracer;
 
-  /*
-   * Get internal pointers to the range of values from |start| to |end|
-   * exclusive.
-   */
-  void getSlotRangeUnchecked(uint32_t start, uint32_t end,
-                             HeapSlot** fixedStart, HeapSlot** fixedEnd,
-                             HeapSlot** slotsStart, HeapSlot** slotsEnd) {
+  // Given a slot range from |start| to |end| exclusive, call |fun| with
+  // pointers to the corresponding fixed slot and/or dynamic slot ranges.
+  template <typename Fun>
+  void forEachSlotRangeUnchecked(uint32_t start, uint32_t end, const Fun& fun) {
     MOZ_ASSERT(end >= start);
-
-    uint32_t fixed = numFixedSlots();
-    if (start < fixed) {
-      if (end <= fixed) {
-        *fixedStart = &fixedSlots()[start];
-        *fixedEnd = &fixedSlots()[end];
-        *slotsStart = *slotsEnd = nullptr;
-      } else {
-        *fixedStart = &fixedSlots()[start];
-        *fixedEnd = &fixedSlots()[fixed];
-        *slotsStart = &slots_[0];
-        *slotsEnd = &slots_[end - fixed];
-      }
-    } else {
-      *fixedStart = *fixedEnd = nullptr;
-      *slotsStart = &slots_[start - fixed];
-      *slotsEnd = &slots_[end - fixed];
+    uint32_t nfixed = numFixedSlots();
+    if (start < nfixed) {
+      HeapSlot* fixedStart = &fixedSlots()[start];
+      HeapSlot* fixedEnd = &fixedSlots()[std::min(nfixed, end)];
+      fun(fixedStart, fixedEnd);
+      start = nfixed;
+    }
+    if (end > nfixed) {
+      HeapSlot* dynStart = &slots_[start - nfixed];
+      HeapSlot* dynEnd = &slots_[end - nfixed];
+      fun(dynStart, dynEnd);
     }
   }
 
-  void getSlotRange(uint32_t start, uint32_t end, HeapSlot** fixedStart,
-                    HeapSlot** fixedEnd, HeapSlot** slotsStart,
-                    HeapSlot** slotsEnd) {
+  template <typename Fun>
+  void forEachSlotRange(uint32_t start, uint32_t end, const Fun& fun) {
     MOZ_ASSERT(slotInRange(end, SENTINEL_ALLOWED));
-    getSlotRangeUnchecked(start, end, fixedStart, fixedEnd, slotsStart,
-                          slotsEnd);
+    forEachSlotRangeUnchecked(start, end, fun);
   }
 
  protected:
@@ -697,23 +685,32 @@ class NativeObject : public JSObject {
 
   void invalidateSlotRange(uint32_t start, uint32_t end) {
 #ifdef DEBUG
-    HeapSlot* fixedStart;
-    HeapSlot* fixedEnd;
-    HeapSlot* slotsStart;
-    HeapSlot* slotsEnd;
-    getSlotRange(start, end, &fixedStart, &fixedEnd, &slotsStart, &slotsEnd);
-    Debug_SetSlotRangeToCrashOnTouch(fixedStart, fixedEnd);
-    Debug_SetSlotRangeToCrashOnTouch(slotsStart, slotsEnd);
+    forEachSlotRange(start, end, [](HeapSlot* slotsStart, HeapSlot* slotsEnd) {
+      Debug_SetSlotRangeToCrashOnTouch(slotsStart, slotsEnd);
+    });
 #endif /* DEBUG */
   }
 
-  void initializeSlotRange(uint32_t start, uint32_t end);
-
-  /*
-   * Initialize the object's slots from a flat array. The caller must ensure
-   * that there are enough slots. This is used during brain transplants.
-   */
-  void initSlots(const Value* vector, uint32_t length);
+  void initFixedSlots(uint32_t numSlots) {
+    MOZ_ASSERT(numSlots == numUsedFixedSlots());
+    HeapSlot* slots = fixedSlots();
+    for (uint32_t i = 0; i < numSlots; i++) {
+      slots[i].initAsUndefined();
+    }
+  }
+  void initDynamicSlots(uint32_t numSlots) {
+    MOZ_ASSERT(numSlots == shape()->slotSpan() - numFixedSlots());
+    HeapSlot* slots = slots_;
+    for (uint32_t i = 0; i < numSlots; i++) {
+      slots[i].initAsUndefined();
+    }
+  }
+  void initSlots(uint32_t nfixed, uint32_t slotSpan) {
+    initFixedSlots(std::min(nfixed, slotSpan));
+    if (slotSpan > nfixed) {
+      initDynamicSlots(slotSpan - nfixed);
+    }
+  }
 
 #ifdef DEBUG
   enum SentinelAllowed{SENTINEL_NOT_ALLOWED, SENTINEL_ALLOWED};

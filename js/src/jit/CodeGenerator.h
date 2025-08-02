@@ -5,7 +5,6 @@
 #ifndef jit_CodeGenerator_h
 #define jit_CodeGenerator_h
 
-#include "jit/CacheIR.h"
 #if defined(JS_ION_PERF)
 #  include "jit/PerfSpewer.h"
 #endif
@@ -29,9 +28,13 @@
 #  error "Unknown architecture!"
 #endif
 
-#include "wasm/WasmGC.h"
-
 namespace js {
+
+namespace wasm {
+class Decoder;
+class StackMaps;
+}  // namespace wasm
+
 namespace jit {
 
 class WarpSnapshot;
@@ -94,13 +97,11 @@ class CodeGenerator final : public CodeGeneratorSpecific {
   ~CodeGenerator();
 
   [[nodiscard]] bool generate();
-  [[nodiscard]] bool generateWasm(wasm::TypeIdDesc funcTypeId,
-                                  wasm::BytecodeOffset trapOffset,
-                                  const wasm::ArgTypeVector& argTys,
-                                  const MachineState& trapExitLayout,
-                                  size_t trapExitLayoutNumWords,
-                                  wasm::FuncOffsets* offsets,
-                                  wasm::StackMaps* stackMaps);
+  [[nodiscard]] bool generateWasm(
+      wasm::TypeIdDesc funcTypeId, wasm::BytecodeOffset trapOffset,
+      const wasm::ArgTypeVector& argTys, const MachineState& trapExitLayout,
+      size_t trapExitLayoutNumWords, wasm::FuncOffsets* offsets,
+      wasm::StackMaps* stackMaps, wasm::Decoder* decoder);
 
   [[nodiscard]] bool link(JSContext* cx, const WarpSnapshot* snapshot);
 
@@ -251,6 +252,8 @@ class CodeGenerator final : public CodeGeneratorSpecific {
   void emitIonToWasmCallBase(LIonToWasmCallBase<NumDefs>* lir);
 
   IonScriptCounts* maybeCreateScriptCounts();
+
+  void emitWasmCompareAndSelect(LWasmCompareAndSelect* ins);
 
   void testValueTruthyForType(JSValueType type, ScratchTagScope& tag,
                               const ValueOperand& value, Register scratch1,

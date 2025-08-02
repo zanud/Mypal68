@@ -98,9 +98,6 @@ extern JS_PUBLIC_API JSString* JS_AtomizeAndPinUCStringN(JSContext* cx,
                                                          const char16_t* s,
                                                          size_t length);
 
-extern JS_PUBLIC_API JSString* JS_AtomizeAndPinUCString(JSContext* cx,
-                                                        const char16_t* s);
-
 extern JS_PUBLIC_API bool JS_CompareStrings(JSContext* cx, JSString* str1,
                                             JSString* str2, int32_t* result);
 

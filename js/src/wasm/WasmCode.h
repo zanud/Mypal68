@@ -16,24 +16,56 @@
 #ifndef wasm_code_h
 #define wasm_code_h
 
+#include "mozilla/Assertions.h"
+#include "mozilla/Atomics.h"
+#include "mozilla/Attributes.h"
+#include "mozilla/EnumeratedArray.h"
+#include "mozilla/Maybe.h"
+#include "mozilla/MemoryReporting.h"
+#include "mozilla/PodOperations.h"
+#include "mozilla/RefPtr.h"
+#include "mozilla/UniquePtr.h"
+
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+#include <utility>
+
+#include "jstypes.h"
+
 #include "gc/Memory.h"
-#include "jit/JitOptions.h"
-#include "jit/shared/Assembler-shared.h"
-#include "js/HashTable.h"
+#include "js/AllocPolicy.h"
+#include "js/UniquePtr.h"
+#include "js/Utility.h"
+#include "js/Vector.h"
 #include "threading/ExclusiveData.h"
 #include "util/Memory.h"
 #include "vm/MutexIDs.h"
+#include "wasm/WasmBuiltins.h"
 #include "wasm/WasmCodegenTypes.h"
+#include "wasm/WasmCompileArgs.h"
+#include "wasm/WasmConstants.h"
+#include "wasm/WasmExprType.h"
 #include "wasm/WasmGC.h"
 #include "wasm/WasmLog.h"
 #include "wasm/WasmModuleTypes.h"
 #include "wasm/WasmSerialize.h"
+#include "wasm/WasmShareable.h"
+#include "wasm/WasmTypeDecls.h"
 #include "wasm/WasmTypeDef.h"
 #include "wasm/WasmValType.h"
+
+struct JS_PUBLIC_API JSContext;
+class JSFunction;
 
 namespace js {
 
 struct AsmJSMetadata;
+class ScriptSource;
+
+namespace jit {
+class MacroAssembler;
+};
 
 namespace wasm {
 
@@ -166,6 +198,8 @@ class CodeSegment {
 
 using UniqueModuleSegment = UniquePtr<ModuleSegment>;
 
+enum IsTier2 { Tier2, NotTier2 };
+
 class ModuleSegment : public CodeSegment {
   const Tier tier_;
   uint8_t* const trapCode_;
@@ -179,8 +213,9 @@ class ModuleSegment : public CodeSegment {
   static UniqueModuleSegment create(Tier tier, const Bytes& unlinkedBytes,
                                     const LinkData& linkData);
 
-  bool initialize(const CodeTier& codeTier, const LinkData& linkData,
-                  const Metadata& metadata, const MetadataTier& metadataTier);
+  bool initialize(IsTier2 isTier2, const CodeTier& codeTier,
+                  const LinkData& linkData, const Metadata& metadata,
+                  const MetadataTier& metadataTier);
 
   Tier tier() const { return tier_; }
 
@@ -520,7 +555,8 @@ class LazyStubTier {
   size_t lastStubSegmentIndex_;
 
   bool createMany(const Uint32Vector& funcExportIndices,
-                  const CodeTier& codeTier, size_t* stubSegmentIndex);
+                  const CodeTier& codeTier, bool flushAllThreadsIcaches,
+                  size_t* stubSegmentIndex);
 
  public:
   LazyStubTier() : lastStubSegmentIndex_(0) {}
@@ -580,7 +616,7 @@ class CodeTier {
         lazyStubs_(mutexForTier(segment_->tier())) {}
 
   bool initialized() const { return !!code_ && segment_->initialized(); }
-  bool initialize(const Code& code, const LinkData& linkData,
+  bool initialize(IsTier2 isTier2, const Code& code, const LinkData& linkData,
                   const Metadata& metadata);
 
   Tier tier() const { return segment_->tier(); }

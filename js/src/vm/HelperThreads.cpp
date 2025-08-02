@@ -12,6 +12,7 @@
 #include <algorithm>
 
 #include "frontend/BytecodeCompilation.h"
+#include "frontend/BytecodeCompiler.h"
 #include "frontend/CompilationStencil.h"  // frontend::{CompilationStencil, ExtensibleCompilationStencil, CompilationInput, CompilationGCOutput, BorrowingCompilationStencil}
 #include "frontend/ParserAtom.h"          // frontend::ParserAtomsTable
 #include "gc/GC.h"                        // gc::MergeRealms
@@ -19,8 +20,10 @@
 #include "jit/JitRuntime.h"
 #include "js/ContextOptions.h"      // JS::ContextOptions
 #include "js/friend/StackLimits.h"  // js::ReportOverRecursed
+#include "js/GlobalObject.h"
 #include "js/OffThreadScriptCompilation.h"  // JS::OffThreadToken, JS::OffThreadCompileCallback
 #include "js/SourceText.h"
+#include "js/Stack.h"
 #include "js/UniquePtr.h"
 #include "js/Utility.h"
 #include "threading/CpuCount.h"

@@ -20,7 +20,6 @@
 #include "vm/Opcodes.h"
 
 #include "gc/ObjectKind-inl.h"
-#include "jit/JitScript-inl.h"
 #include "vm/BytecodeIterator-inl.h"
 #include "vm/BytecodeLocation-inl.h"
 
@@ -184,7 +183,7 @@ bool WarpBuilder::startNewOsrPreHeaderBlock(BytecodeLocation loopHead) {
     osrBlock->initSlot(info().argsObjSlot(), argsObj);
   }
 
-  if (info().funMaybeLazy()) {
+  if (info().hasFunMaybeLazy()) {
     // Initialize |this| parameter.
     MParameter* thisv = MParameter::New(alloc(), MParameter::THIS_SLOT);
     osrBlock->add(thisv);
@@ -437,7 +436,7 @@ bool WarpBuilder::buildPrologue() {
     return false;
   }
 
-  if (info().funMaybeLazy()) {
+  if (info().hasFunMaybeLazy()) {
     // Initialize |this|.
     MParameter* param = MParameter::New(alloc(), MParameter::THIS_SLOT);
     current->add(param);
@@ -1872,7 +1871,7 @@ bool WarpBuilder::build_SuperCall(BytecodeLocation loc) {
 }
 
 bool WarpBuilder::build_FunctionThis(BytecodeLocation loc) {
-  MOZ_ASSERT(info().funMaybeLazy());
+  MOZ_ASSERT(info().hasFunMaybeLazy());
 
   if (script_->strict()) {
     // No need to wrap primitive |this| in strict mode.
@@ -2613,6 +2612,15 @@ bool WarpBuilder::build_CheckPrivateField(BytecodeLocation loc) {
   return buildIC(loc, CacheKind::CheckPrivateField, {obj, id});
 }
 
+bool WarpBuilder::build_NewPrivateName(BytecodeLocation loc) {
+  JSAtom* name = loc.getAtom(script_);
+
+  auto* ins = MNewPrivateName::New(alloc(), name);
+  current->add(ins);
+  current->push(ins);
+  return resumeAfter(ins, loc);
+}
+
 bool WarpBuilder::build_Instanceof(BytecodeLocation loc) {
   MDefinition* rhs = current->pop();
   MDefinition* obj = current->pop();
@@ -2621,7 +2629,7 @@ bool WarpBuilder::build_Instanceof(BytecodeLocation loc) {
 
 bool WarpBuilder::build_NewTarget(BytecodeLocation loc) {
   MOZ_ASSERT(script_->isFunction());
-  MOZ_ASSERT(info().funMaybeLazy());
+  MOZ_ASSERT(info().hasFunMaybeLazy());
 
   if (scriptSnapshot()->isArrowFunction()) {
     MDefinition* callee = getCallee();

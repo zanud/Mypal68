@@ -36,6 +36,7 @@
 #include "vm/ErrorObject.h"
 #include "wasm/TypedObject.h"
 #include "wasm/WasmCodegenTypes.h"
+#include "wasm/WasmDebugFrame.h"
 #include "wasm/WasmInstance.h"
 #include "wasm/WasmStubs.h"
 
@@ -587,6 +588,10 @@ static void* WasmHandleThrow(jit::ResumeFromException* rfe) {
 // Unconditionally returns nullptr per calling convention of HandleTrap().
 static void* ReportError(JSContext* cx, unsigned errorNumber) {
   JS_ReportErrorNumberUTF8(cx, GetErrorMessage, nullptr, errorNumber);
+
+  if (cx->isThrowingOutOfMemory()) {
+    return nullptr;
+  }
 
   // Distinguish exceptions thrown from traps from other RuntimeErrors.
   RootedValue exn(cx);
@@ -1245,10 +1250,6 @@ void* wasm::AddressOf(SymbolicAddress imm, ABIFunctionType* abiType) {
       return FuncCast(Instance::pushRefIntoExn, *abiType);
 #endif
 
-#if defined(JS_CODEGEN_MIPS32)
-    case SymbolicAddress::js_jit_gAtomic64Lock:
-      return &js::jit::gAtomic64Lock;
-#endif
 #ifdef WASM_CODEGEN_DEBUG
     case SymbolicAddress::PrintI32:
       *abiType = Args_General1;
@@ -1315,9 +1316,6 @@ bool wasm::NeedsBuiltinThunk(SymbolicAddress sym) {
     case SymbolicAddress::CoerceInPlace_ToBigInt:
     case SymbolicAddress::BoxValue_Anyref:
     case SymbolicAddress::InlineTypedObjectClass:
-#if defined(JS_CODEGEN_MIPS32)
-    case SymbolicAddress::js_jit_gAtomic64Lock:
-#endif
 #ifdef WASM_CODEGEN_DEBUG
     case SymbolicAddress::PrintI32:
     case SymbolicAddress::PrintPtr:
@@ -1590,6 +1588,7 @@ bool wasm::EnsureBuiltinThunksInitialized() {
   LifoAlloc lifo(BUILTIN_THUNK_LIFO_SIZE);
   TempAllocator tempAlloc(&lifo);
   WasmMacroAssembler masm(tempAlloc);
+  AutoCreatedBy acb(masm, "wasm::EnsureBuiltinThunksInitialized");
 
   for (auto sym : MakeEnumeratedRange(SymbolicAddress::Limit)) {
     if (!NeedsBuiltinThunk(sym)) {
@@ -1694,8 +1693,9 @@ bool wasm::EnsureBuiltinThunksInitialized() {
   MOZ_ASSERT(masm.tryNotes().empty());
 #endif
 
-  if (!ExecutableAllocator::makeExecutableAndFlushICache(thunks->codeBase,
-                                                         thunks->codeSize)) {
+  if (!ExecutableAllocator::makeExecutableAndFlushICache(
+          FlushICacheSpec::LocalThreadOnly, thunks->codeBase,
+          thunks->codeSize)) {
     return false;
   }
 

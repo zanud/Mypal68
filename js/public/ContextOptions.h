@@ -55,7 +55,7 @@ class JS_PUBLIC_API ContextOptions {
         fuzzing_(false),
         privateClassFields_(false),
         privateClassMethods_(false),
-        topLevelAwait_(true) {
+        ergonomicBrandChecks_(false) {
   }
   // clang-format on
 
@@ -174,12 +174,6 @@ class JS_PUBLIC_API ContextOptions {
   bool classStaticBlocks() const { return classStaticBlocks_; }
   ContextOptions& setClassStaticBlocks(bool enabled) {
     classStaticBlocks_ = enabled;
-    return *this;
-  }
-
-  bool topLevelAwait() const { return topLevelAwait_; }
-  ContextOptions& setTopLevelAwait(bool enabled) {
-    topLevelAwait_ = enabled;
     return *this;
   }
 
@@ -302,7 +296,6 @@ class JS_PUBLIC_API ContextOptions {
   bool privateClassFields_ : 1;
   bool privateClassMethods_ : 1;
   bool ergonomicBrandChecks_ : 1;
-  bool topLevelAwait_ : 1;
   bool classStaticBlocks_ : 1;
 };
 

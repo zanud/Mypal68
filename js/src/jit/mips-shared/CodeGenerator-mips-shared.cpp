@@ -116,7 +116,7 @@ void CodeGenerator::visitCompare(LCompare* comp) {
       mir->compareType() == MCompare::Compare_Symbol ||
       mir->compareType() == MCompare::Compare_UIntPtr) {
     if (right->isConstant()) {
-      MOZ_ASSERT(type == MCompare::Compare_UIntPtr);
+      MOZ_ASSERT(mir->compareType() == MCompare::Compare_UIntPtr);
       masm.cmpPtrSet(cond, ToRegister(left), Imm32(ToInt32(right)),
                      ToRegister(def));
     } else if (right->isGeneralReg()) {
@@ -148,7 +148,7 @@ void CodeGenerator::visitCompareAndBranch(LCompareAndBranch* comp) {
       mir->compareType() == MCompare::Compare_Symbol ||
       mir->compareType() == MCompare::Compare_UIntPtr) {
     if (comp->right()->isConstant()) {
-      MOZ_ASSERT(type == MCompare::Compare_UIntPtr);
+      MOZ_ASSERT(mir->compareType() == MCompare::Compare_UIntPtr);
       emitBranch(ToRegister(comp->left()), Imm32(ToInt32(comp->right())), cond,
                  comp->ifTrue(), comp->ifFalse());
     } else if (comp->right()->isGeneralReg()) {
@@ -1032,7 +1032,7 @@ void CodeGenerator::visitCtzI(LCtzI* ins) {
 void CodeGenerator::visitPopcntI(LPopcntI* ins) {
   Register input = ToRegister(ins->input());
   Register output = ToRegister(ins->output());
-  Register tmp = ToRegister(ins->temp());
+  Register tmp = ToRegister(ins->temp0());
 
   masm.popcnt32(input, output, tmp);
 }
@@ -1258,12 +1258,12 @@ void CodeGenerator::visitValue(LValue* value) {
 void CodeGenerator::visitDouble(LDouble* ins) {
   const LDefinition* out = ins->getDef(0);
 
-  masm.loadConstantDouble(ins->getDouble(), ToFloatRegister(out));
+  masm.loadConstantDouble(ins->value(), ToFloatRegister(out));
 }
 
 void CodeGenerator::visitFloat32(LFloat32* ins) {
   const LDefinition* out = ins->getDef(0);
-  masm.loadConstantFloat32(ins->getFloat(), ToFloatRegister(out));
+  masm.loadConstantFloat32(ins->value(), ToFloatRegister(out));
 }
 
 void CodeGenerator::visitTestDAndBranch(LTestDAndBranch* test) {
@@ -1369,6 +1369,9 @@ void CodeGenerator::visitBitAndAndBranch(LBitAndAndBranch* lir) {
   emitBranch(ScratchRegister, ScratchRegister, lir->cond(), lir->ifTrue(),
              lir->ifFalse());
 }
+
+// See ../CodeGenerator.cpp for more information.
+void CodeGenerator::visitWasmRegisterResult(LWasmRegisterResult* lir) {}
 
 void CodeGenerator::visitWasmUint32ToDouble(LWasmUint32ToDouble* lir) {
   masm.convertUInt32ToDouble(ToRegister(lir->input()),
@@ -1519,8 +1522,7 @@ void CodeGeneratorMIPSShared::emitWasmLoad(T* lir) {
     if (IsFloatingPointType(mir->type())) {
       masm.wasmUnalignedLoadFP(mir->access(), HeapReg, ToRegister(lir->ptr()),
                                ptrScratch, ToFloatRegister(lir->output()),
-                               ToRegister(lir->getTemp(1)), InvalidReg,
-                               InvalidReg);
+                               ToRegister(lir->getTemp(1)));
     } else {
       masm.wasmUnalignedLoad(mir->access(), HeapReg, ToRegister(lir->ptr()),
                              ptrScratch, ToRegister(lir->output()),
@@ -1936,6 +1938,10 @@ void CodeGenerator::visitWasmSelect(LWasmSelect* ins) {
   }
 }
 
+void CodeGenerator::visitWasmCompareAndSelect(LWasmCompareAndSelect* ins) {
+  emitWasmCompareAndSelect(ins);
+}
+
 void CodeGenerator::visitWasmReinterpret(LWasmReinterpret* lir) {
   MOZ_ASSERT(gen->compilingWasm());
   MWasmReinterpret* ins = lir->mir();
@@ -2029,6 +2035,12 @@ void CodeGenerator::visitNegI(LNegI* ins) {
   Register output = ToRegister(ins->output());
 
   masm.ma_negu(output, input);
+}
+
+void CodeGenerator::visitNegI64(LNegI64* ins) {
+  Register64 input = ToRegister64(ins->getInt64Operand(0));
+  MOZ_ASSERT(input == ToOutRegister64(ins));
+  masm.neg64(input);
 }
 
 void CodeGenerator::visitNegD(LNegD* ins) {
@@ -2318,7 +2330,7 @@ void CodeGenerator::visitNearbyIntF(LNearbyIntF*) { MOZ_CRASH("NYI"); }
 #ifdef ENABLE_WASM_SIMD
 void CodeGenerator::visitSimd128(LSimd128* ins) { MOZ_CRASH("No SIMD"); }
 
-void CodeGenerator::visitWasmBitselectSimd128(LWasmBitselectSimd128* ins) {
+void CodeGenerator::visitWasmTernarySimd128(LWasmTernarySimd128* ins) {
   MOZ_CRASH("No SIMD");
 }
 
@@ -2338,6 +2350,11 @@ void CodeGenerator::visitWasmVariableShiftSimd128(
 
 void CodeGenerator::visitWasmConstantShiftSimd128(
     LWasmConstantShiftSimd128* ins) {
+  MOZ_CRASH("No SIMD");
+}
+
+void CodeGenerator::visitWasmSignReplicationSimd128(
+    LWasmSignReplicationSimd128* ins) {
   MOZ_CRASH("No SIMD");
 }
 
@@ -2381,6 +2398,14 @@ void CodeGenerator::visitWasmReduceAndBranchSimd128(
 
 void CodeGenerator::visitWasmReduceSimd128ToInt64(
     LWasmReduceSimd128ToInt64* ins) {
+  MOZ_CRASH("No SIMD");
+}
+
+void CodeGenerator::visitWasmLoadLaneSimd128(LWasmLoadLaneSimd128* ins) {
+  MOZ_CRASH("No SIMD");
+}
+
+void CodeGenerator::visitWasmStoreLaneSimd128(LWasmStoreLaneSimd128* ins) {
   MOZ_CRASH("No SIMD");
 }
 #endif

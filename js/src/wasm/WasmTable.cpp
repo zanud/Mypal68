@@ -71,6 +71,7 @@ SharedTable Table::create(JSContext* cx, const TableDesc& desc,
     case TableRepr::Ref: {
       TableAnyRefVector objects;
       if (!objects.resize(desc.initialLength)) {
+        ReportOutOfMemory(cx);
         return nullptr;
       }
       return SharedTable(
@@ -172,7 +173,7 @@ void Table::setFuncRef(uint32_t index, void* code, const Instance* instance) {
     elem.code = code;
     elem.tls = instance->tlsData();
     MOZ_ASSERT(elem.tls->instance->objectUnbarriered()->isTenured(),
-               "no writeBarrierPost (Table::set)");
+               "no postWriteBarrier (Table::set)");
   } else {
     elem.code = code;
     elem.tls = nullptr;
@@ -269,7 +270,7 @@ bool Table::copy(const Table& srcTable, uint32_t dstIndex, uint32_t srcIndex) {
       if (dst.tls) {
         MOZ_ASSERT(dst.code);
         MOZ_ASSERT(dst.tls->instance->objectUnbarriered()->isTenured(),
-                   "no writeBarrierPost (Table::copy)");
+                   "no postWriteBarrier (Table::copy)");
       } else {
         MOZ_ASSERT(!dst.code);
       }

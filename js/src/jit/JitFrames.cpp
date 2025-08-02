@@ -9,14 +9,11 @@
 #include <algorithm>
 
 #include "builtin/ModuleObject.h"
-#include "gc/Marking.h"
-#include "jit/BaselineDebugModeOSR.h"
 #include "jit/BaselineFrame.h"
 #include "jit/BaselineIC.h"
 #include "jit/BaselineJIT.h"
 #include "jit/Ion.h"
 #include "jit/IonScript.h"
-#include "jit/JitcodeMap.h"
 #include "jit/JitRuntime.h"
 #include "jit/JitSpewer.h"
 #include "jit/LIR.h"
@@ -27,8 +24,6 @@
 #include "jit/Snapshots.h"
 #include "jit/VMFunctions.h"
 #include "js/friend/DumpFunctions.h"  // js::DumpObject, js::DumpValue
-#include "vm/ArgumentsObject.h"
-#include "vm/GeckoProfiler.h"
 #include "vm/Interpreter.h"
 #include "vm/JSContext.h"
 #include "vm/JSFunction.h"
@@ -39,7 +34,6 @@
 #include "wasm/WasmInstance.h"
 
 #include "debugger/DebugAPI-inl.h"
-#include "gc/Nursery-inl.h"
 #include "jit/JSJitFrameIter-inl.h"
 #include "vm/GeckoProfiler-inl.h"
 #include "vm/JSScript-inl.h"
@@ -1444,7 +1438,11 @@ RInstructionResults::~RInstructionResults() {
 bool RInstructionResults::init(JSContext* cx, uint32_t numResults) {
   if (numResults) {
     results_ = cx->make_unique<Values>();
-    if (!results_ || !results_->growBy(numResults)) {
+    if (!results_) {
+      return false;
+    }
+    if (!results_->growBy(numResults)) {
+      ReportOutOfMemory(cx);
       return false;
     }
 
@@ -2221,9 +2219,7 @@ MachineState MachineState::FromBailout(RegisterDump::GPRArray& regs,
     machine.setRegisterLocation(
         FloatRegister(FloatRegisters::Encoding(i), FloatRegisters::Double),
         &fpregs[i]);
-#  ifdef ENABLE_WASM_SIMD
-#    error "More care needed here"
-#  endif
+    // No SIMD support in bailouts, SIMD is internal to wasm
   }
 
 #elif defined(JS_CODEGEN_NONE)

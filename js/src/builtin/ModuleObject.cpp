@@ -2038,8 +2038,7 @@ JSObject* js::GetOrCreateModuleMetaObject(JSContext* cx,
     return obj;
   }
 
-  RootedObject metaObject(cx,
-                          NewObjectWithGivenProto<PlainObject>(cx, nullptr));
+  RootedObject metaObject(cx, NewPlainObjectWithProto(cx, nullptr));
   if (!metaObject) {
     return nullptr;
   }
@@ -2256,11 +2255,7 @@ bool ModuleObject::topLevelCapabilityReject(JSContext* cx,
                                             HandleValue error) {
   Rooted<PromiseObject*> promise(
       cx, &module->topLevelCapability()->as<PromiseObject>());
-  if (!AsyncFunctionThrown(cx, promise, error)) {
-    return false;
-  }
-  MOZ_ASSERT(promise->state() == JS::PromiseState::Rejected);
-  return true;
+  return AsyncFunctionThrown(cx, promise, error);
 }
 
 JSObject* js::StartDynamicModuleImport(JSContext* cx, HandleScript script,
@@ -2494,50 +2489,11 @@ bool js::FinishDynamicModuleImport(JSContext* cx,
   return true;
 }
 
-bool js::FinishDynamicModuleImport_NoTLA(JSContext* cx,
-                                         JS::DynamicImportStatus status,
-                                         HandleValue referencingPrivate,
-                                         HandleObject moduleRequest,
-                                         HandleObject promiseArg) {
-  MOZ_ASSERT_IF(cx->isExceptionPending(),
-                status == JS::DynamicImportStatus::Failed);
-
-  Handle<PromiseObject*> promise = promiseArg.as<PromiseObject>();
-
-  auto releasePrivate = mozilla::MakeScopeExit(
-      [&] { cx->runtime()->releaseScriptPrivate(referencingPrivate); });
-
-  if (status == JS::DynamicImportStatus::Failed) {
-    return RejectPromiseWithPendingError(cx, promise);
-  }
-
-  RootedObject result(
-      cx, CallModuleResolveHook(cx, referencingPrivate, moduleRequest));
-  if (!result) {
-    return RejectPromiseWithPendingError(cx, promise);
-  }
-
-  RootedModuleObject module(cx, &result->as<ModuleObject>());
-  if (module->status() != MODULE_STATUS_EVALUATED) {
-    JS_ReportErrorASCII(
-        cx, "Unevaluated or errored module returned by module resolve hook");
-    return RejectPromiseWithPendingError(cx, promise);
-  }
-
-  RootedObject ns(cx, ModuleObject::GetOrCreateModuleNamespace(cx, module));
-  if (!ns) {
-    return RejectPromiseWithPendingError(cx, promise);
-  }
-
-  RootedValue value(cx, ObjectValue(*ns));
-  return PromiseObject::resolve(cx, promise, value);
-}
-
 template <XDRMode mode>
 XDRResult js::XDRExportEntries(XDRState<mode>* xdr,
                                MutableHandleArrayObject vec) {
   JSContext* cx = xdr->cx();
-  Rooted<GCVector<ExportEntryObject*>> expVec(cx);
+  Rooted<GCVector<ExportEntryObject*>> expVec(cx, cx);
   RootedExportEntryObject expObj(cx);
   RootedAtom exportName(cx);
   RootedModuleRequestObject moduleRequest(cx);

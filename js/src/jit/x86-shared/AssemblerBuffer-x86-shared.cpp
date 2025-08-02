@@ -6,8 +6,6 @@
 
 #include "mozilla/Sprintf.h"
 
-#include "vm/BytecodeUtil.h"
-
 using namespace js;
 using namespace jit;
 

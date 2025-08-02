@@ -4,9 +4,6 @@
 
 #include "jit/Sink.h"
 
-#include "mozilla/Vector.h"
-
-#include "jit/IonAnalysis.h"
 #include "jit/IonOptimizationLevels.h"
 #include "jit/JitSpewer.h"
 #include "jit/MIR.h"

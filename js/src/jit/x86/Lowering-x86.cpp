@@ -454,6 +454,11 @@ void LIRGenerator::visitWasmStore(MWasmStore* ins) {
       // instruction layout which affects patching.
       valueAlloc = useRegisterAtStart(ins->value());
       break;
+#ifdef ENABLE_WASM_SIMD
+    case Scalar::Simd128:
+      valueAlloc = useRegisterAtStart(ins->value());
+      break;
+#endif
     case Scalar::Int64: {
       LInt64Allocation valueAlloc = useInt64RegisterAtStart(ins->value());
       auto* lir = new (alloc())
@@ -465,9 +470,6 @@ void LIRGenerator::visitWasmStore(MWasmStore* ins) {
     case Scalar::BigInt64:
     case Scalar::BigUint64:
     case Scalar::MaxTypedArrayViewType:
-#ifdef ENABLE_WASM_SIMD
-    case Scalar::Simd128:
-#endif
       MOZ_CRASH("unexpected array type");
   }
 

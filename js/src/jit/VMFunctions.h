@@ -6,6 +6,7 @@
 #define jit_VMFunctions_h
 
 #include "mozilla/Assertions.h"
+#include "mozilla/HashFunctions.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -14,7 +15,6 @@
 #include "NamespaceImports.h"
 
 #include "gc/Rooting.h"
-#include "jit/IonTypes.h"
 #include "js/ScalarType.h"
 #include "js/TypeDecls.h"
 
@@ -28,8 +28,10 @@ class GlobalObject;
 class InterpreterFrame;
 class LexicalScope;
 class ClassBodyScope;
+class MapObject;
 class NativeObject;
 class PropertyName;
+class SetObject;
 class Shape;
 class TypedArrayObject;
 class WithScope;
@@ -349,7 +351,6 @@ struct LastArg<HeadType, TailTypes...> {
                                   uint32_t argc, Value* argv,
                                   MutableHandleValue rval);
 
-class InterpreterStubExitFrameLayout;
 bool InvokeFromInterpreterStub(JSContext* cx,
                                InterpreterStubExitFrameLayout* frame);
 void* GetContextSensitiveInterpreterStub();
@@ -475,7 +476,6 @@ JSObject* InitRestParameter(JSContext* cx, uint32_t length, Value* rest,
                                   Handle<LexicalScope*> scope);
 [[nodiscard]] bool PushClassBodyEnv(JSContext* cx, BaselineFrame* frame,
                                     Handle<ClassBodyScope*> scope);
-[[nodiscard]] bool PopLexicalEnv(JSContext* cx, BaselineFrame* frame);
 [[nodiscard]] bool DebugLeaveThenPopLexicalEnv(JSContext* cx,
                                                BaselineFrame* frame,
                                                jsbytecode* pc);
@@ -660,6 +660,18 @@ BigInt* AtomicsSub64(JSContext* cx, TypedArrayObject* typedArray, size_t index,
                      BigInt* value);
 BigInt* AtomicsXor64(JSContext* cx, TypedArrayObject* typedArray, size_t index,
                      BigInt* value);
+
+JSAtom* AtomizeStringNoGC(JSContext* cx, JSString* str);
+
+bool SetObjectHas(JSContext* cx, HandleObject obj, HandleValue key, bool* rval);
+bool MapObjectHas(JSContext* cx, HandleObject obj, HandleValue key, bool* rval);
+bool MapObjectGet(JSContext* cx, HandleObject obj, HandleValue key,
+                  MutableHandleValue rval);
+
+void AssertSetObjectHash(JSContext* cx, SetObject* obj, const Value* value,
+                         mozilla::HashNumber actualHash);
+void AssertMapObjectHash(JSContext* cx, MapObject* obj, const Value* value,
+                         mozilla::HashNumber actualHash);
 
 // Functions used when JS_MASM_VERBOSE is enabled.
 void AssumeUnreachable(const char* output);

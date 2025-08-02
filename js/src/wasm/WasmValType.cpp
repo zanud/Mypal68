@@ -15,6 +15,7 @@
 
 #include "wasm/WasmValType.h"
 
+#include "js/ErrorReport.h"
 #include "js/friend/ErrorMessages.h"  // JSMSG_*
 #include "js/Printf.h"
 #include "js/Value.h"
@@ -63,6 +64,8 @@ bool wasm::ToValType(JSContext* cx, HandleValue v, ValType* out) {
 
   return true;
 }
+
+UniqueChars wasm::ToString(RefType type) { return ToString(ValType(type)); }
 
 UniqueChars wasm::ToString(ValType type) {
   const char* literal = nullptr;

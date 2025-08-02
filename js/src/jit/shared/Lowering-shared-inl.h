@@ -401,6 +401,17 @@ void LIRGeneratorShared::ensureDefined(MDefinition* mir) {
   }
 }
 
+bool LIRGeneratorShared::willHaveDifferentLIRNodes(MDefinition* mir1,
+                                                   MDefinition* mir2) {
+  if (mir1 != mir2) {
+    return true;
+  }
+  if (mir1->isEmittedAtUses()) {
+    return true;
+  }
+  return false;
+}
+
 template <typename LClass, typename... Args>
 LClass* LIRGeneratorShared::allocateVariadic(uint32_t numOperands,
                                              Args&&... args) {
@@ -857,6 +868,27 @@ LInt64Allocation LIRGeneratorShared::useInt64RegisterOrConstant(
 #endif
   }
   return useInt64Register(mir, useAtStart);
+}
+
+LInt64Allocation LIRGeneratorShared::useInt64RegisterAtStart(MDefinition* mir) {
+  return useInt64Register(mir, /* useAtStart = */ true);
+}
+
+LInt64Allocation LIRGeneratorShared::useInt64RegisterOrConstantAtStart(
+    MDefinition* mir) {
+  return useInt64RegisterOrConstant(mir, /* useAtStart = */ true);
+}
+
+LInt64Allocation LIRGeneratorShared::useInt64OrConstantAtStart(
+    MDefinition* mir) {
+  return useInt64OrConstant(mir, /* useAtStart = */ true);
+}
+
+void LIRGeneratorShared::lowerConstantDouble(double d, MInstruction* mir) {
+  define(new (alloc()) LDouble(d), mir);
+}
+void LIRGeneratorShared::lowerConstantFloat32(float f, MInstruction* mir) {
+  define(new (alloc()) LFloat32(f), mir);
 }
 
 }  // namespace jit

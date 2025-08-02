@@ -1,27 +1,38 @@
 // Wasm SIMD.
 //
 // See comment in WasmIonCompile.cpp for a justification for these nodes.
+
 // (v128, v128, v128) -> v128 effect-free operation.
-class MWasmBitselectSimd128 : public MTernaryInstruction,
-                              public NoTypePolicy::Data {
-  MWasmBitselectSimd128(MDefinition* lhs, MDefinition* rhs,
-                        MDefinition* control)
-      : MTernaryInstruction(classOpcode, lhs, rhs, control) {
+class MWasmTernarySimd128 : public MTernaryInstruction,
+                            public NoTypePolicy::Data {
+  wasm::SimdOp simdOp_;
+
+  MWasmTernarySimd128(MDefinition* v0, MDefinition* v1, MDefinition* v2,
+                      wasm::SimdOp simdOp)
+      : MTernaryInstruction(classOpcode, v0, v1, v2), simdOp_(simdOp) {
     setMovable();
     setResultType(MIRType::Simd128);
   }
 
  public:
-  INSTRUCTION_HEADER(WasmBitselectSimd128)
+  INSTRUCTION_HEADER(WasmTernarySimd128)
   TRIVIAL_NEW_WRAPPERS
-  NAMED_OPERANDS((0, lhs), (1, rhs), (2, control))
+  NAMED_OPERANDS((0, v0), (1, v1), (2, v2))
 
   AliasSet getAliasSet() const override { return AliasSet::None(); }
   bool congruentTo(const MDefinition* ins) const override {
     return congruentIfOperandsEqual(ins);
   }
+  MDefinition* foldsTo(TempAllocator& alloc) override;
 
-  ALLOW_CLONE(MWasmBitselectSimd128)
+  // If the control mask of a bitselect allows the operation to be specialized
+  // as a shuffle and it is profitable to specialize it on this platform, return
+  // true and the appropriate shuffle mask.
+  bool specializeBitselectConstantMaskAsShuffle(int8_t shuffle[16]);
+
+  wasm::SimdOp simdOp() const { return simdOp_; }
+
+  ALLOW_CLONE(MWasmTernarySimd128)
 };
 
 // (v128, v128) -> v128 effect-free operations.
@@ -89,57 +100,6 @@ class MWasmBinarySimd128WithConstant : public MUnaryInstruction,
   ALLOW_CLONE(MWasmBinarySimd128WithConstant)
 };
 
-// (v128, i32) -> v128 effect-free shift operations.
-class MWasmShiftSimd128 : public MBinaryInstruction, public NoTypePolicy::Data {
-  wasm::SimdOp simdOp_;
-
-  MWasmShiftSimd128(MDefinition* lhs, MDefinition* rhs, wasm::SimdOp simdOp)
-      : MBinaryInstruction(classOpcode, lhs, rhs), simdOp_(simdOp) {
-    setMovable();
-    setResultType(MIRType::Simd128);
-  }
-
- public:
-  INSTRUCTION_HEADER(WasmShiftSimd128)
-  TRIVIAL_NEW_WRAPPERS
-
-  AliasSet getAliasSet() const override { return AliasSet::None(); }
-  bool congruentTo(const MDefinition* ins) const override {
-    return ins->toWasmShiftSimd128()->simdOp() == simdOp_ &&
-           congruentIfOperandsEqual(ins);
-  }
-
-  wasm::SimdOp simdOp() const { return simdOp_; }
-
-  ALLOW_CLONE(MWasmShiftSimd128)
-};
-
-// (v128, v128, mask) -> v128 effect-free operation.
-class MWasmShuffleSimd128 : public MBinaryInstruction,
-                            public NoTypePolicy::Data {
-  SimdConstant control_;
-
-  MWasmShuffleSimd128(MDefinition* lhs, MDefinition* rhs, SimdConstant control)
-      : MBinaryInstruction(classOpcode, lhs, rhs), control_(control) {
-    setMovable();
-    setResultType(MIRType::Simd128);
-  }
-
- public:
-  INSTRUCTION_HEADER(WasmShuffleSimd128)
-  TRIVIAL_NEW_WRAPPERS
-
-  AliasSet getAliasSet() const override { return AliasSet::None(); }
-  bool congruentTo(const MDefinition* ins) const override {
-    return ins->toWasmShuffleSimd128()->control().bitwiseEqual(control_) &&
-           congruentIfOperandsEqual(ins);
-  }
-
-  SimdConstant control() const { return control_; }
-
-  ALLOW_CLONE(MWasmShuffleSimd128)
-};
-
 // (v128, scalar, imm) -> v128 effect-free operations.
 class MWasmReplaceLaneSimd128 : public MBinaryInstruction,
                                 public NoTypePolicy::Data {
@@ -170,31 +130,6 @@ class MWasmReplaceLaneSimd128 : public MBinaryInstruction,
   wasm::SimdOp simdOp() const { return simdOp_; }
 
   ALLOW_CLONE(MWasmReplaceLaneSimd128)
-};
-
-// (v128) -> v128 effect-free operations.
-class MWasmUnarySimd128 : public MUnaryInstruction, public NoTypePolicy::Data {
-  wasm::SimdOp simdOp_;
-
-  MWasmUnarySimd128(MDefinition* src, wasm::SimdOp simdOp)
-      : MUnaryInstruction(classOpcode, src), simdOp_(simdOp) {
-    setMovable();
-    setResultType(MIRType::Simd128);
-  }
-
- public:
-  INSTRUCTION_HEADER(WasmUnarySimd128)
-  TRIVIAL_NEW_WRAPPERS
-
-  AliasSet getAliasSet() const override { return AliasSet::None(); }
-  bool congruentTo(const MDefinition* ins) const override {
-    return ins->toWasmUnarySimd128()->simdOp() == simdOp_ &&
-           congruentIfOperandsEqual(ins);
-  }
-
-  wasm::SimdOp simdOp() const { return simdOp_; }
-
-  ALLOW_CLONE(MWasmUnarySimd128)
 };
 
 // (scalar) -> v128 effect-free operations.
@@ -253,4 +188,125 @@ class MWasmReduceSimd128 : public MUnaryInstruction, public NoTypePolicy::Data {
 
   ALLOW_CLONE(MWasmReduceSimd128)
 };
+
+class MWasmLoadLaneSimd128
+    : public MVariadicInstruction,  // memoryBase is nullptr on some platforms
+      public NoTypePolicy::Data {
+  wasm::MemoryAccessDesc access_;
+  uint32_t laneSize_;
+  uint32_t laneIndex_;
+  uint32_t memoryBaseIndex_;
+
+  MWasmLoadLaneSimd128(const wasm::MemoryAccessDesc& access, uint32_t laneSize,
+                       uint32_t laneIndex, uint32_t memoryBaseIndex)
+      : MVariadicInstruction(classOpcode),
+        access_(access),
+        laneSize_(laneSize),
+        laneIndex_(laneIndex),
+        memoryBaseIndex_(memoryBaseIndex) {
+    MOZ_ASSERT(!access_.isAtomic());
+    setResultType(MIRType::Simd128);
+  }
+
+ public:
+  INSTRUCTION_HEADER(WasmLoadLaneSimd128)
+  NAMED_OPERANDS((0, base), (1, value));
+
+  static MWasmLoadLaneSimd128* New(TempAllocator& alloc,
+                                   MDefinition* memoryBase, MDefinition* base,
+                                   const wasm::MemoryAccessDesc& access,
+                                   uint32_t laneSize, uint32_t laneIndex,
+                                   MDefinition* value) {
+    uint32_t nextIndex = 2;
+    uint32_t memoryBaseIndex = memoryBase ? nextIndex++ : UINT32_MAX;
+
+    MWasmLoadLaneSimd128* load = new (alloc)
+        MWasmLoadLaneSimd128(access, laneSize, laneIndex, memoryBaseIndex);
+    if (!load->init(alloc, nextIndex)) {
+      return nullptr;
+    }
+
+    load->initOperand(0, base);
+    load->initOperand(1, value);
+    if (memoryBase) {
+      load->initOperand(memoryBaseIndex, memoryBase);
+    }
+
+    return load;
+  }
+
+  const wasm::MemoryAccessDesc& access() const { return access_; }
+  uint32_t laneSize() const { return laneSize_; }
+  uint32_t laneIndex() const { return laneIndex_; }
+  bool hasMemoryBase() const { return memoryBaseIndex_ != UINT32_MAX; }
+  MDefinition* memoryBase() const {
+    MOZ_ASSERT(hasMemoryBase());
+    return getOperand(memoryBaseIndex_);
+  }
+
+  AliasSet getAliasSet() const override {
+    return AliasSet::Load(AliasSet::WasmHeap);
+  }
+};
+
+class MWasmStoreLaneSimd128 : public MVariadicInstruction,
+                              public NoTypePolicy::Data {
+  wasm::MemoryAccessDesc access_;
+  uint32_t laneSize_;
+  uint32_t laneIndex_;
+  uint32_t memoryBaseIndex_;
+
+  explicit MWasmStoreLaneSimd128(const wasm::MemoryAccessDesc& access,
+                                 uint32_t laneSize, uint32_t laneIndex,
+                                 uint32_t memoryBaseIndex)
+      : MVariadicInstruction(classOpcode),
+        access_(access),
+        laneSize_(laneSize),
+        laneIndex_(laneIndex),
+        memoryBaseIndex_(memoryBaseIndex) {
+    MOZ_ASSERT(!access_.isAtomic());
+    setResultType(MIRType::Simd128);
+  }
+
+ public:
+  INSTRUCTION_HEADER(WasmStoreLaneSimd128)
+  NAMED_OPERANDS((0, base), (1, value))
+
+  static MWasmStoreLaneSimd128* New(TempAllocator& alloc,
+                                    MDefinition* memoryBase, MDefinition* base,
+                                    const wasm::MemoryAccessDesc& access,
+                                    uint32_t laneSize, uint32_t laneIndex,
+                                    MDefinition* value) {
+    uint32_t nextIndex = 2;
+    uint32_t memoryBaseIndex = memoryBase ? nextIndex++ : UINT32_MAX;
+
+    MWasmStoreLaneSimd128* store = new (alloc)
+        MWasmStoreLaneSimd128(access, laneSize, laneIndex, memoryBaseIndex);
+    if (!store->init(alloc, nextIndex)) {
+      return nullptr;
+    }
+
+    store->initOperand(0, base);
+    store->initOperand(1, value);
+    if (memoryBase) {
+      store->initOperand(memoryBaseIndex, memoryBase);
+    }
+
+    return store;
+  }
+
+  const wasm::MemoryAccessDesc& access() const { return access_; }
+  uint32_t laneSize() const { return laneSize_; }
+  uint32_t laneIndex() const { return laneIndex_; }
+  bool hasMemoryBase() const { return memoryBaseIndex_ != UINT32_MAX; }
+  MDefinition* memoryBase() const {
+    MOZ_ASSERT(hasMemoryBase());
+    return getOperand(memoryBaseIndex_);
+  }
+
+  AliasSet getAliasSet() const override {
+    return AliasSet::Store(AliasSet::WasmHeap);
+  }
+};
+
 // End Wasm SIMD

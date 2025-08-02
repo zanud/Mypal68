@@ -14,8 +14,6 @@
 #include "mozilla/Range.h"
 #include "mozilla/Span.h"
 
-#include "jsfriendapi.h"
-
 #include "builtin/Array.h"
 #include "builtin/intl/CommonFunctions.h"
 #include "builtin/intl/FormatBuffer.h"
@@ -428,7 +426,6 @@ bool js::intl_defaultTimeZone(JSContext* cx, unsigned argc, Value* vp) {
   }
 
   args.rval().setString(str);
-
   return true;
 }
 
@@ -1166,6 +1163,8 @@ static FieldType GetFieldTypeForFormatField(UDateFormatField fieldName) {
       return &JSAtomState::dayPeriod;
 
     case UDAT_TIMEZONE_FIELD:
+    case UDAT_TIMEZONE_GENERIC_FIELD:
+    case UDAT_TIMEZONE_LOCALIZED_GMT_OFFSET_FIELD:
       return &JSAtomState::timeZoneName;
 
     case UDAT_FRACTIONAL_SECOND_FIELD:
@@ -1184,11 +1183,9 @@ static FieldType GetFieldTypeForFormatField(UDateFormatField fieldName) {
     case UDAT_WEEK_OF_MONTH_FIELD:
     case UDAT_MILLISECONDS_IN_DAY_FIELD:
     case UDAT_TIMEZONE_RFC_FIELD:
-    case UDAT_TIMEZONE_GENERIC_FIELD:
     case UDAT_QUARTER_FIELD:
     case UDAT_STANDALONE_QUARTER_FIELD:
     case UDAT_TIMEZONE_SPECIAL_FIELD:
-    case UDAT_TIMEZONE_LOCALIZED_GMT_OFFSET_FIELD:
     case UDAT_TIMEZONE_ISO_FIELD:
     case UDAT_TIMEZONE_ISO_LOCAL_FIELD:
     case UDAT_AM_PM_MIDNIGHT_NOON_FIELD:
@@ -1257,7 +1254,7 @@ static bool intl_FormatToPartsDateTime(JSContext* cx,
   RootedValue val(cx);
 
   auto AppendPart = [&](FieldType type, size_t beginIndex, size_t endIndex) {
-    singlePart = NewBuiltinClassInstance<PlainObject>(cx);
+    singlePart = NewPlainObject(cx);
     if (!singlePart) {
       return false;
     }
@@ -1653,7 +1650,7 @@ static bool FormatDateTimeRangeToParts(JSContext* cx,
 
   auto AppendPart = [&](FieldType type, size_t beginIndex, size_t endIndex,
                         FieldType source) {
-    singlePart = NewBuiltinClassInstance<PlainObject>(cx);
+    singlePart = NewPlainObject(cx);
     if (!singlePart) {
       return false;
     }

@@ -11,7 +11,6 @@
 #include <stddef.h>  // for ptrdiff_t
 #include <stdint.h>  // for uint32_t, SIZE_MAX, int32_t
 
-#include "jsapi.h"             // for CallArgs, Rooted, CallArgsFromVp
 #include "jsnum.h"             // for ToNumber
 #include "NamespaceImports.h"  // for CallArgs, RootedValue
 
@@ -25,8 +24,10 @@
 #include "gc/Tracer.h"         // for TraceManuallyBarrieredCrossCompartmentEdge
 #include "gc/Zone.h"           // for Zone
 #include "gc/ZoneAllocator.h"  // for AddCellMemory
+#include "js/CallArgs.h"       // for CallArgs, CallArgsFromVp
 #include "js/friend/ErrorMessages.h"  // for GetErrorMessage, JSMSG_*
 #include "js/HeapAPI.h"               // for GCCellPtr
+#include "js/RootingAPI.h"            // for Rooted
 #include "js/Wrapper.h"               // for UncheckedUnwrap
 #include "vm/ArrayObject.h"           // for ArrayObject
 #include "vm/BytecodeUtil.h"          // for GET_JUMP_OFFSET
@@ -628,7 +629,7 @@ class DebuggerScript::GetPossibleBreakpointsMatcher {
       return true;
     }
 
-    RootedPlainObject entry(cx_, NewBuiltinClassInstance<PlainObject>(cx_));
+    RootedPlainObject entry(cx_, NewPlainObject(cx_));
     if (!entry) {
       return false;
     }
@@ -940,7 +941,7 @@ class DebuggerScript::GetOffsetMetadataMatcher {
       return false;
     }
 
-    result_.set(NewBuiltinClassInstance<PlainObject>(cx_));
+    result_.set(NewPlainObject(cx_));
     if (!result_) {
       return false;
     }
@@ -988,7 +989,7 @@ class DebuggerScript::GetOffsetMetadataMatcher {
       return false;
     }
 
-    result_.set(NewBuiltinClassInstance<PlainObject>(cx_));
+    result_.set(NewPlainObject(cx_));
     if (!result_) {
       return false;
     }
@@ -1228,7 +1229,7 @@ class DebuggerScript::GetOffsetLocationMatcher {
       return false;
     }
 
-    result_.set(NewBuiltinClassInstance<PlainObject>(cx_));
+    result_.set(NewPlainObject(cx_));
     if (!result_) {
       return false;
     }
@@ -1301,7 +1302,7 @@ class DebuggerScript::GetOffsetLocationMatcher {
       return false;
     }
 
-    result_.set(NewBuiltinClassInstance<PlainObject>(cx_));
+    result_.set(NewPlainObject(cx_));
     if (!result_) {
       return false;
     }
@@ -1534,6 +1535,7 @@ static bool BytecodeIsEffectful(JSOp op) {
     case JSOp::In:
     case JSOp::HasOwn:
     case JSOp::CheckPrivateField:
+    case JSOp::NewPrivateName:
     case JSOp::SetRval:
     case JSOp::Instanceof:
     case JSOp::DebugLeaveLexicalEnv:
@@ -1688,7 +1690,7 @@ class DebuggerScript::GetAllColumnOffsetsMatcher {
   MutableHandleObject result_;
 
   bool appendColumnOffsetEntry(size_t lineno, size_t column, size_t offset) {
-    RootedPlainObject entry(cx_, NewBuiltinClassInstance<PlainObject>(cx_));
+    RootedPlainObject entry(cx_, NewPlainObject(cx_));
     if (!entry) {
       return false;
     }
@@ -2273,7 +2275,7 @@ bool DebuggerScript::CallData::getOffsetsCoverage() {
 
     // Create a new object with the offset, line number, column number, the
     // number of hit counts, and append it to the array.
-    item = NewObjectWithGivenProto<PlainObject>(cx, nullptr);
+    item = NewPlainObjectWithProto(cx, nullptr);
     if (!item || !DefineDataProperty(cx, item, offsetId, offsetValue) ||
         !DefineDataProperty(cx, item, lineNumberId, lineNumberValue) ||
         !DefineDataProperty(cx, item, columnNumberId, columnNumberValue) ||

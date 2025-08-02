@@ -153,9 +153,13 @@ JS_FOR_WASM_FEATURES(WASM_FEATURE)
 #endif
 #undef WASM_FEATURE
 
+// Privileged content that can access experimental intrinsics
+bool IsSimdPrivilegedContext(JSContext* cx);
+
 #if defined(ENABLE_WASM_SIMD)
 // Very experimental SIMD operations.
 bool SimdWormholeAvailable(JSContext* cx);
+
 #  if defined(DEBUG)
 // Report the result of a Simd simplification to the testing infrastructure.
 void ReportSimdAnalysis(const char* data);
@@ -341,10 +345,9 @@ class WasmInstanceObject : public NativeObject {
   wasm::Instance& instance() const;
   JSObject& exportsObj() const;
 
-  static bool getExportedFunction(JSContext* cx,
-                                  HandleWasmInstanceObject instanceObj,
-                                  uint32_t funcIndex,
-                                  MutableHandleFunction fun);
+  [[nodiscard]] static bool getExportedFunction(
+      JSContext* cx, HandleWasmInstanceObject instanceObj, uint32_t funcIndex,
+      MutableHandleFunction fun);
 
   const wasm::CodeRange& getExportedFunctionCodeRange(JSFunction* fun,
                                                       wasm::Tier tier);
@@ -571,6 +574,8 @@ class WasmNamespaceObject : public NativeObject {
  private:
   static const ClassSpec classSpec_;
 };
+
+extern const JSClass WasmFunctionClass;
 
 }  // namespace js
 

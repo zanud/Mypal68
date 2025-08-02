@@ -25,6 +25,7 @@
 #include "vm/StringType.h"
 #include "wasm/TypedObject.h"
 #include "wasm/WasmJS.h"
+#include "wasm/WasmLog.h"
 
 #include "vm/JSObject-inl.h"
 
@@ -217,7 +218,7 @@ bool ToWebAssemblyValue_i32(JSContext* cx, HandleValue val, int32_t* loc,
                             bool mustWrite64) {
   bool ok = ToInt32(cx, val, loc);
   if (ok && mustWrite64) {
-#if defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
+#if defined(JS_CODEGEN_MIPS64)
     loc[1] = loc[0] >> 31;
 #else
     loc[1] = 0;

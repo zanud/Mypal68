@@ -1,11 +1,12 @@
 #include "gdb-tests.h"
-#include "jsapi.h"
 
+#include "js/String.h"
 #include "js/Symbol.h"
 
 FRAGMENT(jsid, simple) {
-  JS::Rooted<JSString*> string(cx, JS_NewStringCopyZ(cx, "moon"));
-  JS::Rooted<JSString*> interned(cx, JS_AtomizeAndPinJSString(cx, string));
+  const char* chars = "moon";
+  JS::Rooted<JSString*> string(cx, JS_NewStringCopyZ(cx, chars));
+  JS::Rooted<JSString*> interned(cx, JS_AtomizeAndPinString(cx, chars));
   JS::Rooted<jsid> string_id(cx, JS::PropertyKey::fromPinnedString(interned));
   JS::Rooted<jsid> int_id(cx, INT_TO_JSID(1729));
   JS::Rooted<jsid> unique_symbol_id(
@@ -35,8 +36,9 @@ void jsid_handles(JS::Handle<jsid> jsid_handle,
 }
 
 FRAGMENT(jsid, handles) {
-  JS::Rooted<JSString*> string(cx, JS_NewStringCopyZ(cx, "shovel"));
-  JS::Rooted<JSString*> interned(cx, JS_AtomizeAndPinJSString(cx, string));
+  const char* chars = "shovel";
+  JS::Rooted<JSString*> string(cx, JS_NewStringCopyZ(cx, chars));
+  JS::Rooted<JSString*> interned(cx, JS_AtomizeAndPinString(cx, chars));
   JS::Rooted<jsid> string_id(cx, JS::PropertyKey::fromPinnedString(interned));
   jsid_handles(string_id, &string_id);
 }

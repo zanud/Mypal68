@@ -47,7 +47,8 @@ class MOZ_RAII AutoWritableJitCodeFallible {
   }
 
   ~AutoWritableJitCodeFallible() {
-    if (!ExecutableAllocator::makeExecutableAndFlushICache(addr_, size_)) {
+    if (!ExecutableAllocator::makeExecutableAndFlushICache(
+            FlushICacheSpec::LocalThreadOnly, addr_, size_)) {
       MOZ_CRASH();
     }
     rt_->toggleAutoWritableJitCodeActive(false);

@@ -17,47 +17,44 @@
 
 namespace js {
 
-/* The prototype for typed objects. */
-class TypedProto : public NativeObject {
- public:
-  static const JSClass class_;
-  static TypedProto* create(JSContext* cx);
-};
-
 class TypedObject;
 
 class RttValue : public NativeObject {
+ private:
+  static RttValue* create(JSContext* cx, wasm::TypeHandle handle);
+
  public:
   static const JSClass class_;
 
   enum Slot {
-    Handle = 0,    // Type handle index
-    Kind = 1,      // Kind of type
-    Size = 2,      // Size of struct, or size of array element
-    Proto = 3,     // Prototype for instances, if any
-    Parent = 4,    // Parent rtt for runtime casting
-    Children = 5,  // Child rtts for rtt.sub caching
+    TypeContext = 0,  // Manually refcounted reference to TypeContext
+    TypeDef = 1,      // Raw pointer to TypeDef owned by TypeContext
+    Parent = 2,       // Parent rtt for runtime casting
+    Children = 3,     // Child rtts for rtt.sub caching
     // Maximum number of slots
-    SlotCount = 6,
+    SlotCount = 4,
   };
 
-  static RttValue* createFromHandle(JSContext* cx, wasm::TypeHandle handle);
+  static RttValue* rttCanon(JSContext* cx, wasm::TypeHandle handle);
   static RttValue* rttSub(JSContext* cx, js::Handle<RttValue*> parent,
                           js::Handle<RttValue*> subCanon);
 
-  wasm::TypeHandle handle() const {
-    return wasm::TypeHandle(uint32_t(getReservedSlot(Slot::Handle).toInt32()));
+  bool isNewborn() { return getReservedSlot(Slot::TypeContext).isUndefined(); }
+
+  const wasm::TypeDef& typeDef() const {
+    return *(const wasm::TypeDef*)getReservedSlot(Slot::TypeDef).toPrivate();
   }
 
-  wasm::TypeDefKind kind() const {
-    return wasm::TypeDefKind(getReservedSlot(Slot::Kind).toInt32());
+  const wasm::TypeContext* typeContext() const {
+    return (const wasm::TypeContext*)getReservedSlot(Slot::TypeContext)
+        .toPrivate();
   }
 
-  size_t size() const { return getReservedSlot(Slot::Size).toInt32(); }
-
-  TypedProto& typedProto() const {
-    return getReservedSlot(Slot::Proto).toObject().as<TypedProto>();
+  wasm::TypeHandle typeHandle() const {
+    return wasm::TypeHandle(typeContext(), typeDef());
   }
+
+  wasm::TypeDefKind kind() const { return typeDef().kind(); }
 
   RttValue* parent() const {
     return (RttValue*)getReservedSlot(Slot::Parent).toObjectOrNull();
@@ -68,8 +65,6 @@ class RttValue : public NativeObject {
   }
   ObjectWeakMap& children() const { return *maybeChildren(); }
   bool ensureChildren(JSContext* cx);
-
-  const wasm::TypeDef& getType(JSContext* cx) const;
 
   [[nodiscard]] bool lookupProperty(JSContext* cx,
                                     js::Handle<TypedObject*> object, jsid id,
@@ -147,15 +142,9 @@ class TypedObject : public JSObject {
                                   gc::InitialHeap heap = gc::DefaultHeap);
 
   // Internal create used by JSObject
-  static JS::Result<TypedObject*, JS::OOM> create(JSContext* cx,
-                                                  js::gc::AllocKind kind,
-                                                  js::gc::InitialHeap heap,
-                                                  js::HandleShape shape);
+  static TypedObject* create(JSContext* cx, js::gc::AllocKind kind,
+                             js::gc::InitialHeap heap, js::HandleShape shape);
 
-  TypedProto& typedProto() const {
-    // Typed objects' prototypes can't be modified.
-    return staticPrototype()->as<TypedProto>();
-  }
   RttValue& rttValue() const {
     MOZ_ASSERT(rttValue_);
     return *rttValue_;
@@ -237,7 +226,7 @@ class InlineTypedObject : public TypedObject {
 
   static bool canAccommodateType(HandleRttValue rtt) {
     return rtt->kind() == wasm::TypeDefKind::Struct &&
-           rtt->size() <= MaxInlineBytes;
+           rtt->typeDef().structType().size_ <= MaxInlineBytes;
   }
 
   static bool canAccommodateSize(size_t size) { return size <= MaxInlineBytes; }

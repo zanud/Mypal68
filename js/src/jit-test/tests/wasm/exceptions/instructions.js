@@ -23,7 +23,7 @@ assertEq(
   wasmEvalText(
     `(module
        (type (func))
-       (event $exn (type 0))
+       (tag $exn (type 0))
        (func (export "f") (result i32)
          try (result i32)
            try (result i32)
@@ -43,7 +43,7 @@ assertEq(
   wasmEvalText(
     `(module
        (type (func))
-       (event $exn (type 0))
+       (tag $exn (type 0))
        (func (export "f") (result i32)
          try (result i32)
            try (result i32)
@@ -67,7 +67,7 @@ assertEq(
   wasmEvalText(
     `(module
        (type (func))
-       (event $exn (type 0))
+       (tag $exn (type 0))
        (func (export "f") (result i32)
          try (result i32)
            try (result i32)
@@ -94,7 +94,7 @@ assertEq(
   wasmEvalText(
     `(module
        (type (func))
-       (event $exn (type 0))
+       (tag $exn (type 0))
        (func (export "f") (result i32)
          try nop catch $exn end
          (i32.const 0)))`
@@ -117,7 +117,7 @@ assertEq(
   wasmEvalText(
     `(module
        (type (func))
-       (event $exn (type 0))
+       (tag $exn (type 0))
        (func (export "f") (result i32)
          try (result i32)
            (i32.const 0)
@@ -133,7 +133,7 @@ assertEq(
   wasmEvalText(
     `(module
        (type (func))
-       (event $exn (type 0))
+       (tag $exn (type 0))
        (func (export "f") (result i32) (local i32)
          try
            (local.set 0 (i32.const 42))
@@ -150,7 +150,7 @@ assertEq(
   wasmEvalText(
     `(module
        (type (func (param i32)))
-       (event $exn (type 0))
+       (tag $exn (type 0))
        (func (export "f") (result i32)
          try (result i32)
            (i32.const 42)
@@ -167,7 +167,7 @@ assertEq(
   wasmEvalText(
     `(module
        (type (func (param i32)))
-       (event $exn (type 0))
+       (tag $exn (type 0))
        (func $foo (param i32) (result i32)
          (local.get 0) (throw $exn))
        (func (export "f") (result i32)
@@ -187,7 +187,7 @@ assertEq(
   wasmEvalText(
     `(module
        (type (func (param i32)))
-       (event $exn (type 0))
+       (tag $exn (type 0))
        (func $foo (param i32) (result i32)
          (local.get 0) (call $bar))
        (func $bar (param i32) (result i32)
@@ -210,7 +210,7 @@ assertEq(
 let conditional = wasmEvalText(
   `(module
      (type (func (param)))
-     (event $exn (type 0))
+     (tag $exn (type 0))
      (func (export "f") (param i32) (result i32)
        try (result i32)
          (local.get 0)
@@ -232,7 +232,7 @@ assertEq(
   wasmEvalText(
     `(module
        (type (func (param)))
-       (event $exn (type 0))
+       (tag $exn (type 0))
        (func $foo (throw $exn))
        (func (export "f") (result i32) (local i32)
          try
@@ -254,7 +254,7 @@ assertEq(
   wasmEvalText(
     `(module
        (type (func (param)))
-       (event $exn (type 0))
+       (tag $exn (type 0))
        (func (export "f") (result i32) (local i32)
          try
            try
@@ -279,9 +279,9 @@ assertEq(
   wasmEvalText(
     `(module
        (type (func (param)))
-       (event $exn1 (type 0))
-       (event $exn2 (type 0))
-       (event $exn3 (type 0))
+       (tag $exn1 (type 0))
+       (tag $exn2 (type 0))
+       (tag $exn3 (type 0))
        (func (export "f") (result i32)
          try (result i32)
            throw $exn1
@@ -300,9 +300,9 @@ assertEq(
   wasmEvalText(
     `(module
        (type (func (param)))
-       (event $exn1 (type 0))
-       (event $exn2 (type 0))
-       (event $exn3 (type 0))
+       (tag $exn1 (type 0))
+       (tag $exn2 (type 0))
+       (tag $exn3 (type 0))
        (func (export "f") (result i32)
          try (result i32)
            throw $exn2
@@ -321,9 +321,9 @@ assertEq(
   wasmEvalText(
     `(module
        (type (func (param)))
-       (event $exn1 (type 0))
-       (event $exn2 (type 0))
-       (event $exn3 (type 0))
+       (tag $exn1 (type 0))
+       (tag $exn2 (type 0))
+       (tag $exn3 (type 0))
        (func (export "f") (result i32)
          try (result i32)
            throw $exn3
@@ -342,10 +342,10 @@ assertEq(
   wasmEvalText(
     `(module
        (type (func (param)))
-       (event $exn1 (type 0))
-       (event $exn2 (type 0))
-       (event $exn3 (type 0))
-       (event $exn4 (type 0))
+       (tag $exn1 (type 0))
+       (tag $exn2 (type 0))
+       (tag $exn3 (type 0))
+       (tag $exn4 (type 0))
        (func (export "f") (result i32)
          try (result i32)
            try (result i32)
@@ -369,7 +369,7 @@ assertEq(
   wasmEvalText(
     `(module
        (type (func (param i32)))
-       (event $exn (type 0))
+       (tag $exn (type 0))
        (func (export "f") (result i32)
          try $l (result i32)
            (i32.const 2)
@@ -387,7 +387,7 @@ assertEq(
   wasmEvalText(
     `(module
        (type (func (param)))
-       (event $exn (type 0))
+       (tag $exn (type 0))
        (func (export "f") (result i32)
          try $l (result i32)
            (throw $exn)
@@ -404,7 +404,7 @@ assertEq(
   wasmEvalText(
     `(module
        (type (func (param)))
-       (event $exn (type 0))
+       (tag $exn (type 0))
        (func (export "f") (result i32)
          try $l (result i32)
            (throw $exn)
@@ -422,7 +422,7 @@ assertEq(
   wasmEvalText(
     `(module
        (type (func (param i32)))
-       (event $exn (type 0))
+       (tag $exn (type 0))
        (func (export "f") (result i32)
          block $l (result i32)
            block (result i32)
@@ -444,7 +444,7 @@ assertEq(
   wasmEvalText(
     `(module
        (type (func))
-       (event $exn (type 0))
+       (tag $exn (type 0))
        (func (export "f") (result i32)
          i32.const 0
          return
@@ -471,9 +471,9 @@ assertEq(
        (type (func (param i32)))
        (type (func (param i32)))
        (type (func (param i64)))
-       (event $exn (type 0))
-       (event $foo (type 1))
-       (event $bar (type 2))
+       (tag $exn (type 0))
+       (tag $foo (type 1))
+       (tag $bar (type 2))
        (func (export "f") (result i32)
          try $l (result i32)
            (i32.const 42)
@@ -491,7 +491,7 @@ assertEq(
   wasmEvalText(
     `(module
        (type (func (param i32 i64 f32 f64)))
-       (event $exn (type 0))
+       (tag $exn (type 0))
        (func (export "f") (result i32)
          try $l (result i32 i64 f32 f64)
            (i32.const 42)
@@ -516,7 +516,7 @@ assertEq(
   wasmEvalText(
     `(module
        (type (func (param i32 i64 f32 f64)))
-       (event $exn (type 0))
+       (tag $exn (type 0))
        (func $foo (param i32 i64 f32 f64) (result i32 i64 f32 f64)
          (local.get 0)
          (local.get 1)
@@ -547,8 +547,8 @@ assertEq(
   wasmEvalText(
     `(module
        (type (func (param i32)))
-       (event $exn1 (type 0))
-       (event $exn2 (type 0))
+       (tag $exn1 (type 0))
+       (tag $exn2 (type 0))
        (func (export "f") (result i32)
          try (result i32)
            (i32.const 42)
@@ -567,7 +567,7 @@ assertEq(
   wasmEvalText(
     `(module
        (type (func))
-       (event $exn (type 0))
+       (tag $exn (type 0))
        (func (export "f") (result i32)
          (i32.const 42)
          try (param i32) (result i32)
@@ -583,7 +583,7 @@ assertEq(
   wasmEvalText(
     `(module
        (type (func (param i32)))
-       (event $exn (type 0))
+       (tag $exn (type 0))
        (func (export "f") (result i32)
          (i32.const 42)
          try $l (param i32) (result i32)
@@ -601,8 +601,8 @@ assertEq(
   wasmEvalText(
     `(module
        (type (func (param i32)))
-       (event $exn1 (type 0))
-       (event $exn2 (type 0))
+       (tag $exn1 (type 0))
+       (tag $exn2 (type 0))
        (func (export "f") (result i32)
          try $l (result i32)
            (i32.const 42)
@@ -618,7 +618,7 @@ assertEq(
 assertEq(
   wasmEvalText(
     `(module
-       (event $exn (param i32))
+       (tag $exn (param i32))
        (func (export "f") (result i32)
          try (result i32)
            try (result i32)
@@ -639,7 +639,7 @@ assertEq(
     `(module
        (type (func))
        (import "m" "foreign" (func $foreign))
-       (event $exn (type 0))
+       (tag $exn (type 0))
        (func (export "f") (result i32) (local i32)
          try $l
            (call $foreign)
@@ -665,7 +665,7 @@ assertErrorMessage(
     wasmEvalText(
       `(module
          (type (func))
-         (event $exn (type 0))
+         (tag $exn (type 0))
          (func (export "f") (result i32) (local i32)
            try $l
              unreachable
@@ -763,7 +763,7 @@ assertErrorMessage(
     `(module $m
        (memory $mem (data "bar"))
        (type (func))
-       (event $exn (export "e") (type 0))
+       (tag $exn (export "e") (type 0))
        (func (export "f")
          (throw $exn)))`
   ).exports;
@@ -772,7 +772,7 @@ assertErrorMessage(
     wasmEvalText(
       `(module
          (type (func))
-         (import "m" "e" (event $e (type 0)))
+         (import "m" "e" (tag $e (type 0)))
          (import "m" "f" (func $foreign))
          (memory $mem (data "foo"))
          (func (export "f") (result i32)
@@ -793,7 +793,7 @@ assertEq(
   wasmEvalText(
     `(module
        (type (func))
-       (event $exn (type 0))
+       (tag $exn (type 0))
        (func (export "f") (result i32)
          try (result i32)
            try
@@ -813,7 +813,7 @@ assertEq(
   wasmEvalText(
     `(module
        (type (func))
-       (event $exn (type 0))
+       (tag $exn (type 0))
        (func (export "f") (result i32)
          try (result i32)
            try
@@ -834,7 +834,7 @@ assertEq(
   wasmEvalText(
     `(module
        (type (func))
-       (event $exn (type 0))
+       (tag $exn (type 0))
        (func (export "f") (result i32)
          try (result i32)
            try
@@ -856,7 +856,7 @@ assertEq(
   wasmEvalText(
     `(module
        (type (func))
-       (event $exn (type 0))
+       (tag $exn (type 0))
        (func (export "f") (result i32)
          try (result i32)
            try
@@ -878,8 +878,8 @@ assertEq(
   wasmEvalText(
     `(module
        (type (func))
-       (event $exn1 (type 0))
-       (event $exn2 (type 0))
+       (tag $exn1 (type 0))
+       (tag $exn2 (type 0))
        (func (export "f") (result i32)
          try (result i32)
            try
@@ -905,8 +905,8 @@ assertEq(
   wasmEvalText(
     `(module
        (type (func))
-       (event $exn1 (type 0))
-       (event $exn2 (type 0))
+       (tag $exn1 (type 0))
+       (tag $exn2 (type 0))
        (func (export "f") (result i32)
          try (result i32)
            try
@@ -928,11 +928,62 @@ assertEq(
   1
 );
 
+// Test that rethrow makes the rest of the block dead code.
+assertEq(
+  wasmEvalText(
+    `(module
+       (tag (param i32))
+       (func (export "f") (result i32)
+         (try (result i32)
+           (do (i32.const 1))
+           (catch 0
+             (rethrow 0)
+             (i32.const 2)))))`
+  ).exports.f(),
+  1
+);
+
+assertEq(
+  wasmEvalText(
+    `(module
+       (tag (param i32))
+       (func (export "f") (result i32)
+         (try (result i32)
+           (do (try
+                 (do (i32.const 13)
+                     (throw 0))
+                 (catch 0
+                   (rethrow 0)))
+               (unreachable))
+           (catch 0))))`
+  ).exports.f(),
+  13
+);
+
+assertEq(
+  wasmEvalText(
+    `(module
+       (tag)
+       (func (export "f") (result i32)
+         (try (result i32)
+           (do
+             (try
+               (do (throw 0))
+               (catch 0
+                 (i32.const 4)
+                 (rethrow 0)))
+             (unreachable))
+           (catch 0
+              (i32.const 13)))))`
+  ).exports.f(),
+  13
+);
+
 // Test try-delegate blocks.
 assertEq(
   wasmEvalText(
     `(module
-       (event $exn (param))
+       (tag $exn (param))
        (func (export "f") (result i32)
          i32.const 1
          br 0
@@ -946,7 +997,7 @@ assertEq(
 assertEq(
   wasmEvalText(
     `(module
-       (event $exn (param))
+       (tag $exn (param))
        (func (export "f") (result i32)
          try (result i32)
            try
@@ -965,7 +1016,7 @@ assertEq(
 assertEq(
   wasmEvalText(
     `(module
-       (event $exn (param))
+       (tag $exn (param))
        (func (export "f") (result i32)
          try (result i32)
            i32.const 1
@@ -978,7 +1029,7 @@ assertEq(
 assertEq(
   wasmEvalText(
     `(module
-       (event $exn (param))
+       (tag $exn (param))
        (func (export "f") (result i32)
          try (result i32)
            i32.const 1
@@ -992,7 +1043,7 @@ assertEq(
   wasmEvalText(
     `(module
        (type (func (param i32)))
-       (event $exn (type 0))
+       (tag $exn (type 0))
        (func (export "f") (result i32)
          try (result i32)
            try
@@ -1012,7 +1063,7 @@ assertEq(
   wasmEvalText(
     `(module
        (type (func (param i32)))
-       (event $exn (type 0))
+       (tag $exn (type 0))
        (func (export "f") (result i32)
          try (result i32)
            try (result i32)
@@ -1037,7 +1088,7 @@ assertEq(
   wasmEvalText(
     `(module
        (type (func (param i32)))
-       (event $exn (type 0))
+       (tag $exn (type 0))
        (func (export "f") (result i32)
          try (result i32)
            try (result i32)
@@ -1060,11 +1111,36 @@ assertEq(
   44
 );
 
-// Test delegation to function body.
 assertEq(
   wasmEvalText(
     `(module
-       (event $exn (param))
+       (tag $exn (param))
+       (func $g (param i32) (result i32) (i32.const 42))
+       (func (export "f") (result i32)
+         try (result i32)
+           try $t
+             block (result i32)
+               (i32.const 4)
+               (call $g)
+               try
+                 throw $exn
+               delegate $t
+             end
+             drop
+           end
+           i32.const 0
+         catch_all
+           i32.const 1
+         end))`
+  ).exports.f(),
+  1
+);
+
+// Test delegation to function body and blocks.
+assertEq(
+  wasmEvalText(
+    `(module
+       (tag $exn (param))
        (func (export "f") (result i32)
          try (result i32)
            i32.const 1
@@ -1076,8 +1152,48 @@ assertEq(
 assertEq(
   wasmEvalText(
     `(module
+       (tag $exn (param i32))
+       (func (export "f") (result i32)
+         try (result i32)
+           block
+             try
+               i32.const 1
+               throw $exn
+             delegate 0
+           end
+           i32.const 0
+         catch $exn
+         end))`
+  ).exports.f(),
+  1
+);
+
+assertEq(
+  wasmEvalText(
+    `(module
+       (tag $exn (param))
+       (func (export "f") (result i32)
+         try (result i32)
+           try
+             throw $exn
+           catch $exn
+             try
+               throw $exn
+             delegate 0
+           end
+           i32.const 0
+         catch_all
+           i32.const 1
+         end))`
+  ).exports.f(),
+  1
+);
+
+assertEq(
+  wasmEvalText(
+    `(module
        (type (func (param i32)))
-       (event $exn (type 0))
+       (tag $exn (type 0))
        (func (export "f") (result i32)
          try (result i32)
            call $g

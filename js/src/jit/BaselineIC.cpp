@@ -4,30 +4,18 @@
 
 #include "jit/BaselineIC.h"
 
-#include "mozilla/Casting.h"
 #include "mozilla/DebugOnly.h"
-#include "mozilla/IntegerPrintfMacros.h"
 #include "mozilla/Sprintf.h"
-#include "mozilla/TemplateLib.h"
 
-#include "jsfriendapi.h"
-#include "jslibmath.h"
 #include "jstypes.h"
 
 #include "builtin/Eval.h"
-#include "gc/Policy.h"
 #include "jit/BaselineCacheIRCompiler.h"
-#include "jit/BaselineDebugModeOSR.h"
-#include "jit/BaselineJIT.h"
 #include "jit/CacheIRHealth.h"
-#include "jit/InlinableNatives.h"
 #include "jit/JitFrames.h"
-#include "jit/JitRealm.h"
 #include "jit/JitRuntime.h"
 #include "jit/JitSpewer.h"
-#include "jit/JitZone.h"
 #include "jit/Linker.h"
-#include "jit/Lowering.h"
 #ifdef JS_ION_PERF
 #  include "jit/PerfSpewer.h"
 #endif
@@ -36,7 +24,6 @@
 #include "jit/VMFunctions.h"
 #include "js/Conversions.h"
 #include "js/friend/ErrorMessages.h"  // JSMSG_*
-#include "js/GCVector.h"
 #include "vm/BytecodeIterator.h"
 #include "vm/BytecodeLocation.h"
 #include "vm/BytecodeUtil.h"
@@ -44,16 +31,11 @@
 #include "vm/JSFunction.h"
 #include "vm/JSScript.h"
 #include "vm/Opcodes.h"
-#include "vm/SelfHosting.h"
-#include "vm/TypedArrayObject.h"
 #ifdef MOZ_VTUNE
 #  include "vtune/VTuneWrapper.h"
 #endif
 
-#include "builtin/Boolean-inl.h"
-
 #include "jit/MacroAssembler-inl.h"
-#include "jit/shared/Lowering-shared-inl.h"
 #include "jit/SharedICHelpers-inl.h"
 #include "jit/VMFunctionList-inl.h"
 #include "vm/BytecodeIterator-inl.h"
@@ -61,7 +43,6 @@
 #include "vm/EnvironmentObject-inl.h"
 #include "vm/Interpreter-inl.h"
 #include "vm/JSScript-inl.h"
-#include "vm/StringObject-inl.h"
 
 using mozilla::DebugOnly;
 
@@ -2448,6 +2429,7 @@ bool FallbackICCodeCompiler::emit_NewObject() {
 
 bool JitRuntime::generateBaselineICFallbackCode(JSContext* cx) {
   StackMacroAssembler masm;
+  AutoCreatedBy acb(masm, "JitRuntime::generateBaselineICFallbackCode");
 
   BaselineICFallbackCode& fallbackCode = baselineICFallbackCode_.ref();
   FallbackICCodeCompiler compiler(cx, fallbackCode, masm);
@@ -2456,6 +2438,7 @@ bool JitRuntime::generateBaselineICFallbackCode(JSContext* cx) {
 
 #define EMIT_CODE(kind)                                            \
   {                                                                \
+    AutoCreatedBy acb(masm, "kind=" #kind);                        \
     uint32_t offset = startTrampolineCode(masm);                   \
     InitMacroAssemblerForICStub(masm);                             \
     if (!compiler.emit_##kind()) {                                 \

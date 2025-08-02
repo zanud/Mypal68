@@ -15,7 +15,6 @@
 #include "debugger/Debugger.h"
 #include "gc/Policy.h"
 #include "gc/PublicIterators.h"
-#include "jit/JitOptions.h"
 #include "jit/JitRealm.h"
 #include "jit/JitRuntime.h"
 #include "js/CallAndConstruct.h"  // JS::IsCallable
@@ -58,7 +57,6 @@ Realm::Realm(Compartment* comp, const JS::RealmOptions& options)
       creationOptions_(options.creationOptions()),
       behaviors_(options.behaviors()),
       objects_(zone_),
-      varNames_(zone_),
       randomKeyGenerator_(runtime_->forkRandomKeyGenerator()),
       debuggers_(zone_),
       wasm(runtime_) {
@@ -256,17 +254,6 @@ ObjectRealm::getNonSyntacticLexicalEnvironment(JSObject* key) const {
   return &lexicalEnv->as<NonSyntacticLexicalEnvironmentObject>();
 }
 
-bool Realm::addToVarNames(JSContext* cx, JS::Handle<JSAtom*> name) {
-  MOZ_ASSERT(name);
-
-  if (varNames_.put(name)) {
-    return true;
-  }
-
-  ReportOutOfMemory(cx);
-  return false;
-}
-
 void Realm::traceGlobal(JSTracer* trc) {
   // Trace things reachable from the realm's global. Note that these edges
   // must be swept too in case the realm is live but the global is not.
@@ -274,11 +261,6 @@ void Realm::traceGlobal(JSTracer* trc) {
   savedStacks_.trace(trc);
 
   DebugAPI::traceFromRealm(trc, this);
-
-  // Atoms are always tenured.
-  if (!JS::RuntimeHeapIsMinorCollecting()) {
-    varNames_.trace(trc);
-  }
 }
 
 void ObjectRealm::trace(JSTracer* trc) {
@@ -365,11 +347,6 @@ void Realm::traceWeakObjects(JSTracer* trc) {
   TraceWeakEdge(trc, &global_, "Realm::global_");
 }
 
-void Realm::traceWeakSelfHostingScriptSource(JSTracer* trc) {
-  TraceWeakEdge(trc, &selfHostingScriptSource,
-                "Realm::selfHostingScriptSource");
-}
-
 void Realm::traceWeakEdgesInJitRealm(JSTracer* trc) {
   if (jitRealm_) {
     jitRealm_->traceWeak(trc, this);
@@ -401,26 +378,13 @@ void ObjectRealm::traceWeakNativeIterators(JSTracer* trc) {
                                         "ObjectRealm::enumerators")) {
       ni->unlink();
     }
-    MOZ_ASSERT_IF(ni->objectBeingIterated(),
-                  &ObjectRealm::get(ni->objectBeingIterated()) == this);
+    MOZ_ASSERT(&ObjectRealm::get(ni->objectBeingIterated()) == this);
     ni = next;
   }
 }
 
 void Realm::traceWeakObjectRealm(JSTracer* trc) {
   objects_.traceWeakNativeIterators(trc);
-}
-
-void Realm::tracekWeakVarNames(JSTracer* trc) { varNames_.traceWeak(trc); }
-
-void Realm::traceWeakTemplateObjects(JSTracer* trc) {
-  TraceWeakEdge(trc, &mappedArgumentsTemplate_,
-                "Realm::mappedArgumentsTemplate_");
-  TraceWeakEdge(trc, &unmappedArgumentsTemplate_,
-                "Realm::unmappedArgumentsTemplate_");
-  TraceWeakEdge(trc, &iterResultTemplate_, "Realm::iterResultTemplate_");
-  TraceWeakEdge(trc, &iterResultWithoutPrototypeTemplate_,
-                "Realm::iterResultWithoutPrototypeTemplate_");
 }
 
 void Realm::fixupAfterMovingGC(JSTracer* trc) {
@@ -455,7 +419,6 @@ void Realm::clearTables() {
   MOZ_ASSERT(objects_.enumerators->next() == objects_.enumerators);
 
   savedStacks_.clear();
-  varNames_.clear();
 }
 
 // Check to see if this individual realm is recording allocations. Debuggers or
@@ -618,7 +581,7 @@ void Realm::addSizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf,
                                    size_t* realmObject, size_t* realmTables,
                                    size_t* innerViewsArg,
                                    size_t* objectMetadataTablesArg,
-                                   size_t* savedStacksSet, size_t* varNamesSet,
+                                   size_t* savedStacksSet,
                                    size_t* nonSyntacticLexicalEnvironmentsArg,
                                    size_t* jitRealm) {
   *realmObject += mallocSizeOf(this);
@@ -629,7 +592,6 @@ void Realm::addSizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf,
                                   nonSyntacticLexicalEnvironmentsArg);
 
   *savedStacksSet += savedStacks_.sizeOfExcludingThis(mallocSizeOf);
-  *varNamesSet += varNames_.shallowSizeOfExcludingThis(mallocSizeOf);
 
   if (jitRealm_) {
     *jitRealm += jitRealm_->sizeOfIncludingThis(mallocSizeOf);

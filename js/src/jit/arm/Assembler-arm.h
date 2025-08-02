@@ -1334,6 +1334,7 @@ class Assembler : public AssemblerShared {
   // Write a single instruction into the instruction stream.  Very hot,
   // inlined for performance
   MOZ_ALWAYS_INLINE BufferOffset writeInst(uint32_t x) {
+    MOZ_ASSERT(hasCreator());
     BufferOffset offs = m_buffer.putInt(x);
 #ifdef JS_DISASM_ARM
     spew(m_buffer.getInstOrNull(offs));
@@ -1641,6 +1642,12 @@ class Assembler : public AssemblerShared {
   BufferOffset as_vdtm(LoadStore st, Register rn, VFPRegister vd, int length,
                        /* also has update conditions */ Condition c = Always);
 
+  // vldr/vstr variants that handle unaligned accesses.  These encode as NEON
+  // single-element instructions and can only be used if NEON is available.
+  // Here, vd must be tagged as a float or double register.
+  BufferOffset as_vldr_unaligned(VFPRegister vd, Register rn);
+  BufferOffset as_vstr_unaligned(VFPRegister vd, Register rn);
+
   BufferOffset as_vimm(VFPRegister vd, VFPImm imm, Condition c = Always);
 
   BufferOffset as_vmrs(Register r, Condition c = Always);
@@ -1676,7 +1683,10 @@ class Assembler : public AssemblerShared {
 
   static bool SupportsFloatingPoint() { return HasVFP(); }
   static bool SupportsUnalignedAccesses() { return HasARMv7(); }
-  static bool SupportsFastUnalignedAccesses() { return false; }
+  // Note, returning false here is technically wrong, but one has to go via the
+  // as_vldr_unaligned and as_vstr_unaligned instructions to get proper behavior
+  // and those are NEON-specific and have to be asked for specifically.
+  static bool SupportsFastUnalignedFPAccesses() { return false; }
   static bool SupportsSimd() { return js::jit::SupportsSimd; }
 
   static bool HasRoundInstruction(RoundingMode mode) { return false; }

@@ -250,7 +250,7 @@ mozilla::Maybe<mozilla::Tuple<size_t, size_t> > JSString::encodeUTF8Partial(
   return mozilla::Some(mozilla::MakeTuple(totalRead, totalWritten));
 }
 
-#if defined(DEBUG) || defined(JS_JITSPEW)
+#if defined(DEBUG) || defined(JS_JITSPEW) || defined(JS_CACHEIR_SPEW)
 
 template <typename CharT>
 /*static */
@@ -417,7 +417,7 @@ bool JSString::equals(const char* s) {
 
   return StringEqualsAscii(linear, s);
 }
-#endif /* defined(DEBUG) || defined(JS_JITSPEW) */
+#endif /* defined(DEBUG) || defined(JS_JITSPEW) || defined(JS_CACHEIR_SPEW) */
 
 template <typename CharT>
 static MOZ_ALWAYS_INLINE bool AllocChars(JSString* str, size_t length,
@@ -539,7 +539,7 @@ bool JSRope::hash(uint32_t* outHash) const {
   return true;
 }
 
-#if defined(DEBUG) || defined(JS_JITSPEW)
+#if defined(DEBUG) || defined(JS_JITSPEW) || defined(JS_CACHEIR_SPEW)
 void JSRope::dumpRepresentation(js::GenericPrinter& out, int indent) const {
   dumpRepresentationHeader(out, "JSRope");
   indent += 2;
@@ -1032,7 +1032,7 @@ static inline void FillFromCompatible(unsigned char* dest,
   }
 }
 
-#if defined(DEBUG) || defined(JS_JITSPEW)
+#if defined(DEBUG) || defined(JS_JITSPEW) || defined(JS_CACHEIR_SPEW)
 void JSDependentString::dumpRepresentation(js::GenericPrinter& out,
                                            int indent) const {
   dumpRepresentationHeader(out, "JSDependentString");
@@ -1043,7 +1043,7 @@ void JSDependentString::dumpRepresentation(js::GenericPrinter& out,
 }
 #endif
 
-bool js::EqualChars(JSLinearString* str1, JSLinearString* str2) {
+bool js::EqualChars(const JSLinearString* str1, const JSLinearString* str2) {
   MOZ_ASSERT(str1->length() == str2->length());
 
   size_t len = str1->length();
@@ -1115,7 +1115,7 @@ bool js::EqualStrings(JSContext* cx, JSString* str1, JSString* str2,
   return true;
 }
 
-bool js::EqualStrings(JSLinearString* str1, JSLinearString* str2) {
+bool js::EqualStrings(const JSLinearString* str1, const JSLinearString* str2) {
   if (str1 == str2) {
     return true;
   }
@@ -1135,7 +1135,8 @@ int32_t js::CompareChars(const char16_t* s1, size_t len1, JSLinearString* s2) {
              : CompareChars(s1, len1, s2->twoByteChars(nogc), s2->length());
 }
 
-static int32_t CompareStringsImpl(JSLinearString* str1, JSLinearString* str2) {
+static int32_t CompareStringsImpl(const JSLinearString* str1,
+                                  const JSLinearString* str2) {
   size_t len1 = str1->length();
   size_t len2 = str2->length();
 
@@ -1175,6 +1176,17 @@ bool js::CompareStrings(JSContext* cx, JSString* str1, JSString* str2,
 
   *result = CompareStringsImpl(linear1, linear2);
   return true;
+}
+
+int32_t js::CompareStrings(const JSLinearString* str1,
+                           const JSLinearString* str2) {
+  MOZ_ASSERT(str1);
+  MOZ_ASSERT(str2);
+
+  if (str1 == str2) {
+    return 0;
+  }
+  return CompareStringsImpl(str1, str2);
 }
 
 int32_t js::CompareAtoms(JSAtom* atom1, JSAtom* atom2) {
@@ -1532,7 +1544,7 @@ bool AutoStableStringChars::copyTwoByteChars(JSContext* cx,
   return true;
 }
 
-#if defined(DEBUG) || defined(JS_JITSPEW)
+#if defined(DEBUG) || defined(JS_JITSPEW) || defined(JS_CACHEIR_SPEW)
 void JSAtom::dump(js::GenericPrinter& out) {
   out.printf("JSAtom* (%p) = ", (void*)this);
   this->JSString::dump(out);
@@ -1552,7 +1564,7 @@ void JSExternalString::dumpRepresentation(js::GenericPrinter& out,
              callbacks());
   dumpRepresentationChars(out, indent);
 }
-#endif /* defined(DEBUG) || defined(JS_JITSPEW) */
+#endif /* defined(DEBUG) || defined(JS_JITSPEW) || defined(JS_CACHEIR_SPEW) */
 
 JSLinearString* js::NewDependentString(JSContext* cx, JSString* baseArg,
                                        size_t start, size_t length,
@@ -1972,7 +1984,7 @@ JSString* NewMaybeExternalString(JSContext* cx, const char16_t* s, size_t n,
 
 } /* namespace js */
 
-#if defined(DEBUG) || defined(JS_JITSPEW)
+#if defined(DEBUG) || defined(JS_JITSPEW) || defined(JS_CACHEIR_SPEW)
 void JSExtensibleString::dumpRepresentation(js::GenericPrinter& out,
                                             int indent) const {
   dumpRepresentationHeader(out, "JSExtensibleString");

@@ -135,7 +135,7 @@ bool js::math_atan(JSContext* cx, unsigned argc, Value* vp) {
 }
 
 double js::ecmaAtan2(double y, double x) {
-  AutoUnsafeCallWithABI unsafe(UnsafeABIStrictness::AllowPendingExceptions);
+  AutoUnsafeCallWithABI unsafe;
   return fdlibm::atan2(y, x);
 }
 
@@ -163,7 +163,7 @@ bool js::math_atan2(JSContext* cx, unsigned argc, Value* vp) {
 }
 
 double js::math_ceil_impl(double x) {
-  AutoUnsafeCallWithABI unsafe(UnsafeABIStrictness::AllowPendingExceptions);
+  AutoUnsafeCallWithABI unsafe;
   return fdlibm::ceil(x);
 }
 
@@ -241,7 +241,7 @@ bool js::math_exp(JSContext* cx, unsigned argc, Value* vp) {
 }
 
 double js::math_floor_impl(double x) {
-  AutoUnsafeCallWithABI unsafe(UnsafeABIStrictness::AllowPendingExceptions);
+  AutoUnsafeCallWithABI unsafe;
   return fdlibm::floor(x);
 }
 
@@ -318,7 +318,7 @@ bool js::math_fround(JSContext* cx, unsigned argc, Value* vp) {
 }
 
 double js::math_log_impl(double x) {
-  AutoUnsafeCallWithABI unsafe(UnsafeABIStrictness::AllowPendingExceptions);
+  AutoUnsafeCallWithABI unsafe;
   return fdlibm::log(x);
 }
 
@@ -332,7 +332,7 @@ bool js::math_log(JSContext* cx, unsigned argc, Value* vp) {
 }
 
 double js::math_max_impl(double x, double y) {
-  AutoUnsafeCallWithABI unsafe(UnsafeABIStrictness::AllowPendingExceptions);
+  AutoUnsafeCallWithABI unsafe;
 
   // Math.max(num, NaN) => NaN, Math.max(-0, +0) => +0
   if (x > y || IsNaN(x) || (x == y && IsNegative(y))) {
@@ -357,7 +357,7 @@ bool js::math_max(JSContext* cx, unsigned argc, Value* vp) {
 }
 
 double js::math_min_impl(double x, double y) {
-  AutoUnsafeCallWithABI unsafe(UnsafeABIStrictness::AllowPendingExceptions);
+  AutoUnsafeCallWithABI unsafe;
 
   // Math.min(num, NaN) => NaN, Math.min(-0, +0) => -0
   if (x < y || IsNaN(x) || (x == y && IsNegativeZero(x))) {
@@ -402,7 +402,7 @@ bool js::minmax_impl(JSContext* cx, bool max, HandleValue a, HandleValue b,
 }
 
 double js::powi(double x, int32_t y) {
-  AutoUnsafeCallWithABI unsafe(UnsafeABIStrictness::AllowPendingExceptions);
+  AutoUnsafeCallWithABI unsafe;
   uint32_t n = Abs(y);
   double m = x;
   double p = 1;
@@ -429,7 +429,7 @@ double js::powi(double x, int32_t y) {
 }
 
 double js::ecmaPow(double x, double y) {
-  AutoUnsafeCallWithABI unsafe(UnsafeABIStrictness::AllowPendingExceptions);
+  AutoUnsafeCallWithABI unsafe;
 
   /*
    * Use powi if the exponent is an integer-valued double. We don't have to
@@ -551,7 +551,7 @@ template double js::GetBiggestNumberLessThan<>(double x);
 template float js::GetBiggestNumberLessThan<>(float x);
 
 double js::math_round_impl(double x) {
-  AutoUnsafeCallWithABI unsafe(UnsafeABIStrictness::AllowPendingExceptions);
+  AutoUnsafeCallWithABI unsafe;
 
   int32_t ignored;
   if (NumberEqualsInt32(x, &ignored)) {
@@ -606,7 +606,7 @@ double js::math_sin_fdlibm_impl(double x) {
 
 double js::math_sin_native_impl(double x) {
   MOZ_ASSERT(!sUseFdlibmForSinCosTan);
-  AutoUnsafeCallWithABI unsafe(UnsafeABIStrictness::AllowPendingExceptions);
+  AutoUnsafeCallWithABI unsafe;
   return sin(x);
 }
 
@@ -626,7 +626,7 @@ bool js::math_sin(JSContext* cx, unsigned argc, Value* vp) {
 }
 
 double js::math_sqrt_impl(double x) {
-  AutoUnsafeCallWithABI unsafe(UnsafeABIStrictness::AllowPendingExceptions);
+  AutoUnsafeCallWithABI unsafe;
   return sqrt(x);
 }
 
@@ -749,7 +749,7 @@ bool js::math_atanh(JSContext* cx, unsigned argc, Value* vp) {
 }
 
 double js::ecmaHypot(double x, double y) {
-  AutoUnsafeCallWithABI unsafe(UnsafeABIStrictness::AllowPendingExceptions);
+  AutoUnsafeCallWithABI unsafe;
   return fdlibm::hypot(x, y);
 }
 
@@ -845,7 +845,7 @@ bool js::math_hypot_handle(JSContext* cx, HandleValueArray args,
 }
 
 double js::math_trunc_impl(double x) {
-  AutoUnsafeCallWithABI unsafe(UnsafeABIStrictness::AllowPendingExceptions);
+  AutoUnsafeCallWithABI unsafe;
   return fdlibm::trunc(x);
 }
 
@@ -875,7 +875,7 @@ bool js::math_trunc(JSContext* cx, unsigned argc, Value* vp) {
 }
 
 double js::math_sign_impl(double x) {
-  AutoUnsafeCallWithABI unsafe(UnsafeABIStrictness::AllowPendingExceptions);
+  AutoUnsafeCallWithABI unsafe;
 
   if (mozilla::IsNaN(x)) {
     return GenericNaN();

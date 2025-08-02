@@ -673,8 +673,8 @@ enum class SimdOp {
   I32x4ShrS = 0xac,
   I32x4ShrU = 0xad,
   I32x4Add = 0xae,
-  // AddSatS = 0xaf
-  // AddSatU = 0xb0
+  F32x4RelaxedFma = 0xaf,
+  F32x4RelaxedFms = 0xb0,
   I32x4Sub = 0xb1,
   // SubSatS = 0xb2
   // SubSatU = 0xb3
@@ -705,8 +705,8 @@ enum class SimdOp {
   I64x2ShrS = 0xcc,
   I64x2ShrU = 0xcd,
   I64x2Add = 0xce,
-  // Unused = 0xcf
-  // Unused = 0xd0
+  F64x2RelaxedFma = 0xcf,
+  F64x2RelaxedFms = 0xd0,
   I64x2Sub = 0xd1,
   // Unused = 0xd2
   // Unused = 0xd3
@@ -1068,6 +1068,17 @@ static const unsigned MaxTags = 1000000;
 
 static const unsigned MaxBrTableElems = 1000000;
 static const unsigned MaxCodeSectionBytes = MaxModuleBytes;
+
+// 512KiB should be enough, considering how Rabaldr uses the stack and
+// what the standard limits are:
+//
+// - 1,000 parameters
+// - 50,000 locals
+// - 10,000 values on the eval stack (not an official limit)
+//
+// At sizeof(int64) bytes per slot this works out to about 480KiB.
+
+static const unsigned MaxFrameSize = 512 * 1024;
 
 // A magic value of rtt depth to signify that it was not specified.
 

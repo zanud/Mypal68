@@ -758,6 +758,7 @@ bool InitializeJittedAtomics() {
   TempAllocator alloc(&lifo);
   JitContext jcx(&alloc);
   StackMacroAssembler masm;
+  AutoCreatedBy acb(masm, "InitializeJittedAtomics");
 
   uint32_t fenceSeqCst = GenFenceSeqCst(masm);
 
@@ -874,8 +875,8 @@ bool InitializeJittedAtomics() {
   masm.executableCopy(code);
 
   // Reprotect the whole region to avoid having separate RW and RX mappings.
-  if (!ExecutableAllocator::makeExecutableAndFlushICache(code,
-                                                         roundedCodeLength)) {
+  if (!ExecutableAllocator::makeExecutableAndFlushICache(
+          FlushICacheSpec::LocalThreadOnly, code, roundedCodeLength)) {
     DeallocateExecutableMemory(code, roundedCodeLength);
     return false;
   }

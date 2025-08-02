@@ -4,6 +4,7 @@
 
 #include "vm/GlobalObject.h"
 
+#include "jsapi.h"
 #include "jsdate.h"
 #include "jsexn.h"
 #include "jsfriendapi.h"
@@ -60,7 +61,6 @@
 #include "vm/NumberObject.h"
 #include "vm/PIC.h"
 #include "vm/RegExpStatics.h"
-#include "vm/RegExpStaticsObject.h"
 #include "vm/SelfHosting.h"
 #include "vm/StringObject.h"
 #include "wasm/WasmJS.h"
@@ -160,6 +160,9 @@ bool GlobalObject::skipDeselectedConstructor(JSContext* cx, JSProtoKey key) {
     case JSProto_WasmTable:
     case JSProto_WasmGlobal:
     case JSProto_WasmTag:
+#ifdef ENABLE_WASM_TYPE_REFLECTIONS
+    case JSProto_WasmFunction:
+#endif
     case JSProto_WasmException:
       return false;
 
@@ -660,7 +663,7 @@ GlobalObject* GlobalObject::createInternal(JSContext* cx,
   MOZ_ASSERT(global->isUnqualifiedVarObj());
 
   {
-    auto data = cx->make_unique<GlobalObjectData>();
+    auto data = cx->make_unique<GlobalObjectData>(cx->zone());
     if (!data) {
       return nullptr;
     }
@@ -814,14 +817,13 @@ JSFunction* GlobalObject::createConstructor(JSContext* cx, Native ctor,
 
 static NativeObject* CreateBlankProto(JSContext* cx, const JSClass* clasp,
                                       HandleObject proto) {
-  MOZ_ASSERT(clasp != &JSFunction::class_);
+  MOZ_ASSERT(!clasp->isJSFunction());
 
-  RootedObject blankProto(cx, NewTenuredObjectWithGivenProto(cx, clasp, proto));
-  if (!blankProto) {
-    return nullptr;
+  if (clasp == &PlainObject::class_) {
+    return NewPlainObjectWithProto(cx, proto, TenuredObject);
   }
 
-  return &blankProto->as<NativeObject>();
+  return NewTenuredObjectWithGivenProto(cx, clasp, proto);
 }
 
 /* static */
@@ -901,7 +903,7 @@ JSObject* GlobalObject::getOrCreateRealmKeyObject(
     return key;
   }
 
-  PlainObject* key = NewBuiltinClassInstance<PlainObject>(cx);
+  PlainObject* key = NewPlainObject(cx);
   if (!key) {
     return nullptr;
   }
@@ -914,15 +916,27 @@ JSObject* GlobalObject::getOrCreateRealmKeyObject(
 RegExpStatics* GlobalObject::getRegExpStatics(JSContext* cx,
                                               Handle<GlobalObject*> global) {
   MOZ_ASSERT(cx);
-  RegExpStaticsObject* resObj = global->data().regExpStatics;
-  if (!resObj) {
-    resObj = RegExpStatics::create(cx);
-    if (!resObj) {
+
+  if (!global->data().regExpStatics) {
+    auto statics = RegExpStatics::create(cx);
+    if (!statics) {
       return nullptr;
     }
-    global->data().regExpStatics.init(resObj);
+    global->data().regExpStatics = std::move(statics);
   }
-  return resObj->regExpStatics();
+
+  return global->data().regExpStatics.get();
+}
+
+bool GlobalObject::addToVarNames(JSContext* cx, JS::Handle<JSAtom*> name) {
+  MOZ_ASSERT(name);
+
+  if (!data().varNames.put(name)) {
+    ReportOutOfMemory(cx);
+    return false;
+  }
+
+  return true;
 }
 
 /* static */
@@ -933,7 +947,7 @@ NativeObject* GlobalObject::getIntrinsicsHolder(JSContext* cx,
   }
 
   Rooted<NativeObject*> intrinsicsHolder(
-      cx, NewTenuredObjectWithGivenProto<PlainObject>(cx, nullptr));
+      cx, NewPlainObjectWithProto(cx, nullptr, TenuredObject));
   if (!intrinsicsHolder) {
     return nullptr;
   }
@@ -976,7 +990,7 @@ bool GlobalObject::getSelfHostedFunction(JSContext* cx,
       // function. In that case, we need to change the function's name,
       // which is ok because it can't have been exposed to content
       // before.
-      fun->initAtom(name);
+      fun->setAtom(name);
       return true;
     }
 
@@ -1148,7 +1162,14 @@ void GlobalObject::releaseData(JSFreeOp* fop) {
   fop->delete_(this, data, MemoryUse::GlobalObjectData);
 }
 
+GlobalObjectData::GlobalObjectData(Zone* zone) : varNames(zone) {}
+
 void GlobalObjectData::trace(JSTracer* trc) {
+  // Atoms are always tenured.
+  if (!JS::RuntimeHeapIsMinorCollecting()) {
+    varNames.trace(trc);
+  }
+
   for (auto& ctorWithProto : builtinConstructors) {
     TraceNullableEdge(trc, &ctorWithProto.constructor, "global-builtin-ctor");
     TraceNullableEdge(trc, &ctorWithProto.prototype,
@@ -1163,13 +1184,52 @@ void GlobalObjectData::trace(JSTracer* trc) {
 
   TraceNullableEdge(trc, &lexicalEnvironment, "global-lexical-env");
   TraceNullableEdge(trc, &windowProxy, "global-window-proxy");
-  TraceNullableEdge(trc, &regExpStatics, "global-regexp-statics");
   TraceNullableEdge(trc, &intrinsicsHolder, "global-intrinsics-holder");
+  TraceNullableEdge(trc, &computedIntrinsicsHolder,
+                    "global-computed-intrinsics-holder");
   TraceNullableEdge(trc, &forOfPICChain, "global-for-of-pic");
   TraceNullableEdge(trc, &sourceURLsHolder, "global-source-urls");
   TraceNullableEdge(trc, &realmKeyObject, "global-realm-key");
   TraceNullableEdge(trc, &throwTypeError, "global-throw-type-error");
   TraceNullableEdge(trc, &eval, "global-eval");
+  TraceNullableEdge(trc, &emptyIterator, "global-empty-iterator");
 
-  TraceNullableEdge(trc, &arrayShape, "global-array-shape");
+  TraceNullableEdge(trc, &arrayShapeWithDefaultProto, "global-array-shape");
+
+  for (auto& shape : plainObjectShapesWithDefaultProto) {
+    TraceNullableEdge(trc, &shape, "global-plain-shape");
+  }
+
+  TraceNullableEdge(trc, &functionShapeWithDefaultProto,
+                    "global-function-shape");
+  TraceNullableEdge(trc, &extendedFunctionShapeWithDefaultProto,
+                    "global-ext-function-shape");
+
+  if (regExpStatics) {
+    regExpStatics->trace(trc);
+  }
+
+  TraceNullableEdge(trc, &mappedArgumentsTemplate, "mapped-arguments-template");
+  TraceNullableEdge(trc, &unmappedArgumentsTemplate,
+                    "unmapped-arguments-template");
+
+  TraceNullableEdge(trc, &iterResultTemplate, "iter-result-template_");
+  TraceNullableEdge(trc, &iterResultWithoutPrototypeTemplate,
+                    "iter-result-without-prototype-template");
+
+  TraceNullableEdge(trc, &selfHostingScriptSource,
+                    "self-hosting-script-source");
+}
+
+void GlobalObjectData::addSizeOfIncludingThis(
+    mozilla::MallocSizeOf mallocSizeOf, JS::ClassInfo* info) const {
+  info->objectsMallocHeapGlobalData += mallocSizeOf(this);
+
+  if (regExpStatics) {
+    info->objectsMallocHeapGlobalData +=
+        regExpStatics->sizeOfIncludingThis(mallocSizeOf);
+  }
+
+  info->objectsMallocHeapGlobalVarNamesSet +=
+      varNames.shallowSizeOfExcludingThis(mallocSizeOf);
 }

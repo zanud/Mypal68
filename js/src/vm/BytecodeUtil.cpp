@@ -31,8 +31,8 @@
 #include "js/CharacterEncoding.h"
 #include "js/experimental/CodeCoverage.h"
 #include "js/experimental/PCCountProfiling.h"  // JS::{Start,Stop}PCCountProfiling, JS::PurgePCCounts, JS::GetPCCountScript{Count,Summary,Contents}
-#include "js/friend/DumpFunctions.h"  // js::DumpPC, js::DumpScript
-#include "js/friend/ErrorMessages.h"  // js::GetErrorMessage, JSMSG_*
+#include "js/friend/DumpFunctions.h"           // js::DumpPC, js::DumpScript
+#include "js/friend/ErrorMessages.h"           // js::GetErrorMessage, JSMSG_*
 #include "js/Printf.h"
 #include "js/Symbol.h"
 #include "util/DifferentialTesting.h"
@@ -1328,6 +1328,40 @@ static bool DecompileAtPCForStackDump(
     JSContext* cx, HandleScript script,
     const OffsetAndDefIndex& offsetAndDefIndex, Sprinter* sp);
 
+static bool PrintShapeProperties(JSContext* cx, Sprinter* sp, Shape* shape) {
+  // Add all property keys to a vector to allow printing them in property
+  // definition order.
+  Vector<PropertyKey> props(cx);
+  for (ShapePropertyIter<NoGC> iter(shape); !iter.done(); iter++) {
+    if (!props.append(iter->key())) {
+      return false;
+    }
+  }
+
+  if (!sp->put("{")) {
+    return false;
+  }
+
+  for (size_t i = props.length(); i > 0; i--) {
+    PropertyKey key = props[i - 1];
+    RootedValue keyv(cx, IdToValue(key));
+    JSString* str = ToString<NoGC>(cx, keyv);
+    if (!str) {
+      return false;
+    }
+    if (!sp->putString(str)) {
+      return false;
+    }
+    if (i > 1) {
+      if (!sp->put(", ")) {
+        return false;
+      }
+    }
+  }
+
+  return sp->put("}");
+}
+
 static unsigned Disassemble1(JSContext* cx, HandleScript script, jsbytecode* pc,
                              unsigned loc, bool lines,
                              const BytecodeParser* parser, Sprinter* sp) {
@@ -1501,6 +1535,17 @@ static unsigned Disassemble1(JSContext* cx, HandleScript script, jsbytecode* pc,
         if (!sp->jsprintf(" %s", bytes.get())) {
           return 0;
         }
+      }
+      break;
+    }
+
+    case JOF_SHAPE: {
+      Shape* shape = script->getShape(pc);
+      if (!sp->put(" ")) {
+        return 0;
+      }
+      if (!PrintShapeProperties(cx, sp, shape)) {
+        return 0;
       }
       break;
     }
@@ -2130,6 +2175,9 @@ bool ExpressionDecompiler::decompilePC(jsbytecode* pc, uint8_t defIndex) {
 
       case JSOp::CheckPrivateField:
         return write("HasPrivateField");
+
+      case JSOp::NewPrivateName:
+        return write("PRIVATENAME");
 
       case JSOp::CheckReturn:
         return write("RVAL");
@@ -2907,6 +2955,7 @@ static bool GenerateLcovInfo(JSContext* cx, JS::Realm* realm,
     CollectedScripts result(&queue);
     IterateScripts(cx, realm, &result, &CollectedScripts::consider);
     if (!result.ok) {
+      ReportOutOfMemory(cx);
       return false;
     }
   }
@@ -2932,6 +2981,7 @@ static bool GenerateLcovInfo(JSContext* cx, JS::Realm* realm,
     }
 
     if (!coverage::CollectScriptCoverage(script, false)) {
+      ReportOutOfMemory(cx);
       return false;
     }
 
@@ -2993,7 +3043,6 @@ JS_PUBLIC_API UniqueChars js::GetCodeCoverageSummaryAll(JSContext* cx,
 
   for (RealmsIter realm(cx->runtime()); !realm.done(); realm.next()) {
     if (!GenerateLcovInfo(cx, realm, out)) {
-      JS_ReportOutOfMemory(cx);
       return nullptr;
     }
   }
@@ -3010,7 +3059,6 @@ JS_PUBLIC_API UniqueChars js::GetCodeCoverageSummary(JSContext* cx,
   }
 
   if (!GenerateLcovInfo(cx, cx->realm(), out)) {
-    JS_ReportOutOfMemory(cx);
     return nullptr;
   }
 

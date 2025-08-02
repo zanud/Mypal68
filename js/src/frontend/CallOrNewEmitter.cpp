@@ -13,8 +13,6 @@
 using namespace js;
 using namespace js::frontend;
 
-using mozilla::Maybe;
-
 CallOrNewEmitter::CallOrNewEmitter(BytecodeEmitter* bce, JSOp op,
                                    ArgumentsKind argumentsKind,
                                    ValueUsage valueUsage)
@@ -238,7 +236,7 @@ bool CallOrNewEmitter::wantSpreadIteration() {
   return !isPassthroughRest();
 }
 
-bool CallOrNewEmitter::emitEnd(uint32_t argc, const Maybe<uint32_t>& beginPos) {
+bool CallOrNewEmitter::emitEnd(uint32_t argc, uint32_t beginPos) {
   MOZ_ASSERT(state_ == State::Arguments);
 
   if (isSingleSpread()) {
@@ -264,10 +262,8 @@ bool CallOrNewEmitter::emitEnd(uint32_t argc, const Maybe<uint32_t>& beginPos) {
       }
     }
   }
-  if (beginPos) {
-    if (!bce_->updateSourceCoordNotes(*beginPos)) {
-      return false;
-    }
+  if (!bce_->updateSourceCoordNotes(beginPos)) {
+    return false;
   }
   if (!bce_->markSimpleBreakpoint()) {
     return false;
@@ -284,8 +280,8 @@ bool CallOrNewEmitter::emitEnd(uint32_t argc, const Maybe<uint32_t>& beginPos) {
     }
   }
 
-  if (isEval() && beginPos) {
-    uint32_t lineNum = bce_->parser->errorReporter().lineAt(*beginPos);
+  if (isEval()) {
+    uint32_t lineNum = bce_->parser->errorReporter().lineAt(beginPos);
     if (!bce_->emitUint32Operand(JSOp::Lineno, lineNum)) {
       return false;
     }

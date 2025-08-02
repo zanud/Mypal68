@@ -20,6 +20,7 @@
 namespace js {
 namespace jit {
 
+#ifndef ENABLE_WASM_SIMD
 // Does this architecture support SIMD conversions between Uint32x4 and
 // Float32x4?
 static constexpr bool SupportsUint32x4FloatConversions = false;
@@ -28,22 +29,7 @@ static constexpr bool SupportsUint32x4FloatConversions = false;
 static constexpr bool SupportsUint8x16Compares = false;
 static constexpr bool SupportsUint16x8Compares = false;
 static constexpr bool SupportsUint32x4Compares = false;
-
-#if defined(JS_CODEGEN_X86)
-// In bytes: slots needed for potential memory->memory move spills.
-//   +8 for cycles
-//   +4 for gpr spills
-//   +8 for double spills
-static const uint32_t ION_FRAME_SLACK_SIZE = 20;
-
-#elif defined(JS_CODEGEN_X64)
-// In bytes: slots needed for potential memory->memory move spills.
-//   +8 for cycles
-//   +8 for gpr spills
-//   +8 for double spills
-static const uint32_t ION_FRAME_SLACK_SIZE = 24;
 #endif
-
 #if defined(JS_CODEGEN_X86)
 // These offsets are specific to nunboxing, and capture offsets into the
 // components of a js::Value.

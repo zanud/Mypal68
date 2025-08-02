@@ -2,6 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "js/GlobalObject.h"
 #include "jsapi-tests/tests.h"
 
 static const unsigned BufSize = 20;
@@ -9,8 +10,8 @@ static unsigned FinalizeCalls = 0;
 static JSFinalizeStatus StatusBuffer[BufSize];
 
 BEGIN_TEST(testGCFinalizeCallback) {
-  JS_SetGCParameter(cx, JSGC_INCREMENTAL_GC_ENABLED, true);
-  JS_SetGCParameter(cx, JSGC_PER_ZONE_GC_ENABLED, true);
+  AutoGCParameter param1(cx, JSGC_INCREMENTAL_GC_ENABLED, true);
+  AutoGCParameter param2(cx, JSGC_PER_ZONE_GC_ENABLED, true);
 
   /* Full GC, non-incremental. */
   FinalizeCalls = 0;
@@ -127,9 +128,6 @@ BEGIN_TEST(testGCFinalizeCallback) {
   CHECK(JS_IsGlobalObject(global1));
   CHECK(JS_IsGlobalObject(global2));
   CHECK(JS_IsGlobalObject(global3));
-
-  JS_SetGCParameter(cx, JSGC_INCREMENTAL_GC_ENABLED, false);
-  JS_SetGCParameter(cx, JSGC_PER_ZONE_GC_ENABLED, false);
 
   return true;
 }

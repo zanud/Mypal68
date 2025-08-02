@@ -9,7 +9,6 @@
 
 #include "jsnum.h"
 
-#include "jit/Ion.h"
 #include "js/friend/DumpFunctions.h"
 #include "js/friend/ErrorMessages.h"  // js::GetErrorMessage, JSMSG_*
 #include "vm/ArgumentsObject.h"
@@ -540,6 +539,9 @@ static MOZ_ALWAYS_INLINE bool CheckPrivateFieldOperation(JSContext* cx,
                                                          HandleValue val,
                                                          HandleValue idval,
                                                          bool* result) {
+  MOZ_ASSERT(idval.isSymbol());
+  MOZ_ASSERT(idval.toSymbol()->isPrivateName());
+
   // Result had better not be a nullptr.
   MOZ_ASSERT(result);
 
@@ -559,12 +561,6 @@ static MOZ_ALWAYS_INLINE bool CheckPrivateFieldOperation(JSContext* cx,
     }
   }
 
-  // js::DumpValue(idval.get());
-  // js::DumpValue(val.get());
-
-  MOZ_ASSERT(idval.isSymbol());
-  MOZ_ASSERT(idval.toSymbol()->isPrivateName());
-
   if (!HasOwnProperty(cx, val, idval, result)) {
     return false;
   }
@@ -577,6 +573,10 @@ static MOZ_ALWAYS_INLINE bool CheckPrivateFieldOperation(JSContext* cx,
   JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
                             ThrowMsgKindToErrNum(msgKind));
   return false;
+}
+
+static inline JS::Symbol* NewPrivateName(JSContext* cx, HandleAtom name) {
+  return JS::Symbol::new_(cx, JS::SymbolCode::PrivateNameSymbol, name);
 }
 
 inline bool InitElemIncOperation(JSContext* cx, HandleArrayObject arr,

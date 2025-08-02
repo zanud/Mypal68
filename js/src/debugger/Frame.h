@@ -11,8 +11,6 @@
 
 #include <stddef.h>  // for size_t
 
-#include "jsapi.h"  // for JSContext, CallArgs
-
 #include "NamespaceImports.h"   // for Value, MutableHandleValue, HandleObject
 #include "debugger/DebugAPI.h"  // for ResumeMode
 #include "debugger/Debugger.h"  // for ResumeMode, Handler, Debugger
@@ -22,6 +20,8 @@
 #include "vm/JSObject.h"        // for JSObject
 #include "vm/NativeObject.h"    // for NativeObject
 #include "vm/Stack.h"           // for AbstractFramePtr
+
+struct JS_PUBLIC_API JSContext;
 
 namespace js {
 

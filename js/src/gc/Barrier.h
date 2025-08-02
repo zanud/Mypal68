@@ -512,12 +512,12 @@ class PreBarriered : public WriteBarriered<T> {
 
   DECLARE_POINTER_ASSIGN_AND_MOVE_OPS(PreBarriered, T);
 
- private:
   void set(const T& v) {
     AssertTargetIsNotGray(v);
     setUnchecked(v);
   }
 
+ private:
   void setUnchecked(const T& v) {
     this->pre();
     this->value = v;
@@ -592,12 +592,12 @@ class GCPtr : public WriteBarriered<T> {
 
   DECLARE_POINTER_ASSIGN_OPS(GCPtr, T);
 
- private:
   void set(const T& v) {
     AssertTargetIsNotGray(v);
     setUnchecked(v);
   }
 
+ private:
   void setUnchecked(const T& v) {
     this->pre();
     T tmp = this->value;
@@ -686,17 +686,17 @@ class HeapPtr : public WriteBarriered<T> {
 
   DECLARE_POINTER_ASSIGN_AND_MOVE_OPS(HeapPtr, T);
 
+  void set(const T& v) {
+    AssertTargetIsNotGray(v);
+    setUnchecked(v);
+  }
+
   /* Make this friend so it can access pre() and post(). */
   template <class T1, class T2>
   friend inline void BarrieredSetPair(Zone* zone, HeapPtr<T1*>& v1, T1* val1,
                                       HeapPtr<T2*>& v2, T2* val2);
 
  protected:
-  void set(const T& v) {
-    AssertTargetIsNotGray(v);
-    setUnchecked(v);
-  }
-
   void setUnchecked(const T& v) {
     this->pre();
     postBarrieredSet(v);
@@ -857,6 +857,8 @@ class HeapSlot : public WriteBarriered<Value> {
     value = v;
     post(owner, kind, slot, v);
   }
+
+  void initAsUndefined() { value.setUndefined(); }
 
   void destroy() { pre(); }
 

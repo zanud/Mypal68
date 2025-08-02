@@ -7,7 +7,6 @@
 
 #include "mozilla/Maybe.h"
 
-#include "gc/Barrier.h"
 #include "jit/CacheIR.h"
 #include "jit/CacheIRCompiler.h"
 
@@ -68,6 +67,8 @@ class MOZ_RAII BaselineCacheIRCompiler : public CacheIRCompiler {
 
   enum class StringCode { CodeUnit, CodePoint };
   bool emitStringFromCodeResult(Int32OperandId codeId, StringCode stringCode);
+
+  void emitAtomizeString(Register str, Register temp, Label* failure);
 
   bool emitCallScriptedGetterShared(ValOperandId receiverId,
                                     uint32_t getterOffset, bool sameRealm,

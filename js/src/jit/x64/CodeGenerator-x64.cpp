@@ -4,15 +4,12 @@
 
 #include "jit/x64/CodeGenerator-x64.h"
 
-#include "mozilla/MathAlgorithms.h"
-
 #include "jit/CodeGenerator.h"
 #include "jit/MIR.h"
 #include "js/ScalarType.h"  // js::Scalar::Type
 
 #include "jit/MacroAssembler-inl.h"
 #include "jit/shared/CodeGenerator-shared-inl.h"
-#include "vm/JSScript-inl.h"
 
 using namespace js;
 using namespace js::jit;
@@ -603,7 +600,7 @@ void CodeGeneratorX64::emitWasmStore(T* ins) {
 void CodeGenerator::visitWasmStore(LWasmStore* ins) { emitWasmStore(ins); }
 
 void CodeGenerator::visitWasmStoreI64(LWasmStoreI64* ins) {
-  emitWasmStore(ins);
+  MOZ_CRASH("Unused on this platform");
 }
 
 void CodeGenerator::visitWasmCompareExchangeHeap(
@@ -886,12 +883,3 @@ void CodeGenerator::visitTestI64AndBranch(LTestI64AndBranch* lir) {
   masm.testq(input, input);
   emitBranch(Assembler::NonZero, lir->ifTrue(), lir->ifFalse());
 }
-
-#ifdef ENABLE_WASM_SIMD
-void CodeGenerator::visitWasmI64x2Mul(LWasmI64x2Mul* ins) {
-  FloatRegister lhsDest = ToFloatRegister(ins->lhsDest());
-  FloatRegister rhs = ToFloatRegister(ins->rhs());
-  Register64 temp = ToRegister64(ins->getInt64Temp(0));
-  masm.mulInt64x2(rhs, lhsDest, temp);
-}
-#endif

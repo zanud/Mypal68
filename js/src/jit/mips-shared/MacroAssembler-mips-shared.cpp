@@ -2062,10 +2062,7 @@ void MacroAssembler::wasmUnalignedLoad(const wasm::MemoryAccessDesc& access,
 void MacroAssembler::wasmUnalignedLoadFP(const wasm::MemoryAccessDesc& access,
                                          Register memoryBase, Register ptr,
                                          Register ptrScratch,
-                                         FloatRegister output, Register tmp1,
-                                         Register tmp2, Register tmp3) {
-  MOZ_ASSERT(tmp2 == InvalidReg);
-  MOZ_ASSERT(tmp3 == InvalidReg);
+                                         FloatRegister output, Register tmp1) {
   wasmLoadImpl(access, memoryBase, ptr, ptrScratch, AnyRegister(output), tmp1);
 }
 
@@ -2107,6 +2104,9 @@ void MacroAssemblerMIPSShared::wasmLoadImpl(
   bool isSigned;
   bool isFloat = false;
 
+  MOZ_ASSERT(!access.isZeroExtendSimd128Load());
+  MOZ_ASSERT(!access.isSplatSimd128Load());
+  MOZ_ASSERT(!access.isWidenSimd128Load());
   switch (access.type()) {
     case Scalar::Int8:
       isSigned = true;
@@ -3325,6 +3325,16 @@ void MacroAssembler::truncDoubleToInt32(FloatRegister src, Register dest,
   bind(&notZero);
 
   branch32(Assembler::NotEqual, ScratchRegister, Imm32(0), fail);
+}
+
+void MacroAssembler::nearbyIntDouble(RoundingMode mode, FloatRegister src,
+                                     FloatRegister dest) {
+  MOZ_CRASH("not supported on this platform");
+}
+
+void MacroAssembler::nearbyIntFloat32(RoundingMode mode, FloatRegister src,
+                                      FloatRegister dest) {
+  MOZ_CRASH("not supported on this platform");
 }
 
 void MacroAssembler::copySignDouble(FloatRegister lhs, FloatRegister rhs,

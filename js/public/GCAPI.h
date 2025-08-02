@@ -337,13 +337,6 @@ typedef enum JSGCParamKey {
   JSGC_MALLOC_THRESHOLD_BASE = 35,
 
   /**
-   * Growth factor for calculating malloc heap threshold.
-   *
-   * Default: MallocGrowthFactor
-   */
-  JSGC_MALLOC_GROWTH_FACTOR = 36,
-
-  /**
    * Whether incremental weakmap marking is enabled.
    *
    * Pref: javascript.options.mem.incremental_weakmap
@@ -419,6 +412,17 @@ typedef enum JSGCParamKey {
    * This parameter is read-only.
    */
   JSGC_SYSTEM_PAGE_SIZE_KB = 47,
+
+  /**
+   * In an incremental GC, this determines the point at which to start
+   * increasing the slice budget and frequency of allocation triggered slices to
+   * try to avoid reaching the incremental limit and finishing the collection
+   * synchronously.
+   *
+   * The threshold is calculated by subtracting this value from the heap's
+   * incremental limit.
+   */
+  JSGC_URGENT_THRESHOLD_MB = 48,
 } JSGCParamKey;
 
 /*
@@ -1148,7 +1152,7 @@ extern JS_PUBLIC_API uint32_t JS_GetGCParameter(JSContext* cx,
                                                 JSGCParamKey key);
 
 extern JS_PUBLIC_API void JS_SetGCParametersBasedOnAvailableMemory(
-    JSContext* cx, uint32_t availMem);
+    JSContext* cx, uint32_t availMemMB);
 
 /**
  * Create a new JSString whose chars member refers to external memory, i.e.,

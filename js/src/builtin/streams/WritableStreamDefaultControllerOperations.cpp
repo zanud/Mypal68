@@ -8,8 +8,6 @@
 
 #include "mozilla/Assertions.h"  // MOZ_ASSERT
 
-#include "jsapi.h"  // JS_ReportErrorASCII
-
 #include "builtin/streams/MiscellaneousOperations.h"  // js::CreateAlgorithmFromUnderlyingMethod, js::InvokeOrNoop
 #include "builtin/streams/QueueWithSizes.h"  // js::{EnqueueValueWithSize,QueueIsEmpty,ResetQueue}
 #include "builtin/streams/WritableStream.h"  // js::WritableStream

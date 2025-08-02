@@ -68,6 +68,7 @@ BEGIN_TEST(testJitMoveEmitterCycles_simple) {
   TempAllocator alloc(&lifo);
   JitContext jc(cx, &alloc);
   StackMacroAssembler masm;
+  AutoCreatedBy acb(masm, __func__);
   MoveEmitter mover(masm);
   MoveResolver mr;
   mr.setAllocator(alloc);
@@ -115,6 +116,7 @@ BEGIN_TEST(testJitMoveEmitterCycles_autogen) {
   TempAllocator alloc(&lifo);
   JitContext jc(cx, &alloc);
   StackMacroAssembler masm;
+  AutoCreatedBy acb(masm, __func__);
   MoveEmitter mover(masm);
   MoveResolver mr;
   mr.setAllocator(alloc);
@@ -240,6 +242,7 @@ BEGIN_TEST(testJitMoveEmitterCycles_autogen2) {
   TempAllocator alloc(&lifo);
   JitContext jc(cx, &alloc);
   StackMacroAssembler masm;
+  AutoCreatedBy acb(masm, __func__);
   MoveEmitter mover(masm);
   MoveResolver mr;
   mr.setAllocator(alloc);
@@ -382,6 +385,7 @@ BEGIN_TEST(testJitMoveEmitterCycles_autogen3) {
   TempAllocator alloc(&lifo);
   JitContext jc(cx, &alloc);
   StackMacroAssembler masm;
+  AutoCreatedBy acb(masm, __func__);
   MoveEmitter mover(masm);
   MoveResolver mr;
   mr.setAllocator(alloc);
@@ -523,6 +527,7 @@ BEGIN_TEST(testJitMoveEmitterCycles_bug1299147_1) {
   TempAllocator alloc(&lifo);
   JitContext jc(cx, &alloc);
   StackMacroAssembler masm;
+  AutoCreatedBy acb(masm, __func__);
   MoveEmitter mover(masm);
   MoveResolver mr;
   mr.setAllocator(alloc);
@@ -573,6 +578,7 @@ BEGIN_TEST(testJitMoveEmitterCycles_bug1299147) {
   TempAllocator alloc(&lifo);
   JitContext jc(cx, &alloc);
   StackMacroAssembler masm;
+  AutoCreatedBy acb(masm, __func__);
   MoveEmitter mover(masm);
   MoveResolver mr;
   mr.setAllocator(alloc);

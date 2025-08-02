@@ -5,10 +5,8 @@
 #ifndef jit_x64_MacroAssembler_x64_h
 #define jit_x64_MacroAssembler_x64_h
 
-#include "jit/MoveResolver.h"
 #include "jit/x86-shared/MacroAssembler-x86-shared.h"
 #include "js/HeapAPI.h"
-#include "vm/BigIntType.h"  // JS::BigInt
 #include "wasm/WasmBuiltins.h"
 #include "wasm/WasmTlsData.h"
 
@@ -67,6 +65,10 @@ class MacroAssemblerX64 : public MacroAssemblerX86Shared {
   const MacroAssembler& asMasm() const;
 
   void bindOffsets(const MacroAssemblerX86Shared::UsesVector&);
+
+  void vpRiprOpSimd128(const SimdConstant& v, FloatRegister reg,
+                       JmpSrc (X86Encoding::BaseAssemblerX64::*op)(
+                           X86Encoding::XMMRegisterID id));
 
  public:
   using MacroAssemblerX86Shared::load32;
@@ -167,6 +169,9 @@ class MacroAssemblerX64 : public MacroAssemblerX86Shared {
   }
   void storePrivateValue(Register src, const Address& dest) {
     storePtr(src, dest);
+  }
+  void storePrivateValue(ImmGCPtr imm, const Address& dest) {
+    storePtr(imm, dest);
   }
   void loadValue(Operand src, ValueOperand val) { movq(src, val.valueReg()); }
   void loadValue(Address src, ValueOperand val) {
@@ -559,6 +564,9 @@ class MacroAssemblerX64 : public MacroAssemblerX86Shared {
       load32(Address(scratch, 0x0), dest);
     }
   }
+  void load64(const Operand& address, Register64 dest) {
+    movq(address, dest.reg);
+  }
   void load64(const Address& address, Register64 dest) {
     movq(Operand(address), dest.reg);
   }
@@ -594,6 +602,9 @@ class MacroAssemblerX64 : public MacroAssemblerX86Shared {
   }
   void store64(Register src, const Address& address) {
     movq(src, Operand(address));
+  }
+  void store64(Register64 src, const Operand& address) {
+    movq(src.reg, address);
   }
   void storePtr(Register src, const BaseIndex& address) {
     movq(src, Operand(address));
@@ -931,6 +942,68 @@ class MacroAssemblerX64 : public MacroAssemblerX86Shared {
 
   void loadConstantSimd128Int(const SimdConstant& v, FloatRegister dest);
   void loadConstantSimd128Float(const SimdConstant& v, FloatRegister dest);
+  void vpaddbSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpaddwSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpadddSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpaddqSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpsubbSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpsubwSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpsubdSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpsubqSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpmullwSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpmulldSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpaddsbSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpaddusbSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpaddswSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpadduswSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpsubsbSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpsubusbSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpsubswSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpsubuswSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpminsbSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpminubSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpminswSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpminuwSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpminsdSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpminudSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpmaxsbSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpmaxubSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpmaxswSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpmaxuwSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpmaxsdSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpmaxudSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpandSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpxorSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vporSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vaddpsSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vaddpdSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vsubpsSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vsubpdSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vdivpsSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vdivpdSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vmulpsSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vmulpdSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpacksswbSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpackuswbSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpackssdwSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpackusdwSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vpshufbSimd128(const SimdConstant& v, FloatRegister srcDest);
+  void vptestSimd128(const SimdConstant& v, FloatRegister src);
+  void vpmaddwdSimd128(const SimdConstant& v, FloatRegister src);
+  void vpcmpeqbSimd128(const SimdConstant& v, FloatRegister src);
+  void vpcmpgtbSimd128(const SimdConstant& v, FloatRegister src);
+  void vpcmpeqwSimd128(const SimdConstant& v, FloatRegister src);
+  void vpcmpgtwSimd128(const SimdConstant& v, FloatRegister src);
+  void vpcmpeqdSimd128(const SimdConstant& v, FloatRegister src);
+  void vpcmpgtdSimd128(const SimdConstant& v, FloatRegister src);
+  void vcmpeqpsSimd128(const SimdConstant& v, FloatRegister src);
+  void vcmpneqpsSimd128(const SimdConstant& v, FloatRegister src);
+  void vcmpltpsSimd128(const SimdConstant& v, FloatRegister src);
+  void vcmplepsSimd128(const SimdConstant& v, FloatRegister src);
+  void vcmpeqpdSimd128(const SimdConstant& v, FloatRegister src);
+  void vcmpneqpdSimd128(const SimdConstant& v, FloatRegister src);
+  void vcmpltpdSimd128(const SimdConstant& v, FloatRegister src);
+  void vcmplepdSimd128(const SimdConstant& v, FloatRegister src);
 
   void loadWasmGlobalPtr(uint32_t globalDataOffset, Register dest) {
     loadPtr(Address(WasmTlsReg,
@@ -946,18 +1019,8 @@ class MacroAssemblerX64 : public MacroAssemblerX86Shared {
     test32(operand.valueReg(), operand.valueReg());
     return truthy ? NonZero : Zero;
   }
-  Condition testStringTruthy(bool truthy, const ValueOperand& value) {
-    ScratchRegisterScope scratch(asMasm());
-    unboxString(value, scratch);
-    cmp32(Operand(scratch, JSString::offsetOfLength()), Imm32(0));
-    return truthy ? Assembler::NotEqual : Assembler::Equal;
-  }
-  Condition testBigIntTruthy(bool truthy, const ValueOperand& value) {
-    ScratchRegisterScope scratch(asMasm());
-    unboxBigInt(value, scratch);
-    cmp32(Operand(scratch, BigInt::offsetOfDigitLength()), Imm32(0));
-    return truthy ? Assembler::NotEqual : Assembler::Equal;
-  }
+  Condition testStringTruthy(bool truthy, const ValueOperand& value);
+  Condition testBigIntTruthy(bool truthy, const ValueOperand& value);
 
   template <typename T>
   inline void loadInt32OrDouble(const T& src, FloatRegister dest);

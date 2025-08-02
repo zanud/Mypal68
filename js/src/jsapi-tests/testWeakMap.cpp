@@ -4,7 +4,9 @@
 
 #include "gc/Zone.h"
 #include "js/Array.h"               // JS::GetArrayLength
+#include "js/GlobalObject.h"        // JS_NewGlobalObject
 #include "js/PropertyAndElement.h"  // JS_DefineProperty
+#include "js/WeakMap.h"
 #include "jsapi-tests/tests.h"
 #include "vm/Realm.h"
 
@@ -62,11 +64,9 @@ bool checkSize(JS::HandleObject map, uint32_t expected) {
 END_TEST(testWeakMap_basicOperations)
 
 BEGIN_TEST(testWeakMap_keyDelegates) {
-#ifdef JS_GC_ZEAL
   AutoLeaveZeal nozeal(cx);
-#endif /* JS_GC_ZEAL */
 
-  JS_SetGCParameter(cx, JSGC_INCREMENTAL_GC_ENABLED, true);
+  AutoGCParameter param(cx, JSGC_INCREMENTAL_GC_ENABLED, true);
   JS_GC(cx);
   JS::RootedObject map(cx, JS::NewWeakMapObject(cx));
   CHECK(map);

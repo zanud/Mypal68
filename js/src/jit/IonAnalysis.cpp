@@ -8,27 +8,14 @@
 #include <utility>  // for ::std::pair
 
 #include "jit/AliasAnalysis.h"
-#include "jit/BaselineJIT.h"
 #include "jit/CompileInfo.h"
-#include "jit/InlineScriptTree.h"
-#include "jit/Ion.h"
-#include "jit/IonOptimizationLevels.h"
-#include "jit/LIR.h"
-#include "jit/Lowering.h"
+#include "jit/MIRGenerator.h"
 #include "jit/MIRGraph.h"
-#include "jit/WarpBuilder.h"
-#include "jit/WarpOracle.h"
 #include "util/CheckedArithmetic.h"
-#include "vm/PlainObject.h"  // js::PlainObject
-#include "vm/RegExpObject.h"
-#include "vm/SelfHosting.h"
+#include "vm/TraceLogging.h"
+#include "vm/TraceLoggingTypes.h"
 
-#include "jit/InlineScriptTree-inl.h"
-#include "jit/JitScript-inl.h"
-#include "jit/shared/Lowering-shared-inl.h"
 #include "vm/BytecodeUtil-inl.h"
-#include "vm/JSObject-inl.h"
-#include "vm/JSScript-inl.h"
 
 using namespace js;
 using namespace js::jit;
@@ -1458,6 +1445,7 @@ MIRType TypeAnalyzer::guessPhiType(MPhi* phi) const {
 
   MIRType type = MIRType::None;
   bool convertibleToFloat32 = false;
+  bool hasOSRValueInput = false;
   DebugOnly<bool> hasSpecializableInput = false;
   for (size_t i = 0, e = phi->numOperands(); i < e; i++) {
     MDefinition* in = phi->getOperand(i);
@@ -1477,15 +1465,8 @@ MIRType TypeAnalyzer::guessPhiType(MPhi* phi) const {
     // See shouldSpecializeOsrPhis comment. This is the first step mentioned
     // there.
     if (shouldSpecializeOsrPhis() && in->isOsrValue()) {
+      hasOSRValueInput = true;
       hasSpecializableInput = true;
-
-      // TODO(post-Warp): simplify float32 handling in this function or (better)
-      // make the float32 analysis a stand-alone optimization pass instead of
-      // complicating type analysis. See bug 1655773.
-      convertibleToFloat32 = false;
-      if (type == MIRType::Float32) {
-        type = MIRType::Double;
-      }
       continue;
     }
 
@@ -1514,6 +1495,13 @@ MIRType TypeAnalyzer::guessPhiType(MPhi* phi) const {
         return MIRType::Value;
       }
     }
+  }
+
+  if (hasOSRValueInput && type == MIRType::Float32) {
+    // TODO(post-Warp): simplify float32 handling in this function or (better)
+    // make the float32 analysis a stand-alone optimization pass instead of
+    // complicating type analysis. See bug 1655773.
+    type = MIRType::Double;
   }
 
   MOZ_ASSERT_IF(type == MIRType::None, hasSpecializableInput);
@@ -2122,6 +2110,13 @@ bool TypeAnalyzer::tryEmitFloatOperations() {
   // Check ahead of time that there is at least one definition typed as Float32,
   // otherwise we don't need this pass.
   if (!graphContainsFloat32()) {
+    return true;
+  }
+
+  // WarpBuilder skips over code that can't be reached except through
+  // a catch block. Locals and arguments may be observable in such
+  // code after bailing out, so we can't rely on seeing all uses.
+  if (graph.hasTryBlock()) {
     return true;
   }
 

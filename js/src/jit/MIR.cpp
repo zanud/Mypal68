@@ -7,7 +7,6 @@
 #include "mozilla/CheckedInt.h"
 #include "mozilla/EndianUtils.h"
 #include "mozilla/FloatingPoint.h"
-#include "mozilla/IntegerPrintfMacros.h"
 #include "mozilla/MathAlgorithms.h"
 #include "mozilla/ScopeExit.h"
 
@@ -18,7 +17,6 @@
 #include "builtin/RegExp.h"
 #include "jit/AtomicOperations.h"
 #include "jit/CompileInfo.h"
-#include "jit/JitSpewer.h"
 #include "jit/KnownClass.h"
 #include "jit/MIRGraph.h"
 #include "jit/RangeAnalysis.h"
@@ -32,11 +30,7 @@
 #include "vm/Uint8Clamped.h"
 #include "wasm/WasmCode.h"
 
-#include "builtin/Boolean-inl.h"
-
 #include "vm/JSAtom-inl.h"
-#include "vm/JSObject-inl.h"
-#include "vm/JSScript-inl.h"
 
 using namespace js;
 using namespace js::jit;
@@ -924,6 +918,27 @@ MConstant* MConstant::NewObject(TempAllocator& alloc, JSObject* v) {
 
 MConstant* MConstant::NewShape(TempAllocator& alloc, Shape* s) {
   return new (alloc) MConstant(s);
+}
+
+static MIRType MIRTypeFromValue(const js::Value& vp) {
+  if (vp.isDouble()) {
+    return MIRType::Double;
+  }
+  if (vp.isMagic()) {
+    switch (vp.whyMagic()) {
+      case JS_OPTIMIZED_OUT:
+        return MIRType::MagicOptimizedOut;
+      case JS_ELEMENTS_HOLE:
+        return MIRType::MagicHole;
+      case JS_IS_CONSTRUCTING:
+        return MIRType::MagicIsConstructing;
+      case JS_UNINITIALIZED_LEXICAL:
+        return MIRType::MagicUninitializedLexical;
+      default:
+        MOZ_ASSERT_UNREACHABLE("Unexpected magic constant");
+    }
+  }
+  return MIRTypeFromValueType(vp.extractNonDoubleType());
 }
 
 MConstant::MConstant(TempAllocator& alloc, const js::Value& vp)
@@ -4529,11 +4544,12 @@ bool MWasmLoadGlobalCell::congruentTo(const MDefinition* ins) const {
 }
 
 #ifdef ENABLE_WASM_SIMD
-MDefinition* MWasmBitselectSimd128::foldsTo(TempAllocator& alloc) {
-  if (control()->op() == MDefinition::Opcode::WasmFloatConstant) {
+MDefinition* MWasmTernarySimd128::foldsTo(TempAllocator& alloc) {
+  if (simdOp() == wasm::SimdOp::V128Bitselect &&
+      v2()->op() == MDefinition::Opcode::WasmFloatConstant) {
     int8_t shuffle[16];
-    if (specializeConstantMaskAsShuffle(shuffle)) {
-      return MWasmShuffleSimd128::New(alloc, lhs(), rhs(),
+    if (specializeBitselectConstantMaskAsShuffle(shuffle)) {
+      return MWasmShuffleSimd128::New(alloc, v0(), v1(),
                                       SimdConstant::CreateX16(shuffle));
     }
   }
@@ -4644,7 +4660,7 @@ MDefinition* MWasmScalarToSimd128::foldsTo(TempAllocator& alloc) {
 template <typename T>
 static bool AllTrue(const T& v) {
   constexpr size_t count = sizeof(T) / sizeof(*v);
-  static_assert(count == 16 || count == 8 || count == 4);
+  static_assert(count == 16 || count == 8 || count == 4 || count == 2);
   bool result = true;
   for (unsigned i = 0; i < count; i++) {
     result = result && v[i] != 0;
@@ -4656,10 +4672,10 @@ template <typename T>
 static int32_t Bitmask(const T& v) {
   constexpr size_t count = sizeof(T) / sizeof(*v);
   constexpr size_t shift = 8 * sizeof(*v) - 1;
-  static_assert(shift == 7 || shift == 15 || shift == 31);
+  static_assert(shift == 7 || shift == 15 || shift == 31 || shift == 63);
   int32_t result = 0;
   for (unsigned i = 0; i < count; i++) {
-    result = result | (((v[i] >> shift) & 1) << i);
+    result = result | int32_t(((v[i] >> shift) & 1) << i);
   }
   return result;
 }
@@ -4674,9 +4690,7 @@ MDefinition* MWasmReduceSimd128::foldsTo(TempAllocator& alloc) {
     SimdConstant c = input()->toWasmFloatConstant()->toSimd128();
     int32_t i32Result = 0;
     switch (simdOp()) {
-      case wasm::SimdOp::I8x16AnyTrue:
-      case wasm::SimdOp::I16x8AnyTrue:
-      case wasm::SimdOp::I32x4AnyTrue:
+      case wasm::SimdOp::V128AnyTrue:
         i32Result = !c.isZeroBits();
         break;
       case wasm::SimdOp::I8x16AllTrue:
@@ -4702,6 +4716,14 @@ MDefinition* MWasmReduceSimd128::foldsTo(TempAllocator& alloc) {
       case wasm::SimdOp::I32x4Bitmask:
         i32Result = Bitmask(
             SimdConstant::CreateSimd128((int32_t*)c.bytes()).asInt32x4());
+        break;
+      case wasm::SimdOp::I64x2AllTrue:
+        i32Result = AllTrue(
+            SimdConstant::CreateSimd128((int64_t*)c.bytes()).asInt64x2());
+        break;
+      case wasm::SimdOp::I64x2Bitmask:
+        i32Result = Bitmask(
+            SimdConstant::CreateSimd128((int64_t*)c.bytes()).asInt64x2());
         break;
       case wasm::SimdOp::I8x16ExtractLaneS:
         i32Result =
@@ -5693,6 +5715,15 @@ MDefinition* MGuardToClass::foldsTo(TempAllocator& alloc) {
   return object();
 }
 
+MDefinition* MGuardToFunction::foldsTo(TempAllocator& alloc) {
+  if (GetObjectKnownClass(object()) != KnownClass::Function) {
+    return this;
+  }
+
+  AssertKnownClass(alloc, this, object());
+  return object();
+}
+
 MDefinition* MHasClass::foldsTo(TempAllocator& alloc) {
   const JSClass* clasp = GetObjectKnownJSClass(object());
   if (!clasp) {
@@ -5889,6 +5920,66 @@ MDefinition* MGuardInt32IsNonNegative::foldsTo(TempAllocator& alloc) {
     return this;
   }
   return input;
+}
+
+MDefinition* MGuardNonGCThing::foldsTo(TempAllocator& alloc) {
+  if (!input()->isBox()) {
+    return this;
+  }
+
+  MDefinition* unboxed = input()->getOperand(0);
+  if (!IsNonGCThing(unboxed->type())) {
+    return this;
+  }
+  return input();
+}
+
+AliasSet MSetObjectHasNonBigInt::getAliasSet() const {
+  return AliasSet::Load(AliasSet::MapOrSetHashTable);
+}
+
+AliasSet MSetObjectHasBigInt::getAliasSet() const {
+  return AliasSet::Load(AliasSet::MapOrSetHashTable);
+}
+
+AliasSet MSetObjectHasValue::getAliasSet() const {
+  return AliasSet::Load(AliasSet::MapOrSetHashTable);
+}
+
+AliasSet MSetObjectHasValueVMCall::getAliasSet() const {
+  return AliasSet::Load(AliasSet::MapOrSetHashTable);
+}
+
+AliasSet MMapObjectHasNonBigInt::getAliasSet() const {
+  return AliasSet::Load(AliasSet::MapOrSetHashTable);
+}
+
+AliasSet MMapObjectHasBigInt::getAliasSet() const {
+  return AliasSet::Load(AliasSet::MapOrSetHashTable);
+}
+
+AliasSet MMapObjectHasValue::getAliasSet() const {
+  return AliasSet::Load(AliasSet::MapOrSetHashTable);
+}
+
+AliasSet MMapObjectHasValueVMCall::getAliasSet() const {
+  return AliasSet::Load(AliasSet::MapOrSetHashTable);
+}
+
+AliasSet MMapObjectGetNonBigInt::getAliasSet() const {
+  return AliasSet::Load(AliasSet::MapOrSetHashTable);
+}
+
+AliasSet MMapObjectGetBigInt::getAliasSet() const {
+  return AliasSet::Load(AliasSet::MapOrSetHashTable);
+}
+
+AliasSet MMapObjectGetValue::getAliasSet() const {
+  return AliasSet::Load(AliasSet::MapOrSetHashTable);
+}
+
+AliasSet MMapObjectGetValueVMCall::getAliasSet() const {
+  return AliasSet::Load(AliasSet::MapOrSetHashTable);
 }
 
 MIonToWasmCall* MIonToWasmCall::New(TempAllocator& alloc,

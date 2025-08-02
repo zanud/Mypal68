@@ -20,7 +20,6 @@
 #include "jit/JitSpewer.h"
 #include "jit/mips32/Simulator-mips32.h"
 #include "jit/mips64/Simulator-mips64.h"
-#include "jit/Recover.h"
 #include "jit/RematerializedFrame.h"
 #include "jit/SharedICRegisters.h"
 #include "js/friend/StackLimits.h"  // js::AutoCheckRecursionLimit, js::ReportOverRecursed
@@ -1514,6 +1513,9 @@ bool jit::BailoutIonToBaseline(JSContext* cx, JitActivation* activation,
   MOZ_ASSERT(*bailoutInfo == nullptr);
   MOZ_ASSERT(iter.isBailoutJS());
 
+  // Caller should have saved the exception while we perform the bailout.
+  MOZ_ASSERT(!cx->isExceptionPending());
+
   TraceLoggerThread* logger = TraceLoggerForCurrentThread(cx);
   TraceLogStopEvent(logger, TraceLogger_IonMonkey);
   TraceLogStartEvent(logger, TraceLogger_Baseline);
@@ -1602,7 +1604,6 @@ bool jit::BailoutIonToBaseline(JSContext* cx, JitActivation* activation,
   // recovered ahead of the bailout.
   SnapshotIterator snapIter(iter, activation->bailoutData()->machineState());
   if (!snapIter.initInstructionResults(recoverBailout)) {
-    ReportOutOfMemory(cx);
     return false;
   }
 

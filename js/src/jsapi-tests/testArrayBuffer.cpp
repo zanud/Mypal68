@@ -1,8 +1,7 @@
-#include "jsfriendapi.h"
-
 #include "builtin/TestingFunctions.h"
 #include "js/Array.h"        // JS::NewArrayObject
 #include "js/ArrayBuffer.h"  // JS::{GetArrayBuffer{ByteLength,Data},IsArrayBufferObject,NewArrayBuffer{,WithContents},StealArrayBufferContents}
+#include "js/CallAndConstruct.h"
 #include "js/Exception.h"
 #include "js/experimental/TypedData.h"  // JS_New{Int32,Uint8}ArrayWithBuffer
 #include "js/friend/ErrorMessages.h"    // JSMSG_*

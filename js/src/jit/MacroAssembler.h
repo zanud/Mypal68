@@ -28,17 +28,17 @@
 #else
 #  error "Unknown architecture!"
 #endif
+#include "jit/ABIArgGenerator.h"
 #include "jit/ABIFunctions.h"
 #include "jit/AtomicOp.h"
 #include "jit/AutoJitContextAlloc.h"
 #include "jit/IonTypes.h"
+#include "jit/MoveResolver.h"
 #include "jit/VMFunctions.h"
 #include "js/ScalarType.h"  // js::Scalar::Type
 #include "util/Memory.h"
 #include "vm/BytecodeUtil.h"
 #include "vm/FunctionFlags.h"
-#include "vm/JSObject.h"
-#include "vm/StringType.h"
 #include "wasm/WasmCodegenTypes.h"
 #include "wasm/WasmFrame.h"
 
@@ -363,22 +363,6 @@ class MacroAssembler : public MacroAssemblerSpecific {
   void Push(RegisterOrSP reg);
 #endif
 
-#ifdef ENABLE_WASM_SIMD
-  // `op` should be a shift operation.  Return true if a variable-width shift
-  // operation must be scalarized on the current architecture.
-  static bool MustScalarizeShiftSimd128(wasm::SimdOp op);
-
-  // `op` should be a shift operation.  Return true if a variable-width shift
-  // operation on this architecture that is not scalarized should pre-mask the
-  // shift count, and if so, return the mask in `*mask`.
-  static bool MustMaskShiftCountSimd128(wasm::SimdOp op, int32_t* mask);
-
-  // `op` should be a shift operation and `imm` a possibly-unmasked immediate
-  // shift count.  Return true if a constant-width shift operation with the
-  // given width must be scalarized on the current architecture.
-  static bool MustScalarizeShiftSimd128(wasm::SimdOp op, Imm32 imm);
-#endif
-
  private:
   // The value returned by GetMaxOffsetGuardLimit() in WasmTypes.h
   uint32_t wasmMaxOffsetGuardLimit_;
@@ -427,13 +411,20 @@ class MacroAssembler : public MacroAssemblerSpecific {
   // layout.  Any inconsistencies will certainly lead to crashing in generated
   // code:
   //
-  //   PushRegsInMaskSizeInBytes PushRegsInMask storeRegsInMask
-  //   PopRegsInMask PopRegsInMaskIgnore
+  //   MacroAssembler::PushRegsInMaskSizeInBytes
+  //   MacroAssembler::PushRegsInMask
+  //   MacroAssembler::storeRegsInMask
+  //   MacroAssembler::PopRegsInMask
+  //   MacroAssembler::PopRegsInMaskIgnore
+  //   FloatRegister::getRegisterDumpOffsetInBytes
+  //   (no class) PushRegisterDump
+  //   (union) RegisterContent
   //
   // To be more exact, the invariants are:
   //
   // * The save area is conceptually viewed as starting at a highest address
-  //   and working down to some lower address.
+  //   (really, at "highest address - 1") and working down to some lower
+  //   address.
   //
   // * PushRegsInMask, storeRegsInMask and PopRegsInMask{Ignore} must use
   //   exactly the same memory layout, when starting from the abovementioned
@@ -450,6 +441,44 @@ class MacroAssembler : public MacroAssemblerSpecific {
   // * Hence, regardless of whether the save area is created with
   //   storeRegsInMask or PushRegsInMask, it is guaranteed to fit inside an
   //   area of size calculated by PushRegsInMaskSizeInBytes.
+  //
+  // * For the `ignore` argument of PopRegsInMaskIgnore, equality checking
+  //   for the floating point/SIMD registers is done on the basis of the
+  //   underlying physical register, regardless of width.  For example, if the
+  //   to-restore set contains v17 (the SIMD register with encoding 17) and
+  //   the ignore set contains d17 (the double register with encoding 17) then
+  //   no part of the physical register with encoding 17 will be restored.
+  //   (This is probably not true on arm32, since that has aliased float32
+  //   registers; but none of our other targets do.)
+  //
+  // * {Push,store}RegsInMask/storeRegsInMask are further constrained as
+  //   follows: when given the argument AllFloatRegisters, the resulting
+  //   memory area must contain exactly all the SIMD/FP registers for the
+  //   target at their widest width (that we care about).  [We have no targets
+  //   where the SIMD registers and FP register sets are disjoint.]  They must
+  //   be packed end-to-end with no holes, with the register with the lowest
+  //   encoding number (0), as returned by FloatRegister::encoding(), at the
+  //   abovementioned highest address, register 1 just below that, etc.
+  //
+  //   Furthermore the sizeof(RegisterContent) must equal the size of a SIMD
+  //   register in the abovementioned array.
+  //
+  //   Furthermore the value returned by
+  //   FloatRegister::getRegisterDumpOffsetInBytes must be a correct index
+  //   into the abovementioned array.  Given the constraints, the only correct
+  //   value is `reg.encoding() * sizeof(RegisterContent)`.
+
+  // Regarding JitRuntime::generateInvalidator and the first two fields of of
+  // class InvalidationBailoutStack (`fpregs_` and `regs_`).  These form their
+  // own layout-equivalence class.  That is, they must be format-consistent.
+  // But they are not part of the equivalence class that PushRegsInMask et al
+  // belong to. JitRuntime::generateInvalidator may use PushRegsInMask to
+  // generate part of the layout, but that's only a happy coincidence; some
+  // targets roll their own save-code instead.
+  //
+  // Nevertheless, because some targets *do* call PushRegsInMask from
+  // JitRuntime::generateInvalidator, you should check carefully all of the
+  // ::generateInvalidator methods if you change the PushRegsInMask format.
 
   // The size of the area used by PushRegsInMask.
   size_t PushRegsInMaskSizeInBytes(LiveRegisterSet set)
@@ -461,7 +490,11 @@ class MacroAssembler : public MacroAssemblerSpecific {
 
   // Like PushRegsInMask, but instead of pushing the registers, store them to
   // |dest|. |dest| should point to the end of the reserved space, so the
-  // first register will be stored at |dest.offset - sizeof(register)|.
+  // first register will be stored at |dest.offset - sizeof(register)|.  It is
+  // required that |dest.offset| is at least as large as the value computed by
+  // PushRegsInMaskSizeInBytes for this |set|.  In other words, |dest.base|
+  // must point to either the lowest address in the save area, or some address
+  // below that.
   void storeRegsInMask(LiveRegisterSet set, Address dest, Register scratch)
       DEFINED_ON(arm, arm64, mips32, mips64, x86_shared);
 
@@ -1035,6 +1068,7 @@ class MacroAssembler : public MacroAssemblerSpecific {
   inline void subDouble(FloatRegister src, FloatRegister dest) PER_SHARED_ARCH;
 
   inline void mul32(Register rhs, Register srcDest) PER_SHARED_ARCH;
+  inline void mul32(Imm32 imm, Register srcDest) PER_SHARED_ARCH;
 
   inline void mul32(Register src1, Register src2, Register dest, Label* onOver)
       DEFINED_ON(arm64);
@@ -1126,6 +1160,7 @@ class MacroAssembler : public MacroAssemblerSpecific {
 
   inline void negateDouble(FloatRegister reg) PER_SHARED_ARCH;
 
+  inline void abs32(Register src, Register dest) PER_SHARED_ARCH;
   inline void absFloat32(FloatRegister src, FloatRegister dest) PER_SHARED_ARCH;
   inline void absDouble(FloatRegister src, FloatRegister dest) PER_SHARED_ARCH;
 
@@ -1153,6 +1188,11 @@ class MacroAssembler : public MacroAssemblerSpecific {
   void truncDoubleToInt32(FloatRegister src, Register dest,
                           Label* fail) PER_SHARED_ARCH;
 
+  void nearbyIntDouble(RoundingMode mode, FloatRegister src,
+                       FloatRegister dest) PER_SHARED_ARCH;
+  void nearbyIntFloat32(RoundingMode mode, FloatRegister src,
+                        FloatRegister dest) PER_SHARED_ARCH;
+
   void signInt32(Register input, Register output);
   void signDouble(FloatRegister input, FloatRegister output);
   void signDoubleToInt32(FloatRegister input, Register output,
@@ -1161,7 +1201,7 @@ class MacroAssembler : public MacroAssemblerSpecific {
   void copySignDouble(FloatRegister lhs, FloatRegister rhs,
                       FloatRegister output) PER_SHARED_ARCH;
   void copySignFloat32(FloatRegister lhs, FloatRegister rhs,
-                       FloatRegister output) DEFINED_ON(x86_shared);
+                       FloatRegister output) DEFINED_ON(x86_shared, arm64);
 
   // Returns a random double in range [0, 1) in |dest|. The |rng| register must
   // hold a pointer to a mozilla::non_crypto::XorShift128PlusRNG.
@@ -1358,9 +1398,11 @@ class MacroAssembler : public MacroAssemblerSpecific {
                        Label* success, Label* fail = nullptr) PER_ARCH;
   inline void branch64(Condition cond, Register64 lhs, Register64 rhs,
                        Label* success, Label* fail = nullptr) PER_ARCH;
-  // On x86 and x64 NotEqual and Equal conditions are allowed for the branch64
-  // variants with Address as lhs. On others only the NotEqual condition.
+  // Only the NotEqual and Equal conditions are allowed for the branch64
+  // variants with Address as lhs.
   inline void branch64(Condition cond, const Address& lhs, Imm64 val,
+                       Label* label) PER_ARCH;
+  inline void branch64(Condition cond, const Address& lhs, Register64 rhs,
                        Label* label) PER_ARCH;
 
   // Compare the value at |lhs| with the value at |rhs|.  The scratch
@@ -1558,8 +1600,8 @@ class MacroAssembler : public MacroAssemblerSpecific {
   // Loads the function length. This handles interpreted, native, and bound
   // functions. The caller is responsible for checking that INTERPRETED_LAZY and
   // RESOLVED_LENGTH flags are not set.
-  void loadFunctionLength(Register func, Register funFlags, Register output,
-                          Label* slowPath);
+  void loadFunctionLength(Register func, Register funFlagsAndArgCount,
+                          Register output, Label* slowPath);
 
   // Loads the function name. This handles interpreted, native, and bound
   // functions.
@@ -1607,6 +1649,16 @@ class MacroAssembler : public MacroAssemblerSpecific {
                                                      Register obj,
                                                      const Shape* shape,
                                                      Label* label);
+
+  inline void branchTestClassIsFunction(Condition cond, Register clasp,
+                                        Label* label);
+  inline void branchTestObjIsFunction(Condition cond, Register obj,
+                                      Register scratch,
+                                      Register spectreRegToZero, Label* label);
+  inline void branchTestObjIsFunctionNoSpectreMitigations(Condition cond,
+                                                          Register obj,
+                                                          Register scratch,
+                                                          Label* label);
 
   inline void branchTestObjShape(Condition cond, Register obj, Register shape,
                                  Register scratch, Register spectreRegToZero,
@@ -1994,11 +2046,6 @@ class MacroAssembler : public MacroAssemblerSpecific {
   template <class T>
   inline void storeFloat32(FloatRegister src, const T& dest);
 
-  inline void storeFloat32x3(FloatRegister src,
-                             const Address& dest) PER_SHARED_ARCH;
-  inline void storeFloat32x3(FloatRegister src,
-                             const BaseIndex& dest) PER_SHARED_ARCH;
-
   template <typename T>
   void storeUnboxedValue(const ConstantOrRegister& value, MIRType valueType,
                          const T& dest, MIRType slotType) PER_ARCH;
@@ -2008,6 +2055,29 @@ class MacroAssembler : public MacroAssemblerSpecific {
  public:
   // ========================================================================
   // Wasm SIMD
+
+  inline void loadConstantSimd128(const SimdConstant& v, FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
+
+  // Load
+
+  inline void loadUnalignedSimd128(const Operand& src, FloatRegister dest)
+      DEFINED_ON(x86_shared);
+
+  inline void loadUnalignedSimd128(const Address& src, FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void loadUnalignedSimd128(const BaseIndex& src, FloatRegister dest)
+      DEFINED_ON(x86_shared);
+
+  // Store
+
+  inline void storeUnalignedSimd128(FloatRegister src, const Address& dest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void storeUnalignedSimd128(FloatRegister src, const BaseIndex& dest)
+      DEFINED_ON(x86_shared);
+
 #ifdef ENABLE_WASM_SIMD
   // Naming is "operationSimd128" when operate on the whole vector, otherwise
   // it's "operation<Type><Size>x<Lanes>".
@@ -2021,20 +2091,24 @@ class MacroAssembler : public MacroAssemblerSpecific {
   // https://github.com/WebAssembly/simd/blob/master/proposals/simd/SIMD.md.
   //
   // Since we must target Intel SSE indefinitely and SSE is one-address or
-  // two-address, these porting interfaces are nearly all one-address or
-  // two-address.  In the future, if we decide to target Intel AVX or other
-  // three-address architectures from Ion we may add additional interfaces.
+  // two-address, the x86 porting interfaces are nearly all one-address or
+  // two-address.  Likewise there are two-address ARM64 interfaces to support
+  // the baseline compiler.  But there are also three-address ARM64 interfaces
+  // as the ARM64 Ion back-end can use those.  In the future, they may support
+  // AVX2 or similar for x86.
   //
   // Conventions for argument order and naming and semantics:
   //  - Condition codes come first.
   //  - Other immediates (masks, shift counts) come next.
   //  - Operands come next:
-  //    - For a binary operator where the left-hand-side has the same type as
-  //      the result, one register parameter is normally named `lhsDest` and is
-  //      both the left-hand side and destination; the other parameter is named
-  //      `rhs` and is the right-hand side.  `rhs` comes first, `lhsDest`
-  //      second.  `rhs` and `lhsDest` may be the same register (if rhs is
-  //      a register).
+  //    - For a binary two-address operator where the left-hand-side has the
+  //      same type as the result, one register parameter is normally named
+  //      `lhsDest` and is both the left-hand side and destination; the other
+  //      parameter is named `rhs` and is the right-hand side.  `rhs` comes
+  //      first, `lhsDest` second.  `rhs` and `lhsDest` may be the same register
+  //      (if rhs is a register).
+  //    - For a binary three-address operator the order is `lhs`, `rhs`, `dest`,
+  //      and generally these registers may be the same.
   //    - For a unary operator, the input is named `src` and the output is named
   //      `dest`.  `src` comes first, `dest` second.  `src` and `dest` may be
   //      the same register (if `src` is a register).
@@ -2047,234 +2121,652 @@ class MacroAssembler : public MacroAssemblerSpecific {
   // Moves
 
   inline void moveSimd128(FloatRegister src, FloatRegister dest)
-      DEFINED_ON(x86_shared);
+      DEFINED_ON(x86_shared, arm64);
 
   // Constants
 
-  inline void zeroSimd128(FloatRegister dest) DEFINED_ON(x86_shared);
-
-  inline void loadConstantSimd128(const SimdConstant& v, FloatRegister dest)
-      DEFINED_ON(x86_shared);
+  inline void zeroSimd128(FloatRegister dest) DEFINED_ON(x86_shared, arm64);
 
   // Splat
 
-  inline void splatX16(Register src, FloatRegister dest) DEFINED_ON(x86_shared);
+  inline void splatX16(Register src, FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
 
-  inline void splatX8(Register src, FloatRegister dest) DEFINED_ON(x86_shared);
+  inline void splatX16(uint32_t srcLane, FloatRegister src, FloatRegister dest)
+      DEFINED_ON(arm64);
 
-  inline void splatX4(Register src, FloatRegister dest) DEFINED_ON(x86_shared);
+  inline void splatX8(Register src, FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void splatX8(uint32_t srcLane, FloatRegister src, FloatRegister dest)
+      DEFINED_ON(arm64);
+
+  inline void splatX4(Register src, FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
 
   inline void splatX4(FloatRegister src, FloatRegister dest)
-      DEFINED_ON(x86_shared);
+      DEFINED_ON(x86_shared, arm64);
 
-  inline void splatX2(Register64 src, FloatRegister dest) DEFINED_ON(x86, x64);
+  inline void splatX2(Register64 src, FloatRegister dest)
+      DEFINED_ON(x86, x64, arm64);
 
   inline void splatX2(FloatRegister src, FloatRegister dest)
-      DEFINED_ON(x86_shared);
+      DEFINED_ON(x86_shared, arm64);
 
   // Extract lane as scalar.  Float extraction does not canonicalize the value.
 
   inline void extractLaneInt8x16(uint32_t lane, FloatRegister src,
-                                 Register dest) DEFINED_ON(x86_shared);
+                                 Register dest) DEFINED_ON(x86_shared, arm64);
 
   inline void unsignedExtractLaneInt8x16(uint32_t lane, FloatRegister src,
-                                         Register dest) DEFINED_ON(x86_shared);
+                                         Register dest)
+      DEFINED_ON(x86_shared, arm64);
 
   inline void extractLaneInt16x8(uint32_t lane, FloatRegister src,
-                                 Register dest) DEFINED_ON(x86_shared);
+                                 Register dest) DEFINED_ON(x86_shared, arm64);
 
   inline void unsignedExtractLaneInt16x8(uint32_t lane, FloatRegister src,
-                                         Register dest) DEFINED_ON(x86_shared);
+                                         Register dest)
+      DEFINED_ON(x86_shared, arm64);
 
   inline void extractLaneInt32x4(uint32_t lane, FloatRegister src,
-                                 Register dest) DEFINED_ON(x86_shared);
+                                 Register dest) DEFINED_ON(x86_shared, arm64);
 
   inline void extractLaneInt64x2(uint32_t lane, FloatRegister src,
-                                 Register64 dest) DEFINED_ON(x86, x64);
+                                 Register64 dest) DEFINED_ON(x86, x64, arm64);
 
   inline void extractLaneFloat32x4(uint32_t lane, FloatRegister src,
-                                   FloatRegister dest) DEFINED_ON(x86_shared);
+                                   FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
 
   inline void extractLaneFloat64x2(uint32_t lane, FloatRegister src,
-                                   FloatRegister dest) DEFINED_ON(x86_shared);
+                                   FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
 
   // Replace lane value
 
   inline void replaceLaneInt8x16(unsigned lane, Register rhs,
-                                 FloatRegister lhsDest) DEFINED_ON(x86_shared);
+                                 FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
 
   inline void replaceLaneInt16x8(unsigned lane, Register rhs,
-                                 FloatRegister lhsDest) DEFINED_ON(x86_shared);
+                                 FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
 
   inline void replaceLaneInt32x4(unsigned lane, Register rhs,
-                                 FloatRegister lhsDest) DEFINED_ON(x86_shared);
+                                 FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
 
   inline void replaceLaneInt64x2(unsigned lane, Register64 rhs,
-                                 FloatRegister lhsDest) DEFINED_ON(x86, x64);
+                                 FloatRegister lhsDest)
+      DEFINED_ON(x86, x64, arm64);
 
   inline void replaceLaneFloat32x4(unsigned lane, FloatRegister rhs,
                                    FloatRegister lhsDest)
-      DEFINED_ON(x86_shared);
+      DEFINED_ON(x86_shared, arm64);
 
   inline void replaceLaneFloat64x2(unsigned lane, FloatRegister rhs,
                                    FloatRegister lhsDest)
-      DEFINED_ON(x86_shared);
+      DEFINED_ON(x86_shared, arm64);
 
-  // Shuffle - permute with immediate indices
+  // Shuffle - blend and permute with immediate indices, and its many
+  // specializations.  Lane values other than those mentioned are illegal.
 
+  // lane values 0..31
   inline void shuffleInt8x16(const uint8_t lanes[16], FloatRegister rhs,
-                             FloatRegister lhsDest, FloatRegister temp)
+                             FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void shuffleInt8x16(const uint8_t lanes[16], FloatRegister lhs,
+                             FloatRegister rhs, FloatRegister dest)
+      DEFINED_ON(arm64);
+
+  // Lane values must be 0 (select from lhs) or FF (select from rhs).
+  // The behavior is undefined for lane values that are neither 0 nor FF.
+  // on x86_shared: it is required that lhs == dest.
+  inline void blendInt8x16(const uint8_t lanes[16], FloatRegister lhs,
+                           FloatRegister rhs, FloatRegister dest,
+                           FloatRegister temp) DEFINED_ON(x86_shared);
+
+  // Lane values must be 0 (select from lhs) or FF (select from rhs).
+  // The behavior is undefined for lane values that are neither 0 nor FF.
+  inline void blendInt8x16(const uint8_t lanes[16], FloatRegister lhs,
+                           FloatRegister rhs, FloatRegister dest)
+      DEFINED_ON(arm64);
+
+  // Lane values must be 0 (select from lhs) or FFFF (select from rhs).
+  // The behavior is undefined for lane values that are neither 0 nor FFFF.
+  // on x86_shared: it is required that lhs == dest.
+  inline void blendInt16x8(const uint16_t lanes[8], FloatRegister lhs,
+                           FloatRegister rhs, FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void interleaveHighInt8x16(FloatRegister rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
+
+  inline void interleaveHighInt8x16(FloatRegister lhs, FloatRegister rhs,
+                                    FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void interleaveHighInt16x8(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared);
+
+  inline void interleaveHighInt16x8(FloatRegister lhs, FloatRegister rhs,
+                                    FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void interleaveHighInt32x4(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared);
+
+  inline void interleaveHighInt32x4(FloatRegister lhs, FloatRegister rhs,
+                                    FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void interleaveHighInt64x2(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared);
+
+  inline void interleaveHighInt64x2(FloatRegister lhs, FloatRegister rhs,
+                                    FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void interleaveLowInt8x16(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared);
+
+  inline void interleaveLowInt8x16(FloatRegister lhs, FloatRegister rhs,
+                                   FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void interleaveLowInt16x8(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared);
+
+  inline void interleaveLowInt16x8(FloatRegister lhs, FloatRegister rhs,
+                                   FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void interleaveLowInt32x4(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared);
+
+  inline void interleaveLowInt32x4(FloatRegister lhs, FloatRegister rhs,
+                                   FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void interleaveLowInt64x2(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared);
+
+  inline void interleaveLowInt64x2(FloatRegister lhs, FloatRegister rhs,
+                                   FloatRegister dest) DEFINED_ON(arm64);
+
+  // Permute - permute with immediate indices.
+
+  // lane values 0..15
+  inline void permuteInt8x16(const uint8_t lanes[16], FloatRegister src,
+                             FloatRegister dest) DEFINED_ON(x86_shared, arm64);
+
+  // lane values 0..7
+  inline void permuteInt16x8(const uint16_t lanes[8], FloatRegister src,
+                             FloatRegister dest) DEFINED_ON(arm64);
+
+  // lane values 0..3 [sic].
+  inline void permuteHighInt16x8(const uint16_t lanes[4], FloatRegister src,
+                                 FloatRegister dest) DEFINED_ON(x86_shared);
+
+  // lane values 0..3.
+  inline void permuteLowInt16x8(const uint16_t lanes[4], FloatRegister src,
+                                FloatRegister dest) DEFINED_ON(x86_shared);
+
+  // lane values 0..3
+  inline void permuteInt32x4(const uint32_t lanes[4], FloatRegister src,
+                             FloatRegister dest) DEFINED_ON(x86_shared, arm64);
+
+  // Funnel shift by immediate count:
+  //   low_16_bytes_of((lhsDest ++ rhs) >> shift*8), shift must be < 32.
+  inline void concatAndRightShiftSimd128(FloatRegister rhs,
+                                         FloatRegister lhsDest, uint32_t shift)
+      DEFINED_ON(x86_shared);
+
+  // Funnel shift by immediate count:
+  //   low_16_bytes_of((lhs ++ rhs) >> shift*8), shift must be < 16
+  inline void concatAndRightShiftSimd128(FloatRegister lhs, FloatRegister rhs,
+                                         FloatRegister dest, uint32_t shift)
+      DEFINED_ON(arm64);
+
+  // Rotate right by immediate count:
+  //   low_16_bytes_of((src ++ src) >> shift*8), shift must be < 16
+  inline void rotateRightSimd128(FloatRegister src, FloatRegister dest,
+                                 uint32_t shift) DEFINED_ON(arm64);
+
+  // Shift bytes with immediate count, shifting in zeroes.  Shift count 0..15.
+
+  inline void leftShiftSimd128(Imm32 count, FloatRegister src,
+                               FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void rightShiftSimd128(Imm32 count, FloatRegister src,
+                                FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
 
   // Swizzle - permute with variable indices.  `rhs` holds the lanes parameter.
 
-  inline void swizzleInt8x16(FloatRegister rhs, FloatRegister lhsDest,
-                             FloatRegister temp) DEFINED_ON(x86_shared);
+  inline void swizzleInt8x16(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void swizzleInt8x16(FloatRegister lhs, FloatRegister rhs,
+                             FloatRegister dest) DEFINED_ON(arm64);
 
   // Integer Add
 
   inline void addInt8x16(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void addInt8x16(FloatRegister lhs, FloatRegister rhs,
+                         FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void addInt8x16(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
   inline void addInt16x8(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void addInt16x8(FloatRegister lhs, FloatRegister rhs,
+                         FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void addInt16x8(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
   inline void addInt32x4(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void addInt32x4(FloatRegister lhs, FloatRegister rhs,
+                         FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void addInt32x4(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
   inline void addInt64x2(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void addInt64x2(FloatRegister lhs, FloatRegister rhs,
+                         FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void addInt64x2(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
   // Integer Subtract
 
   inline void subInt8x16(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void subInt8x16(FloatRegister lhs, FloatRegister rhs,
+                         FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void subInt8x16(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
   inline void subInt16x8(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void subInt16x8(FloatRegister lhs, FloatRegister rhs,
+                         FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void subInt16x8(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
   inline void subInt32x4(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void subInt32x4(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
+  inline void subInt32x4(FloatRegister lhs, FloatRegister rhs,
+                         FloatRegister dest) DEFINED_ON(arm64);
+
   inline void subInt64x2(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void subInt64x2(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
+
+  inline void subInt64x2(FloatRegister lhs, FloatRegister rhs,
+                         FloatRegister dest) DEFINED_ON(arm64);
 
   // Integer Multiply
 
   inline void mulInt16x8(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void mulInt16x8(FloatRegister lhs, FloatRegister rhs,
+                         FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void mulInt16x8(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
   inline void mulInt32x4(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void mulInt32x4(FloatRegister lhs, FloatRegister rhs,
+                         FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void mulInt32x4(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
-  inline void mulInt64x2(FloatRegister rhs, FloatRegister lhsDest,
-                         Register64 temp) DEFINED_ON(x64);
+  // On x86_shared, it is required lhs == dest
+  inline void mulInt64x2(FloatRegister lhs, FloatRegister rhs,
+                         FloatRegister dest, FloatRegister temp)
+      DEFINED_ON(x86_shared);
 
-  // `temp1` must be edx:eax
-  inline void mulInt64x2(FloatRegister rhs, FloatRegister lhsDest,
-                         Register64 temp1, Register64 temp2, Register temp3)
-      DEFINED_ON(x86);
+  inline void mulInt64x2(FloatRegister lhs, FloatRegister rhs,
+                         FloatRegister dest, FloatRegister temp1,
+                         FloatRegister temp2) DEFINED_ON(arm64);
+
+  // Note for the extMul opcodes, the NxM designation is for the input lanes;
+  // the output lanes are twice as wide.
+  inline void extMulLowInt8x16(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void extMulLowInt8x16(FloatRegister lhs, FloatRegister rhs,
+                               FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void extMulHighInt8x16(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void extMulHighInt8x16(FloatRegister lhs, FloatRegister rhs,
+                                FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void unsignedExtMulLowInt8x16(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void unsignedExtMulLowInt8x16(FloatRegister lhs, FloatRegister rhs,
+                                       FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void unsignedExtMulHighInt8x16(FloatRegister rhs,
+                                        FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void unsignedExtMulHighInt8x16(FloatRegister lhs, FloatRegister rhs,
+                                        FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void extMulLowInt16x8(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void extMulLowInt16x8(FloatRegister lhs, FloatRegister rhs,
+                               FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void extMulHighInt16x8(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void extMulHighInt16x8(FloatRegister lhs, FloatRegister rhs,
+                                FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void unsignedExtMulLowInt16x8(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void unsignedExtMulLowInt16x8(FloatRegister lhs, FloatRegister rhs,
+                                       FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void unsignedExtMulHighInt16x8(FloatRegister rhs,
+                                        FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void unsignedExtMulHighInt16x8(FloatRegister lhs, FloatRegister rhs,
+                                        FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void extMulLowInt32x4(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void extMulLowInt32x4(FloatRegister lhs, FloatRegister rhs,
+                               FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void extMulHighInt32x4(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void extMulHighInt32x4(FloatRegister lhs, FloatRegister rhs,
+                                FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void unsignedExtMulLowInt32x4(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void unsignedExtMulLowInt32x4(FloatRegister lhs, FloatRegister rhs,
+                                       FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void unsignedExtMulHighInt32x4(FloatRegister rhs,
+                                        FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void unsignedExtMulHighInt32x4(FloatRegister lhs, FloatRegister rhs,
+                                        FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void q15MulrSatInt16x8(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void q15MulrSatInt16x8(FloatRegister lhs, FloatRegister rhs,
+                                FloatRegister dest) DEFINED_ON(arm64);
 
   // Integer Negate
 
   inline void negInt8x16(FloatRegister src, FloatRegister dest)
-      DEFINED_ON(x86_shared);
+      DEFINED_ON(x86_shared, arm64);
 
   inline void negInt16x8(FloatRegister src, FloatRegister dest)
-      DEFINED_ON(x86_shared);
+      DEFINED_ON(x86_shared, arm64);
 
   inline void negInt32x4(FloatRegister src, FloatRegister dest)
-      DEFINED_ON(x86_shared);
+      DEFINED_ON(x86_shared, arm64);
 
   inline void negInt64x2(FloatRegister src, FloatRegister dest)
-      DEFINED_ON(x86_shared);
+      DEFINED_ON(x86_shared, arm64);
 
   // Saturating integer add
 
   inline void addSatInt8x16(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void addSatInt8x16(FloatRegister lhs, FloatRegister rhs,
+                            FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void addSatInt8x16(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
   inline void unsignedAddSatInt8x16(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void unsignedAddSatInt8x16(FloatRegister lhs, FloatRegister rhs,
+                                    FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void unsignedAddSatInt8x16(const SimdConstant& rhs,
+                                    FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
   inline void addSatInt16x8(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void addSatInt16x8(FloatRegister lhs, FloatRegister rhs,
+                            FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void addSatInt16x8(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
   inline void unsignedAddSatInt16x8(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void unsignedAddSatInt16x8(FloatRegister lhs, FloatRegister rhs,
+                                    FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void unsignedAddSatInt16x8(const SimdConstant& rhs,
+                                    FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
   // Saturating integer subtract
 
   inline void subSatInt8x16(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void subSatInt8x16(FloatRegister lhs, FloatRegister rhs,
+                            FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void subSatInt8x16(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
   inline void unsignedSubSatInt8x16(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void unsignedSubSatInt8x16(FloatRegister lhs, FloatRegister rhs,
+                                    FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void unsignedSubSatInt8x16(const SimdConstant& rhs,
+                                    FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
   inline void subSatInt16x8(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void subSatInt16x8(FloatRegister lhs, FloatRegister rhs,
+                            FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void subSatInt16x8(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
   inline void unsignedSubSatInt16x8(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void unsignedSubSatInt16x8(FloatRegister lhs, FloatRegister rhs,
+                                    FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void unsignedSubSatInt16x8(const SimdConstant& rhs,
+                                    FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
   // Lane-wise integer minimum
 
   inline void minInt8x16(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void minInt8x16(FloatRegister lhs, FloatRegister rhs,
+                         FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void minInt8x16(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
   inline void unsignedMinInt8x16(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void unsignedMinInt8x16(FloatRegister lhs, FloatRegister rhs,
+                                 FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void unsignedMinInt8x16(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
   inline void minInt16x8(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void minInt16x8(FloatRegister lhs, FloatRegister rhs,
+                         FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void minInt16x8(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
   inline void unsignedMinInt16x8(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void unsignedMinInt16x8(FloatRegister lhs, FloatRegister rhs,
+                                 FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void unsignedMinInt16x8(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
   inline void minInt32x4(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void minInt32x4(FloatRegister lhs, FloatRegister rhs,
+                         FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void minInt32x4(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
   inline void unsignedMinInt32x4(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void unsignedMinInt32x4(FloatRegister lhs, FloatRegister rhs,
+                                 FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void unsignedMinInt32x4(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
   // Lane-wise integer maximum
 
   inline void maxInt8x16(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void maxInt8x16(FloatRegister lhs, FloatRegister rhs,
+                         FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void maxInt8x16(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
   inline void unsignedMaxInt8x16(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void unsignedMaxInt8x16(FloatRegister lhs, FloatRegister rhs,
+                                 FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void unsignedMaxInt8x16(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
   inline void maxInt16x8(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void maxInt16x8(FloatRegister lhs, FloatRegister rhs,
+                         FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void maxInt16x8(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
   inline void unsignedMaxInt16x8(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void unsignedMaxInt16x8(FloatRegister lhs, FloatRegister rhs,
+                                 FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void unsignedMaxInt16x8(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
   inline void maxInt32x4(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void maxInt32x4(FloatRegister lhs, FloatRegister rhs,
+                         FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void maxInt32x4(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
   inline void unsignedMaxInt32x4(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void unsignedMaxInt32x4(FloatRegister lhs, FloatRegister rhs,
+                                 FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void unsignedMaxInt32x4(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
   // Lane-wise integer rounding average
 
-  inline void averageInt8x16(FloatRegister rhs, FloatRegister lhsDest)
-      DEFINED_ON(x86_shared);
+  inline void unsignedAverageInt8x16(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
 
-  inline void averageInt16x8(FloatRegister rhs, FloatRegister lhsDest)
-      DEFINED_ON(x86_shared);
+  inline void unsignedAverageInt8x16(FloatRegister lhs, FloatRegister rhs,
+                                     FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void unsignedAverageInt16x8(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void unsignedAverageInt16x8(FloatRegister lhs, FloatRegister rhs,
+                                     FloatRegister dest) DEFINED_ON(arm64);
 
   // Lane-wise integer absolute value
 
   inline void absInt8x16(FloatRegister src, FloatRegister dest)
-      DEFINED_ON(x86_shared);
+      DEFINED_ON(x86_shared, arm64);
 
   inline void absInt16x8(FloatRegister src, FloatRegister dest)
-      DEFINED_ON(x86_shared);
+      DEFINED_ON(x86_shared, arm64);
 
   inline void absInt32x4(FloatRegister src, FloatRegister dest)
-      DEFINED_ON(x86_shared);
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void absInt64x2(FloatRegister src, FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
 
   // Left shift by scalar.  Immediates must have been masked; shifts of zero
   // will work but may or may not generate code.
@@ -2283,26 +2775,42 @@ class MacroAssembler : public MacroAssemblerSpecific {
                                Register temp1, FloatRegister temp2)
       DEFINED_ON(x86_shared);
 
+  inline void leftShiftInt8x16(FloatRegister lhs, Register rhs,
+                               FloatRegister dest) DEFINED_ON(arm64);
+
   inline void leftShiftInt8x16(Imm32 count, FloatRegister src,
-                               FloatRegister dest) DEFINED_ON(x86_shared);
+                               FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
 
   inline void leftShiftInt16x8(Register rhs, FloatRegister lhsDest,
                                Register temp) DEFINED_ON(x86_shared);
 
+  inline void leftShiftInt16x8(FloatRegister lhs, Register rhs,
+                               FloatRegister dest) DEFINED_ON(arm64);
+
   inline void leftShiftInt16x8(Imm32 count, FloatRegister src,
-                               FloatRegister dest) DEFINED_ON(x86_shared);
+                               FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
 
   inline void leftShiftInt32x4(Register rhs, FloatRegister lhsDest,
                                Register temp) DEFINED_ON(x86_shared);
 
+  inline void leftShiftInt32x4(FloatRegister lhs, Register rhs,
+                               FloatRegister dest) DEFINED_ON(arm64);
+
   inline void leftShiftInt32x4(Imm32 count, FloatRegister src,
-                               FloatRegister dest) DEFINED_ON(x86_shared);
+                               FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
 
   inline void leftShiftInt64x2(Register rhs, FloatRegister lhsDest,
                                Register temp) DEFINED_ON(x86_shared);
 
+  inline void leftShiftInt64x2(FloatRegister lhs, Register rhs,
+                               FloatRegister dest) DEFINED_ON(arm64);
+
   inline void leftShiftInt64x2(Imm32 count, FloatRegister src,
-                               FloatRegister dest) DEFINED_ON(x86_shared);
+                               FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
 
   // Right shift by scalar.  Immediates must have been masked; shifts of zero
   // will work but may or may not generate code.
@@ -2311,53 +2819,97 @@ class MacroAssembler : public MacroAssemblerSpecific {
                                 Register temp1, FloatRegister temp2)
       DEFINED_ON(x86_shared);
 
+  inline void rightShiftInt8x16(FloatRegister lhs, Register rhs,
+                                FloatRegister dest) DEFINED_ON(arm64);
+
   inline void rightShiftInt8x16(Imm32 count, FloatRegister src,
-                                FloatRegister dest, FloatRegister temp)
-      DEFINED_ON(x86_shared);
+                                FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
 
   inline void unsignedRightShiftInt8x16(Register rhs, FloatRegister lhsDest,
                                         Register temp1, FloatRegister temp2)
       DEFINED_ON(x86_shared);
 
+  inline void unsignedRightShiftInt8x16(FloatRegister lhs, Register rhs,
+                                        FloatRegister dest) DEFINED_ON(arm64);
+
   inline void unsignedRightShiftInt8x16(Imm32 count, FloatRegister src,
                                         FloatRegister dest)
-      DEFINED_ON(x86_shared);
+      DEFINED_ON(x86_shared, arm64);
 
   inline void rightShiftInt16x8(Register rhs, FloatRegister lhsDest,
                                 Register temp) DEFINED_ON(x86_shared);
 
+  inline void rightShiftInt16x8(FloatRegister lhs, Register rhs,
+                                FloatRegister dest) DEFINED_ON(arm64);
+
   inline void rightShiftInt16x8(Imm32 count, FloatRegister src,
-                                FloatRegister dest) DEFINED_ON(x86_shared);
+                                FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
 
   inline void unsignedRightShiftInt16x8(Register rhs, FloatRegister lhsDest,
                                         Register temp) DEFINED_ON(x86_shared);
 
+  inline void unsignedRightShiftInt16x8(FloatRegister lhs, Register rhs,
+                                        FloatRegister dest) DEFINED_ON(arm64);
+
   inline void unsignedRightShiftInt16x8(Imm32 count, FloatRegister src,
                                         FloatRegister dest)
-      DEFINED_ON(x86_shared);
+      DEFINED_ON(x86_shared, arm64);
 
   inline void rightShiftInt32x4(Register rhs, FloatRegister lhsDest,
                                 Register temp) DEFINED_ON(x86_shared);
 
+  inline void rightShiftInt32x4(FloatRegister lhs, Register rhs,
+                                FloatRegister dest) DEFINED_ON(arm64);
+
   inline void rightShiftInt32x4(Imm32 count, FloatRegister src,
-                                FloatRegister dest) DEFINED_ON(x86_shared);
+                                FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
 
   inline void unsignedRightShiftInt32x4(Register rhs, FloatRegister lhsDest,
                                         Register temp) DEFINED_ON(x86_shared);
 
+  inline void unsignedRightShiftInt32x4(FloatRegister lhs, Register rhs,
+                                        FloatRegister dest) DEFINED_ON(arm64);
+
   inline void unsignedRightShiftInt32x4(Imm32 count, FloatRegister src,
                                         FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void rightShiftInt64x2(Register rhs, FloatRegister lhsDest,
+                                Register temp1, FloatRegister temp2)
       DEFINED_ON(x86_shared);
 
-  // Only if !MustScalarizeShiftSimd128(SimdOp::I64x2ShrS, count).
   inline void rightShiftInt64x2(Imm32 count, FloatRegister src,
-                                FloatRegister dest) DEFINED_ON(x86_shared);
+                                FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void rightShiftInt64x2(FloatRegister lhs, Register rhs,
+                                FloatRegister dest) DEFINED_ON(arm64);
 
   inline void unsignedRightShiftInt64x2(Register rhs, FloatRegister lhsDest,
                                         Register temp) DEFINED_ON(x86_shared);
 
+  inline void unsignedRightShiftInt64x2(FloatRegister lhs, Register rhs,
+                                        FloatRegister dest) DEFINED_ON(arm64);
+
   inline void unsignedRightShiftInt64x2(Imm32 count, FloatRegister src,
                                         FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
+
+  // Sign replication operation
+
+  inline void signReplicationInt8x16(FloatRegister src, FloatRegister dest)
+      DEFINED_ON(x86_shared);
+
+  inline void signReplicationInt16x8(FloatRegister src, FloatRegister dest)
+      DEFINED_ON(x86_shared);
+
+  inline void signReplicationInt32x4(FloatRegister src, FloatRegister dest)
+      DEFINED_ON(x86_shared);
+
+  inline void signReplicationInt64x2(FloatRegister src, FloatRegister dest)
       DEFINED_ON(x86_shared);
 
   // Bitwise and, or, xor, not
@@ -2365,17 +2917,36 @@ class MacroAssembler : public MacroAssemblerSpecific {
   inline void bitwiseAndSimd128(FloatRegister rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared, arm64);
 
+  inline void bitwiseAndSimd128(FloatRegister lhs, FloatRegister rhs,
+                                FloatRegister dest) DEFINED_ON(arm64);
+
   inline void bitwiseAndSimd128(const SimdConstant& rhs, FloatRegister lhsDest)
-      DEFINED_ON(x64, x86);
+      DEFINED_ON(x86_shared);
 
   inline void bitwiseOrSimd128(FloatRegister rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared, arm64);
 
+  inline void bitwiseOrSimd128(FloatRegister lhs, FloatRegister rhs,
+                               FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void bitwiseOrSimd128(const SimdConstant& rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared);
+
   inline void bitwiseXorSimd128(FloatRegister rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared, arm64);
 
+  inline void bitwiseXorSimd128(FloatRegister lhs, FloatRegister rhs,
+                                FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void bitwiseXorSimd128(const SimdConstant& rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared);
+
   inline void bitwiseNotSimd128(FloatRegister src, FloatRegister dest)
       DEFINED_ON(x86_shared, arm64);
+
+  // Bitwise AND with compliment: dest = lhs & ~rhs, note only arm64 can do it.
+  inline void bitwiseAndNotSimd128(FloatRegister lhs, FloatRegister rhs,
+                                   FloatRegister lhsDest) DEFINED_ON(arm64);
 
   // Bitwise AND with complement: dest = ~lhs & rhs, note this is not what Wasm
   // wants but what the x86 hardware offers.  Hence the name.
@@ -2392,6 +2963,14 @@ class MacroAssembler : public MacroAssemblerSpecific {
   inline void bitwiseSelectSimd128(FloatRegister onTrue, FloatRegister onFalse,
                                    FloatRegister maskDest) DEFINED_ON(arm64);
 
+  // Population count
+
+  inline void popcntInt8x16(FloatRegister src, FloatRegister dest,
+                            FloatRegister temp) DEFINED_ON(x86_shared);
+
+  inline void popcntInt8x16(FloatRegister src, FloatRegister dest)
+      DEFINED_ON(arm64);
+
   // Any lane true, ie, any bit set
 
   inline void anyTrueSimd128(FloatRegister src, Register dest)
@@ -2406,6 +2985,9 @@ class MacroAssembler : public MacroAssemblerSpecific {
       DEFINED_ON(x86_shared, arm64);
 
   inline void allTrueInt32x4(FloatRegister src, Register dest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void allTrueInt64x2(FloatRegister src, Register dest)
       DEFINED_ON(x86_shared, arm64);
 
   // Bitmask, ie extract and compress high bits of all lanes
@@ -2428,11 +3010,26 @@ class MacroAssembler : public MacroAssemblerSpecific {
   inline void bitmaskInt32x4(FloatRegister src, Register dest,
                              FloatRegister temp) DEFINED_ON(arm64);
 
+  inline void bitmaskInt64x2(FloatRegister src, Register dest)
+      DEFINED_ON(x86_shared);
+
+  inline void bitmaskInt64x2(FloatRegister src, Register dest,
+                             FloatRegister temp) DEFINED_ON(arm64);
+
   // Comparisons (integer and floating-point)
 
   inline void compareInt8x16(Assembler::Condition cond, FloatRegister rhs,
                              FloatRegister lhsDest)
       DEFINED_ON(x86_shared, arm64);
+
+  // On x86_shared, limited to !=, ==, <=, >
+  inline void compareInt8x16(Assembler::Condition cond, const SimdConstant& rhs,
+                             FloatRegister lhsDest) DEFINED_ON(x86_shared);
+
+  // On arm64, use any integer comparison condition.
+  inline void compareInt8x16(Assembler::Condition cond, FloatRegister lhs,
+                             FloatRegister rhs, FloatRegister dest)
+      DEFINED_ON(arm64);
 
   inline void unsignedCompareInt8x16(Assembler::Condition cond,
                                      FloatRegister rhs, FloatRegister lhsDest,
@@ -2443,180 +3040,458 @@ class MacroAssembler : public MacroAssemblerSpecific {
                              FloatRegister lhsDest)
       DEFINED_ON(x86_shared, arm64);
 
+  inline void compareInt16x8(Assembler::Condition cond, FloatRegister lhs,
+                             FloatRegister rhs, FloatRegister dest)
+      DEFINED_ON(arm64);
+
+  // On x86_shared, limited to !=, ==, <=, >
+  inline void compareInt16x8(Assembler::Condition cond, const SimdConstant& rhs,
+                             FloatRegister lhsDest) DEFINED_ON(x86_shared);
+
   inline void unsignedCompareInt16x8(Assembler::Condition cond,
                                      FloatRegister rhs, FloatRegister lhsDest,
                                      FloatRegister temp1, FloatRegister temp2)
       DEFINED_ON(x86_shared);
 
+  // On x86_shared, limited to !=, ==, <=, >
   inline void compareInt32x4(Assembler::Condition cond, FloatRegister rhs,
                              FloatRegister lhsDest)
       DEFINED_ON(x86_shared, arm64);
+
+  // On arm64, use any integer comparison condition.
+  inline void compareInt32x4(Assembler::Condition cond, const SimdConstant& rhs,
+                             FloatRegister lhsDest) DEFINED_ON(x86_shared);
+
+  inline void compareInt32x4(Assembler::Condition cond, FloatRegister lhs,
+                             FloatRegister rhs, FloatRegister dest)
+      DEFINED_ON(arm64);
 
   inline void unsignedCompareInt32x4(Assembler::Condition cond,
                                      FloatRegister rhs, FloatRegister lhsDest,
                                      FloatRegister temp1, FloatRegister temp2)
       DEFINED_ON(x86_shared);
 
+  inline void compareForEqualityInt64x2(Assembler::Condition cond,
+                                        FloatRegister rhs,
+                                        FloatRegister lhsDest)
+      DEFINED_ON(x86_shared);
+
+  inline void compareForOrderingInt64x2(
+      Assembler::Condition cond, FloatRegister rhs, FloatRegister lhsDest,
+      FloatRegister temp1, FloatRegister temp2) DEFINED_ON(x86_shared);
+
+  inline void compareInt64x2(Assembler::Condition cond, FloatRegister rhs,
+                             FloatRegister lhsDest) DEFINED_ON(arm64);
+
+  inline void compareInt64x2(Assembler::Condition cond, FloatRegister lhs,
+                             FloatRegister rhs, FloatRegister dest)
+      DEFINED_ON(arm64);
+
   inline void compareFloat32x4(Assembler::Condition cond, FloatRegister rhs,
                                FloatRegister lhsDest)
       DEFINED_ON(x86_shared, arm64);
+
+  // On x86_shared, limited to ==, !=, <, <=
+  inline void compareFloat32x4(Assembler::Condition cond,
+                               const SimdConstant& rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared);
+
+  // On arm64, use any float-point comparison condition.
+  inline void compareFloat32x4(Assembler::Condition cond, FloatRegister lhs,
+                               FloatRegister rhs, FloatRegister dest)
+      DEFINED_ON(arm64);
 
   inline void compareFloat64x2(Assembler::Condition cond, FloatRegister rhs,
                                FloatRegister lhsDest)
       DEFINED_ON(x86_shared, arm64);
 
-  // Load
-
-  inline void loadUnalignedSimd128(const Address& src, FloatRegister dest)
+  // On x86_shared, limited to ==, !=, <, <=
+  inline void compareFloat64x2(Assembler::Condition cond,
+                               const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
-  inline void loadUnalignedSimd128(const BaseIndex& src, FloatRegister dest)
-      DEFINED_ON(x86_shared);
+  // On arm64, use any float-point comparison condition.
+  inline void compareFloat64x2(Assembler::Condition cond, FloatRegister lhs,
+                               FloatRegister rhs, FloatRegister dest)
+      DEFINED_ON(arm64);
 
-  // Store
-
-  inline void storeUnalignedSimd128(FloatRegister src, const Address& dest)
-      DEFINED_ON(x86_shared);
-
-  inline void storeUnalignedSimd128(FloatRegister src, const BaseIndex& dest)
-      DEFINED_ON(x86_shared);
-
-  // Floating point negation.  The input and output registers must differ.
+  // Floating point negation
 
   inline void negFloat32x4(FloatRegister src, FloatRegister dest)
-      DEFINED_ON(x86_shared);
+      DEFINED_ON(x86_shared, arm64);
 
   inline void negFloat64x2(FloatRegister src, FloatRegister dest)
-      DEFINED_ON(x86_shared);
+      DEFINED_ON(x86_shared, arm64);
 
   // Floating point absolute value
 
   inline void absFloat32x4(FloatRegister src, FloatRegister dest)
-      DEFINED_ON(x86_shared);
+      DEFINED_ON(x86_shared, arm64);
 
   inline void absFloat64x2(FloatRegister src, FloatRegister dest)
-      DEFINED_ON(x86_shared);
+      DEFINED_ON(x86_shared, arm64);
 
   // NaN-propagating minimum
 
+  inline void minFloat32x4(FloatRegister rhs, FloatRegister lhsDest,
+                           FloatRegister temp1, FloatRegister temp2)
+      DEFINED_ON(x86_shared);
+
   inline void minFloat32x4(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(arm64);
+
+  inline void minFloat32x4(FloatRegister lhs, FloatRegister rhs,
+                           FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void minFloat64x2(FloatRegister rhs, FloatRegister lhsDest,
+                           FloatRegister temp1, FloatRegister temp2)
       DEFINED_ON(x86_shared);
 
   inline void minFloat64x2(FloatRegister rhs, FloatRegister lhsDest)
-      DEFINED_ON(x86_shared);
+      DEFINED_ON(arm64);
+
+  inline void minFloat64x2(FloatRegister lhs, FloatRegister rhs,
+                           FloatRegister dest) DEFINED_ON(arm64);
 
   // NaN-propagating maximum
 
   inline void maxFloat32x4(FloatRegister rhs, FloatRegister lhsDest,
-                           FloatRegister temp) DEFINED_ON(x86_shared);
+                           FloatRegister temp1, FloatRegister temp2)
+      DEFINED_ON(x86_shared);
+
+  inline void maxFloat32x4(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(arm64);
+
+  inline void maxFloat32x4(FloatRegister lhs, FloatRegister rhs,
+                           FloatRegister dest) DEFINED_ON(arm64);
 
   inline void maxFloat64x2(FloatRegister rhs, FloatRegister lhsDest,
-                           FloatRegister temp) DEFINED_ON(x86_shared);
+                           FloatRegister temp1, FloatRegister temp2)
+      DEFINED_ON(x86_shared);
+
+  inline void maxFloat64x2(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(arm64);
+
+  inline void maxFloat64x2(FloatRegister lhs, FloatRegister rhs,
+                           FloatRegister dest) DEFINED_ON(arm64);
 
   // Floating add
 
   inline void addFloat32x4(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void addFloat32x4(FloatRegister lhs, FloatRegister rhs,
+                           FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void addFloat32x4(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
   inline void addFloat64x2(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void addFloat64x2(FloatRegister lhs, FloatRegister rhs,
+                           FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void addFloat64x2(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
   // Floating subtract
 
   inline void subFloat32x4(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void subFloat32x4(FloatRegister lhs, FloatRegister rhs,
+                           FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void subFloat32x4(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
   inline void subFloat64x2(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void subFloat64x2(FloatRegister lhs, FloatRegister rhs,
+                           FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void subFloat64x2(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
   // Floating division
 
   inline void divFloat32x4(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void divFloat32x4(FloatRegister lhs, FloatRegister rhs,
+                           FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void divFloat32x4(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
   inline void divFloat64x2(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void divFloat64x2(FloatRegister lhs, FloatRegister rhs,
+                           FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void divFloat64x2(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
   // Floating Multiply
 
   inline void mulFloat32x4(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void mulFloat32x4(FloatRegister lhs, FloatRegister rhs,
+                           FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void mulFloat32x4(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
   inline void mulFloat64x2(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void mulFloat64x2(FloatRegister lhs, FloatRegister rhs,
+                           FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void mulFloat64x2(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
+
+  // Pairwise add
+
+  inline void extAddPairwiseInt8x16(FloatRegister src, FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void unsignedExtAddPairwiseInt8x16(FloatRegister src,
+                                            FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void extAddPairwiseInt16x8(FloatRegister src, FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void unsignedExtAddPairwiseInt16x8(FloatRegister src,
+                                            FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
 
   // Floating square root
 
   inline void sqrtFloat32x4(FloatRegister src, FloatRegister dest)
-      DEFINED_ON(x86_shared);
+      DEFINED_ON(x86_shared, arm64);
 
   inline void sqrtFloat64x2(FloatRegister src, FloatRegister dest)
-      DEFINED_ON(x86_shared);
+      DEFINED_ON(x86_shared, arm64);
 
   // Integer to floating point with rounding
 
   inline void convertInt32x4ToFloat32x4(FloatRegister src, FloatRegister dest)
-      DEFINED_ON(x86_shared);
+      DEFINED_ON(x86_shared, arm64);
 
   inline void unsignedConvertInt32x4ToFloat32x4(FloatRegister src,
                                                 FloatRegister dest)
-      DEFINED_ON(x86_shared);
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void convertInt32x4ToFloat64x2(FloatRegister src, FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void unsignedConvertInt32x4ToFloat64x2(FloatRegister src,
+                                                FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
 
   // Floating point to integer with saturation
 
   inline void truncSatFloat32x4ToInt32x4(FloatRegister src, FloatRegister dest)
-      DEFINED_ON(x86_shared);
+      DEFINED_ON(x86_shared, arm64);
 
   inline void unsignedTruncSatFloat32x4ToInt32x4(FloatRegister src,
                                                  FloatRegister dest,
                                                  FloatRegister temp)
       DEFINED_ON(x86_shared);
 
+  inline void unsignedTruncSatFloat32x4ToInt32x4(FloatRegister src,
+                                                 FloatRegister dest)
+      DEFINED_ON(arm64);
+
+  inline void truncSatFloat64x2ToInt32x4(FloatRegister src, FloatRegister dest,
+                                         FloatRegister temp)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void unsignedTruncSatFloat64x2ToInt32x4(FloatRegister src,
+                                                 FloatRegister dest,
+                                                 FloatRegister temp)
+      DEFINED_ON(x86_shared, arm64);
+
+  // Floating point narrowing
+
+  inline void convertFloat64x2ToFloat32x4(FloatRegister src, FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
+
+  // Floating point widening
+
+  inline void convertFloat32x4ToFloat64x2(FloatRegister src, FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
+
   // Integer to integer narrowing
 
   inline void narrowInt16x8(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void narrowInt16x8(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
+
+  inline void narrowInt16x8(FloatRegister lhs, FloatRegister rhs,
+                            FloatRegister dest) DEFINED_ON(arm64);
 
   inline void unsignedNarrowInt16x8(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void unsignedNarrowInt16x8(const SimdConstant& rhs,
+                                    FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
+
+  inline void unsignedNarrowInt16x8(FloatRegister lhs, FloatRegister rhs,
+                                    FloatRegister dest) DEFINED_ON(arm64);
 
   inline void narrowInt32x4(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void narrowInt32x4(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
 
+  inline void narrowInt32x4(FloatRegister lhs, FloatRegister rhs,
+                            FloatRegister dest) DEFINED_ON(arm64);
+
   inline void unsignedNarrowInt32x4(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void unsignedNarrowInt32x4(const SimdConstant& rhs,
+                                    FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
+
+  inline void unsignedNarrowInt32x4(FloatRegister lhs, FloatRegister rhs,
+                                    FloatRegister dest) DEFINED_ON(arm64);
 
   // Integer to integer widening
 
   inline void widenLowInt8x16(FloatRegister src, FloatRegister dest)
-      DEFINED_ON(x86_shared);
+      DEFINED_ON(x86_shared, arm64);
 
   inline void widenHighInt8x16(FloatRegister src, FloatRegister dest)
-      DEFINED_ON(x86_shared);
+      DEFINED_ON(x86_shared, arm64);
 
   inline void unsignedWidenLowInt8x16(FloatRegister src, FloatRegister dest)
-      DEFINED_ON(x86_shared);
+      DEFINED_ON(x86_shared, arm64);
 
   inline void unsignedWidenHighInt8x16(FloatRegister src, FloatRegister dest)
-      DEFINED_ON(x86_shared);
+      DEFINED_ON(x86_shared, arm64);
 
   inline void widenLowInt16x8(FloatRegister src, FloatRegister dest)
-      DEFINED_ON(x86_shared);
+      DEFINED_ON(x86_shared, arm64);
 
   inline void widenHighInt16x8(FloatRegister src, FloatRegister dest)
-      DEFINED_ON(x86_shared);
+      DEFINED_ON(x86_shared, arm64);
 
   inline void unsignedWidenLowInt16x8(FloatRegister src, FloatRegister dest)
-      DEFINED_ON(x86_shared);
+      DEFINED_ON(x86_shared, arm64);
 
   inline void unsignedWidenHighInt16x8(FloatRegister src, FloatRegister dest)
-      DEFINED_ON(x86_shared);
+      DEFINED_ON(x86_shared, arm64);
 
   inline void widenLowInt32x4(FloatRegister src, FloatRegister dest)
-      DEFINED_ON(x86_shared);
+      DEFINED_ON(x86_shared, arm64);
 
   inline void unsignedWidenLowInt32x4(FloatRegister src, FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void widenHighInt32x4(FloatRegister src, FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void unsignedWidenHighInt32x4(FloatRegister src, FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
+
+  // Compare-based minimum/maximum
+  //
+  // On x86, the signature is (rhsDest, lhs); on arm64 it is (rhs, lhsDest).
+  //
+  // The masm preprocessor can't deal with multiple declarations with identical
+  // signatures even if they are on different platforms, hence the weird
+  // argument names.
+
+  inline void pseudoMinFloat32x4(FloatRegister rhsOrRhsDest,
+                                 FloatRegister lhsOrLhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void pseudoMinFloat32x4(FloatRegister lhs, FloatRegister rhs,
+                                 FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void pseudoMinFloat64x2(FloatRegister rhsOrRhsDest,
+                                 FloatRegister lhsOrLhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void pseudoMinFloat64x2(FloatRegister lhs, FloatRegister rhs,
+                                 FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void pseudoMaxFloat32x4(FloatRegister rhsOrRhsDest,
+                                 FloatRegister lhsOrLhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void pseudoMaxFloat32x4(FloatRegister lhs, FloatRegister rhs,
+                                 FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void pseudoMaxFloat64x2(FloatRegister rhsOrRhsDest,
+                                 FloatRegister lhsOrLhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void pseudoMaxFloat64x2(FloatRegister lhs, FloatRegister rhs,
+                                 FloatRegister dest) DEFINED_ON(arm64);
+
+  // Widening/pairwise integer dot product
+
+  inline void widenDotInt16x8(FloatRegister rhs, FloatRegister lhsDest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void widenDotInt16x8(FloatRegister lhs, FloatRegister rhs,
+                              FloatRegister dest) DEFINED_ON(arm64);
+
+  inline void widenDotInt16x8(const SimdConstant& rhs, FloatRegister lhsDest)
       DEFINED_ON(x86_shared);
+
+  // Floating point rounding
+
+  inline void ceilFloat32x4(FloatRegister src, FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void ceilFloat64x2(FloatRegister src, FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void floorFloat32x4(FloatRegister src, FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void floorFloat64x2(FloatRegister src, FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void truncFloat32x4(FloatRegister src, FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void truncFloat64x2(FloatRegister src, FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void nearestFloat32x4(FloatRegister src, FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
+
+  inline void nearestFloat64x2(FloatRegister src, FloatRegister dest)
+      DEFINED_ON(x86_shared, arm64);
+
+  // Floating multiply-accumulate: srcDest [+-]= src1 * src2
+
+  inline void fmaFloat32x4(FloatRegister src1, FloatRegister src2,
+                           FloatRegister srcDest) DEFINED_ON(x86_shared, arm64);
+
+  inline void fmsFloat32x4(FloatRegister src1, FloatRegister src2,
+                           FloatRegister srcDest) DEFINED_ON(x86_shared, arm64);
+
+  inline void fmaFloat64x2(FloatRegister src1, FloatRegister src2,
+                           FloatRegister srcDest) DEFINED_ON(x86_shared, arm64);
+
+  inline void fmsFloat64x2(FloatRegister src1, FloatRegister src2,
+                           FloatRegister srcDest) DEFINED_ON(x86_shared, arm64);
 
  public:
   // ========================================================================
@@ -2747,42 +3622,37 @@ class MacroAssembler : public MacroAssemblerSpecific {
   void wasmUnalignedLoad(const wasm::MemoryAccessDesc& access,
                          Register memoryBase, Register ptr, Register ptrScratch,
                          Register output, Register tmp)
-      DEFINED_ON(arm, mips32, mips64);
+      DEFINED_ON(mips32, mips64);
 
-  // ARM: `ptr` will always be updated and `tmp1` is always needed.  `tmp2` is
-  // needed for Float32; `tmp2` and `tmp3` are needed for Float64.  Temps must
-  // be Invalid when they are not needed.
   // MIPS: `ptr` will always be updated.
   void wasmUnalignedLoadFP(const wasm::MemoryAccessDesc& access,
                            Register memoryBase, Register ptr,
                            Register ptrScratch, FloatRegister output,
-                           Register tmp1, Register tmp2, Register tmp3)
-      DEFINED_ON(arm, mips32, mips64);
+                           Register tmp1) DEFINED_ON(mips32, mips64);
 
   // `ptr` will always be updated.
   void wasmUnalignedLoadI64(const wasm::MemoryAccessDesc& access,
                             Register memoryBase, Register ptr,
                             Register ptrScratch, Register64 output,
-                            Register tmp) DEFINED_ON(arm, mips32, mips64);
+                            Register tmp) DEFINED_ON(mips32, mips64);
 
-  // ARM: `ptr` and `value` will always be updated.  'tmp' must be Invalid.
   // MIPS: `ptr` will always be updated.
   void wasmUnalignedStore(const wasm::MemoryAccessDesc& access, Register value,
                           Register memoryBase, Register ptr,
                           Register ptrScratch, Register tmp)
-      DEFINED_ON(arm, mips32, mips64);
+      DEFINED_ON(mips32, mips64);
 
   // `ptr` will always be updated.
   void wasmUnalignedStoreFP(const wasm::MemoryAccessDesc& access,
                             FloatRegister floatValue, Register memoryBase,
                             Register ptr, Register ptrScratch, Register tmp)
-      DEFINED_ON(arm, mips32, mips64);
+      DEFINED_ON(mips32, mips64);
 
   // `ptr` will always be updated.
   void wasmUnalignedStoreI64(const wasm::MemoryAccessDesc& access,
                              Register64 value, Register memoryBase,
                              Register ptr, Register ptrScratch, Register tmp)
-      DEFINED_ON(arm, mips32, mips64);
+      DEFINED_ON(mips32, mips64);
 
   // wasm specific methods, used in both the wasm baseline compiler and ion.
 
@@ -3271,6 +4141,10 @@ class MacroAssembler : public MacroAssemblerSpecific {
                             Register64 value, const BaseIndex& mem)
       DEFINED_ON(x64);
 
+  void wasmAtomicEffectOp64(const wasm::MemoryAccessDesc& access, AtomicOp op,
+                            Register64 value, const BaseIndex& mem,
+                            Register64 temp) DEFINED_ON(arm64);
+
   // ========================================================================
   // JS atomic operations.
   //
@@ -3424,11 +4298,7 @@ class MacroAssembler : public MacroAssemblerSpecific {
  public:
   // Unsafe here means the caller is responsible for Spectre mitigations if
   // needed. Prefer branchTestObjClass or one of the other masm helpers!
-  void loadObjClassUnsafe(Register obj, Register dest) {
-    loadPtr(Address(obj, JSObject::offsetOfShape()), dest);
-    loadPtr(Address(dest, Shape::offsetOfBaseShape()), dest);
-    loadPtr(Address(dest, BaseShape::offsetOfClasp()), dest);
-  }
+  inline void loadObjClassUnsafe(Register obj, Register dest);
 
   template <typename EmitPreBarrier>
   inline void storeObjShape(Register shape, Register obj,
@@ -3437,15 +4307,9 @@ class MacroAssembler : public MacroAssemblerSpecific {
   inline void storeObjShape(Shape* shape, Register obj,
                             EmitPreBarrier emitPreBarrier);
 
-  void loadObjProto(Register obj, Register dest) {
-    loadPtr(Address(obj, JSObject::offsetOfShape()), dest);
-    loadPtr(Address(dest, Shape::offsetOfBaseShape()), dest);
-    loadPtr(Address(dest, BaseShape::offsetOfProto()), dest);
-  }
+  inline void loadObjProto(Register obj, Register dest);
 
-  void loadStringLength(Register str, Register dest) {
-    load32(Address(str, JSString::offsetOfLength()), dest);
-  }
+  inline void loadStringLength(Register str, Register dest);
 
   void loadStringChars(Register str, Register dest, CharEncoding encoding);
 
@@ -3579,6 +4443,21 @@ class MacroAssembler : public MacroAssemblerSpecific {
   void compareBigIntAndInt32(JSOp op, Register bigInt, Register int32,
                              Register scratch1, Register scratch2,
                              Label* ifTrue, Label* ifFalse);
+
+  /**
+   * Compare two BigInts for equality. Falls through if both BigInts are equal
+   * to each other.
+   *
+   * - When we jump to |notSameLength|, |temp1| holds the length of the right
+   *   operand.
+   * - When we jump to |notSameDigit|, |temp2| points to the current digit of
+   *   the left operand and |temp4| holds the current digit of the right
+   *   operand.
+   */
+  void equalBigInts(Register left, Register right, Register temp1,
+                    Register temp2, Register temp3, Register temp4,
+                    Label* notSameSign, Label* notSameLength,
+                    Label* notSameDigit);
 
   void loadJSContext(Register dest);
 
@@ -3783,6 +4662,9 @@ class MacroAssembler : public MacroAssemblerSpecific {
   void debugAssertIsObject(const ValueOperand& val);
   void debugAssertObjHasFixedSlots(Register obj, Register scratch);
 
+  void debugAssertObjectHasClass(Register obj, Register scratch,
+                                 const JSClass* clasp);
+
   void branchArrayIsNotPacked(Register array, Register temp1, Register temp2,
                               Label* label);
 
@@ -3815,6 +4697,113 @@ class MacroAssembler : public MacroAssemblerSpecific {
   void iteratorMore(Register obj, ValueOperand output, Register temp);
   void iteratorClose(Register obj, Register temp1, Register temp2,
                      Register temp3);
+
+  void toHashableNonGCThing(ValueOperand value, ValueOperand result,
+                            FloatRegister tempFloat);
+
+  void toHashableValue(ValueOperand value, ValueOperand result,
+                       FloatRegister tempFloat, Label* atomizeString,
+                       Label* tagString);
+
+ private:
+  void scrambleHashCode(Register result);
+
+ public:
+  void prepareHashNonGCThing(ValueOperand value, Register result,
+                             Register temp);
+  void prepareHashString(Register str, Register result, Register temp);
+  void prepareHashSymbol(Register sym, Register result);
+  void prepareHashBigInt(Register bigInt, Register result, Register temp1,
+                         Register temp2, Register temp3);
+  void prepareHashObject(Register setObj, ValueOperand value, Register result,
+                         Register temp1, Register temp2, Register temp3,
+                         Register temp4);
+  void prepareHashValue(Register setObj, ValueOperand value, Register result,
+                        Register temp1, Register temp2, Register temp3,
+                        Register temp4);
+
+ private:
+  enum class IsBigInt { No, Yes, Maybe };
+
+  /**
+   * Search for a value in a OrderedHashTable.
+   *
+   * When we jump to |found|, |entryTemp| holds the found hashtable entry.
+   */
+  template <typename OrderedHashTable>
+  void orderedHashTableLookup(Register setOrMapObj, ValueOperand value,
+                              Register hash, Register entryTemp, Register temp1,
+                              Register temp3, Register temp4, Register temp5,
+                              Label* found, IsBigInt isBigInt);
+
+  void setObjectHas(Register setObj, ValueOperand value, Register hash,
+                    Register result, Register temp1, Register temp2,
+                    Register temp3, Register temp4, IsBigInt isBigInt);
+
+  void mapObjectHas(Register mapObj, ValueOperand value, Register hash,
+                    Register result, Register temp1, Register temp2,
+                    Register temp3, Register temp4, IsBigInt isBigInt);
+
+  void mapObjectGet(Register mapObj, ValueOperand value, Register hash,
+                    ValueOperand result, Register temp1, Register temp2,
+                    Register temp3, Register temp4, Register temp5,
+                    IsBigInt isBigInt);
+
+ public:
+  void setObjectHasNonBigInt(Register setObj, ValueOperand value, Register hash,
+                             Register result, Register temp1, Register temp2) {
+    return setObjectHas(setObj, value, hash, result, temp1, temp2, InvalidReg,
+                        InvalidReg, IsBigInt::No);
+  }
+  void setObjectHasBigInt(Register setObj, ValueOperand value, Register hash,
+                          Register result, Register temp1, Register temp2,
+                          Register temp3, Register temp4) {
+    return setObjectHas(setObj, value, hash, result, temp1, temp2, temp3, temp4,
+                        IsBigInt::Yes);
+  }
+  void setObjectHasValue(Register setObj, ValueOperand value, Register hash,
+                         Register result, Register temp1, Register temp2,
+                         Register temp3, Register temp4) {
+    return setObjectHas(setObj, value, hash, result, temp1, temp2, temp3, temp4,
+                        IsBigInt::Maybe);
+  }
+
+  void mapObjectHasNonBigInt(Register mapObj, ValueOperand value, Register hash,
+                             Register result, Register temp1, Register temp2) {
+    return mapObjectHas(mapObj, value, hash, result, temp1, temp2, InvalidReg,
+                        InvalidReg, IsBigInt::No);
+  }
+  void mapObjectHasBigInt(Register mapObj, ValueOperand value, Register hash,
+                          Register result, Register temp1, Register temp2,
+                          Register temp3, Register temp4) {
+    return mapObjectHas(mapObj, value, hash, result, temp1, temp2, temp3, temp4,
+                        IsBigInt::Yes);
+  }
+  void mapObjectHasValue(Register mapObj, ValueOperand value, Register hash,
+                         Register result, Register temp1, Register temp2,
+                         Register temp3, Register temp4) {
+    return mapObjectHas(mapObj, value, hash, result, temp1, temp2, temp3, temp4,
+                        IsBigInt::Maybe);
+  }
+
+  void mapObjectGetNonBigInt(Register mapObj, ValueOperand value, Register hash,
+                             ValueOperand result, Register temp1,
+                             Register temp2, Register temp3) {
+    return mapObjectGet(mapObj, value, hash, result, temp1, temp2, temp3,
+                        InvalidReg, InvalidReg, IsBigInt::No);
+  }
+  void mapObjectGetBigInt(Register mapObj, ValueOperand value, Register hash,
+                          ValueOperand result, Register temp1, Register temp2,
+                          Register temp3, Register temp4, Register temp5) {
+    return mapObjectGet(mapObj, value, hash, result, temp1, temp2, temp3, temp4,
+                        temp5, IsBigInt::Yes);
+  }
+  void mapObjectGetValue(Register mapObj, ValueOperand value, Register hash,
+                         ValueOperand result, Register temp1, Register temp2,
+                         Register temp3, Register temp4, Register temp5) {
+    return mapObjectGet(mapObj, value, hash, result, temp1, temp2, temp3, temp4,
+                        temp5, IsBigInt::Maybe);
+  }
 
   // Inline version of js_TypedArray_uint8_clamp_double.
   // This function clobbers the input register.
@@ -4353,94 +5342,8 @@ static inline size_t StackDecrementForCall(uint32_t alignment,
          ComputeByteAlignment(bytesAlreadyPushed + bytesToPush, alignment);
 }
 
-static inline MIRType ToMIRType(MIRType t) { return t; }
-
-static inline MIRType ToMIRType(ABIArgType argType) {
-  switch (argType) {
-    case ArgType_General:
-      return MIRType::Pointer;
-    case ArgType_Float64:
-      return MIRType::Double;
-    case ArgType_Float32:
-      return MIRType::Float32;
-    case ArgType_Int32:
-      return MIRType::Int32;
-    case ArgType_Int64:
-      return MIRType::Int64;
-    default:
-      break;
-  }
-  MOZ_CRASH("unexpected argType");
-}
-
 // Helper for generatePreBarrier.
 inline DynFn JitPreWriteBarrier(MIRType type);
-
-template <class VecT, class ABIArgGeneratorT>
-class ABIArgIterBase {
-  ABIArgGeneratorT gen_;
-  const VecT& types_;
-  unsigned i_;
-
-  void settle() {
-    if (!done()) gen_.next(ToMIRType(types_[i_]));
-  }
-
- public:
-  explicit ABIArgIterBase(const VecT& types) : types_(types), i_(0) {
-    settle();
-  }
-  void operator++(int) {
-    MOZ_ASSERT(!done());
-    i_++;
-    settle();
-  }
-  bool done() const { return i_ == types_.length(); }
-
-  ABIArg* operator->() {
-    MOZ_ASSERT(!done());
-    return &gen_.current();
-  }
-  ABIArg& operator*() {
-    MOZ_ASSERT(!done());
-    return gen_.current();
-  }
-
-  unsigned index() const {
-    MOZ_ASSERT(!done());
-    return i_;
-  }
-  MIRType mirType() const {
-    MOZ_ASSERT(!done());
-    return ToMIRType(types_[i_]);
-  }
-  uint32_t stackBytesConsumedSoFar() const {
-    return gen_.stackBytesConsumedSoFar();
-  }
-};
-
-// This is not an alias because we want to allow class template argument
-// deduction.
-template <class VecT>
-class ABIArgIter : public ABIArgIterBase<VecT, ABIArgGenerator> {
- public:
-  explicit ABIArgIter(const VecT& types)
-      : ABIArgIterBase<VecT, ABIArgGenerator>(types) {}
-};
-
-class WasmABIArgGenerator : public ABIArgGenerator {
- public:
-  WasmABIArgGenerator() {
-    increaseStackOffset(wasm::FrameWithTls::sizeWithoutFrame());
-  }
-};
-
-template <class VecT>
-class WasmABIArgIter : public ABIArgIterBase<VecT, WasmABIArgGenerator> {
- public:
-  explicit WasmABIArgIter(const VecT& types)
-      : ABIArgIterBase<VecT, WasmABIArgGenerator>(types) {}
-};
 }  // namespace jit
 
 namespace wasm {

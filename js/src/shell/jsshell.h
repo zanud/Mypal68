@@ -9,8 +9,6 @@
 #include "mozilla/Maybe.h"
 #include "mozilla/TimeStamp.h"
 
-#include "jsapi.h"
-
 #include "builtin/MapObject.h"
 #include "js/GCVector.h"
 #include "shell/ModuleLoader.h"
@@ -140,7 +138,6 @@ extern bool enableIteratorHelpers;
 extern bool enablePrivateClassFields;
 extern bool enablePrivateClassMethods;
 extern bool enableErgonomicBrandChecks;
-extern bool enableTopLevelAwait;
 extern bool enableClassStaticBlocks;
 #ifdef JS_GC_ZEAL
 extern uint32_t gZealBits;

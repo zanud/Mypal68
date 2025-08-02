@@ -21,72 +21,60 @@
 #include <stdarg.h>
 #include <string.h>
 
-#include "jsdate.h"
 #include "jsexn.h"
 #include "jsfriendapi.h"
 #include "jsmath.h"
-#include "jsnum.h"
 #include "jstypes.h"
 
-#include "builtin/Array.h"
 #include "builtin/AtomicsObject.h"
-#include "builtin/Boolean.h"
 #include "builtin/Eval.h"
-#include "builtin/FinalizationRegistryObject.h"
 #include "builtin/JSON.h"
-#include "builtin/MapObject.h"
 #include "builtin/Promise.h"
-#include "builtin/Stream.h"
 #include "builtin/Symbol.h"
 #include "frontend/BytecodeCompilation.h"  // frontend::CompileGlobalScriptToStencil, frontend::InstantiateStencils
 #include "frontend/BytecodeCompiler.h"
 #include "frontend/CompilationStencil.h"  // frontend::CompilationStencil, frontend::CompilationGCOutput
 #include "gc/FreeOp.h"
 #include "gc/Marking.h"
-#include "gc/Policy.h"
 #include "gc/PublicIterators.h"
-#include "gc/WeakMap.h"
-#include "jit/JitCommon.h"
 #include "jit/JitSpewer.h"
 #include "js/CallAndConstruct.h"  // JS::IsCallable
 #include "js/CharacterEncoding.h"
-#include "js/CompilationAndEvaluation.h"
 #include "js/CompileOptions.h"
 #include "js/ContextOptions.h"  // JS::ContextOptions{,Ref}
 #include "js/Conversions.h"
-#include "js/Date.h"
+#include "js/ErrorInterceptor.h"
 #include "js/friend/ErrorMessages.h"  // js::GetErrorMessage, JSMSG_*
 #include "js/friend/StackLimits.h"    // js::AutoCheckRecursionLimit
+#include "js/GlobalObject.h"
 #include "js/Initialization.h"
+#include "js/Interrupt.h"
 #include "js/JSON.h"
 #include "js/LocaleSensitive.h"
+#include "js/MemoryCallbacks.h"
 #include "js/MemoryFunctions.h"
 #include "js/OffThreadScriptCompilation.h"  // js::UseOffThreadParseGlobal
 #include "js/PropertySpec.h"
 #include "js/Proxy.h"
-#include "js/SliceBudget.h"
-#include "js/SourceText.h"
+#include "js/ScriptPrivate.h"
 #include "js/StableStringChars.h"
+#include "js/Stack.h"
+#include "js/StreamConsumer.h"
 #include "js/String.h"  // JS::MaxStringLength
-#include "js/StructuredClone.h"
 #include "js/Symbol.h"
+#include "js/TelemetryTimers.h"
 #include "js/Utility.h"
+#include "js/WaitCallbacks.h"
 #include "js/WasmModule.h"
 #include "js/Wrapper.h"
+#include "js/WrapperCallbacks.h"
 #include "proxy/DOMProxy.h"
-#include "util/CompleteFile.h"
-#include "util/DifferentialTesting.h"
 #include "util/StringBuffer.h"
 #include "util/Text.h"
-#include "vm/AsyncFunction.h"
-#include "vm/AsyncIteration.h"
-#include "vm/DateObject.h"
 #include "vm/EnvironmentObject.h"
 #include "vm/ErrorObject.h"
 #include "vm/ErrorReporting.h"
-#include "vm/HelperThreads.h"
 #include "vm/Interpreter.h"
-#include "vm/Iteration.h"
 #include "vm/JSAtom.h"
 #include "vm/JSAtomState.h"
 #include "vm/JSContext.h"
@@ -97,10 +85,7 @@
 #include "vm/PromiseObject.h"  // js::PromiseObject
 #include "vm/Runtime.h"
 #include "vm/SavedStacks.h"
-#include "vm/SelfHosting.h"
-#include "vm/Shape.h"
 #include "vm/StringType.h"
-#include "vm/SymbolType.h"
 #include "vm/ToSource.h"
 #include "vm/WrapperObject.h"
 #include "vm/Xdr.h"
@@ -113,7 +98,6 @@
 #include "vm/Interpreter-inl.h"
 #include "vm/IsGivenTypeObject-inl.h"  // js::IsGivenTypeObject
 #include "vm/JSAtom-inl.h"
-#include "vm/JSFunction-inl.h"
 #include "vm/JSScript-inl.h"
 #include "vm/NativeObject-inl.h"
 #include "vm/SavedStacks-inl.h"
@@ -1335,40 +1319,42 @@ JS_PUBLIC_API uint32_t JS_GetGCParameter(JSContext* cx, JSGCParamKey key) {
   return cx->runtime()->gc.getParameter(key);
 }
 
-JS_PUBLIC_API void JS_SetGCParametersBasedOnAvailableMemory(JSContext* cx,
-                                                            uint32_t availMem) {
+JS_PUBLIC_API void JS_SetGCParametersBasedOnAvailableMemory(
+    JSContext* cx, uint32_t availMemMB) {
   struct JSGCConfig {
     JSGCParamKey key;
     uint32_t value;
   };
 
   static const JSGCConfig minimal[] = {
-      {JSGC_SLICE_TIME_BUDGET_MS, 30},
+      {JSGC_SLICE_TIME_BUDGET_MS, 5},
       {JSGC_HIGH_FREQUENCY_TIME_LIMIT, 1500},
-      {JSGC_LARGE_HEAP_SIZE_MIN, 40},
-      {JSGC_SMALL_HEAP_SIZE_MAX, 0},
+      {JSGC_LARGE_HEAP_SIZE_MIN, 250},
+      {JSGC_SMALL_HEAP_SIZE_MAX, 50},
       {JSGC_HIGH_FREQUENCY_SMALL_HEAP_GROWTH, 300},
       {JSGC_HIGH_FREQUENCY_LARGE_HEAP_GROWTH, 120},
       {JSGC_LOW_FREQUENCY_HEAP_GROWTH, 120},
-      {JSGC_HIGH_FREQUENCY_TIME_LIMIT, 1500},
-      {JSGC_HIGH_FREQUENCY_TIME_LIMIT, 1500},
-      {JSGC_HIGH_FREQUENCY_TIME_LIMIT, 1500},
-      {JSGC_ALLOCATION_THRESHOLD, 1}};
+      {JSGC_ALLOCATION_THRESHOLD, 15},
+      {JSGC_MALLOC_THRESHOLD_BASE, 20},
+      {JSGC_SMALL_HEAP_INCREMENTAL_LIMIT, 200},
+      {JSGC_LARGE_HEAP_INCREMENTAL_LIMIT, 110},
+      {JSGC_URGENT_THRESHOLD_MB, 8}};
 
   static const JSGCConfig nominal[] = {
-      {JSGC_SLICE_TIME_BUDGET_MS, 30},
+      {JSGC_SLICE_TIME_BUDGET_MS, 5},
       {JSGC_HIGH_FREQUENCY_TIME_LIMIT, 1000},
       {JSGC_LARGE_HEAP_SIZE_MIN, 500},
       {JSGC_SMALL_HEAP_SIZE_MAX, 100},
       {JSGC_HIGH_FREQUENCY_SMALL_HEAP_GROWTH, 300},
       {JSGC_HIGH_FREQUENCY_LARGE_HEAP_GROWTH, 150},
       {JSGC_LOW_FREQUENCY_HEAP_GROWTH, 150},
-      {JSGC_HIGH_FREQUENCY_TIME_LIMIT, 1500},
-      {JSGC_HIGH_FREQUENCY_TIME_LIMIT, 1500},
-      {JSGC_HIGH_FREQUENCY_TIME_LIMIT, 1500},
-      {JSGC_ALLOCATION_THRESHOLD, 30}};
+      {JSGC_ALLOCATION_THRESHOLD, 27},
+      {JSGC_MALLOC_THRESHOLD_BASE, 38},
+      {JSGC_SMALL_HEAP_INCREMENTAL_LIMIT, 140},
+      {JSGC_LARGE_HEAP_INCREMENTAL_LIMIT, 110},
+      {JSGC_URGENT_THRESHOLD_MB, 16}};
 
-  const auto& configSet = availMem > 512 ? nominal : minimal;
+  const auto& configSet = availMemMB > 512 ? nominal : minimal;
   for (const auto& config : configSet) {
     JS_SetGCParameter(cx, config.key, config.value);
   }
@@ -1752,10 +1738,12 @@ JS_PUBLIC_API JSObject* JS_NewObject(JSContext* cx, const JSClass* clasp) {
   CHECK_THREAD(cx);
 
   if (!clasp) {
-    clasp = &PlainObject::class_; /* default class is Object */
+    // Default class is Object.
+    return NewPlainObject(cx);
   }
 
-  MOZ_ASSERT(clasp != &JSFunction::class_);
+  MOZ_ASSERT(!clasp->isJSFunction());
+  MOZ_ASSERT(clasp != &PlainObject::class_);
   MOZ_ASSERT(!(clasp->flags & JSCLASS_IS_GLOBAL));
 
   return NewBuiltinClassInstance(cx, clasp);
@@ -1770,10 +1758,12 @@ JS_PUBLIC_API JSObject* JS_NewObjectWithGivenProto(JSContext* cx,
   cx->check(proto);
 
   if (!clasp) {
-    clasp = &PlainObject::class_; /* default class is Object */
+    // Default class is Object.
+    return NewPlainObjectWithProto(cx, proto);
   }
 
-  MOZ_ASSERT(clasp != &JSFunction::class_);
+  MOZ_ASSERT(!clasp->isJSFunction());
+  MOZ_ASSERT(clasp != &PlainObject::class_);
   MOZ_ASSERT(!(clasp->flags & JSCLASS_IS_GLOBAL));
 
   return NewObjectWithGivenProto(cx, clasp, proto);
@@ -1784,7 +1774,7 @@ JS_PUBLIC_API JSObject* JS_NewPlainObject(JSContext* cx) {
   AssertHeapIsIdle();
   CHECK_THREAD(cx);
 
-  return NewBuiltinClassInstance<PlainObject>(cx);
+  return NewPlainObject(cx);
 }
 
 JS_PUBLIC_API JSObject* JS_NewObjectForConstructor(JSContext* cx,
@@ -2249,7 +2239,6 @@ void JS::TransitiveCompileOptions::copyPODTransitiveOptions(
   nonSyntacticScope = rhs.nonSyntacticScope;
   privateClassFields = rhs.privateClassFields;
   privateClassMethods = rhs.privateClassMethods;
-  topLevelAwait = rhs.topLevelAwait;
   classStaticBlocks = rhs.classStaticBlocks;
   useStencilXDR = rhs.useStencilXDR;
   useOffThreadParseGlobal = rhs.useOffThreadParseGlobal;
@@ -2335,7 +2324,6 @@ JS::CompileOptions::CompileOptions(JSContext* cx) : ReadOnlyCompileOptions() {
       cx->options().throwOnAsmJSValidationFailure();
   privateClassFields = cx->options().privateClassFields();
   privateClassMethods = cx->options().privateClassMethods();
-  topLevelAwait = cx->options().topLevelAwait();
 
   classStaticBlocks = cx->options().classStaticBlocks();
 
@@ -3006,11 +2994,6 @@ JS_PUBLIC_API JSString* JS_AtomizeAndPinUCStringN(JSContext* cx,
   return atom;
 }
 
-JS_PUBLIC_API JSString* JS_AtomizeAndPinUCString(JSContext* cx,
-                                                 const char16_t* s) {
-  return JS_AtomizeAndPinUCStringN(cx, s, js_strlen(s));
-}
-
 JS_PUBLIC_API size_t JS_GetStringLength(JSString* str) { return str->length(); }
 
 JS_PUBLIC_API bool JS_StringIsLinear(JSString* str) { return str->isLinear(); }
@@ -3651,39 +3634,24 @@ JS_PUBLIC_API void JS_ClearPendingException(JSContext* cx) {
 }
 
 JS::AutoSaveExceptionState::AutoSaveExceptionState(JSContext* cx)
-    : context(cx),
-      wasPropagatingForcedReturn(cx->propagatingForcedReturn_),
-      wasOverRecursed(cx->overRecursed_),
-      wasThrowing(cx->throwing),
-      exceptionValue(cx),
-      exceptionStack(cx) {
+    : context(cx), status(cx->status), exceptionValue(cx), exceptionStack(cx) {
   AssertHeapIsIdle();
   CHECK_THREAD(cx);
-  if (wasPropagatingForcedReturn) {
-    cx->clearPropagatingForcedReturn();
-  }
-  if (wasOverRecursed) {
-    cx->overRecursed_ = false;
-  }
-  if (wasThrowing) {
+  if (IsCatchableExceptionStatus(status)) {
     exceptionValue = cx->unwrappedException();
     exceptionStack = cx->unwrappedExceptionStack();
-    cx->clearPendingException();
   }
+  cx->clearPendingException();
 }
 
 void JS::AutoSaveExceptionState::drop() {
-  wasPropagatingForcedReturn = false;
-  wasOverRecursed = false;
-  wasThrowing = false;
+  status = JS::ExceptionStatus::None;
   exceptionValue.setUndefined();
   exceptionStack = nullptr;
 }
 
 void JS::AutoSaveExceptionState::restore() {
-  context->propagatingForcedReturn_ = wasPropagatingForcedReturn;
-  context->overRecursed_ = wasOverRecursed;
-  context->throwing = wasThrowing;
+  context->status = status;
   context->unwrappedException() = exceptionValue;
   if (exceptionStack) {
     context->unwrappedExceptionStack() = &exceptionStack->as<SavedFrame>();
@@ -3692,13 +3660,14 @@ void JS::AutoSaveExceptionState::restore() {
 }
 
 JS::AutoSaveExceptionState::~AutoSaveExceptionState() {
+  // NOTE: An interrupt/uncatchable exception or a debugger-forced-return may be
+  //       clobbered here by the saved exception. If that is not desired, this
+  //       state should be dropped before the destructor fires.
   if (!context->isExceptionPending()) {
-    if (wasPropagatingForcedReturn) {
-      context->setPropagatingForcedReturn();
+    if (status != JS::ExceptionStatus::None) {
+      context->status = status;
     }
-    if (wasThrowing) {
-      context->overRecursed_ = wasOverRecursed;
-      context->throwing = true;
+    if (IsCatchableExceptionStatus(status)) {
       context->unwrappedException() = exceptionValue;
       if (exceptionStack) {
         context->unwrappedExceptionStack() = &exceptionStack->as<SavedFrame>();

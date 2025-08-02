@@ -19,6 +19,7 @@
 #include "builtin/Array.h"
 #include "gc/Barrier.h"
 #include "js/GCVariant.h"
+#include "js/TelemetryTimers.h"
 #include "js/UniquePtr.h"
 #include "vm/ArrayBufferObject.h"
 #include "vm/Compartment.h"
@@ -309,16 +310,6 @@ class JS::Realm : public JS::shadow::Realm {
   js::ObjectRealm objects_;
   friend js::ObjectRealm& js::ObjectRealm::get(const JSObject*);
 
-  // The global environment record's [[VarNames]] list that contains all
-  // names declared using FunctionDeclaration, GeneratorDeclaration, and
-  // VariableDeclaration declarations in global code in this realm.
-  // Names are only removed from this list by a |delete IdentifierReference|
-  // that successfully removes that global property.
-  using VarNamesSet =
-      GCHashSet<js::WeakHeapPtr<JSAtom*>, js::DefaultHasher<JSAtom*>,
-                js::ZoneAllocPolicy>;
-  VarNamesSet varNames_;
-
   friend class js::AutoSetNewObjectMetadata;
   js::NewObjectMetadataState objectMetadataState_{js::ImmediateMetadata()};
 
@@ -348,12 +339,6 @@ class JS::Realm : public JS::shadow::Realm {
   // cx->enableAccessValidation is true, then we assert that *validAccessPtr
   // is true before running any code in this realm.
   bool* validAccessPtr_ = nullptr;
-
-  js::WeakHeapPtr<js::ArgumentsObject*> mappedArgumentsTemplate_{nullptr};
-  js::WeakHeapPtr<js::ArgumentsObject*> unmappedArgumentsTemplate_{nullptr};
-  js::WeakHeapPtr<js::PlainObject*> iterResultTemplate_{nullptr};
-  js::WeakHeapPtr<js::PlainObject*> iterResultWithoutPrototypeTemplate_{
-      nullptr};
 
   // There are two ways to enter a realm:
   //
@@ -420,12 +405,6 @@ class JS::Realm : public JS::shadow::Realm {
   js::ArraySpeciesLookup arraySpeciesLookup;
   js::PromiseLookup promiseLookup;
 
-  /*
-   * Lazily initialized script source object to use for scripts cloned
-   * from the self-hosting global.
-   */
-  js::WeakHeapPtrScriptSourceObject selfHostingScriptSource{nullptr};
-
   // Last time at which an animation was played for this realm.
   js::MainThreadData<mozilla::TimeStamp> lastAnimationTime;
 
@@ -465,7 +444,7 @@ class JS::Realm : public JS::shadow::Realm {
                               size_t* realmObject, size_t* realmTables,
                               size_t* innerViewsArg,
                               size_t* objectMetadataTablesArg,
-                              size_t* savedStacksSet, size_t* varNamesSet,
+                              size_t* savedStacksSet,
                               size_t* nonSyntacticLexicalEnvironmentsArg,
                               size_t* jitRealm);
 
@@ -543,8 +522,6 @@ class JS::Realm : public JS::shadow::Realm {
   void sweepDebugEnvironments();
   void traceWeakObjectRealm(JSTracer* trc);
   void traceWeakRegExps(JSTracer* trc);
-  void traceWeakSelfHostingScriptSource(JSTracer* trc);
-  void traceWeakTemplateObjects(JSTracer* trc);
 
   void clearScriptCounts();
   void clearScriptLCov();
@@ -552,15 +529,6 @@ class JS::Realm : public JS::shadow::Realm {
   void purge();
 
   void fixupAfterMovingGC(JSTracer* trc);
-
-  // Add a name to [[VarNames]].  Reports OOM on failure.
-  [[nodiscard]] bool addToVarNames(JSContext* cx, JS::Handle<JSAtom*> name);
-  void tracekWeakVarNames(JSTracer* trc);
-
-  void removeFromVarNames(JS::Handle<JSAtom*> name) { varNames_.remove(name); }
-
-  // Whether the given name is in [[VarNames]].
-  bool isInVarNames(JS::Handle<JSAtom*> name) { return varNames_.has(name); }
 
   void enter() { enterRealmDepthIgnoringJit_++; }
   void leave() {
@@ -634,23 +602,6 @@ class JS::Realm : public JS::shadow::Realm {
   void setPrincipals(JSPrincipals* principals) { principals_ = principals; }
 
   bool isSystem() const { return isSystem_; }
-
-  static const size_t IterResultObjectValueSlot = 0;
-  static const size_t IterResultObjectDoneSlot = 1;
-  js::PlainObject* getOrCreateIterResultTemplateObject(JSContext* cx);
-  js::PlainObject* getOrCreateIterResultWithoutPrototypeTemplateObject(
-      JSContext* cx);
-
- private:
-  enum class WithObjectPrototype { No, Yes };
-  js::PlainObject* createIterResultTemplateObject(
-      JSContext* cx, WithObjectPrototype withProto);
-
- public:
-  js::ArgumentsObject* getOrCreateArgumentsTemplateObject(JSContext* cx,
-                                                          bool mapped);
-  js::ArgumentsObject* maybeArgumentsTemplateObject(bool mapped) const;
-
   //
   // The Debugger observes execution on a frame-by-frame basis. The
   // invariants of Realm's debug mode bits, JSScript::isDebuggee,
@@ -871,6 +822,25 @@ class MOZ_RAII AutoMaybeLeaveAtomsZone {
 class AutoRealmUnchecked : protected AutoRealm {
  public:
   inline AutoRealmUnchecked(JSContext* cx, JS::Realm* target);
+};
+
+// Similar to AutoRealm, but this uses GetFunctionRealm in the spec, and
+// handles both bound functions and proxies.
+//
+// If GetFunctionRealm fails for the following reasons, this does nothing:
+//   * `fun` is revoked proxy
+//   * unwrapping failed because of a security wrapper
+class AutoFunctionOrCurrentRealm {
+  mozilla::Maybe<AutoRealmUnchecked> ar_;
+
+ public:
+  inline AutoFunctionOrCurrentRealm(JSContext* cx, js::HandleObject fun);
+  ~AutoFunctionOrCurrentRealm() = default;
+
+ private:
+  AutoFunctionOrCurrentRealm(const AutoFunctionOrCurrentRealm&) = delete;
+  AutoFunctionOrCurrentRealm& operator=(const AutoFunctionOrCurrentRealm&) =
+      delete;
 };
 
 /*

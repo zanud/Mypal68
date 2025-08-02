@@ -17,6 +17,7 @@
 
 #include <string.h>
 
+#include "jsapi.h"
 #include "jslibmath.h"
 #include "jsmath.h"
 #include "jsnum.h"
@@ -27,8 +28,6 @@
 #include "builtin/Promise.h"
 #include "jit/AtomicOperations.h"
 #include "jit/BaselineJIT.h"
-#include "jit/Ion.h"
-#include "jit/IonAnalysis.h"
 #include "jit/Jit.h"
 #include "jit/JitRuntime.h"
 #include "js/CallAndConstruct.h"  // JS::Construct, JS::IsCallable, JS::IsConstructor
@@ -410,11 +409,13 @@ MOZ_ALWAYS_INLINE bool CallJSNativeConstructor(JSContext* cx, Native native,
    * constructor to return the callee, the assertion can be removed or
    * (another) conjunct can be added to the antecedent.
    *
-   * Exception: (new Object(Object)) returns the callee.
+   * Exception: (new Object(Object)) returns the callee. Also allow if this may
+   *            be due to a debugger hook since fuzzing may let this happen.
    */
-  MOZ_ASSERT_IF((!callee->is<JSFunction>() ||
-                 callee->as<JSFunction>().native() != obj_construct),
-                args.rval().isObject() && callee != &args.rval().toObject());
+  MOZ_ASSERT(args.rval().isObject());
+  MOZ_ASSERT_IF(!JS_IsNativeFunction(callee, obj_construct) &&
+                    !cx->insideDebuggerEvaluationWithOnNativeCallHook,
+                args.rval() != ObjectValue(*callee));
 
   return true;
 }
@@ -556,7 +557,8 @@ bool js::Call(JSContext* cx, HandleValue fval, HandleValue thisv,
 static bool InternalConstruct(JSContext* cx, const AnyConstructArgs& args) {
   MOZ_ASSERT(args.array() + args.length() + 1 == args.end(),
              "must pass constructing arguments to a construction attempt");
-  MOZ_ASSERT(!JSFunction::class_.getConstruct());
+  MOZ_ASSERT(!FunctionClass.getConstruct());
+  MOZ_ASSERT(!ExtendedFunctionClass.getConstruct());
 
   // Callers are responsible for enforcing these preconditions.
   MOZ_ASSERT(IsConstructor(args.calleev()),
@@ -868,12 +870,12 @@ PlainObject* js::ObjectWithProtoOperation(JSContext* cx, HandleValue val) {
   }
 
   RootedObject proto(cx, val.toObjectOrNull());
-  return NewObjectWithGivenProto<PlainObject>(cx, proto);
+  return NewPlainObjectWithProto(cx, proto);
 }
 
 JSObject* js::FunWithProtoOperation(JSContext* cx, HandleFunction fun,
                                     HandleObject parent, HandleObject proto) {
-  return CloneFunctionObject(cx, fun, parent, proto);
+  return CloneFunctionReuseScript(cx, fun, parent, proto);
 }
 
 /*
@@ -2014,6 +2016,7 @@ static MOZ_NEVER_INLINE JS_HAZ_JSNATIVE_CALLER bool Interpret(JSContext* cx,
   RootedValue rootValue0(cx), rootValue1(cx);
   RootedObject rootObject0(cx), rootObject1(cx);
   RootedFunction rootFunction0(cx);
+  RootedAtom rootAtom0(cx);
   RootedPropertyName rootName0(cx);
   RootedId rootId0(cx);
   RootedScript rootScript0(cx);
@@ -2379,6 +2382,18 @@ static MOZ_NEVER_INLINE JS_HAZ_JSNATIVE_CALLER bool Interpret(JSContext* cx,
       PUSH_BOOLEAN(result);
     }
     END_CASE(CheckPrivateField)
+
+    CASE(NewPrivateName) {
+      ReservedRooted<JSAtom*> name(&rootAtom0, script->getAtom(REGS.pc));
+
+      auto* symbol = NewPrivateName(cx, name);
+      if (!symbol) {
+        goto error;
+      }
+
+      PUSH_SYMBOL(symbol);
+    }
+    END_CASE(NewPrivateName)
 
     CASE(Iter) {
       MOZ_ASSERT(REGS.stackDepth() >= 1);
@@ -4536,7 +4551,8 @@ JSObject* js::Lambda(JSContext* cx, HandleFunction fun, HandleObject parent) {
     MOZ_ASSERT(IsAsmJSModule(fun));
     clone = CloneAsmJSModuleFunction(cx, fun);
   } else {
-    clone = CloneFunctionObject(cx, fun, parent);
+    RootedObject proto(cx, fun->staticPrototype());
+    clone = CloneFunctionReuseScript(cx, fun, parent, proto);
   }
   if (!clone) {
     return nullptr;
@@ -4550,7 +4566,8 @@ JSObject* js::LambdaArrow(JSContext* cx, HandleFunction fun,
                           HandleObject parent, HandleValue newTargetv) {
   MOZ_ASSERT(fun->isArrow());
 
-  JSFunction* clone = CloneFunctionObject(cx, fun, parent);
+  RootedObject proto(cx, fun->staticPrototype());
+  JSFunction* clone = CloneFunctionReuseScript(cx, fun, parent, proto);
   if (!clone) {
     return nullptr;
   }
@@ -4807,7 +4824,7 @@ bool js::DeleteNameOperation(JSContext* cx, HandlePropertyName name,
   if (status) {
     // Deleting a name from the global object removes it from [[VarNames]].
     if (pobj == scope && scope->is<GlobalObject>()) {
-      scope->as<GlobalObject>().realm()->removeFromVarNames(name);
+      scope->as<GlobalObject>().removeFromVarNames(name);
     }
   }
 
@@ -4998,24 +5015,14 @@ bool js::OptimizeSpreadCall(JSContext* cx, HandleValue arg, bool* optimized) {
 }
 
 JSObject* js::NewObjectOperation(JSContext* cx, HandleScript script,
-                                 jsbytecode* pc,
-                                 NewObjectKind newKind /* = GenericObject */) {
-  // Extract the template object, if one exists, and copy it.
+                                 jsbytecode* pc) {
   if (JSOp(*pc) == JSOp::NewObject) {
-    RootedPlainObject baseObject(cx, &script->getObject(pc)->as<PlainObject>());
-    return CopyTemplateObject(cx, baseObject, newKind);
+    RootedShape shape(cx, script->getShape(pc));
+    return PlainObject::createWithShape(cx, shape);
   }
 
   MOZ_ASSERT(JSOp(*pc) == JSOp::NewInit);
-  return NewBuiltinClassInstanceWithKind<PlainObject>(cx, newKind);
-}
-
-JSObject* js::NewObjectOperationWithTemplate(JSContext* cx,
-                                             HandleObject templateObject) {
-  MOZ_ASSERT(cx->realm() == templateObject->nonCCWRealm());
-
-  NewObjectKind newKind = GenericObject;
-  return CopyTemplateObject(cx, templateObject.as<PlainObject>(), newKind);
+  return NewPlainObject(cx);
 }
 
 JSObject* js::NewPlainObjectBaselineFallback(JSContext* cx, HandleShape shape,
@@ -5023,8 +5030,7 @@ JSObject* js::NewPlainObjectBaselineFallback(JSContext* cx, HandleShape shape,
                                              gc::AllocSite* site) {
   MOZ_ASSERT(shape->getObjectClass() == &PlainObject::class_);
   gc::InitialHeap initialHeap = site->initialHeap();
-  auto r = NativeObject::create(cx, allocKind, initialHeap, shape, site);
-  return cx->resultToPtr(r);
+  return NativeObject::create(cx, allocKind, initialHeap, shape, site);
 }
 
 JSObject* js::NewPlainObjectOptimizedFallback(JSContext* cx, HandleShape shape,
@@ -5032,8 +5038,7 @@ JSObject* js::NewPlainObjectOptimizedFallback(JSContext* cx, HandleShape shape,
                                               gc::InitialHeap initialHeap) {
   MOZ_ASSERT(shape->getObjectClass() == &PlainObject::class_);
   gc::AllocSite* site = cx->zone()->optimizedAllocSite();
-  auto r = NativeObject::create(cx, allocKind, initialHeap, shape, site);
-  return cx->resultToPtr(r);
+  return NativeObject::create(cx, allocKind, initialHeap, shape, site);
 }
 
 JSObject* js::CreateThisWithTemplate(JSContext* cx,
@@ -5044,14 +5049,14 @@ JSObject* js::CreateThisWithTemplate(JSContext* cx,
     ar.emplace(cx, templateObject);
   }
 
-  NewObjectKind newKind = GenericObject;
-  return CopyTemplateObject(cx, templateObject.as<PlainObject>(), newKind);
+  RootedShape shape(cx, templateObject->shape());
+  return PlainObject::createWithShape(cx, shape);
 }
 
 ArrayObject* js::NewArrayOperation(
     JSContext* cx, uint32_t length,
     NewObjectKind newKind /* = GenericObject */) {
-  return NewDenseFullyAllocatedArray(cx, length, nullptr, newKind);
+  return NewDenseFullyAllocatedArray(cx, length, newKind);
 }
 
 ArrayObject* js::NewArrayObjectBaselineFallback(JSContext* cx, uint32_t length,
@@ -5059,8 +5064,7 @@ ArrayObject* js::NewArrayObjectBaselineFallback(JSContext* cx, uint32_t length,
                                                 gc::AllocSite* site) {
   NewObjectKind newKind =
       site->initialHeap() == gc::TenuredHeap ? TenuredObject : GenericObject;
-  ArrayObject* array =
-      NewDenseFullyAllocatedArray(cx, length, nullptr, newKind, site);
+  ArrayObject* array = NewDenseFullyAllocatedArray(cx, length, newKind, site);
   // It's important that we allocate an object with the alloc kind we were
   // expecting so that a new arena gets allocated if the current arena for that
   // kind is full.
@@ -5073,8 +5077,7 @@ ArrayObject* js::NewArrayObjectOptimizedFallback(JSContext* cx, uint32_t length,
                                                  gc::AllocKind allocKind,
                                                  NewObjectKind newKind) {
   gc::AllocSite* site = cx->zone()->optimizedAllocSite();
-  ArrayObject* array =
-      NewDenseFullyAllocatedArray(cx, length, nullptr, newKind, site);
+  ArrayObject* array = NewDenseFullyAllocatedArray(cx, length, newKind, site);
   // It's important that we allocate an object with the alloc kind we were
   // expecting so that a new arena gets allocated if the current arena for that
   // kind is full.

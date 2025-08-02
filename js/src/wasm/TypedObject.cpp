@@ -44,27 +44,6 @@ using mozilla::PointerRangeSize;
 using namespace js;
 using namespace wasm;
 
-/***************************************************************************
- * Typed Prototypes
- *
- * Every type descriptor has an associated prototype. Instances of
- * that type descriptor use this as their prototype. Per the spec,
- * typed object prototypes cannot be mutated.
- */
-
-const JSClass js::TypedProto::class_ = {"TypedProto"};
-
-TypedProto* TypedProto::create(JSContext* cx) {
-  Handle<GlobalObject*> global = cx->global();
-  RootedObject objProto(cx,
-                        GlobalObject::getOrCreateObjectPrototype(cx, global));
-  if (!objProto) {
-    return nullptr;
-  }
-
-  return NewTenuredObjectWithGivenProto<TypedProto>(cx, objProto);
-}
-
 static const JSClassOps RttValueClassOps = {
     nullptr,             // addProperty
     nullptr,             // delProperty
@@ -85,33 +64,24 @@ const JSClass js::RttValue::class_ = {
         JSCLASS_HAS_RESERVED_SLOTS(RttValue::SlotCount),
     &RttValueClassOps};
 
-RttValue* RttValue::createFromHandle(JSContext* cx, TypeHandle handle) {
-  const TypeDef& type = handle.get(cx->wasm().typeContext.get());
-
+RttValue* RttValue::create(JSContext* cx, TypeHandle handle) {
   Rooted<RttValue*> rtt(cx,
                         NewTenuredObjectWithGivenProto<RttValue>(cx, nullptr));
   if (!rtt) {
     return nullptr;
   }
 
-  Rooted<TypedProto*> proto(cx, TypedProto::create(cx));
-  if (!proto) {
-    return nullptr;
-  }
-
-  rtt->initReservedSlot(RttValue::Handle, Int32Value(handle.index()));
-  rtt->initReservedSlot(RttValue::Kind, Int32Value(uint32_t(type.kind())));
-  if (type.isStructType()) {
-    const StructType& structType = type.structType();
-    rtt->initReservedSlot(RttValue::Size, Int32Value(structType.size_));
-  } else {
-    const ArrayType& arrayType = type.arrayType();
-    rtt->initReservedSlot(RttValue::Size,
-                          Int32Value(arrayType.elementType_.size()));
-  }
-  rtt->initReservedSlot(RttValue::Proto, ObjectValue(*proto));
+  // Store the TypeContext in a slot and keep it alive until finalization by
+  // manually addref'ing the RefPtr
+  const SharedTypeContext& typeContext = handle.context();
+  typeContext.get()->AddRef();
+  rtt->initReservedSlot(RttValue::TypeContext,
+                        PrivateValue((void*)typeContext.get()));
+  rtt->initReservedSlot(RttValue::TypeDef, PrivateValue((void*)&handle.def()));
   rtt->initReservedSlot(RttValue::Parent, NullValue());
   rtt->initReservedSlot(RttValue::Children, PrivateValue(nullptr));
+
+  MOZ_ASSERT(!rtt->isNewborn());
 
   if (!cx->zone()->addRttValueObject(cx, rtt)) {
     ReportOutOfMemory(cx);
@@ -119,6 +89,10 @@ RttValue* RttValue::createFromHandle(JSContext* cx, TypeHandle handle) {
   }
 
   return rtt;
+}
+
+RttValue* RttValue::rttCanon(JSContext* cx, TypeHandle handle) {
+  return RttValue::create(cx, handle);
 }
 
 RttValue* RttValue::rttSub(JSContext* cx, HandleRttValue parent,
@@ -132,8 +106,7 @@ RttValue* RttValue::rttSub(JSContext* cx, HandleRttValue parent,
     return &child->as<RttValue>();
   }
 
-  wasm::TypeHandle parentHandle = parent->handle();
-  Rooted<RttValue*> rtt(cx, createFromHandle(cx, parentHandle));
+  Rooted<RttValue*> rtt(cx, create(cx, parent->typeHandle()));
   if (!rtt) {
     return nullptr;
   }
@@ -160,7 +133,10 @@ bool RttValue::ensureChildren(JSContext* cx) {
 
 /* static */
 void RttValue::trace(JSTracer* trc, JSObject* obj) {
-  auto rttValue = &obj->as<RttValue>();
+  auto* rttValue = &obj->as<RttValue>();
+  if (rttValue->isNewborn()) {
+    return;
+  }
 
   if (ObjectWeakMap* children = rttValue->maybeChildren()) {
     children->trace(trc);
@@ -169,8 +145,19 @@ void RttValue::trace(JSTracer* trc, JSObject* obj) {
 
 /* static */
 void RttValue::finalize(JSFreeOp* fop, JSObject* obj) {
-  auto rttValue = &obj->as<RttValue>();
+  auto* rttValue = &obj->as<RttValue>();
 
+  // Nothing to free if we're not initialized yet
+  if (rttValue->isNewborn()) {
+    return;
+  }
+
+  // Free the ref-counted TypeContext we took a strong reference to upon
+  // creation
+  rttValue->typeContext()->Release();
+  rttValue->setReservedSlot(Slot::TypeContext, PrivateValue(nullptr));
+
+  // Free the lazy-allocated children map, if any
   if (ObjectWeakMap* children = rttValue->maybeChildren()) {
     fop->delete_(obj, children, MemoryUse::WasmRttValueChildren);
   }
@@ -190,7 +177,7 @@ uint8_t* TypedObject::typedMem() const {
 template <typename V>
 void TypedObject::visitReferences(JSContext* cx, V& visitor) {
   RttValue& rtt = rttValue();
-  const auto& typeDef = rtt.getType(cx);
+  const auto& typeDef = rtt.typeDef();
   uint8_t* base = typedMem();
 
   switch (typeDef.kind()) {
@@ -242,6 +229,36 @@ void MemoryTracingVisitor::visitReference(uint8_t* base, size_t offset) {
   TraceNullableEdge(trace_, objectPtr, "reference-obj");
 }
 
+template <typename T>
+static T* NewTypedObject(JSContext* cx, gc::AllocKind allocKind,
+                         gc::InitialHeap heap) {
+  const JSClass* clasp = &T::class_;
+  MOZ_ASSERT(IsTypedObjectClass(clasp));
+
+  if (CanChangeToBackgroundAllocKind(allocKind, clasp)) {
+    allocKind = ForegroundToBackgroundAllocKind(allocKind);
+  }
+
+  RootedShape shape(
+      cx, SharedShape::getInitialShape(cx, clasp, cx->realm(), TaggedProto(),
+                                       /* nfixed = */ 0, ObjectFlags()));
+  if (!shape) {
+    return nullptr;
+  }
+
+  NewObjectKind newKind =
+      (heap == gc::TenuredHeap) ? TenuredObject : GenericObject;
+  heap = GetInitialHeap(newKind, clasp);
+
+  TypedObject* obj = TypedObject::create(cx, allocKind, heap, shape);
+  if (!obj) {
+    return nullptr;
+  }
+
+  probes::CreateObject(cx, obj);
+  return &obj->as<T>();
+}
+
 /******************************************************************************
  * Outline typed objects
  */
@@ -253,12 +270,7 @@ OutlineTypedObject* OutlineTypedObject::create(JSContext* cx,
                                                gc::InitialHeap heap) {
   AutoSetNewObjectMetadata metadata(cx);
 
-  RootedObject proto(cx, &rtt->typedProto());
-
-  NewObjectKind newKind =
-      (heap == gc::TenuredHeap) ? TenuredObject : GenericObject;
-  auto* obj = NewObjectWithGivenProtoAndKinds<OutlineTypedObject>(
-      cx, proto, allocKind(), newKind);
+  auto* obj = NewTypedObject<OutlineTypedObject>(cx, allocKind(), heap);
   if (!obj) {
     return nullptr;
   }
@@ -277,7 +289,8 @@ OutlineTypedObject* OutlineTypedObject::create(JSContext* cx,
 OutlineTypedObject* OutlineTypedObject::createStruct(JSContext* cx,
                                                      HandleRttValue rtt,
                                                      gc::InitialHeap heap) {
-  return OutlineTypedObject::create(cx, rtt, rtt->size(), heap);
+  return OutlineTypedObject::create(cx, rtt, rtt->typeDef().structType().size_,
+                                    heap);
 }
 
 /*static*/
@@ -287,7 +300,7 @@ OutlineTypedObject* OutlineTypedObject::createArray(JSContext* cx,
                                                     gc::InitialHeap heap) {
   size_t byteLength = offsetOfArrayLength() +
                       sizeof(OutlineTypedObject::ArrayLength) +
-                      (rtt->size() * length);
+                      (rtt->typeDef().arrayType().elementType_.size() * length);
   Rooted<OutlineTypedObject*> obj(
       cx, OutlineTypedObject::create(cx, rtt, byteLength, heap));
   if (!obj) {
@@ -303,7 +316,7 @@ OutlineTypedObject* OutlineTypedObject::createArray(JSContext* cx,
 TypedObject* TypedObject::createStruct(JSContext* cx, HandleRttValue rtt,
                                        gc::InitialHeap heap) {
   RootedTypedObject typedObj(cx);
-  uint32_t totalSize = rtt->getType(cx).structType().size_;
+  uint32_t totalSize = rtt->typeDef().structType().size_;
 
   // If possible, create an object with inline data.
   if (InlineTypedObject::canAccommodateSize(totalSize)) {
@@ -369,13 +382,9 @@ void OutlineTypedObject::obj_finalize(JSFreeOp* fop, JSObject* object) {
   }
 }
 
-const TypeDef& RttValue::getType(JSContext* cx) const {
-  return handle().get(cx->wasm().typeContext.get());
-}
-
 bool RttValue::lookupProperty(JSContext* cx, HandleTypedObject object, jsid id,
                               uint32_t* offset, FieldType* type) {
-  const auto& typeDef = getType(cx);
+  const auto& typeDef = this->typeDef();
 
   switch (typeDef.kind()) {
     case wasm::TypeDefKind::Struct: {
@@ -556,7 +565,7 @@ bool TypedObject::obj_newEnumerate(JSContext* cx, HandleObject obj,
   Rooted<TypedObject*> typedObj(cx, &obj->as<TypedObject>());
 
   const auto& rtt = typedObj->rttValue();
-  const auto& typeDef = rtt.getType(cx);
+  const auto& typeDef = rtt.typeDef();
 
   size_t indexCount = 0;
   size_t otherCount = 0;
@@ -612,13 +621,14 @@ void TypedObject::initDefault() {
   RttValue& rtt = rttValue();
   switch (rtt.kind()) {
     case TypeDefKind::Struct: {
-      memset(typedMem(), 0, rtt.size());
+      memset(typedMem(), 0, rtt.typeDef().structType().size_);
       break;
     }
     case TypeDefKind::Array: {
       MOZ_ASSERT(is<OutlineTypedObject>());
       uint32_t length = as<OutlineTypedObject>().arrayLength();
-      memset(typedMem() + sizeof(uint32_t), 0, rtt.size() * length);
+      memset(typedMem() + sizeof(uint32_t), 0,
+             rtt.typeDef().arrayType().elementType_.size() * length);
       break;
     }
     default:
@@ -638,12 +648,7 @@ InlineTypedObject* InlineTypedObject::createStruct(JSContext* cx,
 
   gc::AllocKind allocKind = allocKindForRttValue(rtt);
 
-  RootedObject proto(cx, &rtt->typedProto());
-
-  NewObjectKind newKind =
-      (heap == gc::TenuredHeap) ? TenuredObject : GenericObject;
-  auto* obj = NewObjectWithGivenProtoAndKinds<InlineTypedObject>(
-      cx, proto, allocKind, newKind);
+  auto* obj = NewTypedObject<InlineTypedObject>(cx, allocKind, heap);
   if (!obj) {
     return nullptr;
   }
@@ -713,9 +718,10 @@ DEFINE_TYPEDOBJ_CLASS(OutlineTypedObject, OutlineTypedObject::obj_trace,
 DEFINE_TYPEDOBJ_CLASS(InlineTypedObject, InlineTypedObject::obj_trace, nullptr,
                       InlineTypedObject::obj_moved, 0);
 
-/* static */ JS::Result<TypedObject*, JS::OOM> TypedObject::create(
-    JSContext* cx, js::gc::AllocKind kind, js::gc::InitialHeap heap,
-    js::HandleShape shape) {
+/* static */
+TypedObject* TypedObject::create(JSContext* cx, js::gc::AllocKind kind,
+                                 js::gc::InitialHeap heap,
+                                 js::HandleShape shape) {
   debugCheckNewObject(shape, kind, heap);
 
   const JSClass* clasp = shape->getObjectClass();
@@ -725,7 +731,7 @@ DEFINE_TYPEDOBJ_CLASS(InlineTypedObject, InlineTypedObject::obj_trace, nullptr,
   JSObject* obj =
       js::AllocateObject(cx, kind, /* nDynamicSlots = */ 0, heap, clasp);
   if (!obj) {
-    return cx->alreadyReportedOOM();
+    return nullptr;
   }
 
   TypedObject* tobj = static_cast<TypedObject*>(obj);

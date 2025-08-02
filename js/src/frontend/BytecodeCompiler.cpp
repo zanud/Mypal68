@@ -41,7 +41,6 @@ using namespace js;
 using namespace js::frontend;
 
 using mozilla::Maybe;
-using mozilla::Nothing;
 using mozilla::Utf8Unit;
 
 using JS::CompileOptions;
@@ -84,7 +83,7 @@ static bool EmplaceEmitter(CompilationState& compilationState,
                            const EitherParser& parser, SharedContext* sc);
 
 template <typename Unit>
-class MOZ_STACK_CLASS frontend::SourceAwareCompiler {
+class MOZ_STACK_CLASS SourceAwareCompiler {
  protected:
   SourceText<Unit>& sourceBuffer_;
 
@@ -143,8 +142,7 @@ class MOZ_STACK_CLASS frontend::SourceAwareCompiler {
 };
 
 template <typename Unit>
-class MOZ_STACK_CLASS frontend::ScriptCompiler
-    : public SourceAwareCompiler<Unit> {
+class MOZ_STACK_CLASS ScriptCompiler : public SourceAwareCompiler<Unit> {
   using Base = SourceAwareCompiler<Unit>;
 
  protected:
@@ -489,8 +487,7 @@ JSScript* frontend::CompileEvalScript(JSContext* cx,
 }
 
 template <typename Unit>
-class MOZ_STACK_CLASS frontend::ModuleCompiler final
-    : public SourceAwareCompiler<Unit> {
+class MOZ_STACK_CLASS ModuleCompiler final : public SourceAwareCompiler<Unit> {
   using Base = SourceAwareCompiler<Unit>;
 
   using Base::assertSourceParserAndScriptCreated;
@@ -511,7 +508,7 @@ class MOZ_STACK_CLASS frontend::ModuleCompiler final
 };
 
 template <typename Unit>
-class MOZ_STACK_CLASS frontend::StandaloneFunctionCompiler final
+class MOZ_STACK_CLASS StandaloneFunctionCompiler final
     : public SourceAwareCompiler<Unit> {
   using Base = SourceAwareCompiler<Unit>;
 
@@ -618,7 +615,7 @@ AutoFrontendTraceLog::AutoFrontendTraceLog(JSContext* cx,
 #endif
 
 template <typename Unit>
-bool frontend::SourceAwareCompiler<Unit>::createSourceAndParser(JSContext* cx) {
+bool SourceAwareCompiler<Unit>::createSourceAndParser(JSContext* cx) {
   const auto& options = compilationState_.input.options;
 
   if (!compilationState_.source->assignSource(cx, options, sourceBuffer_)) {
@@ -655,7 +652,7 @@ static bool EmplaceEmitter(CompilationState& compilationState,
 }
 
 template <typename Unit>
-bool frontend::SourceAwareCompiler<Unit>::canHandleParseFailure(
+bool SourceAwareCompiler<Unit>::canHandleParseFailure(
     const Directives& newDirectives) {
   // Try to reparse if no parse errors were thrown and the directives changed.
   //
@@ -670,7 +667,7 @@ bool frontend::SourceAwareCompiler<Unit>::canHandleParseFailure(
 }
 
 template <typename Unit>
-void frontend::SourceAwareCompiler<Unit>::handleParseFailure(
+void SourceAwareCompiler<Unit>::handleParseFailure(
     const Directives& newDirectives, TokenStreamPosition& startPosition,
     CompilationState::CompilationStatePosition& startStatePosition) {
   MOZ_ASSERT(canHandleParseFailure(newDirectives));
@@ -686,7 +683,7 @@ void frontend::SourceAwareCompiler<Unit>::handleParseFailure(
 }
 
 template <typename Unit>
-bool frontend::ScriptCompiler<Unit>::compile(JSContext* cx, SharedContext* sc) {
+bool ScriptCompiler<Unit>::compile(JSContext* cx, SharedContext* sc) {
   assertSourceParserAndScriptCreated();
 
   TokenStreamPosition startPosition(parser->tokenStream);
@@ -739,7 +736,7 @@ bool frontend::ScriptCompiler<Unit>::compile(JSContext* cx, SharedContext* sc) {
 }
 
 template <typename Unit>
-bool frontend::ModuleCompiler<Unit>::compile(JSContext* cx) {
+bool ModuleCompiler<Unit>::compile(JSContext* cx) {
   // Emplace the topLevel stencil
   MOZ_ASSERT(compilationState_.scriptData.length() ==
              CompilationStencil::TopLevelIndex);
@@ -782,7 +779,7 @@ bool frontend::ModuleCompiler<Unit>::compile(JSContext* cx) {
 // event handler attribute in an HTML <INPUT> tag, or in a Function()
 // constructor.
 template <typename Unit>
-FunctionNode* frontend::StandaloneFunctionCompiler<Unit>::parse(
+FunctionNode* StandaloneFunctionCompiler<Unit>::parse(
     JSContext* cx, FunctionSyntaxKind syntaxKind, GeneratorKind generatorKind,
     FunctionAsyncKind asyncKind, const Maybe<uint32_t>& parameterListEnd) {
   assertSourceAndParserCreated();
@@ -818,7 +815,7 @@ FunctionNode* frontend::StandaloneFunctionCompiler<Unit>::parse(
 
 // Compile a standalone JS function.
 template <typename Unit>
-bool frontend::StandaloneFunctionCompiler<Unit>::compile(
+bool StandaloneFunctionCompiler<Unit>::compile(
     JSContext* cx, FunctionSyntaxKind syntaxKind, GeneratorKind generatorKind,
     FunctionAsyncKind asyncKind, const Maybe<uint32_t>& parameterListEnd) {
   FunctionNode* parsedFunction =

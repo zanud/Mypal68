@@ -10,7 +10,6 @@
 
 #include "gc/GC.h"
 #include "gc/PublicIterators.h"
-#include "jit/BaselineFrame.h"
 #include "jit/BaselineJIT.h"
 #include "jit/JitcodeMap.h"
 #include "jit/JitRuntime.h"
@@ -525,9 +524,9 @@ namespace JS {
     name,
 #define SUBCATEGORY_ENUMS_END_CATEGORY \
   };
-PROFILING_CATEGORY_LIST(SUBCATEGORY_ENUMS_BEGIN_CATEGORY,
-                        SUBCATEGORY_ENUMS_SUBCATEGORY,
-                        SUBCATEGORY_ENUMS_END_CATEGORY)
+MOZ_PROFILING_CATEGORY_LIST(SUBCATEGORY_ENUMS_BEGIN_CATEGORY,
+                            SUBCATEGORY_ENUMS_SUBCATEGORY,
+                            SUBCATEGORY_ENUMS_END_CATEGORY)
 #undef SUBCATEGORY_ENUMS_BEGIN_CATEGORY
 #undef SUBCATEGORY_ENUMS_SUBCATEGORY
 #undef SUBCATEGORY_ENUMS_END_CATEGORY
@@ -542,9 +541,9 @@ PROFILING_CATEGORY_LIST(SUBCATEGORY_ENUMS_BEGIN_CATEGORY,
    uint32_t(ProfilingSubcategory_##category::name), labelAsString},
 #define CATEGORY_INFO_END_CATEGORY
 const ProfilingCategoryPairInfo sProfilingCategoryPairInfo[] = {
-  PROFILING_CATEGORY_LIST(CATEGORY_INFO_BEGIN_CATEGORY,
-                          CATEGORY_INFO_SUBCATEGORY,
-                          CATEGORY_INFO_END_CATEGORY)
+  MOZ_PROFILING_CATEGORY_LIST(CATEGORY_INFO_BEGIN_CATEGORY,
+                              CATEGORY_INFO_SUBCATEGORY,
+                              CATEGORY_INFO_END_CATEGORY)
 };
 #undef CATEGORY_INFO_BEGIN_CATEGORY
 #undef CATEGORY_INFO_SUBCATEGORY

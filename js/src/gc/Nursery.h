@@ -63,6 +63,7 @@ class MapObject;
 class SetObject;
 
 namespace gc {
+class AutoGCSession;
 class AutoMaybeStartBackgroundAllocation;
 class AutoTraceSession;
 struct Cell;
@@ -699,6 +700,7 @@ class Nursery {
     size_t tenuredCells;
   };
   CollectionResult doCollection(JS::GCReason reason);
+  void traceRoots(gc::AutoGCSession& session, TenuringTracer& mover);
 
   void doPretenuring(JSRuntime* rt, JS::GCReason reason,
                      bool validPromotionRate, double promotionRate);

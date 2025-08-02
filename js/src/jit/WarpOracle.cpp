@@ -4,14 +4,12 @@
 
 #include "jit/WarpOracle.h"
 
-#include "mozilla/IntegerPrintfMacros.h"
 #include "mozilla/ScopeExit.h"
 
 #include <algorithm>
 
 #include "jit/CacheIR.h"
 #include "jit/CacheIRCompiler.h"
-#include "jit/CacheIROpsGenerated.h"
 #include "jit/CompileInfo.h"
 #include "jit/InlineScriptTree.h"
 #include "jit/JitRealm.h"
@@ -20,12 +18,9 @@
 #include "jit/MIRGenerator.h"
 #include "jit/TypeData.h"
 #include "jit/WarpBuilder.h"
-#include "jit/WarpCacheIRTranspiler.h"
 #include "vm/BuiltinObjectKind.h"
 #include "vm/BytecodeIterator.h"
 #include "vm/BytecodeLocation.h"
-#include "vm/GetterSetter.h"
-#include "vm/Opcodes.h"
 
 #include "jit/InlineScriptTree-inl.h"
 #include "vm/BytecodeIterator-inl.h"
@@ -334,7 +329,7 @@ AbortReasonOr<WarpScriptSnapshot*> WarpScriptOracle::createScriptSnapshot() {
         MOZ_ASSERT(script_->needsArgsObj());
         bool mapped = script_->hasMappedArgsObj();
         ArgumentsObject* templateObj =
-            script_->realm()->maybeArgumentsTemplateObject(mapped);
+            script_->global().maybeArgumentsTemplateObject(mapped);
         if (!AddOpSnapshot<WarpArguments>(alloc_, opSnapshots, offset,
                                           templateObj)) {
           return abort(AbortReason::Alloc);
@@ -451,7 +446,8 @@ AbortReasonOr<WarpScriptSnapshot*> WarpScriptOracle::createScriptSnapshot() {
       }
 
       case JSOp::Rest: {
-        if (Shape* shape = script_->global().maybeArrayShape()) {
+        if (Shape* shape =
+                script_->global().maybeArrayShapeWithDefaultProto()) {
           if (!AddOpSnapshot<WarpRest>(alloc_, opSnapshots, offset, shape)) {
             return abort(AbortReason::Alloc);
           }
@@ -667,6 +663,7 @@ AbortReasonOr<WarpScriptSnapshot*> WarpScriptOracle::createScriptSnapshot() {
       case JSOp::ResumeKind:
       case JSOp::ThrowMsg:
       case JSOp::Try:
+      case JSOp::NewPrivateName:
         // Supported by WarpBuilder. Nothing to do.
         break;
 

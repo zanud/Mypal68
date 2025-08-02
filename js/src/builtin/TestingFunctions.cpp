@@ -70,7 +70,9 @@
 #include "js/friend/DumpFunctions.h"  // js::Dump{Backtrace,Heap,Object}, JS::FormatStackDump, js::IgnoreNurseryObjects
 #include "js/friend/ErrorMessages.h"  // js::GetErrorMessage, JSMSG_*
 #include "js/friend/WindowProxy.h"    // js::ToWindowProxyIfWindow
+#include "js/GlobalObject.h"
 #include "js/HashTable.h"
+#include "js/Interrupt.h"
 #include "js/LocaleSensitive.h"
 #include "js/OffThreadScriptCompilation.h"  // js::UseOffThreadParseGlobal
 #include "js/PropertyAndElement.h"  // JS_DefineProperties, JS_DefineProperty, JS_DefinePropertyById, JS_Enumerate, JS_GetProperty, JS_GetPropertyById, JS_HasProperty, JS_SetElement, JS_SetProperty
@@ -78,6 +80,7 @@
 #include "js/RegExpFlags.h"  // JS::RegExpFlag, JS::RegExpFlags
 #include "js/SourceText.h"
 #include "js/StableStringChars.h"
+#include "js/Stack.h"
 #include "js/String.h"  // JS::GetLinearStringLength, JS::StringToLinearString
 #include "js/StructuredClone.h"
 #include "js/UbiNode.h"
@@ -192,12 +195,6 @@ static bool GetRealmConfiguration(JSContext* cx, unsigned argc, Value* vp) {
   if (!JS_SetProperty(cx, info, "privateMethods",
                       privateFields && privateMethods ? TrueHandleValue
                                                       : FalseHandleValue)) {
-    return false;
-  }
-
-  bool topLevelAwait = cx->options().topLevelAwait();
-  if (!JS_SetProperty(cx, info, "topLevelAwait",
-                      topLevelAwait ? TrueHandleValue : FalseHandleValue)) {
     return false;
   }
 
@@ -662,7 +659,7 @@ static bool MinorGC(JSContext* cx, unsigned argc, Value* vp) {
   _("pretenureGroupThreshold", JSGC_PRETENURE_GROUP_THRESHOLD, true)       \
   _("zoneAllocDelayKB", JSGC_ZONE_ALLOC_DELAY_KB, true)                    \
   _("mallocThresholdBase", JSGC_MALLOC_THRESHOLD_BASE, true)               \
-  _("mallocGrowthFactor", JSGC_MALLOC_GROWTH_FACTOR, true)                 \
+  _("urgentThreshold", JSGC_URGENT_THRESHOLD_MB, true)                     \
   _("chunkBytes", JSGC_CHUNK_BYTES, false)                                 \
   _("helperThreadRatio", JSGC_HELPER_THREAD_RATIO, true)                   \
   _("maxHelperThreads", JSGC_MAX_HELPER_THREADS, true)                     \
@@ -859,17 +856,6 @@ JS_FOR_WASM_FEATURES(WASM_FEATURE);
 #undef WASM_FEATURE
 
 #ifdef ENABLE_WASM_SIMD
-static bool WasmSimdExperimentalEnabled(JSContext* cx, unsigned argc,
-                                        Value* vp) {
-  CallArgs args = CallArgsFromVp(argc, vp);
-#  ifdef ENABLE_WASM_SIMD_EXPERIMENTAL
-  args.rval().setBoolean(wasm::SimdAvailable(cx));
-#  else
-  args.rval().setBoolean(false);
-#  endif
-  return true;
-}
-
 #  ifdef ENABLE_WASM_SIMD_WORMHOLE
 static bool WasmSimdWormholeEnabled(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
@@ -1464,9 +1450,9 @@ static bool WasmIntrinsicI8VecMul(JSContext* cx, unsigned argc, Value* vp) {
 
   CallArgs args = CallArgsFromVp(argc, vp);
 
+  wasm::IntrinsicOp ops[] = {wasm::IntrinsicOp::I8VecMul};
   RootedWasmModuleObject module(cx);
-  if (!wasm::CompileIntrinsicModule(cx, wasm::IntrinsicOp::I8VecMul, &module)) {
-    ReportOutOfMemory(cx);
+  if (!wasm::CompileIntrinsicModule(cx, ops, wasm::Shareable::False, &module)) {
     return false;
   }
   args.rval().set(ObjectValue(*module.get()));
@@ -1977,9 +1963,6 @@ static bool GCSlice(JSContext* cx, unsigned argc, Value* vp) {
   if (args.length() >= 1) {
     uint32_t work = 0;
     if (!ToUint32(cx, args[0], &work)) {
-      RootedObject callee(cx, &args.callee());
-      ReportUsageErrorASCII(cx, callee,
-                            "The work budget parameter |n| must be an integer");
       return false;
     }
     budget = SliceBudget(WorkBudget(work));
@@ -3294,8 +3277,7 @@ static bool ReadGeckoProfilingStack(JSContext* cx, unsigned argc, Value* vp) {
     uint32_t inlineFrameNo = 0;
     for (auto& inlineFrame : frame) {
       // Object holding frame info.
-      RootedObject inlineFrameInfo(cx,
-                                   NewBuiltinClassInstance<PlainObject>(cx));
+      RootedObject inlineFrameInfo(cx, NewPlainObject(cx));
       if (!inlineFrameInfo) {
         return false;
       }
@@ -3376,7 +3358,7 @@ class ShellAllocationMetadataBuilder : public AllocationMetadataBuilder {
 
 JSObject* ShellAllocationMetadataBuilder::build(
     JSContext* cx, HandleObject, AutoEnterOOMUnsafeRegion& oomUnsafe) const {
-  RootedObject obj(cx, NewBuiltinClassInstance<PlainObject>(cx));
+  RootedObject obj(cx, NewPlainObject(cx));
   if (!obj) {
     oomUnsafe.crash("ShellAllocationMetadataBuilder::build");
   }
@@ -4865,7 +4847,7 @@ static bool FindPath(JSContext* cx, unsigned argc, Value* vp) {
   // array in start-to-target order.
   for (size_t i = 0; i < length; i++) {
     // Build an object describing the node and edge.
-    RootedObject obj(cx, NewBuiltinClassInstance<PlainObject>(cx));
+    RootedObject obj(cx, NewPlainObject(cx));
     if (!obj) {
       return false;
     }
@@ -5075,7 +5057,7 @@ static bool ShortestPaths(JSContext* cx, unsigned argc, Value* vp) {
       path->ensureDenseInitializedLength(0, pathLength);
 
       for (size_t k = 0; k < pathLength; k++) {
-        RootedPlainObject part(cx, NewBuiltinClassInstance<PlainObject>(cx));
+        RootedPlainObject part(cx, NewPlainObject(cx));
         if (!part) {
           return false;
         }
@@ -6475,15 +6457,33 @@ static bool EncodeAsUtf8InBuffer(JSContext* cx, unsigned argc, Value* vp) {
   }
   array->ensureDenseInitializedLength(0, 2);
 
-  size_t length;
-  bool isSharedMemory;
-  uint8_t* data;
-  if (!args[1].isObject() ||
-      !JS_GetObjectAsUint8Array(&args[1].toObject(), &length, &isSharedMemory,
-                                &data) ||
-      isSharedMemory ||  // excluded views of SharedArrayBuffers
-      !data) {           // exclude views of detached ArrayBuffers
+  JSObject* obj = args[1].isObject() ? &args[1].toObject() : nullptr;
+  Rooted<JS::Uint8Array> view(cx, JS::Uint8Array::unwrap(obj));
+  if (!view) {
     ReportUsageErrorASCII(cx, callee, "Second argument must be a Uint8Array");
+    return false;
+  }
+
+  size_t length;
+  bool isSharedMemory = false;
+  uint8_t* data = nullptr;
+  {
+    // The hazard analysis does not track the data pointer, so it can neither
+    // tell that `data` is dead if ReportUsageErrorASCII is called, nor that
+    // its live range ends at the call to AsWritableChars(). Construct a
+    // temporary scope to hide from the analysis. This should really be replaced
+    // with a safer mechanism.
+    JS::AutoCheckCannotGC nogc(cx);
+    if (!view.isDetached()) {
+      data = view.get().getLengthAndData(&length, &isSharedMemory, nogc);
+    }
+  }
+
+  if (isSharedMemory ||  // exclude views of SharedArrayBuffers
+      !data) {           // exclude views of detached ArrayBuffers
+    ReportUsageErrorASCII(
+        cx, callee,
+        "Second argument must be an unshared, non-detached Uint8Array");
     return false;
   }
 
@@ -7267,11 +7267,6 @@ JS_FOR_WASM_FEATURES(WASM_FEATURE)
 "  supported on the current device."),
 
 #ifdef ENABLE_WASM_SIMD
-    JS_FN_HELP("wasmSimdExperimentalEnabled", WasmSimdExperimentalEnabled, 0, 0,
-"wasmSimdExperimentalEnabled()",
-"  Returns a boolean indicating whether WebAssembly SIMD experimental instructions\n"
-"  are supported by the compilers and runtime."),
-
     JS_FN_HELP("wasmSimdWormholeEnabled", WasmSimdWormholeEnabled, 0, 0,
 "wasmSimdWormholeEnabled()",
 "  Returns a boolean indicating whether WebAssembly SIMD wormhole instructions\n"

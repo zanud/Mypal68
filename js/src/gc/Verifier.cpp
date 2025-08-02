@@ -187,6 +187,19 @@ static VerifyNode* NextNode(VerifyNode* node) {
   }
 }
 
+static void ClearMarkBitsForAllZones(GCRuntime* gc) {
+  // This does not clear the mark bits for permanent atoms, whose arenas are
+  // removed from the arena lists by GCRuntime::freezePermanentAtoms.
+
+  for (AllZonesIter zone(gc); !zone.done(); zone.next()) {
+    for (auto kind : AllAllocKinds()) {
+      for (ArenaIter arena(zone, kind); !arena.done(); arena.next()) {
+        arena->unmarkAll();
+      }
+    }
+  }
+}
+
 void gc::GCRuntime::startVerifyPreBarriers() {
   if (verifyPreData || isIncrementalGCInProgress()) {
     return;
@@ -208,12 +221,7 @@ void gc::GCRuntime::startVerifyPreBarriers() {
 
   AutoPrepareForTracing prep(cx);
 
-  {
-    AutoLockGC lock(this);
-    for (auto chunk = allNonEmptyChunks(lock); !chunk.done(); chunk.next()) {
-      chunk->markBits.clear();
-    }
-  }
+  ClearMarkBitsForAllZones(this);
 
   gcstats::AutoPhase ap(stats(), gcstats::PhaseKind::TRACE_HEAP);
 
@@ -585,11 +593,7 @@ void js::gc::MarkingValidator::nonIncrementalMark(AutoGCSession& session) {
       MOZ_ASSERT(gcmarker->isDrained());
       gcmarker->reset();
 
-      AutoLockGC lock(gc);
-      for (auto chunk = gc->allNonEmptyChunks(lock); !chunk.done();
-           chunk.next()) {
-        chunk->markBits.clear();
-      }
+      ClearMarkBitsForAllZones(gc);
     }
   }
 

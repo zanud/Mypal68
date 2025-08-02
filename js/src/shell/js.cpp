@@ -121,9 +121,13 @@
 #include "js/friend/ErrorMessages.h"     // js::GetErrorMessage, JSMSG_*
 #include "js/friend/StackLimits.h"       // js::AutoCheckRecursionLimit
 #include "js/friend/WindowProxy.h"  // js::IsWindowProxy, js::SetWindowProxyClass, js::ToWindowProxyIfWindow, js::ToWindowIfWindowProxy
+#include "js/GCAPI.h"               // JS::AutoCheckCannotGC
 #include "js/GCVector.h"
+#include "js/GlobalObject.h"
 #include "js/Initialization.h"
+#include "js/Interrupt.h"
 #include "js/JSON.h"
+#include "js/MemoryCallbacks.h"
 #include "js/MemoryFunctions.h"
 #include "js/Modules.h"  // JS::GetModulePrivate, JS::SetModule{DynamicImport,Metadata,Resolve}Hook, JS::SetModulePrivate
 #include "js/Object.h"  // JS::GetClass, JS::GetCompartment, JS::GetReservedSlot, JS::SetReservedSlot
@@ -133,8 +137,11 @@
 #include "js/PropertySpec.h"
 #include "js/Realm.h"
 #include "js/RegExp.h"  // JS::ObjectIsRegExp
+#include "js/ScriptPrivate.h"
 #include "js/SourceText.h"
 #include "js/StableStringChars.h"
+#include "js/Stack.h"
+#include "js/StreamConsumer.h"
 #include "js/StructuredClone.h"
 #include "js/SweepingAPI.h"
 #include "js/Transcoding.h"  // JS::TranscodeBuffer, JS::TranscodeRange
@@ -619,7 +626,6 @@ bool shell::enablePropertyErrorMessageFix = false;
 bool shell::enableIteratorHelpers = false;
 bool shell::enablePrivateClassFields = false;
 bool shell::enablePrivateClassMethods = false;
-bool shell::enableTopLevelAwait = true;
 bool shell::enableErgonomicBrandChecks = true;
 bool shell::useOffThreadParseGlobal = true;
 bool shell::enableClassStaticBlocks = true;
@@ -3187,7 +3193,7 @@ static bool GetScriptAndPCArgs(JSContext* cx, CallArgs& args,
   if (!args.get(0).isUndefined()) {
     HandleValue v = args[0];
     unsigned intarg = 0;
-    if (v.isObject() && JS::GetClass(&v.toObject()) == &JSFunction::class_) {
+    if (v.isObject() && JS::GetClass(&v.toObject())->isJSFunction()) {
       script = TestingFunctionArgumentToScript(cx, v);
       if (!script) {
         return false;
@@ -8429,7 +8435,7 @@ static bool EnsureGrayRoot(JSContext* cx, unsigned argc, Value* vp) {
   }
 
   if (!priv->grayRoot) {
-    if (!(priv->grayRoot = NewTenuredDenseEmptyArray(cx, nullptr))) {
+    if (!(priv->grayRoot = NewTenuredDenseEmptyArray(cx))) {
       return false;
     }
   }
@@ -9231,6 +9237,20 @@ static bool TransplantableObject(JSContext* cx, unsigned argc, Value* vp) {
   return true;
 }
 
+#ifdef DEBUG
+static bool DebugGetQueuedJobs(JSContext* cx, unsigned argc, Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+
+  JSObject* jobs = js::GetJobsInInternalJobQueue(cx);
+  if (!jobs) {
+    return false;
+  }
+
+  args.rval().setObject(*jobs);
+  return true;
+}
+#endif
+
 // clang-format off
 static const JSFunctionSpecWithHelp shell_functions[] = {
     JS_FN_HELP("options", Options, 0, 0,
@@ -9982,6 +10002,12 @@ TestAssertRecoveredOnBailout,
   JS_FN_HELP("cacheIRHealthReport", CacheIRHealthReport, 0, 0,
 "cacheIRHealthReport()",
 "  Show health rating of CacheIR stubs."),
+#endif
+
+#ifdef DEBUG
+  JS_FN_HELP("debugGetQueuedJobs", DebugGetQueuedJobs, 0, 0,
+"debugGetQueuedJobs()",
+"  Returns an array of queued jobs."),
 #endif
 
     JS_FS_HELP_END
@@ -11146,7 +11172,6 @@ static bool SetContextOptions(JSContext* cx, const OptionParser& op) {
   enablePrivateClassMethods = !op.getBoolOption("disable-private-methods");
   enableErgonomicBrandChecks =
       !op.getBoolOption("disable-ergonomic-brand-checks");
-  enableTopLevelAwait = op.getBoolOption("enable-top-level-await");
   enableClassStaticBlocks = !op.getBoolOption("disable-class-static-blocks");
   useOffThreadParseGlobal = op.getBoolOption("off-thread-parse-global");
   useFdlibmForSinCosTan = op.getBoolOption("use-fdlibm-for-sin-cos-tan");
@@ -11183,7 +11208,6 @@ static bool SetContextOptions(JSContext* cx, const OptionParser& op) {
       .setPrivateClassFields(enablePrivateClassFields)
       .setPrivateClassMethods(enablePrivateClassMethods)
       .setErgnomicBrandChecks(enableErgonomicBrandChecks)
-      .setTopLevelAwait(enableTopLevelAwait)
       .setClassStaticBlocks(enableClassStaticBlocks);
 
   JS::SetUseOffThreadParseGlobal(useOffThreadParseGlobal);
@@ -12526,9 +12550,9 @@ int main(int argc, char** argv) {
 
   JS_SetGCParameter(cx, JSGC_MAX_BYTES, 0xffffffff);
 
-  size_t availMem = op.getIntOption("available-memory");
-  if (availMem > 0) {
-    JS_SetGCParametersBasedOnAvailableMemory(cx, availMem);
+  size_t availMemMB = op.getIntOption("available-memory");
+  if (availMemMB > 0) {
+    JS_SetGCParametersBasedOnAvailableMemory(cx, availMemMB);
   }
 
   JS_SetTrustedPrincipals(cx, &ShellPrincipals::fullyTrusted);
@@ -12652,6 +12676,12 @@ int main(int argc, char** argv) {
   //   order.  For example: --wasm-compiler=optimizing --wasm-compiler=baseline.
 
 #if defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64)
+  // The flags were computed by InitWithFailureDiagnostics().
+  MOZ_ASSERT(js::jit::CPUFlagsHaveBeenComputed());
+
+  // Reset the SSE flags; they are recomputed below.
+  js::jit::CPUInfo::ResetSSEFlagsForTesting();
+
   if (op.getBoolOption("no-sse3")) {
     js::jit::CPUInfo::SetSSE3Disabled();
     if (!sCompilerProcessFlags.append("--no-sse3")) {
@@ -12686,6 +12716,14 @@ int main(int argc, char** argv) {
     fprintf(stderr, "Error: AVX encodings are currently disabled\n");
     return EXIT_FAILURE;
   }
+
+  // Recompute flags.
+  js::jit::CPUInfo::GetSSEVersion();
+#endif
+
+#ifndef JS_CODEGEN_NONE
+  // At this point the flags must definitely be set.
+  MOZ_ASSERT(js::jit::CPUFlagsHaveBeenComputed());
 #endif
 
 #ifndef __wasi__

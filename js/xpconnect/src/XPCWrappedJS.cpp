@@ -8,6 +8,7 @@
 #include "mozilla/DeferredFinalize.h"
 #include "mozilla/Sprintf.h"
 #include "js/Object.h"  // JS::GetCompartment
+#include "js/RealmIterators.h"
 #include "nsCCUncollectableMarker.h"
 #include "nsContentUtils.h"
 #include "nsThreadUtils.h"

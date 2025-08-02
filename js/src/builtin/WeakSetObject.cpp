@@ -4,8 +4,6 @@
 
 #include "builtin/WeakSetObject.h"
 
-#include "jsapi.h"
-
 #include "builtin/MapObject.h"
 #include "js/friend/ErrorMessages.h"  // JSMSG_*
 #include "js/PropertySpec.h"

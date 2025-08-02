@@ -5,13 +5,14 @@
 #ifndef vm_GlobalObject_h
 #define vm_GlobalObject_h
 
+#include "js/GlobalObject.h"
+
 #include "mozilla/Assertions.h"
 #include "mozilla/EnumeratedArray.h"
 
 #include <stdint.h>
 #include <type_traits>
 
-#include "jsapi.h"
 #include "jsexn.h"
 #include "jsfriendapi.h"
 #include "jspubtd.h"
@@ -48,11 +49,45 @@ class JS_PUBLIC_API RealmOptions;
 
 namespace js {
 
+class ArgumentsObject;
 class GlobalScope;
 class GlobalLexicalEnvironmentObject;
 class PlainObject;
+class PropertyIteratorObject;
 class RegExpStatics;
-class RegExpStaticsObject;
+
+// Fixed slot capacities for PlainObjects. The global has a cached Shape for
+// PlainObject with default prototype for each of these values.
+enum class PlainObjectSlotsKind {
+  Slots0,
+  Slots2,
+  Slots4,
+  Slots8,
+  Slots12,
+  Slots16,
+  Limit
+};
+
+static PlainObjectSlotsKind PlainObjectSlotsKindFromAllocKind(
+    gc::AllocKind kind) {
+  switch (kind) {
+    case gc::AllocKind::OBJECT0:
+      return PlainObjectSlotsKind::Slots0;
+    case gc::AllocKind::OBJECT2:
+      return PlainObjectSlotsKind::Slots2;
+    case gc::AllocKind::OBJECT4:
+      return PlainObjectSlotsKind::Slots4;
+    case gc::AllocKind::OBJECT8:
+      return PlainObjectSlotsKind::Slots8;
+    case gc::AllocKind::OBJECT12:
+      return PlainObjectSlotsKind::Slots12;
+    case gc::AllocKind::OBJECT16:
+      return PlainObjectSlotsKind::Slots16;
+    default:
+      break;
+  }
+  MOZ_CRASH("Invalid kind");
+}
 
 // Data attached to a GlobalObject. This is freed when clearing the Realm's
 // global_ only because this way we don't need to add a finalizer to all
@@ -64,7 +99,16 @@ class GlobalObjectData {
   void operator=(const GlobalObjectData&) = delete;
 
  public:
-  GlobalObjectData() = default;
+  explicit GlobalObjectData(Zone* zone);
+
+  // The global environment record's [[VarNames]] list that contains all
+  // names declared using FunctionDeclaration, GeneratorDeclaration, and
+  // VariableDeclaration declarations in global code in this global's realm.
+  // Names are only removed from this list by a |delete IdentifierReference|
+  // that successfully removes that global property.
+  using VarNamesSet =
+      GCHashSet<HeapPtr<JSAtom*>, DefaultHasher<JSAtom*>, ZoneAllocPolicy>;
+  VarNamesSet varNames;
 
   // The original values for built-in constructors (with their prototype
   // objects) based on JSProtoKey.
@@ -117,11 +161,11 @@ class GlobalObjectData {
   // The WindowProxy associated with this global.
   HeapPtr<JSObject*> windowProxy;
 
-  // Global state for regular expressions.
-  HeapPtr<RegExpStaticsObject*> regExpStatics;
-
-  // Functions and other top-level values for self-hosted code.
+  // Functions and other top-level values for self-hosted code. The "computed"
+  // holder is used as the target of `SetIntrinsic` calls, but the same property
+  // may also be cached on the normal intrinsics holder for `GetIntrinsic`.
   HeapPtr<NativeObject*> intrinsicsHolder;
+  HeapPtr<NativeObject*> computedIntrinsicsHolder;
 
   // Cache used to optimize certain for-of operations.
   HeapPtr<NativeObject*> forOfPICChain;
@@ -138,13 +182,43 @@ class GlobalObjectData {
   // The unique %eval% function (for indirect eval) for this global.
   HeapPtr<JSFunction*> eval;
 
+  // Empty iterator object used for for-in with null/undefined.
+  HeapPtr<PropertyIteratorObject*> emptyIterator;
+
   // Cached shape for new arrays with Array.prototype as prototype.
-  HeapPtr<Shape*> arrayShape;
+  HeapPtr<Shape*> arrayShapeWithDefaultProto;
+
+  // Shape for PlainObject with %Object.prototype% as proto, for each object
+  // AllocKind.
+  using PlainObjectShapeArray =
+      mozilla::EnumeratedArray<PlainObjectSlotsKind,
+                               PlainObjectSlotsKind::Limit, HeapPtr<Shape*>>;
+  PlainObjectShapeArray plainObjectShapesWithDefaultProto;
+
+  // Shape for JSFunction with %Function.prototype% as proto, for both
+  // non-extended and extended functions.
+  HeapPtr<Shape*> functionShapeWithDefaultProto;
+  HeapPtr<Shape*> extendedFunctionShapeWithDefaultProto;
+
+  // Global state for regular expressions.
+  UniquePtr<RegExpStatics> regExpStatics;
+
+  HeapPtr<ArgumentsObject*> mappedArgumentsTemplate;
+  HeapPtr<ArgumentsObject*> unmappedArgumentsTemplate;
+
+  HeapPtr<PlainObject*> iterResultTemplate;
+  HeapPtr<PlainObject*> iterResultWithoutPrototypeTemplate;
+
+  // Lazily initialized script source object to use for scripts cloned from the
+  // self-hosting stencil.
+  HeapPtr<ScriptSourceObject*> selfHostingScriptSource;
 
   // Whether the |globalThis| property has been resolved on the global object.
   bool globalThisResolved = false;
 
   void trace(JSTracer* trc);
+  void addSizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf,
+                              JS::ClassInfo* info) const;
 
   static constexpr size_t offsetOfLexicalEnvironment() {
     static_assert(sizeof(lexicalEnvironment) == sizeof(uintptr_t),
@@ -210,8 +284,11 @@ class GlobalObject : public NativeObject {
   void traceData(JSTracer* trc) { data().trace(trc); }
   void releaseData(JSFreeOp* fop);
 
-  size_t sizeOfData(mozilla::MallocSizeOf mallocSizeOf) const {
-    return mallocSizeOf(maybeData());
+  void addSizeOfData(mozilla::MallocSizeOf mallocSizeOf,
+                     JS::ClassInfo* info) const {
+    if (maybeData()) {
+      data().addSizeOfIncludingThis(mallocSizeOf, info);
+    }
   }
 
   void setOriginalEval(JSFunction* evalFun) {
@@ -803,6 +880,13 @@ class GlobalObject : public NativeObject {
   static NativeObject* getIntrinsicsHolder(JSContext* cx,
                                            Handle<GlobalObject*> global);
 
+  NativeObject* getComputedIntrinsicsHolder() {
+    return data().computedIntrinsicsHolder;
+  }
+  void setComputedIntrinsicsHolder(NativeObject* holder) {
+    data().computedIntrinsicsHolder = holder;
+  }
+
   bool maybeExistingIntrinsicValue(PropertyName* name, Value* vp) {
     NativeObject* holder = data().intrinsicsHolder;
     if (!holder) {
@@ -885,6 +969,33 @@ class GlobalObject : public NativeObject {
   // global.
   bool valueIsEval(const Value& val);
 
+  void removeFromVarNames(JSAtom* name) { data().varNames.remove(name); }
+
+  // Whether the given name is in [[VarNames]].
+  bool isInVarNames(JSAtom* name) { return data().varNames.has(name); }
+
+  // Add a name to [[VarNames]].  Reports OOM on failure.
+  [[nodiscard]] bool addToVarNames(JSContext* cx, JS::Handle<JSAtom*> name);
+
+  static ArgumentsObject* getOrCreateArgumentsTemplateObject(JSContext* cx,
+                                                             bool mapped);
+  ArgumentsObject* maybeArgumentsTemplateObject(bool mapped) const;
+
+  static const size_t IterResultObjectValueSlot = 0;
+  static const size_t IterResultObjectDoneSlot = 1;
+  static js::PlainObject* getOrCreateIterResultTemplateObject(JSContext* cx);
+  static js::PlainObject* getOrCreateIterResultWithoutPrototypeTemplateObject(
+      JSContext* cx);
+
+ private:
+  enum class WithObjectPrototype { No, Yes };
+  static js::PlainObject* createIterResultTemplateObject(
+      JSContext* cx, WithObjectPrototype withProto);
+
+ public:
+  static ScriptSourceObject* getOrCreateSelfHostingScriptSourceObject(
+      JSContext* cx, Handle<GlobalObject*> global);
+
   // Implemented in vm/Iteration.cpp.
   static bool initIteratorProto(JSContext* cx, Handle<GlobalObject*> global);
   template <ProtoKind Kind, const JSClass* ProtoClass,
@@ -938,11 +1049,49 @@ class GlobalObject : public NativeObject {
     data().sourceURLsHolder.unbarrieredSet(nullptr);
   }
 
-  void setArrayShape(Shape* shape) {
-    MOZ_ASSERT(!data().arrayShape);
-    data().arrayShape.init(shape);
+  Shape* maybeArrayShapeWithDefaultProto() const {
+    return data().arrayShapeWithDefaultProto;
   }
-  Shape* maybeArrayShape() const { return data().arrayShape; }
+
+  static Shape* getArrayShapeWithDefaultProto(JSContext* cx) {
+    if (Shape* shape = cx->global()->data().arrayShapeWithDefaultProto;
+        MOZ_LIKELY(shape)) {
+      return shape;
+    }
+    return createArrayShapeWithDefaultProto(cx);
+  }
+  static Shape* createArrayShapeWithDefaultProto(JSContext* cx);
+
+  static Shape* getPlainObjectShapeWithDefaultProto(JSContext* cx,
+                                                    gc::AllocKind kind) {
+    PlainObjectSlotsKind slotsKind = PlainObjectSlotsKindFromAllocKind(kind);
+    Shape* shape =
+        cx->global()->data().plainObjectShapesWithDefaultProto[slotsKind];
+    if (MOZ_LIKELY(shape)) {
+      return shape;
+    }
+    return createPlainObjectShapeWithDefaultProto(cx, kind);
+  }
+  static Shape* createPlainObjectShapeWithDefaultProto(JSContext* cx,
+                                                       gc::AllocKind kind);
+
+  static Shape* getFunctionShapeWithDefaultProto(JSContext* cx, bool extended) {
+    GlobalObjectData& data = cx->global()->data();
+    Shape* shape = extended ? data.extendedFunctionShapeWithDefaultProto
+                            : data.functionShapeWithDefaultProto;
+    if (MOZ_LIKELY(shape)) {
+      return shape;
+    }
+    return createFunctionShapeWithDefaultProto(cx, extended);
+  }
+  static Shape* createFunctionShapeWithDefaultProto(JSContext* cx,
+                                                    bool extended);
+
+  PropertyIteratorObject* maybeEmptyIterator() const {
+    return data().emptyIterator;
+  }
+
+  static PropertyIteratorObject* getOrCreateEmptyIterator(JSContext* cx);
 
   // Returns an object that represents the realm, used by embedder.
   static JSObject* getOrCreateRealmKeyObject(JSContext* cx,

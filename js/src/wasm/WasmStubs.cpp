@@ -18,9 +18,8 @@
 #include <algorithm>
 #include <iterator>
 
-#include "jit/ABIFunctions.h"
+#include "jit/ABIArgGenerator.h"
 #include "jit/JitFrames.h"
-#include "jit/JitScript.h"
 #include "jit/RegisterAllocator.h"
 #include "js/Printf.h"
 #include "util/Memory.h"
@@ -28,7 +27,6 @@
 #include "wasm/WasmGenerator.h"
 #include "wasm/WasmInstance.h"
 
-#include "jit/ABIFunctionList-inl.h"
 #include "jit/MacroAssembler-inl.h"
 
 using namespace js;
@@ -490,7 +488,7 @@ static void StoreRegisterResult(MacroAssembler& masm, const FuncExport& fe,
           break;
 #ifdef ENABLE_WASM_SIMD
         case ValType::V128:
-          masm.storeUnalignedSimd128Float(result.fpr(), Address(loc, 0));
+          masm.storeUnalignedSimd128(result.fpr(), Address(loc, 0));
           break;
 #endif
         case ValType::F32:
@@ -703,6 +701,8 @@ static void BoxValueIntoAnyref(MacroAssembler& masm, ValueOperand src,
 static bool GenerateInterpEntry(MacroAssembler& masm, const FuncExport& fe,
                                 const Maybe<ImmPtr>& funcPtr,
                                 Offsets* offsets) {
+  AutoCreatedBy acb(masm, "GenerateInterpEntry");
+
   AssertExpectedSP(masm);
   masm.haltingAlign(CodeAlignment);
 
@@ -710,8 +710,7 @@ static bool GenerateInterpEntry(MacroAssembler& masm, const FuncExport& fe,
 
   // Save the return address if it wasn't already saved by the call insn.
 #ifdef JS_USE_LINK_REGISTER
-#  if defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_MIPS32) || \
-      defined(JS_CODEGEN_MIPS64)
+#  if defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_MIPS64)
   masm.pushReturnAddress();
 #  elif defined(JS_CODEGEN_ARM64)
   // WasmPush updates framePushed() unlike pushReturnAddress(), but that's
@@ -974,6 +973,8 @@ static void GenerateBigIntInitialization(MacroAssembler& masm,
 static bool GenerateJitEntry(MacroAssembler& masm, size_t funcExportIndex,
                              const FuncExport& fe, const Maybe<ImmPtr>& funcPtr,
                              Offsets* offsets) {
+  AutoCreatedBy acb(masm, "GenerateJitEntry");
+
   AssertExpectedSP(masm);
 
   RegisterOrSP sp = masm.getStackPointer();
@@ -1935,6 +1936,8 @@ static void FillArgumentArrayForExit(
 static bool GenerateImportFunction(jit::MacroAssembler& masm,
                                    const FuncImport& fi, TypeIdDesc funcTypeId,
                                    FuncOffsets* offsets) {
+  AutoCreatedBy acb(masm, "wasm::GenerateImportFunction");
+
   AssertExpectedSP(masm);
 
   GenerateFunctionPrologue(masm, funcTypeId, Nothing(), offsets);
@@ -2191,9 +2194,8 @@ static bool GenerateImportInterpExit(MacroAssembler& masm, const FuncImport& fi,
   // The native ABI preserves the TLS, heap and global registers since they
   // are non-volatile.
   MOZ_ASSERT(NonVolatileRegs.has(WasmTlsReg));
-#if defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_ARM) ||      \
-    defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_MIPS32) || \
-    defined(JS_CODEGEN_MIPS64)
+#if defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_ARM) || \
+    defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_MIPS64)
   MOZ_ASSERT(NonVolatileRegs.has(HeapReg));
 #endif
 
@@ -2294,7 +2296,8 @@ static bool GenerateImportJitExit(MacroAssembler& masm, const FuncImport& fi,
   masm.storePtr(callee, Address(masm.getStackPointer(), calleeArgOffset));
 
   // 6. Check if we need to rectify arguments.
-  masm.load16ZeroExtend(Address(callee, JSFunction::offsetOfNargs()), scratch);
+  masm.load32(Address(callee, JSFunction::offsetOfFlagsAndArgCount()), scratch);
+  masm.rshift32(Imm32(JSFunction::ArgCountShift), scratch);
 
   Label rectify;
   masm.branch32(Assembler::Above, scratch, Imm32(fi.funcType().args().length()),
@@ -2645,7 +2648,7 @@ static const LiveRegisterSet RegsToPreserve(
 #  ifdef ENABLE_WASM_SIMD
 #    error "high lanes of SIMD registers need to be saved too."
 #  endif
-#elif defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
+#elif defined(JS_CODEGEN_MIPS64)
 static const LiveRegisterSet RegsToPreserve(
     GeneralRegisterSet(Registers::AllMask &
                        ~((Registers::SetType(1) << Registers::k0) |
@@ -2992,6 +2995,7 @@ bool wasm::GenerateStubs(const ModuleEnvironment& env,
   LifoAlloc lifo(STUBS_LIFO_DEFAULT_CHUNK_SIZE);
   TempAllocator alloc(&lifo);
   WasmMacroAssembler masm(alloc, env);
+  AutoCreatedBy acb(masm, "wasm::GenerateStubs");
 
   // Swap in already-allocated empty vectors to avoid malloc/free.
   if (!code->swap(masm)) {

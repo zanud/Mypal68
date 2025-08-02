@@ -61,6 +61,9 @@
   _(IntlGuardToPluralRules)                        \
   _(IntlGuardToRelativeTimeFormat)                 \
                                                    \
+  _(MapGet)                                        \
+  _(MapHas)                                        \
+                                                   \
   _(MathAbs)                                       \
   _(MathFloor)                                     \
   _(MathCeil)                                      \
@@ -109,6 +112,8 @@
   _(RegExpPrototypeOptimizable)                    \
   _(RegExpInstanceOptimizable)                     \
   _(GetFirstDollarIndex)                           \
+                                                   \
+  _(SetHas)                                        \
                                                    \
   _(String)                                        \
   _(StringToString)                                \

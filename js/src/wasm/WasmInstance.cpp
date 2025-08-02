@@ -25,10 +25,8 @@
 
 #include "jit/AtomicOperations.h"
 #include "jit/Disassemble.h"
-#include "jit/InlinableNatives.h"
 #include "jit/JitCommon.h"
 #include "jit/JitRuntime.h"
-#include "jit/JitScript.h"
 #include "js/ForOfIterator.h"
 #include "js/friend/ErrorMessages.h"  // js::GetErrorMessage, JSMSG_*
 #include "util/StringBuffer.h"
@@ -37,6 +35,7 @@
 #include "vm/PlainObject.h"  // js::PlainObject
 #include "wasm/TypedObject.h"
 #include "wasm/WasmBuiltins.h"
+#include "wasm/WasmDebugFrame.h"
 #include "wasm/WasmJS.h"
 #include "wasm/WasmModule.h"
 #include "wasm/WasmStubs.h"
@@ -1317,9 +1316,8 @@ bool Instance::init(JSContext* cx, const JSFunctionVector& funcImports,
 #ifdef ENABLE_WASM_GC
     if (GcAvailable(cx)) {
       // Transfer and allocate type objects for the struct types in the module
-      uint32_t baseGcTypeIndex = 0;
-      if (!cx->wasm().typeContext->transferTypes(metadata().types,
-                                                 &baseGcTypeIndex)) {
+      MutableTypeContext tycx = js_new<TypeContext>();
+      if (!tycx || !tycx->cloneDerived(metadata().types)) {
         return false;
       }
 
@@ -1329,10 +1327,9 @@ bool Instance::init(JSContext* cx, const JSFunctionVector& funcImports,
         if (!typeDef.isStructType() && !typeDef.isArrayType()) {
           continue;
         }
-        uint32_t globalTypeIndex = baseGcTypeIndex + typeIndex;
-        Rooted<RttValue*> rttValue(
-            cx, RttValue::createFromHandle(cx, TypeHandle(globalTypeIndex)));
 
+        Rooted<RttValue*> rttValue(
+            cx, RttValue::rttCanon(cx, TypeHandle(tycx, typeIndex)));
         if (!rttValue) {
           return false;
         }
@@ -1477,32 +1474,6 @@ bool Instance::memoryAccessInGuardRegion(const uint8_t* addr,
   size_t lastByteOffset = addr - base + (numBytes - 1);
   return lastByteOffset >= memory()->volatileMemoryLength() &&
          lastByteOffset < memoryMappedSize();
-}
-
-bool Instance::memoryAccessInBounds(const uint8_t* addr,
-                                    unsigned numBytes) const {
-  MOZ_ASSERT(numBytes > 0 && numBytes <= sizeof(double));
-
-  if (!metadata().usesMemory()) {
-    return false;
-  }
-
-  uint8_t* base = memoryBase().unwrap(/* comparison */);
-  if (addr < base) {
-    return false;
-  }
-
-  size_t length = memory()->volatileMemoryLength();
-  if (addr >= base + length) {
-    return false;
-  }
-
-  // The pointer points into the memory.  Now check for partial OOB.
-  //
-  // This calculation can't wrap around because the access is small and there
-  // always is a guard page following the memory.
-  size_t lastByteOffset = addr - base + (numBytes - 1);
-  return lastByteOffset < length;
 }
 
 void Instance::tracePrivate(JSTracer* trc) {
@@ -2036,7 +2007,7 @@ bool Instance::callExport(JSContext* cx, uint32_t funcIndex, CallArgs args) {
     // function returns a primary type, which is the case for all asm.js
     // exported functions, the returned value is discarded and an empty
     // object is returned instead.
-    PlainObject* obj = NewBuiltinClassInstance<PlainObject>(cx);
+    PlainObject* obj = NewPlainObject(cx);
     if (!obj) {
       return false;
     }

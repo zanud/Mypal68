@@ -10,7 +10,6 @@
 #endif
 #include "jit/MIR.h"
 #include "jit/Recover.h"
-#include "vm/JSScript.h"
 #include "vm/Printer.h"
 
 using namespace js;

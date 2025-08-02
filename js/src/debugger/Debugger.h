@@ -20,7 +20,6 @@
 #include <stdint.h>  // for uint32_t, uint64_t, uintptr_t
 #include <utility>   // for std::move
 
-#include "jsapi.h"             // for Handle, UnsafeTraceRoot
 #include "jstypes.h"           // for JS_GC_ZEAL
 #include "NamespaceImports.h"  // for Value, HandleObject
 
@@ -33,8 +32,11 @@
 #include "gc/Tracer.h"              // for TraceNullableEdge, TraceEdge
 #include "gc/WeakMap.h"             // for WeakMap
 #include "gc/ZoneAllocator.h"       // for ZoneAllocPolicy
+#include "js/Debug.h"               // JS_DefineDebuggerObject
 #include "js/GCAPI.h"               // for GarbageCollectionEvent
 #include "js/Proxy.h"               // for PropertyDescriptor
+#include "js/RootingAPI.h"          // for Handle
+#include "js/TracingAPI.h"          // for UnsafeTraceRoot
 #include "js/Wrapper.h"             // for UncheckedUnwrap
 #include "proxy/DeadObjectProxy.h"  // for IsDeadProxyObject
 #include "vm/GeneratorObject.h"     // for AbstractGeneratorObject
@@ -939,7 +941,7 @@ class Debugger : private mozilla::LinkedListElement<Debugger> {
    * |frame|. |global| is |frame|'s global object; if nullptr or omitted, we
    * compute it ourselves from |frame|.
    */
-  using DebuggerFrameVector = GCVector<DebuggerFrame*>;
+  using DebuggerFrameVector = GCVector<DebuggerFrame*, 0, SystemAllocPolicy>;
   [[nodiscard]] static bool getDebuggerFrames(
       AbstractFramePtr frame, MutableHandle<DebuggerFrameVector> frames);
 
