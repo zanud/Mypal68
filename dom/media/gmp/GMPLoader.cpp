@@ -130,14 +130,6 @@ void GMPLoader::Shutdown() {
   }
 }
 
-#if defined(XP_MACOSX) && defined(MOZ_SANDBOX)
-void GMPLoader::SetSandboxInfo(MacSandboxInfo* aSandboxInfo) {
-  if (mSandboxStarter) {
-    mSandboxStarter->SetSandboxInfo(aSandboxInfo);
-  }
-}
-#endif
-
 #if defined(XP_WIN) && defined(MOZ_SANDBOX)
 class WinSandboxStarter : public mozilla::gmp::SandboxStarter {
  public:
@@ -151,26 +143,6 @@ class WinSandboxStarter : public mozilla::gmp::SandboxStarter {
     mozilla::SandboxTarget::Instance()->StartSandbox();
     return true;
   }
-};
-#endif
-
-#if defined(XP_MACOSX) && defined(MOZ_SANDBOX)
-class MacSandboxStarter : public mozilla::gmp::SandboxStarter {
- public:
-  bool Start(const char* aLibPath) override {
-    std::string err;
-    bool rv = mozilla::StartMacSandbox(mInfo, err);
-    if (!rv) {
-      fprintf(stderr, "sandbox_init() failed! Error \"%s\"\n", err.c_str());
-    }
-    return rv;
-  }
-  void SetSandboxInfo(MacSandboxInfo* aSandboxInfo) override {
-    mInfo = *aSandboxInfo;
-  }
-
- private:
-  MacSandboxInfo mInfo;
 };
 #endif
 
@@ -202,8 +174,6 @@ class LinuxSandboxStarter : public mozilla::gmp::SandboxStarter {
 static UniquePtr<SandboxStarter> MakeSandboxStarter() {
 #if defined(XP_WIN) && defined(MOZ_SANDBOX)
   return mozilla::MakeUnique<WinSandboxStarter>();
-#elif defined(XP_MACOSX) && defined(MOZ_SANDBOX)
-  return mozilla::MakeUnique<MacSandboxStarter>();
 #elif defined(XP_LINUX) && defined(MOZ_SANDBOX)
   return LinuxSandboxStarter::Make();
 #else

@@ -39,6 +39,18 @@ class PlacesEvent : public nsWrapperCache {
   virtual const PlacesBookmarkRemoved* AsPlacesBookmarkRemoved() const {
     return nullptr;
   }
+  virtual const PlacesFavicon* AsPlacesFavicon() const { return nullptr; }
+  virtual const PlacesVisitTitle* AsPlacesVisitTitle() const { return nullptr; }
+  virtual const PlacesHistoryCleared* AsPlacesHistoryCleared() const {
+    return nullptr;
+  }
+  virtual const PlacesRanking* AsPlacesRanking() const { return nullptr; }
+  virtual const PlacesVisitRemoved* AsPlacesVisitRemoved() const {
+    return nullptr;
+  }
+  virtual const PlacesPurgeCaches* AsPlacesPurgeCaches() const {
+    return nullptr;
+  }
 
  protected:
   virtual ~PlacesEvent() = default;

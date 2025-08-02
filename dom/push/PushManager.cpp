@@ -12,6 +12,7 @@
 #include "mozilla/dom/PushSubscription.h"
 #include "mozilla/dom/PushSubscriptionOptionsBinding.h"
 #include "mozilla/dom/PushUtil.h"
+#include "mozilla/dom/RootedDictionary.h" //MY
 #include "mozilla/dom/WorkerRunnable.h"
 #include "mozilla/dom/WorkerPrivate.h"
 #include "mozilla/dom/WorkerScope.h"
@@ -450,7 +451,7 @@ already_AddRefed<Promise> PushManager::PermissionState(
 
 already_AddRefed<Promise> PushManager::PerformSubscriptionActionFromWorker(
     SubscriptionAction aAction, ErrorResult& aRv) {
-  PushSubscriptionOptionsInit options;
+  RootedDictionary<PushSubscriptionOptionsInit> options(RootingCx());
   return PerformSubscriptionActionFromWorker(aAction, options, aRv);
 }
 

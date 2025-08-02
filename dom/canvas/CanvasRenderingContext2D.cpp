@@ -2113,8 +2113,10 @@ already_AddRefed<CanvasPattern> CanvasRenderingContext2D::CreatePattern(
     element = img;
   } else if (aSource.IsHTMLVideoElement()) {
     auto& video = aSource.GetAsHTMLVideoElement();
+#if DEBUG
     video.MarkAsContentSource(
         mozilla::dom::HTMLVideoElement::CallerAPI::CREATE_PATTERN);
+#endif
     element = &video;
   } else {
     // Special case for ImageBitmap
@@ -4433,8 +4435,10 @@ void CanvasRenderingContext2D::DrawImage(const CanvasImageSource& aImage,
       element = img;
     } else {
       HTMLVideoElement* video = &aImage.GetAsHTMLVideoElement();
+#if DEBUG
       video->MarkAsContentSource(
           mozilla::dom::HTMLVideoElement::CallerAPI::DRAW_IMAGE);
+#endif
       element = video;
     }
 

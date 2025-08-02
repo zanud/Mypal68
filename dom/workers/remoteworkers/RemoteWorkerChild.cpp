@@ -143,7 +143,7 @@ class RemoteWorkerChild::InitializeWorkerRunnable final
 };
 
 RemoteWorkerChild::RemoteWorkerChild()
-    : mIPCActive(true), mSharedData("RemoteWorkerChild::mSharedData") {
+    : mIPCActive(true), mSharedData() {//"RemoteWorkerChild::mSharedData") {
   MOZ_ASSERT(RemoteWorkerService::Thread()->IsOnCurrentThread());
 }
 

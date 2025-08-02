@@ -8,6 +8,7 @@
 #include <utility>
 #include "ScriptLoader.h"
 #include "ScriptTrace.h"
+#include "js/Transcoding.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/CheckedInt.h"
 #include "mozilla/DebugOnly.h"

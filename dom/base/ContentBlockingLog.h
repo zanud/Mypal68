@@ -53,7 +53,7 @@ class ContentBlockingLog final {
         mBuffer;  // The lifetime of the struct must be bound to the buffer
     explicit StringWriteFunc(nsACString& aBuffer) : mBuffer(aBuffer) {}
 
-    void Write(const char* aStr) override { mBuffer.Append(aStr); }
+    void Write(const Span<const char>& aStr) override { mBuffer.Append(aStr); }
   };
 
   struct Comparator {
@@ -168,7 +168,7 @@ class ContentBlockingLog final {
         continue;
       }
 
-      w.StartArrayProperty(entry.mOrigin.get(), w.SingleLineStyle);
+      w.StartArrayProperty(entry.mOrigin, w.SingleLineStyle);
 
       if (entry.mData->mHasTrackingContentLoaded) {
         w.StartArrayElement(w.SingleLineStyle);

@@ -133,6 +133,9 @@ nsresult GMPParent::LoadProcess() {
 
   if (!mProcess) {
     mProcess = new GMPProcessParent(NS_ConvertUTF16toUTF8(path).get());
+#if defined(XP_MACOSX) && defined(MOZ_SANDBOX)
+    mProcess->SetRequiresWindowServer(mAdapter.EqualsLiteral("chromium"));
+#endif
     if (!mProcess->Launch(30 * 1000)) {
       GMP_PARENT_LOG_DEBUG("%s: Failed to launch new child process",
                            __FUNCTION__);

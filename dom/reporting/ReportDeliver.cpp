@@ -141,7 +141,7 @@ struct StringWriteFunc final : public JSONWriteFunc {
       mBuffer;  // The lifetime of the struct must be bound to the buffer
   explicit StringWriteFunc(nsACString& aBuffer) : mBuffer(aBuffer) {}
 
-  void Write(const char* aStr) override { mBuffer.Append(aStr); }
+  void Write(const Span<const char>& aStr) override { mBuffer.Append(aStr); }
 };
 
 class ReportJSONWriter final : public JSONWriter {
@@ -149,7 +149,8 @@ class ReportJSONWriter final : public JSONWriter {
   explicit ReportJSONWriter(nsACString& aOutput)
       : JSONWriter(MakeUnique<StringWriteFunc>(aOutput)) {}
 
-  void JSONProperty(const char* aProperty, const char* aJSON) {
+  void JSONProperty(const Span<const char>& aProperty,
+                    const Span<const char>& aJSON) {
     Separator();
     PropertyNameAndColon(aProperty);
     mWriter->Write(aJSON);
@@ -172,11 +173,12 @@ void SendReport(ReportDeliver::ReportData& aReportData,
 
   w.IntProperty(
       "age", (TimeStamp::Now() - aReportData.mCreationTime).ToMilliseconds());
-  w.StringProperty("type", NS_ConvertUTF16toUTF8(aReportData.mType).get());
-  w.StringProperty("url", NS_ConvertUTF16toUTF8(aReportData.mURL).get());
-  w.StringProperty("user_agent",
-                   NS_ConvertUTF16toUTF8(aReportData.mUserAgent).get());
-  w.JSONProperty("body", aReportData.mReportBodyJSON.get());
+  w.StringProperty("type", NS_ConvertUTF16toUTF8(aReportData.mType));
+  w.StringProperty("url", NS_ConvertUTF16toUTF8(aReportData.mURL));
+  w.StringProperty("user_agent", NS_ConvertUTF16toUTF8(aReportData.mUserAgent));
+  w.JSONProperty(MakeStringSpan("body"),
+                 Span<const char>(aReportData.mReportBodyJSON.Data(),
+                                  aReportData.mReportBodyJSON.Length()));
   w.End();
 
   // The body as stream
@@ -234,8 +236,9 @@ void SendReport(ReportDeliver::ReportData& aReportData,
   RequestOrUSVString fetchInput;
   fetchInput.SetAsRequest() = request;
 
-  RefPtr<Promise> promise = FetchRequest(
-      globalObject, fetchInput, RequestInit(), CallerType::NonSystem, error);
+  RootedDictionary<RequestInit> requestInit(RootingCx());
+  RefPtr<Promise> promise = FetchRequest(globalObject, fetchInput, requestInit,
+                                         CallerType::NonSystem, error);
   if (error.Failed()) {
     ++aReportData.mFailures;
     if (gReportDeliver) {

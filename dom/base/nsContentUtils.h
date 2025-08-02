@@ -3361,6 +3361,8 @@ nsContentUtils::InternalContentPolicyTypeToExternal(nsContentPolicyType aType) {
     case nsIContentPolicy::TYPE_INTERNAL_WORKER_IMPORT_SCRIPTS:
     case nsIContentPolicy::TYPE_INTERNAL_AUDIOWORKLET:
     case nsIContentPolicy::TYPE_INTERNAL_PAINTWORKLET:
+    case nsIContentPolicy::TYPE_INTERNAL_CHROMEUTILS_COMPILED_SCRIPT:
+    case nsIContentPolicy::TYPE_INTERNAL_FRAME_MESSAGEMANAGER_SCRIPT:
       return nsIContentPolicy::TYPE_SCRIPT;
 
     case nsIContentPolicy::TYPE_INTERNAL_EMBED:
@@ -3395,6 +3397,9 @@ nsContentUtils::InternalContentPolicyTypeToExternal(nsContentPolicyType aType) {
 
     case nsIContentPolicy::TYPE_INTERNAL_FONT_PRELOAD:
       return nsIContentPolicy::TYPE_FONT;
+
+    case nsIContentPolicy::TYPE_INTERNAL_FETCH_PRELOAD:
+      return nsIContentPolicy::TYPE_FETCH;
 
     default:
       return aType;

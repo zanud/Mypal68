@@ -10,7 +10,6 @@
 #include "ContentParent.h"
 #include "ProcessUtils.h"
 #include "BrowserParent.h"
-#include "mozilla/dom/MediaControlService.h"
 
 #include "mozilla/XREAppData.h"
 
@@ -22,7 +21,7 @@
 #include "chrome/common/process_watcher.h"
 
 #ifdef ACCESSIBILITY
-#include "mozilla/a11y/PDocAccessible.h"
+#  include "mozilla/a11y/PDocAccessible.h"
 #endif
 #include "GeckoProfiler.h"
 #include "GMPServiceParent.h"
@@ -80,6 +79,7 @@
 #include "mozilla/dom/CanonicalBrowsingContext.h"
 #include "mozilla/dom/ClientManager.h"
 #include "mozilla/dom/ClientOpenWindowOpActors.h"
+#include "mozilla/dom/ContentMediaController.h"
 #include "mozilla/dom/ContentChild.h"
 #include "mozilla/dom/DataTransfer.h"
 #include "mozilla/dom/Document.h"
@@ -93,6 +93,7 @@
 #include "mozilla/dom/IPCBlobUtils.h"
 #include "mozilla/dom/JSWindowActorService.h"
 #include "mozilla/dom/LocalStorageCommon.h"
+#include "mozilla/dom/MediaController.h"
 #include "mozilla/dom/MemoryReportRequest.h"
 #include "mozilla/dom/Notification.h"
 #include "mozilla/dom/PContentPermissionRequestParent.h"
@@ -604,10 +605,6 @@ static const char* sObserverTopics[] = {
     "private-cookie-changed",
     NS_NETWORK_LINK_TYPE_TOPIC,
 };
-
-#if defined(XP_MACOSX) && defined(MOZ_SANDBOX)
-bool ContentParent::sEarlySandboxInit = false;
-#endif
 
 // PreallocateProcess is called by the PreallocatedProcessManager.
 // ContentParent then takes this process back within GetNewOrUsedBrowserProcess.
@@ -1924,8 +1921,9 @@ void ContentParent::LaunchSubprocessInternal(
   }
 
 #if defined(XP_MACOSX) && defined(MOZ_SANDBOX)
-  if (sEarlySandboxInit && IsContentSandboxEnabled()) {
+  if (IsContentSandboxEnabled()) {
     AppendSandboxParams(extraArgs);
+    mSubprocess->DisableOSActivityMode();
   }
 #endif
 
@@ -2105,17 +2103,6 @@ ContentParent::ContentParent(ContentParent* aOpener,
   NS_ASSERTION(NS_IsMainThread(), "Wrong thread!");
   bool isFile = mRemoteType.EqualsLiteral(FILE_REMOTE_TYPE);
   mSubprocess = new GeckoChildProcessHost(GeckoProcessType_Content, isFile);
-
-#if defined(XP_MACOSX) && defined(MOZ_SANDBOX)
-  // sEarlySandboxInit is statically initialized to false.
-  // Once we've set it to true due to the pref, avoid checking the
-  // pref on subsequent calls. As a result, changing the earlyinit
-  // pref requires restarting the browser to take effect.
-  if (!ContentParent::sEarlySandboxInit) {
-    ContentParent::sEarlySandboxInit =
-        Preferences::GetBool("security.sandbox.content.mac.earlyinit");
-  }
-#endif
 }
 
 ContentParent::~ContentParent() {
@@ -5324,23 +5311,19 @@ mozilla::ipc::IPCResult ContentParent::RecvStoreUserInteractionAsPermission(
   return IPC_OK();
 }
 
-mozilla::ipc::IPCResult ContentParent::RecvNotifyMediaActiveChanged(
-    BrowsingContext* aContext, bool aActive) {
-  RefPtr<MediaControlService> service = MediaControlService::GetService();
-  MOZ_ASSERT(!aContext->GetParent(), "Should be top level browsing context!");
-  RefPtr<MediaController> controller =
-      service->GetOrCreateControllerById(aContext->Id());
-  controller->NotifyMediaActiveChanged(aActive);
+mozilla::ipc::IPCResult ContentParent::RecvNotifyMediaStateChanged(
+    BrowsingContext* aContext, ControlledMediaState aState) {
+  if (RefPtr<MediaController> controller =
+          aContext->Canonical()->GetMediaController()) {
+    controller->NotifyMediaStateChanged(aState);
+  }
   return IPC_OK();
 }
 
 mozilla::ipc::IPCResult ContentParent::RecvNotifyMediaAudibleChanged(
     BrowsingContext* aContext, bool aAudible) {
-  RefPtr<MediaControlService> service = MediaControlService::GetService();
-  MOZ_ASSERT(!aContext->GetParent(), "Should be top level browsing context!");
-  RefPtr<MediaController> controller =
-      service->GetControllerById(aContext->Id());
-  if (controller) {
+  if (RefPtr<MediaController> controller =
+          aContext->Canonical()->GetMediaController()) {
     controller->NotifyMediaAudibleChanged(aAudible);
   }
   return IPC_OK();

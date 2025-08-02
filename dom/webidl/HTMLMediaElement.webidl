@@ -140,9 +140,6 @@ partial interface HTMLMediaElement {
   // the media element has a fragment URI for the currentSrc, otherwise
   // it is equal to the media duration.
   readonly attribute double mozFragmentEnd;
-
-  [ChromeOnly]
-  void reportCanPlayTelemetry();
 };
 
 // This is just for testing
@@ -151,8 +148,6 @@ partial interface HTMLMediaElement {
   readonly attribute double computedVolume;
   [Pref="media.useAudioChannelService.testing"]
   readonly attribute boolean computedMuted;
-  [Pref="media.useAudioChannelService.testing"]
-  readonly attribute unsigned long computedSuspended;
 };
 
 /*

@@ -11,7 +11,7 @@
 #include "VideoSink.h"
 
 #ifdef MOZ_GECKO_PROFILER
-#  include "ProfileJSONWriter.h"
+#  include "mozilla/ProfileJSONWriter.h"
 #  include "ProfilerMarkerPayload.h"
 #endif
 #include "MediaQueue.h"

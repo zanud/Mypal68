@@ -497,10 +497,10 @@ AudioCallbackDriver::AudioCallbackDriver(
       mStarted(false),
       mInitShutdownThread(
           SharedThreadPool::Get(NS_LITERAL_CSTRING("CubebOperation"), 1)),
-      mPromisesForOperation("AudioCallbackDriver::mPromisesForOperation"),
+      mPromisesForOperation(),//"AudioCallbackDriver::mPromisesForOperation"),
       mAudioThreadId(std::thread::id()),
       mAudioStreamState(AudioStreamState::None),
-      mFallback("AudioCallbackDriver::mFallback") {
+      mFallback() {//"AudioCallbackDriver::mFallback") {
   LOG(LogLevel::Debug, ("%p: AudioCallbackDriver ctor", Graph()));
 
   NS_WARNING_ASSERTION(mOutputChannels != 0, "Invalid output channel count");

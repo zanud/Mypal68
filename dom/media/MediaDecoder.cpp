@@ -580,7 +580,6 @@ void MediaDecoder::Seek(double aTime, SeekTarget::Type aSeekType) {
   auto time = TimeUnit::FromSeconds(aTime);
 
   mLogicalPosition = aTime;
-
   mLogicallySeeking = true;
   SeekTarget target = SeekTarget(time, aSeekType);
   CallSeek(target);
@@ -591,6 +590,20 @@ void MediaDecoder::Seek(double aTime, SeekTarget::Type aSeekType) {
   }
 }
 
+void MediaDecoder::SetDelaySeekMode(bool aShouldDelaySeek) {
+  MOZ_ASSERT(NS_IsMainThread());
+  LOG("SetDelaySeekMode, shouldDelaySeek=%d", aShouldDelaySeek);
+  if (mShouldDelaySeek == aShouldDelaySeek) {
+    return;
+  }
+  mShouldDelaySeek = aShouldDelaySeek;
+  if (!mShouldDelaySeek && mDelayedSeekTarget) {
+    Seek(mDelayedSeekTarget->GetTime().ToSeconds(),
+         mDelayedSeekTarget->GetType());
+    mDelayedSeekTarget.reset();
+  }
+}
+
 void MediaDecoder::DiscardOngoingSeekIfExists() {
   MOZ_ASSERT(NS_IsMainThread());
   mSeekRequest.DisconnectIfExists();
@@ -598,8 +611,13 @@ void MediaDecoder::DiscardOngoingSeekIfExists() {
 
 void MediaDecoder::CallSeek(const SeekTarget& aTarget) {
   MOZ_ASSERT(NS_IsMainThread());
+  if (mShouldDelaySeek) {
+    LOG("Delay seek to %f and store it to delayed seek target",
+        mDelayedSeekTarget->GetTime().ToSeconds());
+    mDelayedSeekTarget = Some(aTarget);
+    return;
+  }
   DiscardOngoingSeekIfExists();
-
   mDecoderStateMachine->InvokeSeek(aTarget)
       ->Then(mAbstractMainThread, __func__, this, &MediaDecoder::OnSeekResolved,
              &MediaDecoder::OnSeekRejected)

@@ -63,7 +63,7 @@ class ConsoleListener;
 class ClonedMessageData;
 class BrowserChild;
 class GetFilesHelperChild;
-enum class MediaControlActions : uint32_t;
+enum class MediaControlKeysEvent : uint32_t;
 
 class ContentChild final : public PContentChild,
                            public nsIWindowProvider,
@@ -625,8 +625,8 @@ class ContentChild final : public PContentChild,
   mozilla::ipc::IPCResult RecvSetMediaMuted(BrowsingContext* aContext,
                                             bool aMuted);
 
-  mozilla::ipc::IPCResult RecvUpdateMediaAction(BrowsingContext* aContext,
-                                                MediaControlActions aAction);
+  mozilla::ipc::IPCResult RecvUpdateMediaControlKeysEvent(
+      BrowsingContext* aContext, MediaControlKeysEvent aEvent);
 
   void HoldBrowsingContextGroup(BrowsingContextGroup* aBCG);
 

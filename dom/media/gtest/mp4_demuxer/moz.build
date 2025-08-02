@@ -55,9 +55,5 @@ UNIFIED_SOURCES += ['TestMP4.cpp',]
 TEST_HARNESS_FILES.gtest += [
     '../../test/street.mp4',
 ]
-LOCAL_INCLUDES += [
-    '../../mp4',
-    '/toolkit/components/telemetry/tests/gtest',
-]
 
 FINAL_LIBRARY = 'xul-gtest'

@@ -123,7 +123,7 @@ class WorkletFetchHandler final : public PromiseNativeHandler,
     RequestOrUSVString requestInput;
     requestInput.SetAsUSVString().ShareOrDependUpon(aModuleURL);
 
-    RequestInit requestInit;
+    RootedDictionary<RequestInit> requestInit(aCx);
     requestInit.mCredentials.Construct(aOptions.mCredentials);
 
     SafeRefPtr<Request> request =

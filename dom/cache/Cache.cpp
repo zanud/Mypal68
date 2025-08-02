@@ -320,8 +320,9 @@ already_AddRefed<Promise> Cache::Add(JSContext* aContext,
   MOZ_DIAGNOSTIC_ASSERT(!global.Failed());
 
   nsTArray<SafeRefPtr<Request>> requestList(1);
+  RootedDictionary<RequestInit> requestInit(aContext);
   SafeRefPtr<Request> request =
-      Request::Constructor(global, aRequest, RequestInit(), aRv);
+      Request::Constructor(global, aRequest, requestInit, aRv);
   if (NS_WARN_IF(aRv.Failed())) {
     return nullptr;
   }
@@ -364,8 +365,9 @@ already_AddRefed<Promise> Cache::AddAll(
           aRequestList[i].GetAsUSVString());
     }
 
+    RootedDictionary<RequestInit> requestInit(aContext);
     SafeRefPtr<Request> request =
-        Request::Constructor(global, requestOrString, RequestInit(), aRv);
+        Request::Constructor(global, requestOrString, requestInit, aRv);
     if (NS_WARN_IF(aRv.Failed())) {
       return nullptr;
     }
@@ -553,8 +555,9 @@ already_AddRefed<Promise> Cache::AddAll(
   for (uint32_t i = 0; i < aRequestList.Length(); ++i) {
     RequestOrUSVString requestOrString;
     requestOrString.SetAsRequest() = aRequestList[i].unsafeGetRawPtr();
+    RootedDictionary<RequestInit> requestInit(aGlobal.Context());
     RefPtr<Promise> fetch =
-        FetchRequest(mGlobal, requestOrString, RequestInit(), aCallerType, aRv);
+        FetchRequest(mGlobal, requestOrString, requestInit, aCallerType, aRv);
     if (NS_WARN_IF(aRv.Failed())) {
       return nullptr;
     }

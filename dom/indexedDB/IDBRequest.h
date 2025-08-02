@@ -184,7 +184,7 @@ class IDBRequest : public DOMEventTargetHelper {
   Maybe<IDBTransaction&> MaybeTransactionRef() const {
     AssertIsOnOwningThread();
 
-    return mTransaction ? SomeRef(*mTransaction) : Nothing();
+    return mTransaction.maybeDeref();
   }
 
   IDBTransaction& MutableTransactionRef() const {

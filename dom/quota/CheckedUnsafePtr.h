@@ -29,7 +29,7 @@ class CheckedUnsafePtrBaseCheckingEnabled;
 struct CheckedUnsafePtrCheckData {
   using Data = nsTArray<CheckedUnsafePtrBaseCheckingEnabled*>;
 
-  DataMutex<Data> mPtrs{"mozilla::SupportsCheckedUnsafePtr"};
+  DataMutex<Data> mPtrs;//{"mozilla::SupportsCheckedUnsafePtr"};
 };
 
 class CheckedUnsafePtrBaseCheckingEnabled {

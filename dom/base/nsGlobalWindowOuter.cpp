@@ -29,8 +29,6 @@
 #include "mozilla/dom/LSObject.h"
 #include "mozilla/dom/Storage.h"
 #include "mozilla/dom/MaybeCrossOriginObject.h"
-#include "mozilla/dom/MediaController.h"
-#include "mozilla/dom/MediaControlUtils.h"
 #include "mozilla/dom/Performance.h"
 #include "mozilla/dom/StorageEvent.h"
 #include "mozilla/dom/StorageEventBinding.h"
@@ -77,6 +75,7 @@
 #include "js/friend/WindowProxy.h"  // js::IsWindowProxy, js::SetWindowProxy
 #include "js/PropertyAndElement.h"  // JS_DefineObject, JS_GetProperty
 #include "js/PropertySpec.h"
+#include "js/RealmIterators.h"
 #include "js/Wrapper.h"
 #include "nsCharSeparatedTokenizer.h"
 #include "nsLayoutUtils.h"
@@ -265,12 +264,6 @@ using namespace mozilla::dom::ipc;
 using mozilla::BasePrincipal;
 using mozilla::OriginAttributes;
 using mozilla::TimeStamp;
-
-extern mozilla::LazyLogModule gMediaControlLog;
-
-#define MC_LOG(msg, ...)                     \
-  MOZ_LOG(gMediaControlLog, LogLevel::Debug, \
-          ("WindowOuter=%p, " msg, this, ##__VA_ARGS__))
 
 #define FORWARD_TO_INNER(method, args, err_rval)       \
   PR_BEGIN_MACRO                                       \
@@ -3098,32 +3091,9 @@ SuspendTypes nsPIDOMWindowOuter::GetMediaSuspend() const {
   return mMediaSuspend;
 }
 
-void nsPIDOMWindowOuter::UpdateMediaAction(const MediaControlActions aAction) {
-  // TODO : we now temporarily map MediaControlActions to nsISuspendedTypes in
-  // order to control media, but for long term goal in which we should not rely
-  // on nsISuspendedTypes and completely decouple them. See bug1571493.
-  MC_LOG("UpdateMediaAction %s", ToMediaControlActionsStr(aAction));
-  switch (aAction) {
-    case MediaControlActions::ePlay:
-      SetMediaSuspend(nsISuspendedTypes::NONE_SUSPENDED);
-      break;
-    case MediaControlActions::ePause:
-      SetMediaSuspend(nsISuspendedTypes::SUSPENDED_PAUSE_DISPOSABLE);
-      break;
-    case MediaControlActions::eStop:
-      SetMediaSuspend(nsISuspendedTypes::SUSPENDED_STOP_DISPOSABLE);
-      break;
-    default:
-      MOZ_ASSERT_UNREACHABLE("Invalid action.");
-  };
-}
-
 void nsPIDOMWindowOuter::SetMediaSuspend(SuspendTypes aSuspend) {
-  if (!IsDisposableSuspend(aSuspend)) {
-    MaybeNotifyMediaResumedFromBlock(aSuspend);
-    mMediaSuspend = aSuspend;
-  }
-
+  MaybeNotifyMediaResumedFromBlock(aSuspend);
+  mMediaSuspend = aSuspend;
   RefreshMediaElementsSuspend(aSuspend);
 }
 
@@ -3180,11 +3150,6 @@ void nsPIDOMWindowOuter::RefreshMediaElementsSuspend(SuspendTypes aSuspend) {
   if (service) {
     service->RefreshAgentsSuspend(this, aSuspend);
   }
-}
-
-bool nsPIDOMWindowOuter::IsDisposableSuspend(SuspendTypes aSuspend) const {
-  return (aSuspend == nsISuspendedTypes::SUSPENDED_PAUSE_DISPOSABLE ||
-          aSuspend == nsISuspendedTypes::SUSPENDED_STOP_DISPOSABLE);
 }
 
 void nsPIDOMWindowOuter::SetServiceWorkersTestingEnabled(bool aEnabled) {

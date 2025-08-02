@@ -11,7 +11,7 @@
 #include "pratom.h"
 #include "prenv.h"
 
-#include "jsfriendapi.h"
+#include "jsapi.h"
 #include "js/friend/WindowProxy.h"  // js::ToWindowIfWindowProxy
 #include "js/Object.h"              // JS::GetCompartment
 

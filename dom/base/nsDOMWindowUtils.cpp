@@ -3759,24 +3759,6 @@ nsDOMWindowUtils::PostRestyleSelfEvent(Element* aElement) {
 }
 
 NS_IMETHODIMP
-nsDOMWindowUtils::GetMediaSuspend(uint32_t* aSuspend) {
-  nsCOMPtr<nsPIDOMWindowOuter> window = do_QueryReferent(mWindow);
-  NS_ENSURE_STATE(window);
-
-  *aSuspend = window->GetMediaSuspend();
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-nsDOMWindowUtils::SetMediaSuspend(uint32_t aSuspend) {
-  nsCOMPtr<nsPIDOMWindowOuter> window = do_QueryReferent(mWindow);
-  NS_ENSURE_STATE(window);
-
-  window->SetMediaSuspend(aSuspend);
-  return NS_OK;
-}
-
-NS_IMETHODIMP
 nsDOMWindowUtils::GetAudioMuted(bool* aMuted) {
   nsCOMPtr<nsPIDOMWindowOuter> window = do_QueryReferent(mWindow);
   NS_ENSURE_STATE(window);

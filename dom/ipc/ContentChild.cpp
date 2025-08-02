@@ -51,6 +51,7 @@
 #include "mozilla/dom/LSObject.h"
 #include "mozilla/dom/MemoryReportRequest.h"
 #include "mozilla/dom/PSessionStorageObserverChild.h"
+#include "mozilla/dom/PlaybackController.h"
 #include "mozilla/dom/PostMessageEvent.h"
 #include "mozilla/dom/PushNotifier.h"
 #include "mozilla/dom/RemoteWorkerService.h"
@@ -114,6 +115,10 @@
 #    include "mozilla/Sandbox.h"
 #  elif defined(__OpenBSD__)
 #    include <unistd.h>
+#    include <sys/stat.h>
+#    include <err.h>
+#    include <fstream>
+#    include "nsILineInputStream.h"
 #  endif
 #endif
 
@@ -208,7 +213,7 @@
 #endif
 
 #include "mozilla/dom/File.h"
-#include "mozilla/dom/MediaController.h"
+#include "mozilla/dom/MediaControlKeysEvent.h"
 #include "mozilla/dom/PPresentationChild.h"
 #include "mozilla/dom/PresentationIPCService.h"
 #include "mozilla/ipc/IPCStreamAlloc.h"
@@ -660,6 +665,10 @@ bool ContentChild::Init(MessageLoop* aIOLoop, base::ProcessId aParentPid,
     // This can occur when an update occurred in the background.
     ProcessChild::QuickExit();
   }
+
+#if defined(__OpenBSD__) && defined(MOZ_SANDBOX)
+  StartOpenBSDSandbox(GeckoProcessType_Content);
+#endif
 
 #ifdef MOZ_X11
   if (!gfxPlatform::IsHeadless()) {
@@ -1490,7 +1499,7 @@ extern "C" {
 CGError CGSSetDenyWindowServerConnections(bool);
 };
 
-static bool StartMacOSContentSandbox() {
+static void DisconnectWindowServer(bool aIsSandboxEnabled) {
   // Close all current connections to the WindowServer. This ensures that the
   // Activity Monitor will not label the content process as "Not responding"
   // because it's not running a native event loop. See bug 1384336.
@@ -1501,15 +1510,11 @@ static bool StartMacOSContentSandbox() {
   // is called.
   CGSShutdownServerConnections();
 
-  int sandboxLevel = GetEffectiveContentSandboxLevel();
-  if (sandboxLevel < 1) {
-    return false;
-  }
-
   // Actual security benefits are only acheived when we additionally deny
   // future connections, however this currently breaks WebGL so it's not done
   // by default.
-  if (Preferences::GetBool(
+  if (aIsSandboxEnabled &&
+      Preferences::GetBool(
           "security.sandbox.content.mac.disconnect-windowserver")) {
     CGError result = CGSSetDenyWindowServerConnections(true);
     MOZ_DIAGNOSTIC_ASSERT(result == kCGErrorSuccess);
@@ -1517,105 +1522,6 @@ static bool StartMacOSContentSandbox() {
     Unused << result;
 #  endif
   }
-
-  // If the sandbox is already enabled, there's nothing more to do here.
-  if (Preferences::GetBool("security.sandbox.content.mac.earlyinit")) {
-    return true;
-  }
-
-  nsAutoCString appPath;
-  if (!nsMacUtilsImpl::GetAppPath(appPath)) {
-    MOZ_CRASH("Error resolving child process app path");
-  }
-
-  ContentChild* cc = ContentChild::GetSingleton();
-
-  nsresult rv;
-  nsCOMPtr<nsIFile> profileDir;
-  cc->GetProfileDir(getter_AddRefs(profileDir));
-  nsCString profileDirPath;
-  if (profileDir) {
-    profileDir->Normalize();
-    rv = profileDir->GetNativePath(profileDirPath);
-    if (NS_FAILED(rv) || profileDirPath.IsEmpty()) {
-      MOZ_CRASH("Failed to get profile path");
-    }
-  }
-
-  bool isFileProcess = cc->GetRemoteType().EqualsLiteral(FILE_REMOTE_TYPE);
-
-  MacSandboxInfo info;
-  info.type = MacSandboxType_Content;
-  info.level = sandboxLevel;
-  info.hasFilePrivileges = isFileProcess;
-  info.shouldLog = Preferences::GetBool("security.sandbox.logging.enabled") ||
-                   PR_GetEnv("MOZ_SANDBOX_LOGGING");
-  info.appPath.assign(appPath.get());
-  info.hasAudio = !StaticPrefs::media_cubeb_sandbox();
-  info.hasWindowServer = !Preferences::GetBool(
-      "security.sandbox.content.mac.disconnect-windowserver");
-
-  // These paths are used to allowlist certain directories used by the testing
-  // system. They should not be considered a public API, and are only intended
-  // for use in automation.
-  nsAutoCString testingReadPath1;
-  Preferences::GetCString("security.sandbox.content.mac.testing_read_path1",
-                          testingReadPath1);
-  if (!testingReadPath1.IsEmpty()) {
-    info.testingReadPath1.assign(testingReadPath1.get());
-  }
-  nsAutoCString testingReadPath2;
-  Preferences::GetCString("security.sandbox.content.mac.testing_read_path2",
-                          testingReadPath2);
-  if (!testingReadPath2.IsEmpty()) {
-    info.testingReadPath2.assign(testingReadPath2.get());
-  }
-
-  if (mozilla::IsDevelopmentBuild()) {
-    nsCOMPtr<nsIFile> repoDir;
-    rv = nsMacUtilsImpl::GetRepoDir(getter_AddRefs(repoDir));
-    if (NS_FAILED(rv)) {
-      MOZ_CRASH("Failed to get path to repo dir");
-    }
-    nsCString repoDirPath;
-    Unused << repoDir->GetNativePath(repoDirPath);
-    info.testingReadPath3.assign(repoDirPath.get());
-
-    nsCOMPtr<nsIFile> objDir;
-    rv = nsMacUtilsImpl::GetObjDir(getter_AddRefs(objDir));
-    if (NS_FAILED(rv)) {
-      MOZ_CRASH("Failed to get path to build object dir");
-    }
-
-    nsCString objDirPath;
-    Unused << objDir->GetNativePath(objDirPath);
-    info.testingReadPath4.assign(objDirPath.get());
-  }
-
-  if (profileDir) {
-    info.hasSandboxedProfile = true;
-    info.profileDir.assign(profileDirPath.get());
-  } else {
-    info.hasSandboxedProfile = false;
-  }
-
-#  ifdef DEBUG
-  // For bloat/leak logging or when a content process dies intentionally
-  // (|NoteIntentionalCrash|) for tests, it wants to log that it did this.
-  // Allow writing to this location.
-  nsAutoCString bloatLogDirPath;
-  if (NS_SUCCEEDED(nsMacUtilsImpl::GetBloatLogDir(bloatLogDirPath))) {
-    info.debugWriteDir = bloatLogDirPath.get();
-  }
-#  endif  // DEBUG
-
-  std::string err;
-  if (!mozilla::StartMacSandbox(info, err)) {
-    NS_WARNING(err.c_str());
-    MOZ_CRASH("sandbox_init() failed");
-  }
-
-  return true;
 }
 #endif
 
@@ -1643,16 +1549,8 @@ mozilla::ipc::IPCResult ContentChild::RecvSetProcessSandbox(
 #  elif defined(XP_WIN)
   mozilla::SandboxTarget::Instance()->StartSandbox();
 #  elif defined(XP_MACOSX)
-  sandboxEnabled = StartMacOSContentSandbox();
-#  elif defined(__OpenBSD__)
-  sandboxEnabled = StartOpenBSDSandbox(GeckoProcessType_Content);
-  /* dont overwrite an existing session dbus address, but ensure it is set */
-  if (!PR_GetEnv("DBUS_SESSION_BUS_ADDRESS")) {
-    static LazyLogModule sPledgeLog("SandboxPledge");
-    MOZ_LOG(sPledgeLog, LogLevel::Debug,
-            ("no session dbus found, faking one\n"));
-    PR_SetEnv("DBUS_SESSION_BUS_ADDRESS=");
-  }
+  sandboxEnabled = (GetEffectiveContentSandboxLevel() >= 1);
+  DisconnectWindowServer(sandboxEnabled);
 #  endif
 
   CrashReporter::AnnotateCrashReport(
@@ -3434,13 +3332,10 @@ mozilla::ipc::IPCResult ContentChild::RecvSetMediaMuted(
   return IPC_OK();
 }
 
-mozilla::ipc::IPCResult ContentChild::RecvUpdateMediaAction(
-    BrowsingContext* aContext, MediaControlActions aAction) {
+mozilla::ipc::IPCResult ContentChild::RecvUpdateMediaControlKeysEvent(
+    BrowsingContext* aContext, MediaControlKeysEvent aEvent) {
   MOZ_ASSERT(aContext);
-  nsCOMPtr<nsPIDOMWindowOuter> window = aContext->GetDOMWindow();
-  if (window) {
-    window->UpdateMediaAction(aAction);
-  }
+  MediaActionHandler::HandleMediaControlKeysEvent(aContext, aEvent);
   return IPC_OK();
 }
 
@@ -3730,48 +3625,109 @@ void ContentChild::HoldBrowsingContextGroup(BrowsingContextGroup* aBCG) {
 }  // namespace dom
 
 #if defined(__OpenBSD__) && defined(MOZ_SANDBOX)
-#  include <unistd.h>
 
-static LazyLogModule sPledgeLog("SandboxPledge");
+static LazyLogModule sPledgeLog("OpenBSDSandbox");
+
+NS_IMETHODIMP
+OpenBSDPledgePromises(const nsACString& aPath) {
+  // Using NS_LOCAL_FILE_CONTRACTID/NS_LOCALFILEINPUTSTREAM_CONTRACTID requires
+  // a lot of setup before they are supported and we want to pledge early on
+  // before all of that, so read the file directly
+  std::ifstream input(PromiseFlatCString(aPath).get());
+
+  // Build up one line of pledge promises without comments
+  nsAutoCString promises;
+  bool disabled = false;
+
+  int linenum = 0;
+  for (std::string tLine; std::getline(input, tLine);) {
+    nsAutoCString line(tLine.c_str());
+    linenum++;
+
+    // Cut off any comments at the end of the line, also catches lines
+    // that are entirely a comment
+    int32_t hash = line.FindChar('#');
+    if (hash >= 0) {
+      line = Substring(line, 0, hash);
+    }
+    line.CompressWhitespace(true, true);
+    if (line.IsEmpty()) {
+      continue;
+    }
+
+    if (linenum == 1 && line.EqualsLiteral("disable")) {
+      disabled = true;
+      break;
+    }
+
+    if (!promises.IsEmpty()) {
+      promises.Append(" ");
+    }
+    promises.Append(line);
+  }
+  input.close();
+
+  if (disabled) {
+    warnx("%s: disabled", PromiseFlatCString(aPath).get());
+  } else {
+    MOZ_LOG(
+        sPledgeLog, LogLevel::Debug,
+        ("%s: pledge(%s)\n", PromiseFlatCString(aPath).get(), promises.get()));
+    if (pledge(promises.get(), nullptr) != 0) {
+      err(1, "%s: pledge(%s) failed", PromiseFlatCString(aPath).get(),
+          promises.get());
+    }
+  }
+
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+OpenBSDFindPledgeFilePath(const char* file, nsACString& result) {
+  struct stat st;
+
+  // Allow overriding files in /etc/$MOZ_APP_NAME
+  result.Assign(nsPrintfCString("/etc/%s/%s", MOZ_APP_NAME, file));
+  if (stat(PromiseFlatCString(result).get(), &st) == 0) {
+    return NS_OK;
+  }
+
+  // Or look in the system default directory
+  result.Assign(nsPrintfCString(
+      "/usr/local/lib/%s/browser/defaults/preferences/%s", MOZ_APP_NAME, file));
+  if (stat(PromiseFlatCString(result).get(), &st) == 0) {
+    return NS_OK;
+  }
+
+  errx(1, "can't locate %s", file);
+}
 
 bool StartOpenBSDSandbox(GeckoProcessType type) {
-  nsAutoCString promisesString;
-  nsAutoCString processTypeString;
+  nsAutoCString pledgeFile;
 
   switch (type) {
     case GeckoProcessType_Default:
-      processTypeString = "main";
-      Preferences::GetCString("security.sandbox.pledge.main", promisesString);
+      OpenBSDFindPledgeFilePath("pledge.main", pledgeFile);
       break;
 
     case GeckoProcessType_Content:
-      processTypeString = "content";
-      Preferences::GetCString("security.sandbox.pledge.content",
-                              promisesString);
+      OpenBSDFindPledgeFilePath("pledge.content", pledgeFile);
       break;
 
     default:
       MOZ_ASSERT(false, "unknown process type");
       return false;
-  };
-
-  if (pledge(promisesString.get(), NULL) == -1) {
-    if (errno == EINVAL) {
-      MOZ_LOG(sPledgeLog, LogLevel::Error,
-              ("pledge promises for %s process is a malformed string: '%s'\n",
-               processTypeString.get(), promisesString.get()));
-    } else if (errno == EPERM) {
-      MOZ_LOG(
-          sPledgeLog, LogLevel::Error,
-          ("pledge promises for %s process can't elevate privileges: '%s'\n",
-           processTypeString.get(), promisesString.get()));
-    }
-    return false;
-  } else {
-    MOZ_LOG(sPledgeLog, LogLevel::Debug,
-            ("pledged %s process with promises: '%s'\n",
-             processTypeString.get(), promisesString.get()));
   }
+
+  if (NS_WARN_IF(NS_FAILED(OpenBSDPledgePromises(pledgeFile)))) {
+    errx(1, "failed reading/parsing %s", pledgeFile.get());
+  }
+
+  // Don't overwrite an existing session dbus address, but ensure it is set
+  if (!PR_GetEnv("DBUS_SESSION_BUS_ADDRESS")) {
+    PR_SetEnv("DBUS_SESSION_BUS_ADDRESS=");
+  }
+
   return true;
 }
 #endif

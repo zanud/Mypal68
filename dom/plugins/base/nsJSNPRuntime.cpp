@@ -4,7 +4,7 @@
 
 #include "base/basictypes.h"
 
-#include "jsfriendapi.h"
+#include "jsapi.h"
 
 #include "nsAutoPtr.h"
 #include "nsIInterfaceRequestorUtils.h"

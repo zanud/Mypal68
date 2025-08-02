@@ -551,7 +551,7 @@ nsContentPolicyType HTMLLinkElement::AsValueToContentPolicy(
     case DESTINATION_STYLE:
       return nsIContentPolicy::TYPE_STYLESHEET;
     case DESTINATION_FETCH:
-      return nsIContentPolicy::TYPE_OTHER;
+      return nsIContentPolicy::TYPE_INTERNAL_FETCH_PRELOAD;
   }
   return nsIContentPolicy::TYPE_INVALID;
 }
@@ -829,16 +829,12 @@ bool HTMLLinkElement::CheckPreloadAttrs(const nsAttrValue& aAs,
   nsString type = nsString(aType);
   ToLowerCase(type);
 
-  if (policyType == nsIContentPolicy::TYPE_OTHER) {
+  if (policyType == nsIContentPolicy::TYPE_INTERNAL_FETCH_PRELOAD) {
     return true;
-
-  } else if (policyType == nsIContentPolicy::TYPE_MEDIA) {
+  }
+  if (policyType == nsIContentPolicy::TYPE_MEDIA) {
     if (aAs.GetEnumValue() == DESTINATION_TRACK) {
-      if (type.EqualsASCII("text/vtt")) {
-        return true;
-      } else {
-        return false;
-      }
+      return type.EqualsASCII("text/vtt");
     }
     Maybe<MediaContainerType> mimeType = MakeMediaContainerType(aType);
     if (!mimeType) {
@@ -848,41 +844,20 @@ bool HTMLLinkElement::CheckPreloadAttrs(const nsAttrValue& aAs,
     CanPlayStatus status =
         DecoderTraits::CanHandleContainerType(*mimeType, &diagnostics);
     // Preload if this return CANPLAY_YES and CANPLAY_MAYBE.
-    if (status == CANPLAY_NO) {
-      return false;
-    } else {
-      return true;
-    }
-
-  } else if (policyType == nsIContentPolicy::TYPE_FONT) {
-    if (IsFontMimeType(type)) {
-      return true;
-    } else {
-      return false;
-    }
-
-  } else if (policyType == nsIContentPolicy::TYPE_IMAGE) {
-    if (imgLoader::SupportImageWithMimeType(
-            NS_ConvertUTF16toUTF8(type),
-            AcceptedMimeTypes::IMAGES_AND_DOCUMENTS)) {
-      return true;
-    } else {
-      return false;
-    }
-
-  } else if (policyType == nsIContentPolicy::TYPE_SCRIPT) {
-    if (nsContentUtils::IsJavascriptMIMEType(type)) {
-      return true;
-    } else {
-      return false;
-    }
-
-  } else if (policyType == nsIContentPolicy::TYPE_STYLESHEET) {
-    if (type.EqualsASCII("text/css")) {
-      return true;
-    } else {
-      return false;
-    }
+    return status != CANPLAY_NO;
+  }
+  if (policyType == nsIContentPolicy::TYPE_FONT) {
+    return IsFontMimeType(type);
+  }
+  if (policyType == nsIContentPolicy::TYPE_IMAGE) {
+    return imgLoader::SupportImageWithMimeType(
+            NS_ConvertUTF16toUTF8(type), AcceptedMimeTypes::IMAGES_AND_DOCUMENTS);
+  }
+  if (policyType == nsIContentPolicy::TYPE_SCRIPT) {
+    return nsContentUtils::IsJavascriptMIMEType(type);
+  }
+  if (policyType == nsIContentPolicy::TYPE_STYLESHEET) {
+    return type.EqualsASCII("text/css");
   }
   return false;
 }

@@ -41,7 +41,6 @@
 #include "mozilla/StaticPrefs_dom.h"
 #include "nsFrameSelection.h"
 #include "mozilla/ErrorResult.h"
-#include "mozilla/Telemetry.h"
 #include "mozilla/ShortcutKeys.h"
 #include "mozilla/KeyEventHandler.h"
 #include "mozilla/dom/KeyboardEvent.h"

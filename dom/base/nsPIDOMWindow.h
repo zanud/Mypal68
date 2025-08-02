@@ -71,7 +71,6 @@ class TimeoutManager;
 class WindowGlobalChild;
 class CustomElementRegistry;
 enum class CallerType : uint32_t;
-enum class MediaControlActions : uint32_t;
 }  // namespace dom
 }  // namespace mozilla
 
@@ -403,6 +402,11 @@ class nsPIDOMWindowInner : public mozIDOMWindow {
   inline nsIDocShell* GetDocShell() const;
 
   /**
+   * Get the browsing context in this window.
+   */
+  inline mozilla::dom::BrowsingContext* GetBrowsingContext() const;
+
+  /**
    * Call this to indicate that some node (this window, its document,
    * or content in that document) has a paint event listener.
    */
@@ -650,6 +654,8 @@ class nsPIDOMWindowInner : public mozIDOMWindow {
 
   RefPtr<mozilla::dom::TabGroup> mTabGroup;
 
+  RefPtr<mozilla::dom::BrowsingContext> mBrowsingContext;
+
   // A unique (as long as our 64-bit counter doesn't roll over) id for
   // this window.
   uint64_t mWindowID;
@@ -711,7 +717,6 @@ class nsPIDOMWindowOuter : public mozIDOMWindowProxy {
 
   void RefreshMediaElementsVolume();
   void RefreshMediaElementsSuspend(SuspendTypes aSuspend);
-  bool IsDisposableSuspend(SuspendTypes aSuspend) const;
   void MaybeNotifyMediaResumedFromBlock(SuspendTypes aSuspend);
 
  public:
@@ -769,8 +774,6 @@ class nsPIDOMWindowOuter : public mozIDOMWindowProxy {
   nsresult SetAudioVolume(float aVolume);
 
   void MaybeActiveMediaComponents();
-
-  void UpdateMediaAction(const mozilla::dom::MediaControlActions aAction);
 
   void SetServiceWorkersTestingEnabled(bool aEnabled);
   bool GetServiceWorkersTestingEnabled();

@@ -30,7 +30,7 @@ RDDChild::RDDChild(RDDProcessHost* aHost) : mHost(aHost) {
 
 RDDChild::~RDDChild() { MOZ_COUNT_DTOR(RDDChild); }
 
-bool RDDChild::Init(bool aStartMacSandbox) {
+bool RDDChild::Init() {
   Maybe<FileDescriptor> brokerFd;
 
 #if defined(XP_LINUX) && defined(MOZ_SANDBOX)
@@ -50,7 +50,7 @@ bool RDDChild::Init(bool aStartMacSandbox) {
 
   nsTArray<GfxVarUpdate> updates = gfxVars::FetchNonDefaultVars();
 
-  SendInit(updates, brokerFd, aStartMacSandbox);
+  SendInit(updates, brokerFd);
 
 #ifdef MOZ_GECKO_PROFILER
   Unused << SendInitProfiler(ProfilerParent::CreateForProcess(OtherPid()));

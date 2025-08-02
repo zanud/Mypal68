@@ -25,6 +25,7 @@
 #include "WindowNamedPropertiesHandler.h"
 #include "js/ComparisonOperators.h"
 #include "js/CompileOptions.h"
+#include "js/friend/PerformanceHint.h"
 #include "js/Id.h"
 #include "js/PropertyAndElement.h"  // JS_DefineProperty, JS_GetProperty
 #include "js/PropertyDescriptor.h"
@@ -7270,6 +7271,7 @@ nsPIDOMWindowInner::nsPIDOMWindowInner(nsPIDOMWindowOuter* aOuterWindow)
       mNumOfOpenWebSockets(0),
       mEvent(nullptr) {
   MOZ_ASSERT(aOuterWindow);
+  mBrowsingContext = aOuterWindow->GetBrowsingContext();
 }
 
 #ifdef THE_REPORTING
@@ -7288,11 +7290,10 @@ void nsPIDOMWindowInner::RegisterReportingObserver(ReportingObserver* aObserver,
   if (!aBuffered) {
     return;
   }
-#ifdef THE_REPORTING
+
   for (Report* report : mReportRecords) {
     aObserver->MaybeReport(report);
   }
-#endif
 }
 
 void nsPIDOMWindowInner::UnregisterReportingObserver(
@@ -7307,11 +7308,9 @@ void nsPIDOMWindowInner::BroadcastReport(Report* aReport) {
   for (ReportingObserver* observer : mReportingObservers) {
     observer->MaybeReport(aReport);
   }
-#ifdef THE_REPORTING
   if (NS_WARN_IF(!mReportRecords.AppendElement(aReport, fallible))) {
     return;
   }
-#endif
   while (mReportRecords.Length() > MAX_REPORT_RECORDS) {
     mReportRecords.RemoveElementAt(0);
   }

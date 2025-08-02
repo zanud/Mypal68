@@ -578,8 +578,8 @@ void SetResultAndDispatchSuccessEvent(
   MOZ_ASSERT(aRequest);
   MOZ_ASSERT(aPtr);
 
-  const auto autoTransaction = AutoSetCurrentTransaction{
-      aTransaction ? SomeRef(*aTransaction) : Nothing()};
+  const auto autoTransaction =
+      AutoSetCurrentTransaction{aTransaction.maybeDeref()};
 
   AUTO_PROFILER_LABEL("IndexedDB:SetResultAndDispatchSuccessEvent", DOM);
 

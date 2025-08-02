@@ -15,6 +15,7 @@
 #include "js/PropertyDescriptor.h"  // JS::PropertyDescriptor, JS_GetOwnPropertyDescriptorById
 #include "js/Proxy.h"
 #include "js/RootingAPI.h"
+#include "js/WeakMap.h"
 #include "js/Wrapper.h"
 #include "jsfriendapi.h"
 #include "AccessCheck.h"

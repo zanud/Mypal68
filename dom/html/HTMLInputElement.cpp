@@ -27,7 +27,6 @@
 #include "nsIRadioVisitor.h"
 
 #include "HTMLFormSubmissionConstants.h"
-#include "mozilla/Telemetry.h"
 #include "nsBaseCommandController.h"
 #include "nsIStringBundle.h"
 #include "nsFocusManager.h"
@@ -1108,10 +1107,6 @@ nsresult HTMLInputElement::BeforeSetAttr(int32_t aNameSpaceID, nsAtom* aName,
         GetAttr(kNameSpaceID_None, nsGkAtoms::name, name);
         container->RadioRequiredWillChange(name, !!aValue);
       }
-    }
-
-    if (aName == nsGkAtoms::webkitdirectory) {
-      Telemetry::Accumulate(Telemetry::WEBKIT_DIRECTORY_USED, true);
     }
   }
 
@@ -4187,10 +4182,6 @@ nsresult HTMLInputElement::BindToTree(BindContext& aContext, nsINode& aParent) {
                                    CanBubble::eYes, ChromeOnlyDispatch::eYes);
       dispatcher->PostDOMEvent();
     }
-
-#ifdef EARLY_BETA_OR_EARLIER
-    Telemetry::Accumulate(Telemetry::PWMGR_PASSWORD_INPUT_IN_FORM, !!mForm);
-#endif
   }
 
   return rv;
@@ -6933,8 +6924,6 @@ void HTMLInputElement::GetWebkitEntries(
   if (NS_WARN_IF(mType != NS_FORM_INPUT_FILE)) {
     return;
   }
-
-  Telemetry::Accumulate(Telemetry::BLINK_FILESYSTEM_USED, true);
   aSequence.AppendElements(mFileData->mEntries);
 }
 
