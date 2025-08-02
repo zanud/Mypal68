@@ -12,51 +12,30 @@ using namespace mozilla::intl;
 
 OSPreferences::OSPreferences() {}
 
-OSPreferences::~OSPreferences() {}
+bool ReadLocales(nsTArray<nsCString>& aLocaleList, LCID lcid) {
+  MOZ_ASSERT(aLocaleList.IsEmpty());
 
-bool OSPreferences::ReadSystemLocales(nsTArray<nsCString>& aLocaleList) {
-/*  MOZ_ASSERT(aLocaleList.IsEmpty());
+  char buf[19];
+  int ccBuf = GetLocaleInfo(lcid, LOCALE_SISO639LANGNAME, buf, 9);
+  buf[ccBuf - 1] = '-';
+  ccBuf += GetLocaleInfo(lcid, LOCALE_SISO3166CTRYNAME, buf + ccBuf, 9);
+  nsAutoCString str(buf);
 
-  ULONG numLanguages = 0;
-  DWORD cchLanguagesBuffer = 0;
-  BOOL ok = GetUserPreferredUILanguages(MUI_LANGUAGE_NAME, &numLanguages,
-                                        nullptr, &cchLanguagesBuffer);
-  if (ok) {
-    AutoTArray<WCHAR, 64> locBuffer;
-    locBuffer.SetCapacity(cchLanguagesBuffer);
-    ok = GetUserPreferredUILanguages(MUI_LANGUAGE_NAME, &numLanguages,
-                                     locBuffer.Elements(), &cchLanguagesBuffer);
-    if (ok) {
-      NS_LossyConvertUTF16toASCII loc(locBuffer.Elements());
-
-      // We will only take the first locale from the returned list, because
-      // we do not support real fallback chains for RequestedLocales yet.
-      if (CanonicalizeLanguageTag(loc)) {
-        aLocaleList.AppendElement(loc);
-        return true;
-      }
-    }
+  // We will only take the first locale from the returned list, because
+  // we do not support real fallback chains for RequestedLocales yet.
+  if (OSPreferences::CanonicalizeLanguageTag(str)) {
+    aLocaleList.AppendElement(str);
+    return true;
   }
-*/
   return false;
 }
 
+bool OSPreferences::ReadSystemLocales(nsTArray<nsCString>& aLocaleList) {
+  return ReadLocales(aLocaleList, GetSystemDefaultLCID());
+}
+
 bool OSPreferences::ReadRegionalPrefsLocales(nsTArray<nsCString>& aLocaleList) {
-/*  MOZ_ASSERT(aLocaleList.IsEmpty());
-
-  WCHAR locale[LOCALE_NAME_MAX_LENGTH];
-  if (NS_WARN_IF(!LCIDToLocaleName(LOCALE_USER_DEFAULT, locale,
-                                   LOCALE_NAME_MAX_LENGTH, 0))) {
-    return false;
-  }
-
-  NS_LossyConvertUTF16toASCII loc(locale);
-
-  if (CanonicalizeLanguageTag(loc)) {
-    aLocaleList.AppendElement(loc);
-    return true;
-  }*/
-  return false;
+  return ReadLocales(aLocaleList, GetUserDefaultLCID());
 }
 
 static LCTYPE ToDateLCType(OSPreferences::DateTimeFormatStyle aFormatStyle) {
@@ -82,10 +61,10 @@ static LCTYPE ToTimeLCType(OSPreferences::DateTimeFormatStyle aFormatStyle) {
   switch (aFormatStyle) {
     case OSPreferences::DateTimeFormatStyle::None:
       return LOCALE_STIMEFORMAT;
-    /*case OSPreferences::DateTimeFormatStyle::Short:
-      return LOCALE_SSHORTTIME;
+    case OSPreferences::DateTimeFormatStyle::Short:
+      return 0x79;  // LOCALE_SSHORTTIME;
     case OSPreferences::DateTimeFormatStyle::Medium:
-      return LOCALE_SSHORTTIME;*/
+      return 0x79;  // LOCALE_SSHORTTIME;
     case OSPreferences::DateTimeFormatStyle::Long:
       return LOCALE_STIMEFORMAT;
     case OSPreferences::DateTimeFormatStyle::Full:
@@ -117,9 +96,8 @@ static LCTYPE ToTimeLCType(OSPreferences::DateTimeFormatStyle aFormatStyle) {
 bool OSPreferences::ReadDateTimePattern(DateTimeFormatStyle aDateStyle,
                                         DateTimeFormatStyle aTimeStyle,
                                         const nsACString& aLocale,
-                                        nsAString& aRetVal) {
-  nsAutoString localeName;
-  CopyASCIItoUTF16(aLocale, localeName);
+                                        nsACString& aRetVal) {
+  LCID lcid = GetUserDefaultLCID();
 
   bool isDate = aDateStyle != DateTimeFormatStyle::None &&
                 aDateStyle != DateTimeFormatStyle::Invalid;
@@ -128,39 +106,29 @@ bool OSPreferences::ReadDateTimePattern(DateTimeFormatStyle aDateStyle,
 
   // If both date and time are wanted, we'll initially read them into a
   // local string, and then insert them into the overall date+time pattern;
-  // but if only one is needed we'll work directly with the return value.
-  // Set 'str' to point to the string we will use to retrieve patterns
-  // from Windows.
-  nsAutoString tmpStr;
-  nsAString* str;
+  nsAutoCString str;
   if (isDate && isTime) {
     if (!GetDateTimeConnectorPattern(aLocale, aRetVal)) {
       NS_WARNING("failed to get date/time connector");
-      aRetVal.AssignLiteral(u"{1} {0}");
+      aRetVal.AssignLiteral("{1} {0}");
     }
-    str = &tmpStr;
-  } else if (isDate || isTime) {
-    str = &aRetVal;
-  } else {
+  } else if (!isDate && !isTime) {
     aRetVal.Truncate(0);
     return true;
   }
 
   if (isDate) {
     LCTYPE lcType = ToDateLCType(aDateStyle);
-    size_t len = 0;/*GetLocaleInfoEx(
-        reinterpret_cast<const wchar_t*>(localeName.BeginReading()), lcType,
-        nullptr, 0);*/
+    size_t len = GetLocaleInfo(lcid, lcType, nullptr, 0);
     if (len == 0) {
       return false;
     }
 
     // We're doing it to ensure the terminator will fit when Windows writes the
     // data to its output buffer. See bug 1358159 for details.
-    str->SetLength(len);
-    /*GetLocaleInfoEx(reinterpret_cast<const wchar_t*>(localeName.BeginReading()),
-                    lcType, (WCHAR*)str->BeginWriting(), len);*/
-    str->SetLength(len - 1);  // -1 because len counts the null terminator
+    str.SetLength(len);
+    GetLocaleInfo(lcid, lcType, (CHAR*)str.BeginWriting(), len);
+    str.SetLength(len - 1);  // -1 because len counts the null terminator
 
     // Windows uses "ddd" and "dddd" for abbreviated and full day names
     // respectively,
@@ -168,81 +136,84 @@ bool OSPreferences::ReadDateTimePattern(DateTimeFormatStyle aDateStyle,
     // but in a CLDR/ICU-style pattern these should be "EEE" and "EEEE".
     //   http://userguide.icu-project.org/formatparse/datetime
     // So we fix that up here.
-    nsAString::const_iterator start, pos, end;
-    start = str->BeginReading(pos);
-    str->EndReading(end);
-    if (FindInReadable(NS_LITERAL_STRING("dddd"), pos, end)) {
-      str->ReplaceLiteral(pos - start, 4, u"EEEE");
+    nsACString::const_iterator start, pos, end;
+    start = str.BeginReading(pos);
+    str.EndReading(end);
+    if (FindInReadable("dddd"_ns, pos, end)) {
+      str.ReplaceLiteral(pos - start, 4, "EEEE");
     } else {
       pos = start;
-      if (FindInReadable(NS_LITERAL_STRING("ddd"), pos, end)) {
-        str->ReplaceLiteral(pos - start, 3, u"EEE");
+      if (FindInReadable("ddd"_ns, pos, end)) {
+        str.ReplaceLiteral(pos - start, 3, "EEE");
       }
     }
 
     // Also, Windows uses lowercase "g" or "gg" for era, but ICU wants uppercase
     // "G" (it would interpret "g" as "modified Julian day"!). So fix that.
-    int32_t index = str->FindChar('g');
+    int32_t index = str.FindChar('g');
     if (index >= 0) {
-      str->Replace(index, 1, 'G');
+      str.Replace(index, 1, 'G');
       // If it was a double "gg", just drop the second one.
       index++;
-      if (str->CharAt(index) == 'g') {
-        str->Cut(index, 1);
+      if (str.CharAt(index) == 'g') {
+        str.Cut(index, 1);
       }
     }
 
     // If time was also requested, we need to substitute the date pattern from
     // Windows into the date+time format that we have in aRetVal.
     if (isTime) {
-      nsAString::const_iterator start, pos, end;
+      nsACString::const_iterator start, pos, end;
       start = aRetVal.BeginReading(pos);
       aRetVal.EndReading(end);
-      if (FindInReadable(NS_LITERAL_STRING("{1}"), pos, end)) {
-        aRetVal.Replace(pos - start, 3, tmpStr);
+      if (FindInReadable("{1}"_ns, pos, end)) {
+        aRetVal.Replace(pos - start, 3, str);
       }
+    } else {
+      aRetVal = str;
     }
   }
 
   if (isTime) {
     LCTYPE lcType = ToTimeLCType(aTimeStyle);
-    size_t len = 0; /*GetLocaleInfoEx(
-        reinterpret_cast<const wchar_t*>(localeName.BeginReading()), lcType,
-        nullptr, 0);*/
+    size_t len = GetLocaleInfo(lcid, lcType, nullptr, 0);
     if (len == 0) {
       return false;
     }
 
     // We're doing it to ensure the terminator will fit when Windows writes the
     // data to its output buffer. See bug 1358159 for details.
-    str->SetLength(len);
-    /*GetLocaleInfoEx(reinterpret_cast<const wchar_t*>(localeName.BeginReading()),
-                    lcType, (WCHAR*)str->BeginWriting(), len);*/
-    str->SetLength(len - 1);
+    str.SetLength(len);
+    GetLocaleInfo(lcid, lcType, (CHAR*)str.BeginWriting(), len);
+    str.SetLength(len - 1);
 
     // Windows uses "t" or "tt" for a "time marker" (am/pm indicator),
     //   https://msdn.microsoft.com/en-us/library/windows/desktop/dd318148(v=vs.85).aspx
     // but in a CLDR/ICU-style pattern that should be "a".
     //   http://userguide.icu-project.org/formatparse/datetime
     // So we fix that up here.
-    int32_t index = str->FindChar('t');
+    int32_t index = str.FindChar('t');
     if (index >= 0) {
-      str->Replace(index, 1, 'a');
+      str.Replace(index, 1, 'a');
       index++;
-      if (str->CharAt(index) == 't') {
-        str->Cut(index, 1);
+      if (str.CharAt(index) == 't') {
+        str.Cut(index, 1);
       }
     }
 
     if (isDate) {
-      nsAString::const_iterator start, pos, end;
+      nsACString::const_iterator start, pos, end;
       start = aRetVal.BeginReading(pos);
       aRetVal.EndReading(end);
-      if (FindInReadable(NS_LITERAL_STRING("{0}"), pos, end)) {
-        aRetVal.Replace(pos - start, 3, tmpStr);
+      if (FindInReadable("{0}"_ns, pos, end)) {
+        aRetVal.Replace(pos - start, 3, str);
       }
+    } else {
+      aRetVal = str;
     }
   }
 
   return true;
 }
+
+void OSPreferences::RemoveObservers() {}

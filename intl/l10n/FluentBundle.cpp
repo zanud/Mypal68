@@ -19,7 +19,7 @@ namespace intl {
 
 class SizeableUTF8Buffer {
  public:
-  using CharType = uint8_t;
+  using CharType = char;
 
   bool reserve(size_t size) {
     mBuffer.reset(reinterpret_cast<CharType*>(malloc(size)));
@@ -266,7 +266,9 @@ ffi::RawNumberFormatter* FluentBuiltInNumberFormatterCreate(
       break;
   }
 
-  options.mUseGrouping = aOptions->use_grouping;
+  options.mGrouping = aOptions->use_grouping
+                          ? NumberFormatOptions::Grouping::Auto
+                          : NumberFormatOptions::Grouping::Never;
   options.mMinIntegerDigits = Some(aOptions->minimum_integer_digits);
 
   if (aOptions->minimum_significant_digits >= 0 ||
@@ -301,7 +303,7 @@ uint8_t* FluentBuiltInNumberFormatterFormat(
   if (nf->format(input, buffer).isOk()) {
     *aOutCount = buffer.mWritten;
     *aOutCapacity = buffer.mCapacity;
-    return buffer.mBuffer.release();
+    return reinterpret_cast<uint8_t*>(buffer.mBuffer.release());
   }
 
   return nullptr;
@@ -371,7 +373,7 @@ uint8_t* FluentBuiltInDateTimeFormatterFormat(
 
   *aOutCount = buffer.mWritten;
 
-  return buffer.mBuffer.release();
+  return reinterpret_cast<uint8_t*>(buffer.mBuffer.release());
 }
 
 void FluentBuiltInDateTimeFormatterDestroy(

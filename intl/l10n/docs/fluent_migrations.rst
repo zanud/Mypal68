@@ -222,7 +222,7 @@ placeholders or entities that need to be replaced to adapt to Fluent syntax.
 Consider for example the following string:
 
 
-.. code-block:: XML
+.. code-block:: DTD
 
   <!ENTITY aboutSupport.featuresTitle "&brandShortName; Features">
 
@@ -230,7 +230,7 @@ Consider for example the following string:
 Which needs to be migrated to:
 
 
-.. code-block:: properties
+.. code-block:: fluent
 
   features-title = { -brand-short-name } Features
 
@@ -304,7 +304,7 @@ variables, implicitly relying on the order in which the arguments appear:
 And the target Fluent string:
 
 
-.. code-block:: properties
+.. code-block:: fluent
 
   update-full-name = { $name } ({ $buildID })
 
@@ -375,7 +375,7 @@ string is displayed in products, and are added only for formatting reasons. For
 example, consider this string:
 
 
-.. code-block:: XML
+.. code-block:: DTD
 
   <!ENTITY aboutAbout.note   "This is a list of “about” pages for your convenience.<br/>
                               Some of them might be confusing. Some are for diagnostic purposes only.<br/>
@@ -385,7 +385,7 @@ example, consider this string:
 If migrated as is, it would result in:
 
 
-.. code-block:: properties
+.. code-block:: fluent
 
   about-about-note =
       This is a list of “about” pages for your convenience.<br/>
@@ -397,7 +397,7 @@ This can be avoided by trimming the migrated string, with :python:`trim:"True`
 or :python:`trim=True`, depending on the context:
 
 
-.. code-block:: properties
+.. code-block:: python
 
   transforms_from(
   """
@@ -454,9 +454,9 @@ Consider the following example:
 In Fluent:
 
 
-.. code-block:: properties
+.. code-block:: fluent
 
-  searchResults.needHelpSupportLink = Need help? Visit <a data-l10n-name="url">{ -brand-short-name } Support</a>
+  search-results-need-help-support-link = Need help? Visit <a data-l10n-name="url">{ -brand-short-name } Support</a>
 
 
 This is quite a complex migration: it requires to take 2 legacy strings, and
@@ -525,7 +525,7 @@ Consider the following legacy string:
 In Fluent:
 
 
-.. code-block:: properties
+.. code-block:: fluent
 
   containers-disable-alert-ok-button =
       { $tabCount ->
@@ -572,7 +572,7 @@ It’s always possible to migrate strings by manually creating the underlying AS
 structure. Consider the following complex Fluent string:
 
 
-.. code-block:: properties
+.. code-block:: fluent
 
   use-current-pages =
       .label =
