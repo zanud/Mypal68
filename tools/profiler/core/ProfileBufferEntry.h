@@ -5,14 +5,13 @@
 #ifndef ProfileBufferEntry_h
 #define ProfileBufferEntry_h
 
-#include "ProfileJSONWriter.h"
-
 #include "gtest/MozGtestFriend.h"
 #include "js/ProfilingCategory.h"
 #include "js/ProfilingFrameIterator.h"
 #include "mozilla/HashFunctions.h"
 #include "mozilla/HashTable.h"
 #include "mozilla/Maybe.h"
+#include "mozilla/ProfileJSONWriter.h"
 #include "mozilla/UniquePtr.h"
 #include "mozilla/Variant.h"
 #include "mozilla/Vector.h"
@@ -148,12 +147,12 @@ class UniqueJSONStrings {
   explicit UniqueJSONStrings(const UniqueJSONStrings& aOther);
 
   void SpliceStringTableElements(SpliceableJSONWriter& aWriter) {
-    aWriter.TakeAndSplice(mStringTableWriter.WriteFunc());
+    aWriter.TakeAndSplice(mStringTableWriter.TakeChunkedWriteFunc());
   }
 
   void WriteProperty(mozilla::JSONWriter& aWriter, const char* aName,
                      const char* aStr) {
-    aWriter.IntProperty(aName, GetOrAddIndex(aStr));
+    aWriter.IntProperty(mozilla::MakeStringSpan(aName), GetOrAddIndex(aStr));
   }
 
   void WriteElement(mozilla::JSONWriter& aWriter, const char* aStr) {
@@ -391,23 +390,23 @@ class UniqueStacks {
   explicit UniqueStacks(JITFrameInfo&& aJITFrameInfo);
 
   // Return a StackKey for aFrame as the stack's root frame (no prefix).
-  MOZ_MUST_USE StackKey BeginStack(const FrameKey& aFrame);
+  [[nodiscard]] StackKey BeginStack(const FrameKey& aFrame);
 
   // Return a new StackKey that is obtained by appending aFrame to aStack.
-  MOZ_MUST_USE StackKey AppendFrame(const StackKey& aStack,
-                                    const FrameKey& aFrame);
+  [[nodiscard]] StackKey AppendFrame(const StackKey& aStack,
+                                     const FrameKey& aFrame);
 
   // Look up frame keys for the given JIT address, and ensure that our frame
   // table has entries for the returned frame keys. The JSON for these frames
   // is taken from mJITInfoRanges.
   // aBufferPosition is needed in order to look up the correct JIT frame info
   // object in mJITInfoRanges.
-  MOZ_MUST_USE mozilla::Maybe<mozilla::Vector<UniqueStacks::FrameKey>>
+  [[nodiscard]] mozilla::Maybe<mozilla::Vector<UniqueStacks::FrameKey>>
   LookupFramesForJITAddressFromBufferPos(void* aJITAddress,
                                          uint64_t aBufferPosition);
 
-  MOZ_MUST_USE uint32_t GetOrAddFrameIndex(const FrameKey& aFrame);
-  MOZ_MUST_USE uint32_t GetOrAddStackIndex(const StackKey& aStack);
+  [[nodiscard]] uint32_t GetOrAddFrameIndex(const FrameKey& aFrame);
+  [[nodiscard]] uint32_t GetOrAddStackIndex(const StackKey& aStack);
 
   void SpliceFrameTableElements(SpliceableJSONWriter& aWriter);
   void SpliceStackTableElements(SpliceableJSONWriter& aWriter);

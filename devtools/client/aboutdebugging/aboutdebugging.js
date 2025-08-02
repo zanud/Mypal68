@@ -79,7 +79,7 @@ const AboutDebugging = {
 
     await l10n.init([
       "branding/brand.ftl",
-      "devtools/aboutdebugging.ftl",
+      "devtools/client/aboutdebugging.ftl",
     ]);
 
     this.actions.createThisFirefoxRuntime();

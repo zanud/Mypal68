@@ -8,7 +8,9 @@ import codecs
 import itertools
 import locale
 import logging
+import io
 import os
+import six
 import sys
 from collections import deque
 from contextlib import contextmanager
@@ -54,7 +56,7 @@ class Version(LooseVersion):
 
     def __cmp__(self, other):
         # LooseVersion checks isinstance(StringType), so work around it.
-        if isinstance(other, unicode):
+        if isinstance(other, six.text_type):
             other = other.encode('ascii')
         return LooseVersion.__cmp__(self, other)
 
@@ -98,7 +100,7 @@ class ConfigureOutputHandler(logging.Handler):
             fd1 = self._stdout.fileno()
             fd2 = self._stderr.fileno()
             self._same_output = self._is_same_output(fd1, fd2)
-        except AttributeError:
+        except (AttributeError, io.UnsupportedOperation):
             self._same_output = self._stdout == self._stderr
         self._stdout_waiting = None
         self._debug = deque(maxlen=maxlen + 1)

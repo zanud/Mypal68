@@ -1020,8 +1020,7 @@ function showBrowserPageActionFeedback(action, event = null, messageId = null) {
 // bookmark
 BrowserPageActions.bookmark = {
   onShowingInPanel(buttonNode) {
-    // Update the button label via the bookmark observer.
-    BookmarkingUI.updateBookmarkPageMenuItem();
+    // Do nothing.
   },
 
   onCommand(event, buttonNode) {

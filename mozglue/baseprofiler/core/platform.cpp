@@ -55,6 +55,7 @@
 #include "prtime.h"
 
 #include "BaseProfiler.h"
+#include "BaseProfilingCategory.h"
 #include "PageInformation.h"
 #include "ProfiledThreadData.h"
 #include "ProfilerBacktrace.h"
@@ -227,6 +228,8 @@ static uint32_t StartupExtraDefaultFeatures() {
   return ProfilerFeature::MainThreadIO;
 }
 
+class MOZ_RAII PSAutoTryLock;
+
 // The auto-lock/unlock mutex that guards accesses to CorePS and ActivePS.
 // Use `PSAutoLock lock;` to take the lock until the end of the enclosing block.
 // External profilers may use this same lock for their own data, but as the lock
@@ -246,7 +249,44 @@ class MOZ_RAII PSAutoLock {
   }
 
  private:
+  // Allow PSAutoTryLock to access gPSMutex, and to call the following
+  // `PSAutoLock(int)` constructor through `Maybe<const PSAutoLock>::emplace()`.
+  friend class PSAutoTryLock;
+  friend class Maybe<const PSAutoLock>;
+
+  // Special constructor for an already-locked gPSMutex. The `int` parameter is
+  // necessary to distinguish it from the main constructor.
+  explicit PSAutoLock(int) { gPSMutex.AssertCurrentThreadOwns(); }
+
   static detail::BaseProfilerMutex gPSMutex;
+};
+
+// RAII class that attempts to lock the profiler mutex. Example usage:
+//   PSAutoTryLock tryLock;
+//   if (tryLock.IsLocked()) { locked_foo(tryLock.LockRef()); }
+class MOZ_RAII PSAutoTryLock {
+ public:
+  PSAutoTryLock() {
+    if (PSAutoLock::gPSMutex.TryLock()) {
+      mMaybePSAutoLock.emplace(0);
+    }
+  }
+
+  // Return true if the mutex was aquired and locked.
+  [[nodiscard]] bool IsLocked() const { return mMaybePSAutoLock.isSome(); }
+
+  // Assuming the mutex is locked, return a reference to a `PSAutoLock` for that
+  // mutex, which can be passed as proof-of-lock.
+  [[nodiscard]] const PSAutoLock& LockRef() const {
+    MOZ_ASSERT(IsLocked());
+    return mMaybePSAutoLock.ref();
+  }
+
+ private:
+  // `mMaybePSAutoLock` is `Nothing` if locking failed, otherwise it contains a
+  // `const PSAutoLock` holding the locked mutex, and whose reference may be
+  // passed to functions expecting a proof-of-lock.
+  Maybe<const PSAutoLock> mMaybePSAutoLock;
 };
 
 detail::BaseProfilerMutex PSAutoLock::gPSMutex;
@@ -1027,15 +1067,9 @@ bool RacyFeatures::IsActiveWithFeature(uint32_t aFeature) {
 }
 
 /* static */
-bool RacyFeatures::IsActiveWithoutPrivacy() {
+bool RacyFeatures::IsActiveAndUnpaused() {
   uint32_t af = sActiveAndFeatures;  // copy it first
-  return (af & Active) && !(af & ProfilerFeature::Privacy);
-}
-
-/* static */
-bool RacyFeatures::IsActiveAndUnpausedWithoutPrivacy() {
-  uint32_t af = sActiveAndFeatures;  // copy it first
-  return (af & Active) && !(af & (Paused | ProfilerFeature::Privacy));
+  return (af & Active) && !(af & Paused);
 }
 
 // Each live thread has a RegisteredThread, and we store a reference to it in
@@ -1335,14 +1369,10 @@ static void DoEHABIBacktrace(PSLockRef aLock,
   // WARNING: this function might be called while the profiler is inactive, and
   //          cannot rely on ActivePS.
 
-  const mcontext_t* mcontext = &aRegs.mContext->uc_mcontext;
-
-  // Now unwind whatever's left (starting from the original registers).
-  aNativeStack.mCount +=
-      EHABIStackWalk(*mcontext, const_cast<void*>(aRegisteredThread.StackTop()),
-                     aNativeStack.mSPs + aNativeStack.mCount,
-                     aNativeStack.mPCs + aNativeStack.mCount,
-                     MAX_NATIVE_FRAMES - aNativeStack.mCount);
+  aNativeStack.mCount =
+      EHABIStackWalk(aRegs.mContext->uc_mcontext,
+                     const_cast<void*>(aRegisteredThread.StackTop()),
+                     aNativeStack.mSPs, aNativeStack.mPCs, MAX_NATIVE_FRAMES);
 }
 #endif
 
@@ -1545,8 +1575,7 @@ static inline void DoSharedSample(PSLockRef aLock, bool aIsSynchronous,
 
   MOZ_RELEASE_ASSERT(ActivePS::Exists(aLock));
 
-  ProfileBufferCollector collector(aBuffer, ActivePS::Features(aLock),
-                                   aSamplePos);
+  ProfileBufferCollector collector(aBuffer, aSamplePos);
   NativeStack nativeStack;
 #if defined(HAVE_NATIVE_UNWIND)
   if (ActivePS::FeatureStackWalk(aLock)) {
@@ -1615,12 +1644,12 @@ static void AddSharedLibraryInfoToStream(JSONWriter& aWriter,
   aWriter.IntProperty("start", SafeJSInteger(aLib.GetStart()));
   aWriter.IntProperty("end", SafeJSInteger(aLib.GetEnd()));
   aWriter.IntProperty("offset", SafeJSInteger(aLib.GetOffset()));
-  aWriter.StringProperty("name", aLib.GetModuleName().c_str());
-  aWriter.StringProperty("path", aLib.GetModulePath().c_str());
-  aWriter.StringProperty("debugName", aLib.GetDebugName().c_str());
-  aWriter.StringProperty("debugPath", aLib.GetDebugPath().c_str());
-  aWriter.StringProperty("breakpadId", aLib.GetBreakpadId().c_str());
-  aWriter.StringProperty("arch", aLib.GetArch().c_str());
+  aWriter.StringProperty("name", aLib.GetModuleName());
+  aWriter.StringProperty("path", aLib.GetModulePath());
+  aWriter.StringProperty("debugName", aLib.GetDebugName());
+  aWriter.StringProperty("debugPath", aLib.GetDebugPath());
+  aWriter.StringProperty("breakpadId", aLib.GetBreakpadId());
+  aWriter.StringProperty("arch", aLib.GetArch());
   aWriter.EndObject();
 }
 
@@ -1663,9 +1692,9 @@ static void StreamCategories(SpliceableJSONWriter& aWriter) {
   aWriter.EndArray();              \
   aWriter.EndObject();
 
-  BASE_PROFILING_CATEGORY_LIST(CATEGORY_JSON_BEGIN_CATEGORY,
-                               CATEGORY_JSON_SUBCATEGORY,
-                               CATEGORY_JSON_END_CATEGORY)
+  MOZ_PROFILING_CATEGORY_LIST(CATEGORY_JSON_BEGIN_CATEGORY,
+                              CATEGORY_JSON_SUBCATEGORY,
+                              CATEGORY_JSON_END_CATEGORY)
 
 #undef CATEGORY_JSON_BEGIN_CATEGORY
 #undef CATEGORY_JSON_SUBCATEGORY
@@ -2348,7 +2377,7 @@ static ProfilingStack* locked_register_thread(PSLockRef aLock,
                                               void* aStackTop) {
   MOZ_RELEASE_ASSERT(CorePS::Exists());
 
-  MOZ_RELEASE_ASSERT(!FindCurrentThreadRegisteredThread(aLock));
+  MOZ_ASSERT(!FindCurrentThreadRegisteredThread(aLock));
 
   VTUNE_REGISTER_THREAD(aName);
 
@@ -2435,7 +2464,7 @@ void profiler_init(void* aStackTop) {
     // indicates that the profiler has initialized successfully.
     CorePS::Create(lock);
 
-    locked_register_thread(lock, kMainThreadName, aStackTop);
+    Unused << locked_register_thread(lock, kMainThreadName, aStackTop);
 
     // Platform-specific initialization.
     PlatformInit(lock);
@@ -2653,7 +2682,7 @@ UniquePtr<char[]> profiler_get_profile(double aSinceTime, bool aIsShuttingDown,
   if (!WriteProfileToJSONWriter(b, aSinceTime, aIsShuttingDown, aOnlyThreads)) {
     return nullptr;
   }
-  return b.WriteFunc()->CopyData();
+  return b.ChunkedWriteFunc().CopyData();
 }
 
 void profiler_get_profile_json_into_lazily_allocated_buffer(
@@ -2666,7 +2695,7 @@ void profiler_get_profile_json_into_lazily_allocated_buffer(
     return;
   }
 
-  b.WriteFunc()->CopyDataIntoLazilyAllocatedBuffer(aAllocator);
+  b.ChunkedWriteFunc().CopyDataIntoLazilyAllocatedBuffer(aAllocator);
 }
 
 void profiler_get_start_params(int* aCapacity, Maybe<double>* aDuration,
@@ -2777,7 +2806,7 @@ static void locked_profiler_save_profile_to_file(PSLockRef aLock,
       Vector<std::string> exitProfiles = ActivePS::MoveExitProfiles(aLock);
       for (auto& exitProfile : exitProfiles) {
         if (!exitProfile.empty()) {
-          w.Splice(exitProfile.c_str());
+          w.Splice(exitProfile);
         }
       }
       w.EndArray();
@@ -3124,6 +3153,10 @@ void profiler_remove_sampled_counter(BaseProfilerCount* aCounter) {
   CorePS::RemoveCounter(lock, aCounter);
 }
 
+static void maybelocked_profiler_add_marker_for_thread(
+    int aThreadId, ProfilingCategoryPair aCategoryPair, const char* aMarkerName,
+    const ProfilerMarkerPayload& aPayload, const PSAutoLock* aLockOrNull);
+
 ProfilingStack* profiler_register_thread(const char* aName,
                                          void* aGuessStackTop) {
   DEBUG_LOG("profiler_register_thread(%s)", aName);
@@ -3131,6 +3164,28 @@ ProfilingStack* profiler_register_thread(const char* aName,
   MOZ_RELEASE_ASSERT(CorePS::Exists());
 
   PSAutoLock lock;
+
+  if (RegisteredThread* thread = FindCurrentThreadRegisteredThread(lock);
+      thread) {
+    LOG("profiler_register_thread(%s) - thread %d already registered as %s",
+        aName, profiler_current_thread_id(), thread->Info()->Name());
+    // TODO: Use new name. This is currently not possible because the
+    // RegisteredThread's ThreadInfo cannot be changed.
+    // In the meantime, we record a marker that could be used in the frontend.
+    std::string text("Thread ");
+    text += std::to_string(profiler_current_thread_id());
+    text += " \"";
+    text += thread->Info()->Name();
+    text += "\" attempted to re-register as \"";
+    text += aName;
+    text += "\"";
+    maybelocked_profiler_add_marker_for_thread(
+        CorePS::MainThreadId(), ProfilingCategoryPair::OTHER_Profiling,
+        "profiler_register_thread again",
+        TextMarkerPayload(text, TimeStamp::NowUnfuzzed()), &lock);
+
+    return &thread->RacyRegisteredThread().ProfilingStack();
+  }
 
   void* stackTop = GetStackTop(aGuessStackTop);
   return locked_register_thread(lock, aName, stackTop);
@@ -3164,6 +3219,20 @@ void profiler_unregister_thread() {
     // registeredThread object.
     CorePS::RemoveRegisteredThread(lock, registeredThread);
   } else {
+    LOG("profiler_unregister_thread() - thread %d already unregistered",
+        profiler_current_thread_id());
+    // We cannot record a marker on this thread because it was already
+    // unregistered. Send it to the main thread (unless this *is* already the
+    // main thread, which has been unregistered); this may be useful to catch
+    // mismatched register/unregister pairs in Firefox.
+    if (int tid = profiler_current_thread_id(); tid != CorePS::MainThreadId()) {
+      maybelocked_profiler_add_marker_for_thread(
+          CorePS::MainThreadId(), ProfilingCategoryPair::OTHER_Profiling,
+          "profiler_unregister_thread again",
+          TextMarkerPayload(std::to_string(profiler_current_thread_id()),
+                            TimeStamp::NowUnfuzzed()),
+          &lock);
+    }
     // There are two ways FindCurrentThreadRegisteredThread() might have failed.
     //
     // - TLSRegisteredThread::Init() failed in locked_register_thread().
@@ -3291,17 +3360,15 @@ double profiler_time() {
   return delta.ToMilliseconds();
 }
 
-UniqueProfilerBacktrace profiler_get_backtrace() {
+static UniqueProfilerBacktrace locked_profiler_get_backtrace(PSLockRef aLock) {
   MOZ_RELEASE_ASSERT(CorePS::Exists());
 
-  PSAutoLock lock;
-
-  if (!ActivePS::Exists(lock) || ActivePS::FeaturePrivacy(lock)) {
+  if (!ActivePS::Exists(aLock)) {
     return nullptr;
   }
 
   RegisteredThread* registeredThread =
-      TLSRegisteredThread::RegisteredThread(lock);
+      TLSRegisteredThread::RegisteredThread(aLock);
   if (!registeredThread) {
     MOZ_ASSERT(registeredThread);
     return nullptr;
@@ -3323,10 +3390,18 @@ UniqueProfilerBacktrace profiler_get_backtrace() {
       MakeUnique<ProfileBufferChunkManagerSingle>(scExpectedMaximumStackSize));
   auto buffer = MakeUnique<ProfileBuffer>(*bufferManager);
 
-  DoSyncSample(lock, *registeredThread, now, regs, *buffer.get());
+  DoSyncSample(aLock, *registeredThread, now, regs, *buffer);
 
   return UniqueProfilerBacktrace(new ProfilerBacktrace(
       "SyncProfile", tid, std::move(bufferManager), std::move(buffer)));
+}
+
+UniqueProfilerBacktrace profiler_get_backtrace() {
+  MOZ_RELEASE_ASSERT(CorePS::Exists());
+
+  PSAutoLock lock;
+
+  return locked_profiler_get_backtrace(lock);
 }
 
 void ProfilerBacktraceDestructor::operator()(ProfilerBacktrace* aBacktrace) {
@@ -3393,12 +3468,9 @@ void profiler_add_js_marker(const char* aMarkerName) {
   profiler_add_marker(aMarkerName, ProfilingCategoryPair::JS);
 }
 
-// This logic needs to add a marker for a different thread, so we actually need
-// to lock here.
-void profiler_add_marker_for_thread(int aThreadId,
-                                    ProfilingCategoryPair aCategoryPair,
-                                    const char* aMarkerName,
-                                    const ProfilerMarkerPayload& aPayload) {
+static void maybelocked_profiler_add_marker_for_thread(
+    int aThreadId, ProfilingCategoryPair aCategoryPair, const char* aMarkerName,
+    const ProfilerMarkerPayload& aPayload, const PSAutoLock* aLockOrNull) {
   MOZ_RELEASE_ASSERT(CorePS::Exists());
 
   if (!profiler_can_accept_markers()) {
@@ -3406,16 +3478,15 @@ void profiler_add_marker_for_thread(int aThreadId,
   }
 
 #ifdef DEBUG
-  {
-    PSAutoLock lock;
-    if (!ActivePS::Exists(lock)) {
+  auto checkThreadId = [](int aThreadId, const PSAutoLock& aLock) {
+    if (!ActivePS::Exists(aLock)) {
       return;
     }
 
     // Assert that our thread ID makes sense
     bool realThread = false;
     const Vector<UniquePtr<RegisteredThread>>& registeredThreads =
-        CorePS::RegisteredThreads(lock);
+        CorePS::RegisteredThreads(aLock);
     for (auto& thread : registeredThreads) {
       RefPtr<ThreadInfo> info = thread->Info();
       if (info->ThreadId() == aThreadId) {
@@ -3424,6 +3495,13 @@ void profiler_add_marker_for_thread(int aThreadId,
       }
     }
     MOZ_ASSERT(realThread, "Invalid thread id");
+  };
+
+  if (aLockOrNull) {
+    checkThreadId(aThreadId, *aLockOrNull);
+  } else {
+    PSAutoLock lock;
+    checkThreadId(aThreadId, lock);
   }
 #endif
 
@@ -3436,6 +3514,14 @@ void profiler_add_marker_for_thread(int aThreadId,
       ProfileBufferEntry::Kind::MarkerData, aThreadId,
       WrapProfileBufferUnownedCString(aMarkerName),
       static_cast<uint32_t>(aCategoryPair), &aPayload, delta.ToMilliseconds());
+}
+
+void profiler_add_marker_for_thread(int aThreadId,
+                                    ProfilingCategoryPair aCategoryPair,
+                                    const char* aMarkerName,
+                                    const ProfilerMarkerPayload& aPayload) {
+  return maybelocked_profiler_add_marker_for_thread(
+      aThreadId, aCategoryPair, aMarkerName, aPayload, nullptr);
 }
 
 void profiler_add_marker_for_mainthread(ProfilingCategoryPair aCategoryPair,

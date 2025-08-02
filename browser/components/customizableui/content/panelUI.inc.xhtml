@@ -31,20 +31,17 @@
   <menupopup id="customizationPanelItemContextMenu"
              onpopupshowing="gCustomizeMode.onPanelContextMenuShowing(event); ToolbarContextMenu.updateExtension(this)">
     <menuitem oncommand="ToolbarContextMenu.openAboutAddonsForContextAction(this.parentElement)"
-              accesskey="&customizeMenu.manageExtension.accesskey;"
-              label="&customizeMenu.manageExtension.label;"
+              data-lazy-l10n-id="toolbar-context-menu-manage-extension"
               contexttype="toolbaritem"
               class="customize-context-manageExtension"/>
     <menuitem oncommand="ToolbarContextMenu.removeExtensionForContextAction(this.parentElement)"
-              accesskey="&customizeMenu.removeExtension.accesskey;"
-              label="&customizeMenu.removeExtension.label;"
+              data-lazy-l10n-id="toolbar-context-menu-remove-extension"
               contexttype="toolbaritem"
               class="customize-context-removeExtension"/>
     <menuseparator/>
     <menuitem oncommand="gCustomizeMode.addToPanel(document.popupNode)"
               id="customizationPanelItemContextMenuPin"
-              accesskey="&customizeMenu.pinToOverflowMenu.accesskey;"
-              label="&customizeMenu.pinToOverflowMenu.label;"
+              data-lazy-l10n-id="toolbar-context-menu-pin-to-overflow-menu"
               closemenu="single"
               class="customize-context-moveToPanel"/>
     <menuitem oncommand="gCustomizeMode.addToToolbar(document.popupNode)"
@@ -56,13 +53,11 @@
     <menuitem oncommand="gCustomizeMode.removeFromArea(document.popupNode)"
               closemenu="single"
               class="customize-context-removeFromPanel"
-              accesskey="&customizeMenu.removeFromToolbar.accesskey;"
-              label="&customizeMenu.removeFromToolbar.label;"/>
+              data-lazy-l10n-id="toolbar-context-menu-remove-from-toolbar"/>
     <menuseparator/>
     <menuitem command="cmd_CustomizeToolbars"
               class="viewCustomizeToolbar"
-              accesskey="&viewCustomizeToolbar.accesskey;"
-              label="&viewCustomizeToolbar.label;"/>
+              data-lazy-l10n-id="toolbar-context-menu-view-customize-toolbar"/>
   </menupopup>
 </panel>
 
@@ -156,23 +151,6 @@
       </description>
       <checkbox id="addon-incognito-checkbox"
                 data-lazy-l10n-id="appmenu-addon-post-install-incognito-checkbox"/>
-    </popupnotificationcontent>
-  </popupnotification>
-
-  <popupnotification id="appMenu-addon-private-browsing-notification"
-                     popupid="addon-private-browsing"
-                     data-lazy-l10n-id="appmenu-addon-private-browsing"
-                     data-l10n-attrs="buttonlabel, buttonaccesskey, secondarybuttonlabel, secondarybuttonaccesskey"
-                     closebuttonhidden="true"
-                     secondarybuttonhidden="false"
-                     dropmarkerhidden="true"
-                     checkboxhidden="true"
-                     buttonhighlight="true"
-                     hidden="true">
-    <popupnotificationcontent class="addon-private-browsing-notification-content" orient="vertical">
-      <description id="addon-private-browsing-description" data-lazy-l10n-id="appmenu-addon-private-browsing-message"></description>
-      <label id="addon-private-browsing-learn-more"
-             class="text-link" is="text-link" data-lazy-l10n-id="appmenu-addon-private-browsing-learn-more"></label>
     </popupnotificationcontent>
   </popupnotification>
 </panel>
@@ -329,7 +307,7 @@
                        />
         <toolbarbutton id="appMenu-customize-button"
                        class="subviewbutton subviewbutton-iconic"
-                       label="&viewCustomizeToolbar.label;"
+                       data-l10n-id="appmenuitem-customize-mode"
                        command="cmd_CustomizeToolbars"
                        />
         <toolbarseparator/>
@@ -557,6 +535,7 @@
         <toolbarbutton id="panelMenuBookmarkThisPage"
                        class="subviewbutton subviewbutton-iconic"
                        command="Browser:AddBookmarkAs"
+                       data-l10n-id="menu-bookmark-this-page"
                        onclick="PanelUI.hide();"/>
         <toolbarbutton id="panelMenu_bookmarkingTools"
                        label="&bookmarkingTools.label;"
@@ -798,11 +777,8 @@
                      class="extension-controlled-notification"
                      popupid="extension-new-tab"
                      hidden="true"
-                     label="&newTabControlled.header.message;"
-                     buttonlabel="&newTabControlled.keepButton.label;"
-                     buttonaccesskey="&newTabControlled.keepButton.accesskey;"
-                     secondarybuttonlabel="&newTabControlled.disableButton.label;"
-                     secondarybuttonaccesskey="&newTabControlled.disableButton.accesskey;"
+                     data-lazy-l10n-id="appmenu-new-tab-controlled"
+                     data-l10n-attrs="buttonlabel, buttonaccesskey, secondarybuttonlabel, secondarybuttonaccesskey"
                      closebuttonhidden="true"
                      dropmarkerhidden="true"
                      checkboxhidden="true">
@@ -814,11 +790,8 @@
                      class="extension-controlled-notification"
                      popupid="extension-homepage"
                      hidden="true"
-                     label="&homepageControlled.header.message;"
-                     buttonlabel="&homepageControlled.keepButton.label;"
-                     buttonaccesskey="&homepageControlled.keepButton.accesskey;"
-                     secondarybuttonlabel="&homepageControlled.disableButton.label;"
-                     secondarybuttonaccesskey="&homepageControlled.disableButton.accesskey;"
+                     data-lazy-l10n-id="appmenu-homepage-controlled"
+                     data-l10n-attrs="buttonlabel, buttonaccesskey, secondarybuttonlabel, secondarybuttonaccesskey"
                      closebuttonhidden="true"
                      dropmarkerhidden="true"
                      checkboxhidden="true">
@@ -830,11 +803,8 @@
                      class="extension-controlled-notification"
                      popupid="extension-tab-hide"
                      hidden="true"
-                     label="&tabHideControlled.header.message;"
-                     buttonlabel="&tabHideControlled.keepButton.label;"
-                     buttonaccesskey="&tabHideControlled.keepButton.accesskey;"
-                     secondarybuttonlabel="&tabHideControlled.disableButton.label;"
-                     secondarybuttonaccesskey="&tabHideControlled.disableButton.accesskey;"
+                     data-lazy-l10n-id="appmenu-tab-hide-controlled"
+                     data-l10n-attrs="buttonlabel, buttonaccesskey, secondarybuttonlabel, secondarybuttonaccesskey"
                      closebuttonhidden="true"
                      dropmarkerhidden="true"
                      checkboxhidden="true">

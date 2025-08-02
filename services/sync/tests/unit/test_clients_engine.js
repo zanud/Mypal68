@@ -1876,12 +1876,6 @@ add_task(async function test_command_sync() {
 });
 
 add_task(async function ensureSameFlowIDs() {
-  let events = [];
-  let origRecordTelemetryEvent = Service.recordTelemetryEvent;
-  Service.recordTelemetryEvent = (object, method, value, extra) => {
-    events.push({ object, method, value, extra });
-  };
-
   let server = await serverForFoo(engine);
   try {
     // Setup 2 clients, send them a command, and ensure we get to events
@@ -1966,77 +1960,6 @@ add_task(async function ensureSameFlowIDs() {
       client.commands = [];
     }
   } finally {
-    Service.recordTelemetryEvent = origRecordTelemetryEvent;
-    cleanup();
-    await promiseStopServer(server);
-  }
-});
-
-add_task(async function test_duplicate_commands_telemetry() {
-  let events = [];
-  let origRecordTelemetryEvent = Service.recordTelemetryEvent;
-  Service.recordTelemetryEvent = (object, method, value, extra) => {
-    events.push({ object, method, value, extra });
-  };
-
-  let server = await serverForFoo(engine);
-  try {
-    await SyncTestingInfrastructure(server);
-    let collection = server.getCollection("foo", "clients");
-
-    let remoteId = Utils.makeGUID();
-    let remoteId2 = Utils.makeGUID();
-
-    _("Create remote client record 1");
-    collection.insertRecord({
-      id: remoteId,
-      name: "Remote client",
-      type: "desktop",
-      commands: [],
-      version: "48",
-      protocols: ["1.5"],
-    });
-
-    _("Create remote client record 2");
-    collection.insertRecord({
-      id: remoteId2,
-      name: "Remote client 2",
-      type: "mobile",
-      commands: [],
-      version: "48",
-      protocols: ["1.5"],
-    });
-
-    await syncClientsEngine(server);
-    // Make sure deduping works before syncing
-    await engine.sendURIToClientForDisplay(
-      "https://example.com",
-      remoteId,
-      "Example"
-    );
-    await engine.sendURIToClientForDisplay(
-      "https://example.com",
-      remoteId,
-      "Example"
-    );
-    equal(events.length, 1);
-    await syncClientsEngine(server);
-    // And after syncing.
-    await engine.sendURIToClientForDisplay(
-      "https://example.com",
-      remoteId,
-      "Example"
-    );
-    equal(events.length, 1);
-    // Ensure we aren't deduping commands to different clients
-    await engine.sendURIToClientForDisplay(
-      "https://example.com",
-      remoteId2,
-      "Example"
-    );
-    equal(events.length, 2);
-  } finally {
-    Service.recordTelemetryEvent = origRecordTelemetryEvent;
     cleanup();
     await promiseStopServer(server);
   }

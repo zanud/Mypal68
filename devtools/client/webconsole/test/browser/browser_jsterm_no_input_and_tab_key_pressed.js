@@ -25,8 +25,21 @@ add_task(async function() {
   is(getInputValue(hud), "", "inputnode is empty - matched");
   ok(!isInputFocused(hud), "input isn't focused anymore");
   ok(
-    hasFocus(hud.ui.outputNode.querySelector(".filter-checkbox input")),
-    `The "Persist Logs" checkbox is now focused`
+    hasFocus(
+      hud.ui.outputNode.querySelector(".webconsole-input-openEditorButton")
+    ),
+    `The "Toggle Editor" button is now focused`
+  );
+
+  info("Check that hitting Shift+Tab again place the focus on the filter bar");
+  EventUtils.synthesizeKey("KEY_Tab", { shiftKey: true });
+  ok(
+    hasFocus(
+      hud.ui.outputNode.querySelector(
+        ".webconsole-console-settings-menu-button"
+      )
+    ),
+    `The "Console Settings" button is now focused`
   );
 
   info("Check that hitting Tab when input is not empty insert a tab");

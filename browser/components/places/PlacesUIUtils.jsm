@@ -959,8 +959,6 @@ var PlacesUIUtils = {
       return;
     }
 
-    resultNode = resultNode.QueryInterface(Ci.nsINavBookmarkObserver);
-
     if (itemsBeingChanged > ITEM_CHANGED_BATCH_NOTIFICATION_THRESHOLD) {
       resultNode.onBeginUpdateBatch();
     }

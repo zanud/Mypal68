@@ -5,10 +5,11 @@
 #include "ProfilerBacktrace.h"
 
 #include "BaseProfiler.h"
-#include "BaseProfileJSONWriter.h"
 #include "ProfileBuffer.h"
 #include "ProfiledThreadData.h"
 #include "ThreadInfo.h"
+
+#include "mozilla/BaseProfileJSONWriter.h"
 
 namespace mozilla {
 namespace baseprofiler {

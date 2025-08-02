@@ -14,10 +14,6 @@ const { PromiseUtils } = ChromeUtils.import(
   "resource://gre/modules/PromiseUtils.jsm"
 );
 
-add_task(async function setup() {
-  validate_all_future_pings();
-});
-
 /**
  * Emulate the following Zeus config:
  * $draining = data.get($prefix . $host . " draining");

@@ -19,6 +19,7 @@
 #include "nsDirIndexParser.h"
 #include "nsNativeCharsetUtils.h"
 #include "nsString.h"
+#include "nsContentUtils.h"
 #include <algorithm>
 #include "nsIChannel.h"
 #include "mozilla/Unused.h"
@@ -498,17 +499,9 @@ nsresult nsIndexedToHTML::DoOnStartRequest(nsIRequest* request,
   nsAutoString unEscapeSpec;
   rv = mTextToSubURI->UnEscapeAndConvert(NS_LITERAL_CSTRING("UTF-8"), titleUri,
                                          unEscapeSpec);
-  // unescape may fail because
-  // 1. file URL may be encoded in platform charset for backward compatibility
-  // 2. query part may not be encoded in UTF-8 (see bug 261929)
-  // so try the platform's default if this is file url
-  if (NS_FAILED(rv) && uri->SchemeIs("file") && !NS_IsNativeUTF8()) {
-    auto encoding = mozilla::dom::FallbackEncoding::FromLocale();
-    nsAutoCString charset;
-    encoding->Name(charset);
-    rv = mTextToSubURI->UnEscapeAndConvert(charset, titleUri, unEscapeSpec);
+  if (NS_FAILED(rv)) {
+    return rv;
   }
-  if (NS_FAILED(rv)) return rv;
 
   nsCString htmlEscSpecUtf8;
   nsAppendEscapedHTML(NS_ConvertUTF16toUTF8(unEscapeSpec), htmlEscSpecUtf8);
@@ -645,6 +638,24 @@ NS_IMETHODIMP
 nsIndexedToHTML::OnDataAvailable(nsIRequest* aRequest, nsIInputStream* aInput,
                                  uint64_t aOffset, uint32_t aCount) {
   return mParser->OnDataAvailable(aRequest, aInput, aOffset, aCount);
+}
+
+static nsresult FormatTime(const nsDateFormatSelector aDateFormatSelector,
+                           const nsTimeFormatSelector aTimeFormatSelector,
+                           const PRTime aPrTime, nsAString& aStringOut) {
+  // FormatPRExplodedTime will use GMT based formatted string (e.g. GMT+1)
+  // instead of local time zone name (e.g. CEST).
+  // To avoid this case when ResistFingerprinting is disabled, use
+  // |FormatPRTime| to show exact time zone name.
+  if (!nsContentUtils::ShouldResistFingerprinting()) {
+    return mozilla::DateTimeFormat::FormatPRTime(
+        aDateFormatSelector, aTimeFormatSelector, aPrTime, aStringOut);
+  }
+
+  PRExplodedTime prExplodedTime;
+  PR_ExplodeTime(aPrTime, PR_GMTParameters, &prExplodedTime);
+  return mozilla::DateTimeFormat::FormatPRExplodedTime(
+      aDateFormatSelector, aTimeFormatSelector, &prExplodedTime, aStringOut);
 }
 
 NS_IMETHODIMP
@@ -793,12 +804,10 @@ nsIndexedToHTML::OnIndexAvailable(nsIRequest* aRequest, nsISupports* aCtxt,
     pushBuffer.AppendInt(static_cast<int64_t>(t));
     pushBuffer.AppendLiteral("\">");
     nsAutoString formatted;
-    mozilla::DateTimeFormat::FormatPRTime(kDateFormatShort, kTimeFormatNone, t,
-                                          formatted);
+    FormatTime(kDateFormatShort, kTimeFormatNone, t, formatted);
     AppendNonAsciiToNCR(formatted, pushBuffer);
     pushBuffer.AppendLiteral("</td>\n <td>");
-    mozilla::DateTimeFormat::FormatPRTime(kDateFormatNone, kTimeFormatSeconds,
-                                          t, formatted);
+    FormatTime(kDateFormatNone, kTimeFormatLong, t, formatted);
     // use NCR to show date in any doc charset
     AppendNonAsciiToNCR(formatted, pushBuffer);
   }

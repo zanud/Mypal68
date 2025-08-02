@@ -44,8 +44,7 @@ static const char SandboxPolicyFlash[] = R"SANDBOX_LITERAL(
   (allow file-read-metadata
          (literal "/etc")
          (literal "/tmp")
-         (literal "/var")
-         (literal "/private/etc/localtime"))
+         (literal "/var"))
   (allow file-read*
          (literal "/dev/autofs_nowait")
          (literal "/dev/random")
@@ -58,6 +57,13 @@ static const char SandboxPolicyFlash[] = R"SANDBOX_LITERAL(
          file-write-data
          file-ioctl
          (literal "/dev/dtracehelper"))
+
+  ; Timezone
+  (allow file-read*
+    (subpath "/private/var/db/timezone")
+    (subpath "/usr/share/zoneinfo")
+    (subpath "/usr/share/zoneinfo.default")
+    (literal "/private/etc/localtime"))
 
   ; Graphics
   (allow user-preference-read

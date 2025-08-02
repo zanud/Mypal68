@@ -6,17 +6,21 @@
 #define MOZSTORAGESERVICE_H
 
 #include "nsCOMPtr.h"
-#include "nsICollation.h"
 #include "nsIFile.h"
 #include "nsIMemoryReporter.h"
 #include "nsIObserver.h"
 #include "nsTArray.h"
 #include "mozilla/Mutex.h"
+#include "mozilla/UniquePtr.h"
+#include "mozilla/intl/Collator.h"
 
 #include "mozIStorageService.h"
 
 class nsIMemoryReporter;
 struct sqlite3_vfs;
+namespace mozilla::intl {
+class Collator;
+}
 
 namespace mozilla {
 namespace storage {
@@ -38,14 +42,14 @@ class Service : public mozIStorageService,
    *         The string to be compared against aStr2.
    * @param  aStr2
    *         The string to be compared against aStr1.
-   * @param  aComparisonStrength
-   *         The sorting strength, one of the nsICollation constants.
+   * @param  aSensitivity
+   *         The sorting sensitivity.
    * @return aStr1 - aStr2.  That is, if aStr1 < aStr2, returns a negative
    *         number.  If aStr1 > aStr2, returns a positive number.  If
    *         aStr1 == aStr2, returns 0.
    */
   int localeCompareStrings(const nsAString& aStr1, const nsAString& aStr2,
-                           int32_t aComparisonStrength);
+                           mozilla::intl::Collator::Sensitivity aSensitivity);
 
   static already_AddRefed<Service> getSingleton();
 
@@ -53,18 +57,6 @@ class Service : public mozIStorageService,
   NS_DECL_MOZISTORAGESERVICE
   NS_DECL_NSIOBSERVER
   NS_DECL_NSIMEMORYREPORTER
-
-  /**
-   * Obtains the cached data for the toolkit.storage.synchronous preference.
-   */
-  static int32_t getSynchronousPref();
-
-  /**
-   * Obtains the default page size for this platform. The default value is
-   * specified in the SQLite makefile (SQLITE_DEFAULT_PAGE_SIZE) but it may be
-   * overriden with the PREF_TS_PAGESIZE hidden preference.
-   */
-  static int32_t getDefaultPageSize() { return sDefaultPageSize; }
 
   /**
    * Returns a boolean value indicating whether or not the given page size is
@@ -75,6 +67,8 @@ class Service : public mozIStorageService,
            aPageSize == 4096 || aPageSize == 8192 || aPageSize == 16384 ||
            aPageSize == 32768 || aPageSize == 65536;
   }
+
+  static const int32_t kDefaultPageSize = 32768;
 
   /**
    * Registers the connection with the storage service.  Connections are
@@ -122,6 +116,7 @@ class Service : public mozIStorageService,
    */
   Mutex mMutex;
 
+  sqlite3_vfs* mSqliteExclVFS;
   sqlite3_vfs* mSqliteVFS;
 
   /**
@@ -142,22 +137,22 @@ class Service : public mozIStorageService,
   void minimizeMemory();
 
   /**
-   * Lazily creates and returns a collation created from the application's
+   * Lazily creates and returns a collator created from the application's
    * locale that all statements of all Connections of this Service may use.
-   * Since the collation's lifetime is that of the Service and no statement may
+   * Since the collator's lifetime is that of the Service and no statement may
    * execute outside the lifetime of the Service, this method returns a raw
    * pointer.
    */
-  nsICollation* getLocaleCollation();
+  mozilla::intl::Collator* getCollator();
 
   /**
-   * Lazily created collation that all statements of all Connections of this
-   * Service may use.  The collation is created from the application's locale.
+   * Lazily created collator that all statements of all Connections of this
+   * Service may use.  The collator is created from the application's locale.
    *
-   * @note Collation implementations are platform-dependent and in general not
-   *       thread-safe.  Access to this collation should be synchronized.
+   * @note The collator is not thread-safe since the options can be changed
+   * between calls. Access should be synchronized.
    */
-  nsCOMPtr<nsICollation> mLocaleCollation;
+  mozilla::UniquePtr<mozilla::intl::Collator> mCollator = nullptr;
 
   nsCOMPtr<nsIFile> mProfileStorageFile;
 
@@ -165,8 +160,7 @@ class Service : public mozIStorageService,
 
   static Service* gService;
 
-  static int32_t sSynchronousPref;
-  static int32_t sDefaultPageSize;
+  mozilla::intl::Collator::Sensitivity mLastSensitivity;
 };
 
 }  // namespace storage

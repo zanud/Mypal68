@@ -35,7 +35,7 @@ bool FuzzyEqualsCoordinate(float aValue1, float aValue2) {
 
 Axis::Axis(AsyncPanZoomController* aAsyncPanZoomController)
     : mPos(0),
-      mVelocity(0.0f, "Axis::mVelocity"),
+      mVelocity(0.0f),// "Axis::mVelocity"),
       mAxisLocked(false),
       mAsyncPanZoomController(aAsyncPanZoomController),
       mOverscroll(0),

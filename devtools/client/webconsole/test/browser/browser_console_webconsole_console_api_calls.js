@@ -61,10 +61,10 @@ add_task(async function() {
   const onContentMessagesHidden = waitFor(
     () => !findMessage(hud, contentArgs.log)
   );
-  const checkbox = hud.ui.outputNode.querySelector(
-    ".webconsole-filterbar-primary .filter-checkbox"
+  await toggleConsoleSetting(
+    hud,
+    ".webconsole-console-settings-menu-item-contentMessages"
   );
-  checkbox.click();
   await onContentMessagesHidden;
 
   for (const expectedMessage of expectedMessages) {
@@ -75,7 +75,10 @@ add_task(async function() {
   const onContentMessagesDisplayed = waitFor(() =>
     expectedMessages.every(expectedMessage => findMessage(hud, expectedMessage))
   );
-  checkbox.click();
+  await toggleConsoleSetting(
+    hud,
+    ".webconsole-console-settings-menu-item-contentMessages"
+  );
   await onContentMessagesDisplayed;
 
   for (const expectedMessage of expectedMessages) {

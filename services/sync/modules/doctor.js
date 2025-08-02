@@ -21,86 +21,14 @@ const { Service } = ChromeUtils.import("resource://services-sync/service.js");
 const { Resource } = ChromeUtils.import("resource://services-sync/resource.js");
 
 const { Svc, Utils } = ChromeUtils.import("resource://services-sync/util.js");
-ChromeUtils.defineModuleGetter(
-  this,
-  "getRepairRequestor",
-  "resource://services-sync/collection_repair.js"
-);
-ChromeUtils.defineModuleGetter(
-  this,
-  "getAllRepairRequestors",
-  "resource://services-sync/collection_repair.js"
-);
 
 const log = Log.repository.getLogger("Sync.Doctor");
 
-var REPAIR_ADVANCE_PERIOD = 86400; // 1 day
-
 var Doctor = {
-  anyClientsRepairing(service, collection, ignoreFlowID = null) {
-    if (!service || !service.clientsEngine) {
-      log.info("Missing clients engine, assuming we're in test code");
-      return false;
-    }
-    return service.clientsEngine.remoteClients.some(
-      client =>
-        client.commands &&
-        client.commands.some(command => {
-          if (
-            command.command != "repairResponse" &&
-            command.command != "repairRequest"
-          ) {
-            return false;
-          }
-          if (!command.args || command.args.length != 1) {
-            return false;
-          }
-          if (command.args[0].collection != collection) {
-            return false;
-          }
-          if (ignoreFlowID != null && command.args[0].flowID == ignoreFlowID) {
-            return false;
-          }
-          return true;
-        })
-    );
-  },
-
   async consult(recentlySyncedEngines) {
-    if (!Services.telemetry.canRecordBase) {
-      log.info("Skipping consultation: telemetry reporting is disabled");
-      return;
-    }
-
     let engineInfos = this._getEnginesToValidate(recentlySyncedEngines);
 
     await this._runValidators(engineInfos);
-
-    // We are called at the end of a sync, which is a good time to periodically
-    // check each repairer to see if it can advance.
-    if (this._now() - this.lastRepairAdvance > REPAIR_ADVANCE_PERIOD) {
-      try {
-        for (let [collection, requestor] of Object.entries(
-          this._getAllRepairRequestors()
-        )) {
-          try {
-            let advanced = await requestor.continueRepairs();
-            log.info(
-              `${collection} reparier ${
-                advanced ? "advanced" : "did not advance"
-              }.`
-            );
-          } catch (ex) {
-            if (Async.isShutdownException(ex)) {
-              throw ex;
-            }
-            log.error(`${collection} repairer failed`, ex);
-          }
-        }
-      } finally {
-        this.lastRepairAdvance = Math.floor(this._now());
-      }
-    }
   },
 
   _getEnginesToValidate(recentlySyncedEngines) {
@@ -120,9 +48,7 @@ var Doctor = {
 
       if (nowSeconds - lastValidation < validationInterval) {
         log.info(
-          `Skipping validation of ${
-            e.name
-          }: too recent since last validation attempt`
+          `Skipping validation of ${e.name}: too recent since last validation attempt`
         );
         continue;
       }
@@ -204,26 +130,15 @@ var Doctor = {
 
       // Let's do it!
       Services.console.logStringMessage(
-        `Sync is about to run a consistency check of ${
-          engine.name
-        }. This may be slow, and ` +
-          `can be controlled using the pref "services.sync.${
-            engine.name
-          }.validation.enabled".\n` +
+        `Sync is about to run a consistency check of ${engine.name}. This may be slow, and ` +
+          `can be controlled using the pref "services.sync.${engine.name}.validation.enabled".\n` +
           `If you encounter any problems because of this, please file a bug.`
       );
 
-      // Make a new flowID just incase we end up starting a repair.
-      let flowID = Utils.makeGUID();
       try {
-        // XXX - must get the flow ID to either the validator, or directly to
-        // telemetry. I guess it's probably OK to always record a flowID even
-        // if we don't end up repairing?
         log.info(`Running validator for ${engine.name}`);
         let result = await validator.validate(engine);
         Observers.notify("weave:engine:validate:finish", result, engine.name);
-        // And see if we should repair.
-        await this._maybeCure(engine, result, flowID);
       } catch (ex) {
         if (Async.isShutdownException(ex)) {
           throw ex;
@@ -234,32 +149,6 @@ var Doctor = {
         // validator would mean the others will fail.
       }
     }
-  },
-
-  async _maybeCure(engine, validationResults, flowID) {
-    if (!this._shouldRepair(engine)) {
-      log.info(`Skipping repair of ${engine.name} - disabled via preferences`);
-      return;
-    }
-
-    let requestor = this._getRepairRequestor(engine.name);
-    let didStart = false;
-    if (requestor) {
-      if (requestor.tryServerOnlyRepairs(validationResults)) {
-        return; // TODO: It would be nice if we could request a validation to be
-        // done on next sync.
-      }
-      didStart = await requestor.startRepairs(validationResults, flowID);
-    }
-    log.info(
-      `${didStart ? "did" : "didn't"} start a repair of ${
-        engine.name
-      } with flowID ${flowID}`
-    );
-  },
-
-  _shouldRepair(engine) {
-    return Svc.Prefs.get(`engine.${engine.name}.repair.enabled`, false);
   },
 
   // mainly for mocking.
@@ -285,25 +174,9 @@ var Doctor = {
     }
   },
 
-  get lastRepairAdvance() {
-    return Svc.Prefs.get("doctor.lastRepairAdvance", 0);
-  },
-
-  set lastRepairAdvance(value) {
-    Svc.Prefs.set("doctor.lastRepairAdvance", value);
-  },
-
   // functions used so tests can mock them
   _now() {
     // We use the server time, which is SECONDS
     return Resource.serverTime;
-  },
-
-  _getRepairRequestor(name) {
-    return getRepairRequestor(name);
-  },
-
-  _getAllRepairRequestors() {
-    return getAllRepairRequestors();
   },
 };

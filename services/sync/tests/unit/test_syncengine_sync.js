@@ -1089,7 +1089,7 @@ add_task(async function test_processIncoming_decrypt_failed() {
     });
 
     await engine.setLastSync(collection.wbo("nojson").modified - 1);
-    let ping = await sync_engine_and_validate_telem(engine, true);
+    let ping = await sync_engine(engine);
     Assert.equal(ping.engines[0].incoming.applied, 2);
     Assert.equal(ping.engines[0].incoming.failed, 4);
     Assert.equal(ping.engines[0].incoming.newFailed, 4);
@@ -1296,7 +1296,7 @@ add_task(async function test_uploadOutgoing_failed() {
     Assert.equal(changes.peppercorn, PEPPERCORN_CHANGED);
 
     engine.enabled = true;
-    await sync_engine_and_validate_telem(engine, true);
+    await sync_engine(engine);
 
     // Ensure the 'flying' record has been uploaded and is no longer marked.
     Assert.ok(!!collection.payload("flying"));
@@ -1311,109 +1311,6 @@ add_task(async function test_uploadOutgoing_failed() {
     await promiseClean(engine, server);
   }
 });
-
-async function createRecordFailTelemetry(allowSkippedRecord) {
-  Service.identity.username = "foo";
-  let collection = new ServerCollection();
-  collection._wbos.flying = new ServerWBO("flying");
-  collection._wbos.scotsman = new ServerWBO("scotsman");
-
-  let server = sync_httpd_setup({
-    "/1.1/foo/storage/rotary": collection.handler(),
-  });
-
-  await SyncTestingInfrastructure(server);
-
-  let engine = makeRotaryEngine();
-  engine.allowSkippedRecord = allowSkippedRecord;
-  let oldCreateRecord = engine._store.createRecord;
-  engine._store.createRecord = async (id, col) => {
-    if (id != "flying") {
-      throw new Error("oops");
-    }
-    return oldCreateRecord.call(engine._store, id, col);
-  };
-  engine._store.items = {
-    flying: "LNER Class A3 4472",
-    scotsman: "Flying Scotsman",
-  };
-  // Mark these records as changed
-  const FLYING_CHANGED = 12345;
-  const SCOTSMAN_CHANGED = 23456;
-  await engine._tracker.addChangedID("flying", FLYING_CHANGED);
-  await engine._tracker.addChangedID("scotsman", SCOTSMAN_CHANGED);
-
-  let syncID = await engine.resetLocalSyncID();
-  let meta_global = Service.recordManager.set(
-    engine.metaURL,
-    new WBORecord(engine.metaURL)
-  );
-  meta_global.payload.engines = { rotary: { version: engine.version, syncID } };
-
-  let ping;
-  try {
-    await engine.setLastSync(123); // needs to be non-zero so that tracker is queried
-
-    // Confirm initial environment
-    Assert.equal(collection.payload("flying"), undefined);
-    let changes = await engine._tracker.getChangedIDs();
-    Assert.equal(changes.flying, FLYING_CHANGED);
-    Assert.equal(changes.scotsman, SCOTSMAN_CHANGED);
-
-    engine.enabled = true;
-    ping = await sync_engine_and_validate_telem(engine, true, onErrorPing => {
-      ping = onErrorPing;
-    });
-
-    if (!allowSkippedRecord) {
-      do_throw("should not get here");
-    }
-
-    // Ensure the 'flying' record has been uploaded and is no longer marked.
-    Assert.ok(!!collection.payload("flying"));
-    changes = await engine._tracker.getChangedIDs();
-    Assert.equal(changes.flying, undefined);
-  } catch (err) {
-    if (allowSkippedRecord) {
-      do_throw("should not get here");
-    }
-
-    // Ensure the 'flying' record has not been uploaded and is still marked
-    Assert.ok(!collection.payload("flying"));
-    const changes = await engine._tracker.getChangedIDs();
-    Assert.ok(changes.flying);
-  } finally {
-    // We reported in telemetry that we failed a record
-    Assert.equal(ping.engines[0].outgoing[0].failed, 1);
-
-    // In any case, the 'scotsman' record couldn't be created so it wasn't
-    // uploaded nor it was not cleared from the tracker.
-    Assert.ok(!collection.payload("scotsman"));
-    const changes = await engine._tracker.getChangedIDs();
-    Assert.equal(changes.scotsman, SCOTSMAN_CHANGED);
-
-    engine._store.createRecord = oldCreateRecord;
-    await promiseClean(engine, server);
-  }
-}
-
-add_task(
-  async function test_uploadOutgoing_createRecord_throws_reported_telemetry() {
-    _(
-      "SyncEngine._uploadOutgoing reports a failed record to telemetry if createRecord throws"
-    );
-    await createRecordFailTelemetry(true);
-  }
-);
-
-add_task(
-  async function test_uploadOutgoing_createRecord_throws_dontAllowSkipRecord() {
-    _(
-      "SyncEngine._uploadOutgoing will throw if createRecord throws and allowSkipRecord is set to false"
-    );
-    await createRecordFailTelemetry(false);
-  }
-);
 
 add_task(async function test_uploadOutgoing_largeRecords() {
   _(
@@ -1619,7 +1516,7 @@ add_task(async function test_sync_partialUpload() {
     engine.enabled = true;
     let error;
     try {
-      await sync_engine_and_validate_telem(engine, true);
+      await sync_engine(engine);
     } catch (ex) {
       error = ex;
     }

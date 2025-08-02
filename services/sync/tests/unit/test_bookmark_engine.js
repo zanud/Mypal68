@@ -15,50 +15,16 @@ const {
   Bookmark,
   BookmarkFolder,
   BookmarksEngine,
-  BufferedBookmarksEngine,
   Livemark,
 } = ChromeUtils.import("resource://services-sync/engines/bookmarks.js");
 const { Service } = ChromeUtils.import("resource://services-sync/service.js");
 
-var recordedEvents = [];
-
-function checkRecordedEvents(object, expected, message) {
-  // Ignore event telemetry from the merger.
-  let repairEvents = recordedEvents.filter(event => event.object == object);
-  deepEqual(repairEvents, expected, message);
-  // and clear the list so future checks are easier to write.
-  recordedEvents = [];
-}
-
-async function fetchAllRecordIds() {
-  let db = await PlacesUtils.promiseDBConnection();
-  let rows = await db.executeCached(`
-    WITH RECURSIVE
-    syncedItems(id, guid) AS (
-      SELECT b.id, b.guid FROM moz_bookmarks b
-      WHERE b.guid IN ('menu________', 'toolbar_____', 'unfiled_____',
-                       'mobile______')
-      UNION ALL
-      SELECT b.id, b.guid FROM moz_bookmarks b
-      JOIN syncedItems s ON b.parent = s.id
-    )
-    SELECT guid FROM syncedItems`);
-  let recordIds = new Set();
-  for (let row of rows) {
-    let recordId = PlacesSyncUtils.bookmarks.guidToRecordId(
-      row.getResultByName("guid")
-    );
-    recordIds.add(recordId);
-  }
-  return recordIds;
-}
-
 async function cleanupEngine(engine) {
-  await engine._tracker.stop();
-  await engine._store.wipe();
   await engine.resetClient();
+  await engine._store.wipe();
   Svc.Prefs.resetBranch("");
   Service.recordManager.clearCache();
+  // Note we don't finalize the engine here as add_bookmark_test() does.
 }
 
 async function cleanup(engine, server) {
@@ -69,38 +35,12 @@ async function cleanup(engine, server) {
 add_task(async function setup() {
   await generateNewKeys(Service.collectionKeys);
   await Service.engineManager.unregister("bookmarks");
-
-  Service.recordTelemetryEvent = (object, method, value, extra = undefined) => {
-    recordedEvents.push({ object, method, value, extra });
-  };
 });
-
-function add_bookmark_test(task) {
-  add_task(async function() {
-    _(`Running test ${task.name} with legacy bookmarks engine`);
-    let legacyEngine = new BookmarksEngine(Service);
-    await legacyEngine.initialize();
-    try {
-      await task(legacyEngine);
-    } finally {
-      await legacyEngine.finalize();
-    }
-
-    _(`Running test ${task.name} with buffered bookmarks engine`);
-    let bufferedEngine = new BufferedBookmarksEngine(Service);
-    await bufferedEngine.initialize();
-    try {
-      await task(bufferedEngine);
-    } finally {
-      await bufferedEngine.finalize();
-    }
-  });
-}
 
 add_task(async function test_buffer_timeout() {
   await Service.recordManager.clearCache();
   await PlacesSyncUtils.bookmarks.reset();
-  let engine = new BufferedBookmarksEngine(Service);
+  let engine = new BookmarksEngine(Service);
   engine._newWatchdog = function() {
     // Return an already-aborted watchdog, so that we can abort merges
     // immediately.
@@ -165,7 +105,7 @@ add_task(async function test_buffer_timeout() {
 
     info("We expect this sync to fail");
     await Assert.rejects(
-      sync_engine_and_validate_telem(engine, true),
+      sync_engine(engine),
       ex => ex.name == "InterruptedError"
     );
   } finally {
@@ -191,31 +131,14 @@ add_bookmark_test(async function test_maintenance_after_failure(engine) {
 
     _("Ensure the sync fails and we run maintenance");
     await Assert.rejects(
-      sync_engine_and_validate_telem(engine, true),
+      sync_engine(engine),
       ex => ex == syncError
-    );
-    checkRecordedEvents(
-      "maintenance",
-      [
-        {
-          object: "maintenance",
-          method: "run",
-          value: "bookmarks",
-          extra: undefined,
-        },
-      ],
-      "Should record event for first maintenance run"
     );
 
     _("Sync again, but ensure maintenance doesn't run");
     await Assert.rejects(
-      sync_engine_and_validate_telem(engine, true),
+      sync_engine(engine),
       ex => ex == syncError
-    );
-    checkRecordedEvents(
-      "maintenance",
-      [],
-      "Should not record event if maintenance didn't run"
     );
 
     _("Fast-forward last maintenance pref; ensure maintenance runs");
@@ -224,44 +147,15 @@ add_bookmark_test(async function test_maintenance_after_failure(engine) {
       Date.now() / 1000 - 14400
     );
     await Assert.rejects(
-      sync_engine_and_validate_telem(engine, true),
+      sync_engine(engine),
       ex => ex == syncError
-    );
-    checkRecordedEvents(
-      "maintenance",
-      [
-        {
-          object: "maintenance",
-          method: "run",
-          value: "bookmarks",
-          extra: undefined,
-        },
-      ],
-      "Should record event for second maintenance run"
     );
 
     _("Fix sync failure; ensure we report success after maintenance");
     engine._syncStartup = syncStartup;
-    await sync_engine_and_validate_telem(engine, false);
-    checkRecordedEvents(
-      "maintenance",
-      [
-        {
-          object: "maintenance",
-          method: "fix",
-          value: "bookmarks",
-          extra: undefined,
-        },
-      ],
-      "Should record event for successful sync after second maintenance"
-    );
+    await sync_engine(engine);
 
-    await sync_engine_and_validate_telem(engine, false);
-    checkRecordedEvents(
-      "maintenance",
-      [],
-      "Should not record maintenance events after successful sync"
-    );
+    await sync_engine(engine);
   } finally {
     await cleanup(engine, server);
   }
@@ -309,7 +203,7 @@ add_bookmark_test(async function test_delete_invalid_roots_from_server(engine) {
       "Should store Places root, reading list items, and new bookmark on server"
     );
 
-    await sync_engine_and_validate_telem(engine, false);
+    await sync_engine(engine);
 
     await Assert.rejects(
       PlacesUtils.promiseItemId("readinglist"),
@@ -334,32 +228,6 @@ add_bookmark_test(async function test_delete_invalid_roots_from_server(engine) {
   } finally {
     await cleanup(engine, server);
   }
-});
-
-add_task(async function bad_record_allIDs() {
-  let server = new SyncServer();
-  server.start();
-  await SyncTestingInfrastructure(server);
-
-  _("Ensure that bad Places queries don't cause an error in getAllIDs.");
-  let badRecord = await PlacesUtils.bookmarks.insert({
-    parentGuid: PlacesUtils.bookmarks.toolbarGuid,
-    url: "place:folder=1138",
-  });
-
-  _("Type: " + badRecord.type);
-
-  _("Fetching all IDs.");
-  let all = await fetchAllRecordIds();
-
-  _("All IDs: " + JSON.stringify([...all]));
-  Assert.ok(all.has("menu"));
-  Assert.ok(all.has("toolbar"));
-
-  _("Clean up.");
-  await PlacesUtils.bookmarks.eraseEverything();
-  await PlacesSyncUtils.bookmarks.reset();
-  await promiseStopServer(server);
 });
 
 add_bookmark_test(async function test_processIncoming_error_orderChildren(
@@ -424,7 +292,7 @@ add_bookmark_test(async function test_processIncoming_error_orderChildren(
 
     let error;
     try {
-      await sync_engine_and_validate_telem(engine, true);
+      await sync_engine(engine);
     } catch (ex) {
       error = ex;
     }
@@ -507,7 +375,7 @@ async function test_restoreOrImport(engine, { replace }) {
 
     let error;
     try {
-      await sync_engine_and_validate_telem(engine, false);
+      await sync_engine(engine);
     } catch (ex) {
       error = ex;
       _("Got error: " + Log.exceptionStr(ex));
@@ -572,7 +440,7 @@ async function test_restoreOrImport(engine, { replace }) {
 
     _("Sync again. This'll wipe bookmarks from the server.");
     try {
-      await sync_engine_and_validate_telem(engine, false);
+      await sync_engine(engine);
     } catch (ex) {
       error = ex;
       _("Got error: " + Log.exceptionStr(ex));
@@ -664,6 +532,9 @@ function FakeRecord(constructor, r) {
 }
 
 // Bug 632287.
+// (Note that `test_mismatched_folder_types()` in
+//  toolkit/components/places/tests/sync/test_bookmark_kinds.js is an exact
+// copy of this test, so it's fine to remove it as part of bug 1449730)
 add_task(async function test_mismatched_types() {
   _(
     "Ensure that handling a record that changes type causes deletion " +
@@ -678,7 +549,6 @@ add_task(async function test_mismatched_types() {
     description: null,
     parentid: "toolbar",
   };
-  oldRecord.cleartext = oldRecord;
 
   let newRecord = {
     id: "l1nZZXfB8nC7",
@@ -702,7 +572,6 @@ add_task(async function test_mismatched_types() {
     ],
     parentid: "toolbar",
   };
-  newRecord.cleartext = newRecord;
 
   let engine = new BookmarksEngine(Service);
   await engine.initialize();
@@ -717,6 +586,7 @@ add_task(async function test_mismatched_types() {
     newR.parentid = PlacesUtils.bookmarks.toolbarGuid;
 
     await store.applyIncoming(oldR);
+    await engine._apply();
     _("Applied old. It's a folder.");
     let oldID = await PlacesUtils.promiseItemId(oldR.id);
     _("Old ID: " + oldID);
@@ -724,6 +594,7 @@ add_task(async function test_mismatched_types() {
     Assert.equal(oldInfo.type, PlacesUtils.bookmarks.TYPE_FOLDER);
 
     await store.applyIncoming(newR);
+    await engine._apply();
     await Assert.rejects(
       PlacesUtils.promiseItemId(newR.id),
       /no item found for the given GUID/,
@@ -733,132 +604,6 @@ add_task(async function test_mismatched_types() {
     await cleanup(engine, server);
     await engine.finalize();
   }
-});
-
-add_task(async function test_bookmark_guidMap_fail() {
-  _("Ensure that failures building the GUID map cause early death.");
-
-  let engine = new BookmarksEngine(Service);
-  await engine.initialize();
-  let store = engine._store;
-
-  let server = await serverForFoo(engine);
-  let coll = server.user("foo").collection("bookmarks");
-  await SyncTestingInfrastructure(server);
-
-  // Add one item to the server.
-  let item = await PlacesUtils.bookmarks.insert({
-    parentGuid: PlacesUtils.bookmarks.toolbarGuid,
-    type: PlacesUtils.bookmarks.TYPE_FOLDER,
-    title: "Folder 1",
-  });
-  let itemRecord = await store.createRecord(item.guid);
-  let itemPayload = itemRecord.cleartext;
-  coll.insert(item.guid, encryptPayload(itemPayload));
-
-  await engine.setLastSync(1); // So we don't back up.
-
-  // Make building the GUID map fail.
-
-  let pbt = PlacesUtils.promiseBookmarksTree;
-  PlacesUtils.promiseBookmarksTree = function() {
-    return Promise.reject("Nooo");
-  };
-
-  // Ensure that we throw when calling getGuidMap().
-  await engine._syncStartup();
-  _("No error.");
-
-  _("We get an error if building _guidMap fails in use.");
-  let err;
-  try {
-    _(await engine.getGuidMap());
-  } catch (ex) {
-    err = ex;
-  }
-  Assert.equal(err.code, SyncEngine.prototype.eEngineAbortApplyIncoming);
-  Assert.equal(err.cause, "Nooo");
-
-  _("We get an error and abort during processIncoming.");
-  err = undefined;
-  try {
-    await engine._processIncoming();
-  } catch (ex) {
-    err = ex;
-  }
-  Assert.equal(err, "Nooo");
-
-  _(
-    "Sync the engine and validate that we didn't put the error code in the wrong place"
-  );
-  let ping;
-  try {
-    // Clear processIncoming so that we initialize the guid map inside uploadOutgoing
-    engine._processIncoming = async function() {};
-    await sync_engine_and_validate_telem(engine, true, p => {
-      ping = p;
-    });
-  } catch (e) {}
-
-  deepEqual(ping.engines.find(e => e.name == "bookmarks").failureReason, {
-    name: "unexpectederror",
-    error: "Nooo",
-  });
-
-  PlacesUtils.promiseBookmarksTree = pbt;
-  await cleanup(engine, server);
-  await engine.finalize();
-});
-
-add_task(async function test_bookmark_tag_but_no_uri() {
-  _(
-    "Ensure that a bookmark record with tags, but no URI, doesn't throw an exception."
-  );
-
-  let engine = new BookmarksEngine(Service);
-  await engine.initialize();
-  let store = engine._store;
-
-  // We're simply checking that no exception is thrown, so
-  // no actual checks in this test.
-
-  await PlacesSyncUtils.bookmarks.insert({
-    kind: PlacesSyncUtils.bookmarks.KINDS.BOOKMARK,
-    recordId: Utils.makeGUID(),
-    parentRecordId: "toolbar",
-    url: "http://example.com",
-    tags: ["foo"],
-  });
-  await PlacesSyncUtils.bookmarks.insert({
-    kind: PlacesSyncUtils.bookmarks.KINDS.BOOKMARK,
-    recordId: Utils.makeGUID(),
-    parentRecordId: "toolbar",
-    url: "http://example.org",
-    tags: null,
-  });
-  await PlacesSyncUtils.bookmarks.insert({
-    kind: PlacesSyncUtils.bookmarks.KINDS.BOOKMARK,
-    recordId: Utils.makeGUID(),
-    url: "about:fake",
-    parentRecordId: "toolbar",
-    tags: null,
-  });
-
-  let record = new FakeRecord(BookmarkFolder, {
-    parentid: "toolbar",
-    id: Utils.makeGUID(),
-    description: "",
-    tags: ["foo"],
-    title: "Taggy tag",
-    type: "folder",
-  });
-
-  await store.create(record);
-  record.tags = ["bar"];
-  await store.update(record);
-
-  await cleanupEngine(engine);
-  await engine.finalize();
 });
 
 add_bookmark_test(async function test_misreconciled_root(engine) {
@@ -1017,7 +762,7 @@ add_bookmark_test(async function test_sync_dateAdded(engine) {
       item6LastModified
     );
 
-    await sync_engine_and_validate_telem(engine, false);
+    await sync_engine(engine);
 
     let record1 = await store.createRecord(item1GUID);
     let record2 = await store.createRecord(item2GUID);
@@ -1074,7 +819,7 @@ add_bookmark_test(async function test_sync_dateAdded(engine) {
     // Next sync of the engine doesn't hit info/collections, so lastModified
     // remains stale. Setting it to null side-steps that.
     engine.lastModified = null;
-    await sync_engine_and_validate_telem(engine, false);
+    await sync_engine(engine);
 
     let newRecord2 = await store.createRecord(item2GUID);
     equal(
@@ -1101,7 +846,7 @@ add_bookmark_test(async function test_sync_dateAdded(engine) {
     );
 
     engine.lastModified = null;
-    await sync_engine_and_validate_telem(engine, false);
+    await sync_engine(engine);
 
     let newerRecord2 = await store.createRecord(item2GUID);
     equal(
@@ -1117,7 +862,7 @@ add_bookmark_test(async function test_sync_dateAdded(engine) {
 add_task(async function test_buffer_hasDupe() {
   await Service.recordManager.clearCache();
   await PlacesSyncUtils.bookmarks.reset();
-  let engine = new BufferedBookmarksEngine(Service);
+  let engine = new BookmarksEngine(Service);
   await engine.initialize();
   let server = await serverForFoo(engine);
   await SyncTestingInfrastructure(server);
@@ -1139,7 +884,7 @@ add_task(async function test_buffer_hasDupe() {
       title: "example.com",
     });
 
-    await sync_engine_and_validate_telem(engine, false);
+    await sync_engine(engine);
     // Make sure we set hasDupe on outgoing records
     Assert.ok(collection.payloads().every(payload => payload.hasDupe));
 
@@ -1148,7 +893,7 @@ add_task(async function test_buffer_hasDupe() {
     // Make sure it works for weakly uploaded records
     engine.addForWeakUpload(guid2);
 
-    await sync_engine_and_validate_telem(engine, false);
+    await sync_engine(engine);
 
     let tombstone = JSON.parse(
       JSON.parse(collection.payload(guid1)).ciphertext
@@ -1162,10 +907,10 @@ add_task(async function test_buffer_hasDupe() {
     Assert.ok(!record.deleted);
     Assert.ok(
       record.hasDupe,
-      "Buffered bookmark engine should set hasDupe for weakly uploaded records."
+      "Bookmarks bookmark engine should set hasDupe for weakly uploaded records."
     );
 
-    await sync_engine_and_validate_telem(engine, false);
+    await sync_engine(engine);
   } finally {
     await cleanup(engine, server);
     await engine.finalize();
@@ -1173,11 +918,9 @@ add_task(async function test_buffer_hasDupe() {
 });
 
 // Bug 890217.
-add_task(async function test_sync_imap_URLs() {
+add_bookmark_test(async function test_sync_imap_URLs(engine) {
   await Service.recordManager.clearCache();
   await PlacesSyncUtils.bookmarks.reset();
-  let engine = new BookmarksEngine(Service);
-  await engine.initialize();
   let server = await serverForFoo(engine);
   await SyncTestingInfrastructure(server);
 
@@ -1220,7 +963,7 @@ add_task(async function test_sync_imap_URLs() {
       title: "TomEdwards.html",
     });
 
-    await sync_engine_and_validate_telem(engine, false);
+    await sync_engine(engine);
 
     let aInfo = await PlacesUtils.bookmarks.fetch("bookmarkAAAA");
     equal(
@@ -1241,13 +984,12 @@ add_task(async function test_sync_imap_URLs() {
     );
   } finally {
     await cleanup(engine, server);
-    await engine.finalize();
   }
 });
 
 add_task(async function test_resume_buffer() {
   await Service.recordManager.clearCache();
-  let engine = new BufferedBookmarksEngine(Service);
+  let engine = new BookmarksEngine(Service);
   await engine.initialize();
   await engine._store.wipe();
   await engine.resetClient();
@@ -1320,7 +1062,7 @@ add_task(async function test_resume_buffer() {
     let caughtError;
     _("We expect this to fail");
     try {
-      await sync_engine_and_validate_telem(engine, true);
+      await sync_engine(engine);
     } catch (e) {
       caughtError = e;
     }
@@ -1336,7 +1078,7 @@ add_task(async function test_resume_buffer() {
 
     engine._store.applyIncomingBatch = origApplyIncomingBatch;
 
-    await sync_engine_and_validate_telem(engine, false);
+    await sync_engine(engine);
 
     // Check that all the children made it onto the correct record.
     let toolbarRecord = await engine._store.createRecord("toolbar");
@@ -1345,178 +1087,6 @@ add_task(async function test_resume_buffer() {
     await cleanup(engine, server);
     await engine.finalize();
   }
-});
-
-// The buffered engine stores the sync ID and last sync time in three places:
-// prefs, Places, and the mirror. We can remove the prefs entirely in bug
-// 1443021, and drop the last sync time from Places once we remove the legacy
-// engine. This test ensures we keep them in sync (^_^), and handle mismatches
-// in case the user copies Places or the mirror between accounts. See
-// bug 1199077, comment 84 for the gory details.
-add_task(async function test_mirror_syncID() {
-  let bufferedEngine = new BufferedBookmarksEngine(Service);
-  await bufferedEngine.initialize();
-  let buf = await bufferedEngine._store.ensureOpenMirror();
-
-  info("Places and mirror don't have sync IDs");
-
-  let syncID = await bufferedEngine.resetLocalSyncID();
-
-  equal(
-    Svc.Prefs.get(`${bufferedEngine.name}.syncID`),
-    syncID,
-    "Should reset sync ID in prefs"
-  );
-  strictEqual(
-    Svc.Prefs.get(`${bufferedEngine.name}.lastSync`),
-    "0",
-    "Should reset last sync in prefs"
-  );
-
-  equal(
-    await PlacesSyncUtils.bookmarks.getSyncId(),
-    syncID,
-    "Should reset sync ID in Places"
-  );
-  strictEqual(
-    await PlacesSyncUtils.bookmarks.getLastSync(),
-    0,
-    "Should reset last sync in Places"
-  );
-
-  equal(await buf.getSyncId(), syncID, "Should reset sync ID in mirror");
-  strictEqual(
-    await buf.getCollectionHighWaterMark(),
-    0,
-    "Should reset high water mark in mirror"
-  );
-
-  info("Places and mirror have matching sync ID");
-
-  await bufferedEngine.setLastSync(123.45);
-  await bufferedEngine.ensureCurrentSyncID(syncID);
-
-  equal(
-    Svc.Prefs.get(`${bufferedEngine.name}.syncID`),
-    syncID,
-    "Should keep sync ID in prefs if Places and mirror match"
-  );
-  strictEqual(
-    Svc.Prefs.get(`${bufferedEngine.name}.lastSync`),
-    "123.45",
-    "Should keep last sync in prefs if Places and mirror match"
-  );
-
-  equal(
-    await PlacesSyncUtils.bookmarks.getSyncId(),
-    syncID,
-    "Should keep sync ID in Places if Places and mirror match"
-  );
-  strictEqual(
-    await PlacesSyncUtils.bookmarks.getLastSync(),
-    123.45,
-    "Should keep last sync in Places if Places and mirror match"
-  );
-
-  equal(await buf.getSyncId(), syncID, "Should keep sync ID in mirror");
-  equal(
-    await buf.getCollectionHighWaterMark(),
-    123.45,
-    "Should keep high water mark in mirror"
-  );
-
-  info("Places and mirror have different sync IDs");
-
-  // Directly update the sync ID in the mirror, without resetting.
-  await buf.db.execute(`UPDATE meta SET value = :value WHERE key = :key`, {
-    key: SyncedBookmarksMirror.META_KEY.SYNC_ID,
-    value: "syncIdAAAAAA",
-  });
-  await bufferedEngine.ensureCurrentSyncID(syncID);
-
-  equal(
-    Svc.Prefs.get(`${bufferedEngine.name}.syncID`),
-    syncID,
-    "Should keep sync ID in prefs if Places and mirror don't match"
-  );
-  strictEqual(
-    Svc.Prefs.get(`${bufferedEngine.name}.lastSync`),
-    "123.45",
-    "Should keep last sync in prefs if Places and mirror don't match"
-  );
-
-  equal(
-    await PlacesSyncUtils.bookmarks.getSyncId(),
-    syncID,
-    "Should keep existing sync ID in Places on mirror sync ID mismatch"
-  );
-  strictEqual(
-    await PlacesSyncUtils.bookmarks.getLastSync(),
-    123.45,
-    "Should keep existing last sync in Places on mirror sync ID mismatch"
-  );
-
-  equal(
-    await buf.getSyncId(),
-    syncID,
-    "Should reset mismatched sync ID in mirror"
-  );
-  strictEqual(
-    await buf.getCollectionHighWaterMark(),
-    0,
-    "Should reset high water mark on mirror sync ID mismatch"
-  );
-
-  info("Places has sync ID; mirror missing sync ID");
-  await buf.reset();
-
-  equal(
-    await bufferedEngine.ensureCurrentSyncID(syncID),
-    syncID,
-    "Should not assign new sync ID if Places has sync ID; mirror missing"
-  );
-  equal(
-    await buf.getSyncId(),
-    syncID,
-    "Should set sync ID in mirror to match Places"
-  );
-
-  info("Places missing sync ID; mirror has sync ID");
-
-  await buf.setCollectionLastModified(123.45);
-  await PlacesSyncUtils.bookmarks.reset();
-  let newSyncID = await bufferedEngine.ensureCurrentSyncID("syncIdBBBBBB");
-
-  equal(
-    Svc.Prefs.get(`${bufferedEngine.name}.syncID`),
-    newSyncID,
-    "Should set new sync ID in prefs"
-  );
-  strictEqual(
-    Svc.Prefs.get(`${bufferedEngine.name}.lastSync`),
-    "0",
-    "Should reset last sync in prefs on sync ID change"
-  );
-
-  equal(
-    await PlacesSyncUtils.bookmarks.getSyncId(),
-    newSyncID,
-    "Should set new sync ID in Places"
-  );
-  equal(
-    await buf.getSyncId(),
-    newSyncID,
-    "Should update new sync ID in mirror"
-  );
-
-  strictEqual(
-    await buf.getCollectionHighWaterMark(),
-    0,
-    "Should reset high water mark on sync ID change in Places"
-  );
-
-  await cleanupEngine(bufferedEngine);
-  await bufferedEngine.finalize();
 });
 
 add_bookmark_test(async function test_livemarks(engine) {
@@ -1629,7 +1199,7 @@ add_bookmark_test(async function test_livemarks(engine) {
     await engine.setLastSync(now / 1000 - 60);
 
     _("Sync");
-    await sync_engine_and_validate_telem(engine, false);
+    await sync_engine(engine);
 
     deepEqual(
       collection.keys().sort(),

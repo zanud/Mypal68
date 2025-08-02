@@ -150,11 +150,6 @@ class GeckoChildProcessHost : public ChildProcessHost,
   void SetAlreadyDead();
 
 #if defined(XP_MACOSX) && defined(MOZ_SANDBOX)
-  // To allow filling a MacSandboxInfo from the child
-  // process without an instance of RDDProcessHost.
-  // Only needed for late-start sandbox enabling.
-  static void StaticFillMacSandboxInfo(MacSandboxInfo& aInfo);
-
   // Start the sandbox from the child process.
   static bool StartMacSandbox(int aArgc, char** aArgv,
                               std::string& aErrorMessage);
@@ -165,6 +160,14 @@ class GeckoChildProcessHost : public ChildProcessHost,
   static MacSandboxType GetDefaultMacSandboxType() {
     return MacSandboxType_Utility;
   };
+
+  // Must be called before the process is launched. Determines if
+  // child processes will be launched with OS_ACTIVITY_MODE set to
+  // "disabled" or not. When |mDisableOSActivityMode| is set to true,
+  // child processes will be launched with OS_ACTIVITY_MODE
+  // disabled to avoid connection attempts to diagnosticd(8) which are
+  // blocked in child processes due to sandboxing.
+  void DisableOSActivityMode();
 #endif
   typedef std::function<void(GeckoChildProcessHost*)> GeckoProcessCallback;
 
@@ -225,6 +228,10 @@ class GeckoChildProcessHost : public ChildProcessHost,
 #endif
   RefPtr<ProcessHandlePromise> mHandlePromise;
 
+#if defined(XP_MACOSX) && defined(MOZ_SANDBOX)
+  bool mDisableOSActivityMode;
+#endif
+
   bool OpenPrivilegedHandle(base::ProcessId aPid);
 
 #if defined(XP_MACOSX) && defined(MOZ_SANDBOX)
@@ -234,12 +241,12 @@ class GeckoChildProcessHost : public ChildProcessHost,
   virtual bool IsMacSandboxLaunchEnabled() { return false; }
 
   // Fill a MacSandboxInfo to configure the sandbox
-  virtual void FillMacSandboxInfo(MacSandboxInfo& aInfo);
+  virtual bool FillMacSandboxInfo(MacSandboxInfo& aInfo);
 
   // Adds the command line arguments needed to enable
   // sandboxing of the child process at startup before
   // the child event loop is up.
-  virtual void AppendMacSandboxParams(StringVector& aArgs);
+  virtual bool AppendMacSandboxParams(StringVector& aArgs);
 #endif
 
  private:

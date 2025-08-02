@@ -7,6 +7,9 @@
 #include "mozilla/dom/BrowsingContextGroup.h"
 #include "mozilla/dom/WindowGlobalParent.h"
 #include "mozilla/dom/ContentProcessManager.h"
+#include "mozilla/dom/MediaController.h"
+#include "mozilla/dom/MediaControlService.h"
+#include "mozilla/dom/PlaybackController.h"
 
 extern mozilla::LazyLogModule gAutoplayPermissionLog;
 
@@ -156,6 +159,13 @@ void CanonicalBrowsingContext::Unlink() {
                                   mEmbedderWindowGlobal);
 }
 
+void CanonicalBrowsingContext::CanonicalDiscard() {
+  if (mTabMediaController) {
+    mTabMediaController->Shutdown();
+    mTabMediaController = nullptr;
+  }
+}
+
 void CanonicalBrowsingContext::NotifyStartDelayedAutoplayMedia() {
   if (!mCurrentWindowGlobal) {
     return;
@@ -186,13 +196,11 @@ void CanonicalBrowsingContext::NotifyMediaMutedChanged(bool aMuted) {
   });
 }
 
-void CanonicalBrowsingContext::UpdateMediaAction(MediaControlActions aAction) {
-  nsPIDOMWindowOuter* window = GetDOMWindow();
-  if (window) {
-    window->UpdateMediaAction(aAction);
-  }
+void CanonicalBrowsingContext::UpdateMediaControlKeysEvent(
+    MediaControlKeysEvent aEvent) {
+  MediaActionHandler::HandleMediaControlKeysEvent(this, aEvent);
   Group()->EachParent([&](ContentParent* aParent) {
-    Unused << aParent->SendUpdateMediaAction(this, aAction);
+    Unused << aParent->SendUpdateMediaControlKeysEvent(this, aEvent);
   });
 }
 
@@ -209,6 +217,23 @@ CanonicalBrowsingContext::GetFieldEpochsForChild(ContentParent* aChild) {
     return entry.Data();
   }
   return sDefaultFieldEpochs;
+}
+
+MediaController* CanonicalBrowsingContext::GetMediaController() {
+  // We would only create one media controller per tab, so accessing the
+  // controller via the top-level browsing context.
+  if (GetParent()) {
+    return Cast(Top())->GetMediaController();
+  }
+
+  MOZ_ASSERT(!GetParent(),
+             "Must access the controller from the top-level browsing context!");
+  // Only content browsing context can create media controller, we won't create
+  // controller for chrome document, such as the browser UI.
+  if (!mTabMediaController && IsContent()) {
+    mTabMediaController = new MediaController(Id());
+  }
+  return mTabMediaController;
 }
 
 }  // namespace dom

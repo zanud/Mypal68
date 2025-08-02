@@ -405,7 +405,6 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   FxAccounts: "resource://gre/modules/FxAccounts.jsm",
   HomePage: "resource:///modules/HomePage.jsm",
   Integration: "resource://gre/modules/Integration.jsm",
-  LiveBookmarkMigrator: "resource:///modules/LiveBookmarkMigrator.jsm",
   NewTabUtils: "resource://gre/modules/NewTabUtils.jsm",
   ObjectUtils: "resource://gre/modules/ObjectUtils.jsm",
   OS: "resource://gre/modules/osfile.jsm",
@@ -1624,17 +1623,6 @@ BrowserGlue.prototype = {
       Blocklist.loadBlocklistAsync();
     });
 
-    if (
-      Services.prefs.getIntPref(
-        "browser.livebookmarks.migrationAttemptsLeft",
-        0
-      ) > 0
-    ) {
-      Services.tm.idleDispatchToMainThread(() => {
-        LiveBookmarkMigrator.migrate().catch(Cu.reportError);
-      });
-    }
-
     Services.tm.idleDispatchToMainThread(() => {
       TabUnloader.init();
     });
@@ -2571,16 +2559,6 @@ BrowserGlue.prototype = {
         );
         OS.File.remove(path, { ignoreAbsent: true });
       }
-    }
-
-    if (currentUIVersion < 75) {
-      // Ensure we try to migrate any live bookmarks the user might have, trying up to
-      // 5 times. We set this early, and here, to avoid running the migration on
-      // new profile (or, indeed, ever creating the pref there).
-      Services.prefs.setIntPref(
-        "browser.livebookmarks.migrationAttemptsLeft",
-        5
-      );
     }
 
     if (currentUIVersion < 77) {

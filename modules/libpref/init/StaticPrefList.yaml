@@ -157,8 +157,10 @@
 
 #ifdef ANDROID
 #define IS_ANDROID true
+#define IS_NOT_ANDROID false
 #else
 #define IS_ANDROID false
+#define IS_NOT_ANDROID true
 #endif
 
 #---------------------------------------------------------------------------
@@ -917,6 +919,22 @@
 - name: browser.fixup.dns_first_for_single_words
   type: bool
   value: false
+  mirror: always
+
+# The max url length we'll store in history.
+#
+# The default value is mostly a guess based on various facts:
+#
+# * IE didn't support urls longer than 2083 chars
+# * Sitemaps protocol used to support a maximum of 2048 chars
+# * Various SEO guides suggest to not go over 2000 chars
+# * Various apps/services are known to have issues over 2000 chars
+# * RFC 2616 - HTTP/1.1 suggests being cautious about depending
+#   on URI lengths above 255 bytes
+#
+- name: browser.history.maxUrlLength
+  type: uint32_t
+  value: 2000
   mirror: always
 
 # Render animations and videos as a solid color
@@ -2141,6 +2159,12 @@
 - name: dom.script_loader.bytecode_cache.strategy
   type: int32_t
   value: 0
+  mirror: always
+
+# Force full parse on any external JS scripts that is being compiled off thread.
+- name: dom.script_loader.full_parse
+  type: bool
+  value: false
   mirror: always
 
 # Is support for decoding external (non-inline) classic or module DOM scripts
@@ -4340,6 +4364,13 @@
     value: false
     mirror: always
 #endif  // defined(ENABLE_WASM_RELAXED_SIMD)
+
+#if defined(ENABLE_WASM_MOZ_INTGEMM)
+-   name: javascript.options.wasm_moz_intgemm
+    type: bool
+    value: @IS_NIGHTLY_BUILD@
+    mirror: always
+#endif  // defined(ENABLE_WASM_MOZ_INTGEMM)
 
 #if defined(ENABLE_WASM_EXTENDED_CONST)
 -   name: javascript.options.wasm_extended_const
@@ -6683,6 +6714,27 @@
 #endif
   mirror: always
 
+- name: media.hardwaremediakeys.enabled
+  type: bool
+  value: false
+  mirror: always
+
+# If media is being paused after a certain period, then we would think that
+# media doesn't need to be controlled anymore. Therefore, that media would stop
+# listening to the media control key events. The value of this pref is how long
+# media would stop listening to the event after it's paused.
+- name: media.mediacontrol.stopcontrol.timer.ms
+  type: RelaxedAtomicUint32
+  value: 60000
+  mirror: always
+
+# We would only use media control to control media which duration is longer
+# than this value.
+- name: media.mediacontrol.eligible.media.duration.s
+  type: AtomicFloat
+  value: 3.0f
+  mirror: always
+
 - name: media.webrtc.platformencoder
   type: bool
   value: false
@@ -7692,6 +7744,28 @@
   value: 0
 #endif
   mirror: once
+
+#---------------------------------------------------------------------------
+# Prefs starting with "storage."
+#---------------------------------------------------------------------------
+
+# Whether to use a non-exclusive VFS.
+# By default we use the unix-excl VFS, for the following reasons:
+# 1. It improves compatibility with NFS shares, whose implementation
+#    is incompatible with SQLite's locking requirements (reliable fcntl), and
+#    in particular with WAL journaling.
+#    Bug 433129 attempted to automatically identify such file-systems,
+#    but a reliable way was not found and the fallback locking is slower than
+#    POSIX locking, so we do not want to do it by default.
+# 2. It allows wal mode to avoid the memory mapped -shm file, reducing the
+#    likelihood of SIGBUS failures when disk space is exhausted.
+# 3. It provides some protection from third party database tampering while a
+#    connection is open.
+# Note there's no win32-excl VFS, so this has no effect on Windows.
+- name: storage.sqlite.exclusiveLock.enabled
+  type: RelaxedAtomicBool
+  value: @IS_NOT_ANDROID@
+  mirror: always
 
 #---------------------------------------------------------------------------
 # Prefs starting with "svg."

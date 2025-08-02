@@ -5,15 +5,16 @@
 #ifndef nsProfiler_h
 #define nsProfiler_h
 
-#include "nsIProfiler.h"
-#include "nsIObserver.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/MozPromise.h"
+#include "mozilla/ProfileJSONWriter.h"
 #include "mozilla/TimeStamp.h"
 #include "mozilla/Vector.h"
+#include "nsIObserver.h"
+#include "nsIProfiler.h"
+#include "nsITimer.h"
 #include "nsServiceManagerUtils.h"
-#include "ProfileJSONWriter.h"
 #include "ProfilerCodeAddressService.h"
 
 class nsProfiler final : public nsIProfiler, public nsIObserver {
@@ -44,6 +45,7 @@ class nsProfiler final : public nsIProfiler, public nsIObserver {
   RefPtr<GatheringPromise> StartGathering(double aSinceTime);
   void FinishGathering();
   void ResetGathering();
+  static void GatheringTimerCallback(nsITimer* aTimer, void* aClosure);
 
   RefPtr<SymbolTablePromise> GetSymbolTableMozPromise(
       const nsACString& aDebugPath, const nsACString& aBreakpadID);
@@ -62,6 +64,7 @@ class nsProfiler final : public nsIProfiler, public nsIObserver {
   mozilla::Maybe<SpliceableChunkedJSONWriter> mWriter;
   uint32_t mPendingProfiles;
   bool mGathering;
+  nsCOMPtr<nsITimer> mGatheringTimer;
 };
 
 #endif  // nsProfiler_h

@@ -6,9 +6,6 @@ add_task(async function() {
   function promiseOnItemChanged() {
     return new Promise(resolve => {
       PlacesUtils.bookmarks.addObserver({
-        onBeginUpdateBatch() {},
-        onEndUpdateBatch() {},
-        onItemVisited() {},
         onItemMoved() {},
         onItemChanged(id, property, isAnno, value) {
           PlacesUtils.bookmarks.removeObserver(this);

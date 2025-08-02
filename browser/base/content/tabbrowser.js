@@ -172,8 +172,6 @@
       "removeProgressListener",
       "audioPlaybackStarted",
       "audioPlaybackStopped",
-      "pauseMedia",
-      "stopMedia",
       "resumeMedia",
       "mute",
       "unmute",
@@ -1344,7 +1342,7 @@
         }
 
         if (!window.fullScreen || newTab.isEmpty) {
-          focusAndSelectUrlBar();
+          gURLBar.select();
           return;
         }
       }
@@ -3432,7 +3430,7 @@
         }
       } else if (!this._windowIsClosing) {
         if (aNewTab) {
-          focusAndSelectUrlBar();
+          gURLBar.select();
         }
 
         // workaround for bug 345399

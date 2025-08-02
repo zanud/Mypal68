@@ -77,7 +77,6 @@ file-whitespace:
         - testing/web-platform/tests/tools/wptrunner/wptrunner/metadata.py
         - testing/web-platform/tests/tools/wptrunner/wptrunner/tests/test_update.py
         - toolkit/components/telemetry/build_scripts/setup.py
-        - toolkit/components/telemetry/tests/marionette/mach_commands.py
         - toolkit/mozapps/installer/windows/nsis/preprocess-locale.py
         - widget/nsFilePickerProxy.cpp
         - widget/windows/tests/TestUrisToValidate.h

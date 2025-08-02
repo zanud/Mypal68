@@ -18,6 +18,7 @@
 #include "js/CompilationAndEvaluation.h"  // JS::Compile{,Utf8File}
 #include "js/PropertyAndElement.h"  // JS_DefineFunctions, JS_DefineProperty, JS_GetProperty
 #include "js/PropertySpec.h"
+#include "js/RealmOptions.h"
 #include "js/SourceText.h"  // JS::Source{Ownership,Text}
 
 #include "xpcpublic.h"
@@ -55,7 +56,7 @@ namespace {
 
 static const char kDefaultRuntimeScriptFilename[] = "xpcshell.js";
 
-inline XPCShellEnvironment* Environment(Handle<JSObject*> global) {
+inline XPCShellEnvironment* Environment(JS::Handle<JSObject*> global) {
   AutoJSAPI jsapi;
   if (!jsapi.Init(global)) {
     return nullptr;

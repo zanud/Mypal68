@@ -328,6 +328,10 @@ void BrowsingContext::CacheChildren(bool aFromIPC) {
   Group()->CacheContexts(mChildren);
   mChildren.Clear();
 
+  if (XRE_IsParentProcess()) {
+    Canonical()->CanonicalDiscard();
+  }
+
   if (!aFromIPC && XRE_IsContentProcess()) {
     auto cc = ContentChild::GetSingleton();
     MOZ_DIAGNOSTIC_ASSERT(cc);

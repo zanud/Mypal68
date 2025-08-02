@@ -36,8 +36,7 @@ TEST(storage_spinningSynchronousClose, CloseOnAsync)
   // Run an async statement.
   nsCOMPtr<mozIStorageAsyncStatement> stmt;
   do_check_success(db->CreateAsyncStatement(
-      NS_LITERAL_CSTRING("CREATE TABLE test (id INTEGER PRIMARY KEY)"),
-      getter_AddRefs(stmt)));
+      "CREATE TABLE test (id INTEGER PRIMARY KEY)"_ns, getter_AddRefs(stmt)));
   nsCOMPtr<mozIStoragePendingStatement> p;
   do_check_success(stmt->ExecuteAsync(nullptr, getter_AddRefs(p)));
   do_check_success(stmt->Finalize());
@@ -56,8 +55,7 @@ TEST(storage_spinningSynchronousClose, spinningSynchronousCloseOnAsync)
   // Run an async statement.
   nsCOMPtr<mozIStorageAsyncStatement> stmt;
   do_check_success(db->CreateAsyncStatement(
-      NS_LITERAL_CSTRING("CREATE TABLE test (id INTEGER PRIMARY KEY)"),
-      getter_AddRefs(stmt)));
+      "CREATE TABLE test (id INTEGER PRIMARY KEY)"_ns, getter_AddRefs(stmt)));
   nsCOMPtr<mozIStoragePendingStatement> p;
   do_check_success(stmt->ExecuteAsync(nullptr, getter_AddRefs(p)));
   do_check_success(stmt->Finalize());

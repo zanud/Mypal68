@@ -38,6 +38,7 @@
 
 #include "mozilla/ipc/BrowserProcessSubThread.h"
 #include "mozilla/ipc/EnvironmentMap.h"
+#include "mozilla/net/SocketProcessHost.h"
 #include "mozilla/LinkedList.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/Omnijar.h"
@@ -71,6 +72,7 @@
 #endif
 
 #if defined(XP_MACOSX) && defined(MOZ_SANDBOX)
+#  include "GMPProcessParent.h"
 #  include "nsMacUtilsImpl.h"
 #endif
 
@@ -128,6 +130,9 @@ class BaseProcessLauncher {
         mIsFileContent(aHost->mIsFileContent),
         mEnableSandboxLogging(aHost->mEnableSandboxLogging),
 #endif
+#if defined(XP_MACOSX) && defined(MOZ_SANDBOX)
+        mDisableOSActivityMode(aHost->mDisableOSActivityMode),
+#endif
         mTmpDirName(aHost->mTmpDirName),
         mChildId(++gChildCounter) {
     SprintfLiteral(mPidString, "%d", base::GetCurrentProcId());
@@ -184,6 +189,11 @@ class BaseProcessLauncher {
   int32_t mSandboxLevel;
   bool mIsFileContent;
   bool mEnableSandboxLogging;
+#endif
+#if defined(XP_MACOSX) && defined(MOZ_SANDBOX)
+  // Controls whether or not the process will be launched with
+  // environment variable OS_ACTIVITY_MODE set to "disabled".
+  bool mDisableOSActivityMode;
 #endif
   nsCString mTmpDirName;
   LaunchResults mResults = LaunchResults();
@@ -321,6 +331,9 @@ GeckoChildProcessHost::GeckoChildProcessHost(GeckoProcessType aProcessType,
       mChildProcessHandle(0),
 #if defined(MOZ_WIDGET_COCOA)
       mChildTask(MACH_PORT_NULL),
+#endif
+#if defined(MOZ_SANDBOX) && defined(XP_MACOSX)
+      mDisableOSActivityMode(false),
 #endif
       mDestroying(false) {
   MOZ_COUNT_CTOR(GeckoChildProcessHost);
@@ -603,8 +616,8 @@ bool GeckoChildProcessHost::AsyncLaunch(std::vector<std::string> aExtraOpts) {
   PrepareLaunch();
 
 #if defined(XP_MACOSX) && defined(MOZ_SANDBOX)
-  if (IsMacSandboxLaunchEnabled()) {
-    AppendMacSandboxParams(aExtraOpts);
+  if (IsMacSandboxLaunchEnabled() && !AppendMacSandboxParams(aExtraOpts)) {
+    return false;
   }
 #endif
 
@@ -1050,6 +1063,15 @@ bool PosixProcessLauncher::DoSetup() {
     interpose.Append(path.get());
     interpose.AppendLiteral("/libplugin_child_interpose.dylib");
     mLaunchOptions->env_map["DYLD_INSERT_LIBRARIES"] = interpose.get();
+
+    // Prevent connection attempts to diagnosticd(8) to save cycles. Log
+    // messages can trigger these connection attempts, but access to
+    // diagnosticd is blocked in sandboxed child processes.
+#    ifdef MOZ_SANDBOX
+    if (mDisableOSActivityMode) {
+      mLaunchOptions->env_map["OS_ACTIVITY_MODE"] = "disable";
+    }
+#    endif         // defined(MOZ_SANDBOX)
 #  endif           // defined(OS_LINUX) || defined(OS_BSD)
   }
 
@@ -1595,15 +1617,17 @@ void AndroidProcessLauncher::LaunchAndroidService(
 #endif
 
 #if defined(XP_MACOSX) && defined(MOZ_SANDBOX)
-void GeckoChildProcessHost::AppendMacSandboxParams(StringVector& aArgs) {
+bool GeckoChildProcessHost::AppendMacSandboxParams(StringVector& aArgs) {
   MacSandboxInfo info;
-  FillMacSandboxInfo(info);
+  if (!FillMacSandboxInfo(info)) {
+    return false;
+  }
   info.AppendAsParams(aArgs);
+  return true;
 }
 
 // Fill |aInfo| with the flags needed to launch the utility sandbox
-/* static */
-void GeckoChildProcessHost::StaticFillMacSandboxInfo(MacSandboxInfo& aInfo) {
+bool GeckoChildProcessHost::FillMacSandboxInfo(MacSandboxInfo& aInfo) {
   aInfo.type = GetDefaultMacSandboxType();
   aInfo.shouldLog = Preferences::GetBool("security.sandbox.logging.enabled") ||
                     PR_GetEnv("MOZ_SANDBOX_LOGGING");
@@ -1613,10 +1637,11 @@ void GeckoChildProcessHost::StaticFillMacSandboxInfo(MacSandboxInfo& aInfo) {
     MOZ_CRASH("Failed to get app path");
   }
   aInfo.appPath.assign(appPath.get());
+  return true;
 }
 
-void GeckoChildProcessHost::FillMacSandboxInfo(MacSandboxInfo& aInfo) {
-  GeckoChildProcessHost::StaticFillMacSandboxInfo(aInfo);
+void GeckoChildProcessHost::DisableOSActivityMode() {
+  mDisableOSActivityMode = true;
 }
 
 //
@@ -1630,9 +1655,9 @@ bool GeckoChildProcessHost::StartMacSandbox(int aArgc, char** aArgv,
                                             std::string& aErrorMessage) {
   MacSandboxType sandboxType = MacSandboxType_Invalid;
   switch (XRE_GetProcessType()) {
-    // For now, only support early sandbox startup for content
-    // processes. Add case statements for the additional process
-    // types once early sandbox startup is implemented for them.
+    // For now, only support early sandbox startup for content,
+    // RDD, and GMP processes. Add case statements for the additional
+    // process types once early sandbox startup is implemented for them.
     case GeckoProcessType_Content:
       // Content processes don't use GeckoChildProcessHost
       // to configure sandboxing so hard code the sandbox type.
@@ -1640,6 +1665,12 @@ bool GeckoChildProcessHost::StartMacSandbox(int aArgc, char** aArgv,
       break;
     case GeckoProcessType_RDD:
       sandboxType = RDDProcessHost::GetMacSandboxType();
+      break;
+    case GeckoProcessType_Socket:
+      sandboxType = net::SocketProcessHost::GetMacSandboxType();
+      break;
+    case GeckoProcessType_GMPlugin:
+      sandboxType = gmp::GMPProcessParent::GetMacSandboxType();
       break;
     default:
       return true;

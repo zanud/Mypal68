@@ -135,6 +135,7 @@
 
       // Force an initial build.
       if (this.place) {
+        // eslint-disable-next-line no-self-assign
         this.place = this.place;
       }
     }
@@ -149,7 +150,6 @@
       } else {
         this.removeAttribute("disableUserActions");
       }
-      return val;
     }
 
     get disableUserActions() {
@@ -159,27 +159,18 @@
      * overriding
      */
     set view(val) {
-      /* eslint-disable no-undef */
-      return Object.getOwnPropertyDescriptor(
+      // We save the view so that we can avoid expensive get calls when
+      // we need to get the view again.
+      this._view = val;
+      Object.getOwnPropertyDescriptor(
+        // eslint-disable-next-line no-undef
         XULTreeElement.prototype,
         "view"
       ).set.call(this, val);
-      /* eslint-enable no-undef */
     }
 
     get view() {
-      try {
-        /* eslint-disable no-undef */
-        return (
-          Object.getOwnPropertyDescriptor(
-            XULTreeElement.prototype,
-            "view"
-          ).get.call(this).wrappedJSObject || null
-        );
-        /* eslint-enable no-undef */
-      } catch (e) {
-        return null;
-      }
+      return this._view;
     }
 
     get associatedElement() {
@@ -191,10 +182,10 @@
         this.setAttribute("flatList", val);
         // reload with the last place set
         if (this.place) {
+          // eslint-disable-next-line no-self-assign
           this.place = this.place;
         }
       }
-      return val;
     }
 
     get flatList() {
@@ -221,8 +212,6 @@
         options = {};
       PlacesUtils.history.queryStringToQuery(val, query, options);
       this.load(query.value, options.value);
-
-      return val;
     }
 
     get place() {
@@ -415,7 +404,7 @@
     }
 
     set active(val) {
-      return (this._active = val);
+      this._active = val;
     }
 
     get active() {
@@ -826,7 +815,7 @@
 
     destroyContextMenu(aPopup) {}
     disconnectedCallback() {
-      // Unregister the controllber before unlinking the view, otherwise it
+      // Unregister the controller before unlinking the view, otherwise it
       // may still try to update commands on a view with a null result.
       if (this._controller) {
         this._controller.terminate();

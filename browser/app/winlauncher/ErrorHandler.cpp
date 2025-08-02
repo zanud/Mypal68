@@ -138,15 +138,15 @@ class TempFileWriter final : public mozilla::JSONWriteFunc {
 
   explicit operator bool() const { return !mFailed; }
 
-  void Write(const char* aStr) override {
+  void Write(const mozilla::Span<const char>& aStr) override {
     if (mFailed) {
       return;
     }
 
-    size_t len = strlen(aStr);
     DWORD bytesWritten = 0;
-    if (!::WriteFile(mTempFile, aStr, len, &bytesWritten, nullptr) ||
-        bytesWritten != len) {
+    if (!::WriteFile(mTempFile, aStr.data(), aStr.size(), &bytesWritten,
+                     nullptr) ||
+        bytesWritten != aStr.size()) {
       mFailed = true;
     }
   }
@@ -265,7 +265,7 @@ static bool EnumWSCProductList(RefPtr<IWSCProductList>& aProdList,
       return false;
     }
 
-    aJson.StringElement(buf.get());
+    aJson.StringElement(mozilla::MakeStringSpan(buf.get()));
   }
 
   return true;
@@ -313,7 +313,7 @@ static bool AddWscInfo(mozilla::JSONWriter& aJson) {
       return false;
     }
 
-    aJson.StartArrayProperty(gProvKeys[index].mKey);
+    aJson.StartArrayProperty(mozilla::MakeStringSpan(gProvKeys[index].mKey));
 
     if (!EnumWSCProductList(prodList, aJson)) {
       return false;
@@ -373,7 +373,7 @@ static bool AddModuleInfo(const nsAutoHandle& aSnapshot,
       return false;
     }
 
-    aJson.StartArrayProperty(leafUtf8.get());
+    aJson.StartArrayProperty(mozilla::MakeStringSpan(leafUtf8.get()));
 
     std::string version;
     DWORD verInfoSize = ::GetFileVersionInfoSizeW(module.szExePath, nullptr);
@@ -398,7 +398,7 @@ static bool AddModuleInfo(const nsAutoHandle& aSnapshot,
       }
     }
 
-    aJson.StringElement(version.c_str());
+    aJson.StringElement(version);
 
     /*mozilla::Maybe<ptrdiff_t> sigIndex;
     auto signedBy = dllServices.GetBinaryOrgName(module.szExePath);
@@ -431,7 +431,7 @@ static bool AddModuleInfo(const nsAutoHandle& aSnapshot,
       continue;
     }
 
-    aJson.StringElement(sigUtf8.get());
+    aJson.StringElement(mozilla::MakeStringSpan(sigUtf8.get()));
   }
 
   aJson.EndArray();*/
@@ -468,7 +468,7 @@ static bool PrepPing(const PingThreadContext& aContext, const std::wstring& aId,
 
   auto idUtf8 = WideToUTF8(aId);
   if (idUtf8) {
-    aJson.StringProperty("id", idUtf8.get());
+    aJson.StringProperty("id", mozilla::MakeStringSpan(idUtf8.get()));
   }
 
   time_t now;
@@ -485,8 +485,10 @@ static bool PrepPing(const PingThreadContext& aContext, const std::wstring& aId,
   aJson.StringProperty("update_channel", QUOTE_ME(MOZ_UPDATE_CHANNEL));
 
   if (gAppData) {
-    aJson.StringProperty("build_id", gAppData->buildID);
-    aJson.StringProperty("build_version", gAppData->version);
+    aJson.StringProperty("build_id",
+                         mozilla::MakeStringSpan(gAppData->buildID));
+    aJson.StringProperty("build_version",
+                         mozilla::MakeStringSpan(gAppData->version));
   }
 
   OSVERSIONINFOEXW osv = {sizeof(osv)};
@@ -496,7 +498,7 @@ static bool PrepPing(const PingThreadContext& aContext, const std::wstring& aId,
         << osv.dwBuildNumber;
 
     if (oss) {
-      aJson.StringProperty("os_version", oss.str().c_str());
+      aJson.StringProperty("os_version", oss.str());
     }
 
     bool isServer = osv.wProductType == VER_NT_DOMAIN_CONTROLLER ||
@@ -510,7 +512,8 @@ static bool PrepPing(const PingThreadContext& aContext, const std::wstring& aId,
   if (localeNameLen) {
     auto localeNameUtf8 = WideToUTF8(localeName, localeNameLen - 1);
     if (localeNameUtf8) {
-      aJson.StringProperty("os_locale", localeNameUtf8.get());
+      aJson.StringProperty("os_locale",
+                           mozilla::MakeStringSpan(localeNameUtf8.get()));
     }
   }*/
   aJson.StringProperty("os_locale", "en");
@@ -542,7 +545,7 @@ static bool PrepPing(const PingThreadContext& aContext, const std::wstring& aId,
     srcFileLeaf = srcFileLeaf.substr(pos + 1);
   }
 
-  aJson.StringProperty("source_file", srcFileLeaf.c_str());
+  aJson.StringProperty("source_file", srcFileLeaf);
 
   aJson.IntProperty("source_line", aContext.mLauncherError.mLine);
   aJson.IntProperty("hresult", aContext.mLauncherError.mError.AsHResult());

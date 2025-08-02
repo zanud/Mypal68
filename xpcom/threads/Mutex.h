@@ -118,14 +118,13 @@ class OffTheBooksMutex : public detail::MutexImpl, BlockingResourceBase {
  */
 class Mutex : public OffTheBooksMutex {
  public:
-  explicit Mutex(const char* aName) : OffTheBooksMutex(aName) {
+  explicit Mutex(const char* aName = nullptr) : OffTheBooksMutex(aName) {
     MOZ_COUNT_CTOR(Mutex);
   }
 
   MOZ_COUNTED_DTOR(Mutex)
 
  private:
-  Mutex();
   Mutex(const Mutex&);
   Mutex& operator=(const Mutex&);
 };

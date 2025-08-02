@@ -4,7 +4,6 @@
 Svc.Prefs.set("registerEngines", "Tab,Bookmarks,Form,History");
 
 add_task(async function run_test() {
-  validate_all_future_pings();
   _("When imported, Service.onStartup is called");
 
   let xps = Cc["@mozilla.org/weave/service;1"].getService(Ci.nsISupports)

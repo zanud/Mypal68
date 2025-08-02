@@ -535,9 +535,7 @@ EngineManager.prototype = {
       }
       // Unregister the old engine, register the new one.
       this._log.info(
-        `Switching ${name} engine ("${info.pref}" went from ${
-          info.lastValue
-        } => ${prefValue})`
+        `Switching ${name} engine ("${info.pref}" went from ${info.lastValue} => ${prefValue})`
       );
       try {
         await this._removeAndFinalize(name);
@@ -554,9 +552,7 @@ EngineManager.prototype = {
         this._log.info(`Switched the ${name} engine to use ${engineType.name}`);
       } catch (e) {
         this._log.warn(
-          `Switching the ${name} engine to use ${
-            engineType.name
-          } failed (couldn't register)`,
+          `Switching the ${name} engine to use ${engineType.name} failed (couldn't register)`,
           e
         );
       }
@@ -783,9 +779,6 @@ function SyncEngine(name, service) {
   // in the case of a conflict from the server, there's a window where our
   // record would be marked as modified more recently than a change that occurs
   // on another device change, and we lose data from the user.
-  //
-  // Additionally, we use this as the set of items to upload for bookmark
-  // repair reponse, which has similar constraints.
   this._needWeakUpload = new Map();
 }
 

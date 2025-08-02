@@ -3,75 +3,47 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "BaseHistory.h"
+#include "nsThreadUtils.h"
+#include "mozilla/dom/ContentParent.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/Link.h"
 #include "mozilla/dom/Element.h"
-#include "nsContentUtils.h"  //MY nsAutoScriptBlocker
+#include "mozilla/StaticPrefs_browser.h"
+#include "mozilla/StaticPrefs_layout.h"
 
 namespace mozilla {
 
-using mozilla::dom::Document;
-using mozilla::dom::Element;
+using mozilla::dom::ContentParent;
 using mozilla::dom::Link;
 
-static Document* GetLinkDocument(const Link& aLink) {
-  Element* element = aLink.GetElement();
-  // Element can only be null for mock_Link.
-  return element ? element->OwnerDoc() : nullptr;
-}
+BaseHistory::BaseHistory() : mTrackedURIs(kTrackedUrisInitialSize) {}
 
-void BaseHistory::DispatchNotifyVisited(nsIURI* aURI, dom::Document* aDoc,
-                                        VisitedStatus aStatus) {
-  MOZ_ASSERT(aStatus != VisitedStatus::Unknown);
+BaseHistory::~BaseHistory() = default;
 
-  nsCOMPtr<nsIRunnable> runnable =
-      NewRunnableMethod<nsCOMPtr<nsIURI>, RefPtr<dom::Document>, VisitedStatus>(
-          "BaseHistory::DispatchNotifyVisited", this,
-          &BaseHistory::NotifyVisitedForDocument, aURI, aDoc, aStatus);
-  if (aDoc) {
-    aDoc->Dispatch(TaskCategory::Other, runnable.forget());
-  } else {
-    NS_DispatchToMainThread(runnable.forget());
-  }
-}
+static constexpr nsLiteralCString kDisallowedSchemes[] = {
+    "about"_ns,         "blob"_ns,       "data"_ns,     "chrome"_ns,
+    "imap"_ns,          "javascript"_ns, "mailbox"_ns,  "moz-anno"_ns,
+    "news"_ns,          "page-icon"_ns,  "resource"_ns, "view-source"_ns,
+    "moz-extension"_ns,
+};
 
-void BaseHistory::NotifyVisitedForDocument(nsIURI* aURI, dom::Document* aDoc,
-                                           VisitedStatus aStatus) {
-  MOZ_ASSERT(NS_IsMainThread());
-  MOZ_ASSERT(aStatus != VisitedStatus::Unknown);
-
-  // Make sure that nothing invalidates our observer array while we're walking
-  // over it.
-  nsAutoScriptBlocker scriptBlocker;
-
-  // If we have no observers for this URI, we have nothing to notify about.
-  auto entry = mTrackedURIs.Lookup(aURI);
-  if (!entry) {
-    return;
+bool BaseHistory::CanStore(nsIURI* aURI) {
+  nsAutoCString scheme;
+  if (NS_WARN_IF(NS_FAILED(aURI->GetScheme(scheme)))) {
+    return false;
   }
 
-  ObservingLinks& links = entry.Data();
-
-  const bool visited = aStatus == VisitedStatus::Visited;
-  {
-    // Update status of each Link node. We iterate over the array backwards so
-    // we can remove the items as we encounter them.
-    ObserverArray::BackwardIterator iter(links.mLinks);
-    while (iter.HasMore()) {
-      Link* link = iter.GetNext();
-      if (GetLinkDocument(*link) == aDoc) {
-        link->VisitedQueryFinished(visited);
-        if (visited) {
-          iter.Remove();
-        }
+  if (!scheme.EqualsLiteral("http") && !scheme.EqualsLiteral("https")) {
+    for (const nsLiteralCString& disallowed : kDisallowedSchemes) {
+      if (scheme.Equals(disallowed)) {
+        return false;
       }
     }
   }
 
-  // If we don't have any links left, we can remove the array.
-  if (links.mLinks.IsEmpty()) {
-    entry.Remove();
-  }
+  nsAutoCString spec;
+  aURI->GetSpec(spec);
+  return spec.Length() <= StaticPrefs::browser_history_maxUrlLength();
 }
 
 void BaseHistory::ScheduleVisitedQuery(nsIURI* aURI) {
@@ -98,11 +70,18 @@ void BaseHistory::CancelVisitedQueryIfPossible(nsIURI* aURI) {
   // to stop the existing database query? Needs some measurement.
 }
 
-nsresult BaseHistory::RegisterVisitedCallback(nsIURI* aURI, Link* aLink) {
+void BaseHistory::RegisterVisitedCallback(nsIURI* aURI, Link* aLink) {
   MOZ_ASSERT(NS_IsMainThread());
   MOZ_ASSERT(aURI, "Must pass a non-null URI!");
   if (XRE_IsContentProcess()) {
     MOZ_ASSERT(aLink, "Must pass a non-null Link!");
+  }
+
+  if (!CanStore(aURI)) {
+    if (aLink) {
+      aLink->VisitedQueryFinished(/* visited = */ false);
+    }
+    return;
   }
 
   // Obtain our array of observers for this URI.
@@ -124,7 +103,7 @@ nsresult BaseHistory::RegisterVisitedCallback(nsIURI* aURI, Link* aLink) {
     if (!entry) {
       entry.OrRemove();
     }
-    return NS_OK;
+    return;
   }
 
   ObservingLinks& links = entry.OrInsert([] { return ObservingLinks{}; });
@@ -133,18 +112,26 @@ nsresult BaseHistory::RegisterVisitedCallback(nsIURI* aURI, Link* aLink) {
   // This will not catch a case where it is registered for two different URIs.
   MOZ_DIAGNOSTIC_ASSERT(!links.mLinks.Contains(aLink),
                         "Already tracking this Link object!");
+  // FIXME(emilio): We should consider changing this (see the entry.Remove()
+  // call in NotifyVisitedInThisProcess).
+  MOZ_DIAGNOSTIC_ASSERT(links.mStatus != VisitedStatus::Visited,
+                        "We don't keep tracking known-visited links");
 
-  // Start tracking our Link.
   links.mLinks.AppendElement(aLink);
 
-  // If this link has already been visited, we cannot synchronously mark
-  // ourselves as visited, so instead we fire a runnable into our docgroup,
-  // which will handle it for us.
-  if (links.mStatus != VisitedStatus::Unknown) {
-    DispatchNotifyVisited(aURI, GetLinkDocument(*aLink), links.mStatus);
+  // If this link has already been queried and we should notify, do so now.
+  switch (links.mStatus) {
+    case VisitedStatus::Unknown:
+      break;
+    case VisitedStatus::Unvisited:
+      if (!StaticPrefs::layout_css_notify_of_unvisited()) {
+        break;
+      }
+      [[fallthrough]];
+    case VisitedStatus::Visited:
+      aLink->VisitedQueryFinished(links.mStatus == VisitedStatus::Visited);
+      break;
   }
-
-  return NS_OK;
 }
 
 void BaseHistory::UnregisterVisitedCallback(nsIURI* aURI, Link* aLink) {
@@ -155,7 +142,9 @@ void BaseHistory::UnregisterVisitedCallback(nsIURI* aURI, Link* aLink) {
   // Get the array, and remove the item from it.
   auto entry = mTrackedURIs.Lookup(aURI);
   if (!entry) {
-    MOZ_ASSERT_UNREACHABLE("Trying to unregister URI that wasn't registered!");
+    MOZ_ASSERT(!CanStore(aURI),
+               "Trying to unregister URI that wasn't registered, "
+               "and that could be visited!");
     return;
   }
 
@@ -175,6 +164,20 @@ void BaseHistory::UnregisterVisitedCallback(nsIURI* aURI, Link* aLink) {
 void BaseHistory::NotifyVisited(nsIURI* aURI, VisitedStatus aStatus) {
   MOZ_ASSERT(NS_IsMainThread());
   MOZ_ASSERT(aStatus != VisitedStatus::Unknown);
+
+  if (aStatus == VisitedStatus::Unvisited &&
+      !StaticPrefs::layout_css_notify_of_unvisited()) {
+    return;
+  }
+
+  NotifyVisitedInThisProcess(aURI, aStatus);
+  if (XRE_IsParentProcess()) {
+    NotifyVisitedFromParent(aURI, aStatus);
+  }
+}
+
+void BaseHistory::NotifyVisitedInThisProcess(nsIURI* aURI,
+                                             VisitedStatus aStatus) {
   if (NS_WARN_IF(!aURI)) {
     return;
   }
@@ -194,18 +197,55 @@ void BaseHistory::NotifyVisited(nsIURI* aURI, VisitedStatus aStatus) {
   // Dispatch an event to each document which has a Link observing this URL.
   // These will fire asynchronously in the correct DocGroup.
 
-  // TODO(bug 1591090): Maybe a hashtable for this? An array could be bad.
-  nsTArray<Document*> seen;  // Don't dispatch duplicate runnables.
-  ObserverArray::BackwardIterator iter(links.mLinks);
-  while (iter.HasMore()) {
-    Link* link = iter.GetNext();
-    Document* doc = GetLinkDocument(*link);
-    if (seen.Contains(doc)) {
-      continue;
+  const bool visited = aStatus == VisitedStatus::Visited;
+  {
+    ObserverArray::BackwardIterator iter(links.mLinks);
+    while (iter.HasMore()) {
+      Link* link = iter.GetNext();
+      link->VisitedQueryFinished(visited);
     }
-    seen.AppendElement(doc);
-    DispatchNotifyVisited(aURI, doc, aStatus);
   }
+
+  // We never go from visited -> unvisited.
+  //
+  // FIXME(emilio): It seems unfortunate to remove a link to a visited uri and
+  // then re-add it to the document to trigger a new visited query. It shouldn't
+  // if we keep track of mStatus.
+  if (visited) {
+    entry.Remove();
+  }
+}
+
+void BaseHistory::SendPendingVisitedResultsToChildProcesses() {
+  MOZ_ASSERT(!mPendingResults.IsEmpty());
+
+  mStartPendingResultsScheduled = false;
+
+  auto results = std::move(mPendingResults);
+  MOZ_ASSERT(mPendingResults.IsEmpty());
+
+  nsTArray<ContentParent*> cplist;
+  ContentParent::GetAll(cplist);
+  for (ContentParent* cp : cplist) {
+    Unused << NS_WARN_IF(!cp->SendNotifyVisited(results));
+  }
+}
+
+void BaseHistory::NotifyVisitedFromParent(nsIURI* aURI, VisitedStatus aStatus) {
+  MOZ_ASSERT(XRE_IsParentProcess());
+  auto& result = *mPendingResults.AppendElement();
+  result.visited() = aStatus == VisitedStatus::Visited;
+  result.uri() = aURI;
+
+  if (mStartPendingResultsScheduled) {
+    return;
+  }
+
+  mStartPendingResultsScheduled = NS_SUCCEEDED(NS_DispatchToMainThreadQueue(
+      NewRunnableMethod(
+          "BaseHistory::SendPendingVisitedResultsToChildProcesses", this,
+          &BaseHistory::SendPendingVisitedResultsToChildProcesses),
+      EventQueuePriority::Idle));
 }
 
 }  // namespace mozilla

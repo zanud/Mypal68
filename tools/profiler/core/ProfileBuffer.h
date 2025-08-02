@@ -35,6 +35,14 @@ class ProfileBuffer final {
   // Returns the position of the entry.
   uint64_t AddThreadIdEntry(int aThreadId);
 
+  // Add a new single entry with *all* given object (using a Serializer for
+  // each), return block index.
+  template <typename... Ts>
+  mozilla::ProfileBufferBlockIndex PutObjects(
+      const ProfileBufferEntry::Kind aKind, const Ts&... aTs) {
+    return mEntries.PutObjects(aKind, aTs...);
+  }
+
   void CollectCodeLocation(
       const char* aLabel, const char* aStr, uint32_t aFrameFlags,
       uint64_t aInnerWindowID, const mozilla::Maybe<uint32_t>& aLineNumber,
@@ -187,9 +195,8 @@ class ProfileBuffer final {
  */
 class ProfileBufferCollector final : public ProfilerStackCollector {
  public:
-  ProfileBufferCollector(ProfileBuffer& aBuf, uint32_t aFeatures,
-                         uint64_t aSamplePos)
-      : mBuf(aBuf), mSamplePositionInBuffer(aSamplePos), mFeatures(aFeatures) {}
+  ProfileBufferCollector(ProfileBuffer& aBuf, uint64_t aSamplePos)
+      : mBuf(aBuf), mSamplePositionInBuffer(aSamplePos) {}
 
   mozilla::Maybe<uint64_t> SamplePositionInBuffer() override {
     return mozilla::Some(mSamplePositionInBuffer);
@@ -208,7 +215,6 @@ class ProfileBufferCollector final : public ProfilerStackCollector {
  private:
   ProfileBuffer& mBuf;
   uint64_t mSamplePositionInBuffer;
-  uint32_t mFeatures;
 };
 
 #endif

@@ -338,7 +338,9 @@ toolbarbutton.bookmark-item {
   margin-inline-end: 0;
 }
 
-#PlacesToolbarItems > .bookmark-item > .toolbarbutton-icon[label]:not([label=""]) {
+#bookmarks-toolbar-placeholder > .toolbarbutton-icon,
+#PlacesToolbarItems > .bookmark-item > .toolbarbutton-icon[label]:not([label=""]),
+#OtherBookmarks.bookmark-item[container] > .toolbarbutton-icon {
   margin-inline-end: 4px;
 }
 

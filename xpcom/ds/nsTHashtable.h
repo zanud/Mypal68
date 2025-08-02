@@ -172,6 +172,9 @@ class MOZ_NEEDS_NO_VTABLE_TYPE nsTHashtable {
   nsTHashtable(nsTHashtable<EntryType>&& aOther);
   nsTHashtable<EntryType>& operator=(nsTHashtable<EntryType>&& aOther);
 
+  nsTHashtable(const nsTHashtable<EntryType>&) = delete;
+  nsTHashtable& operator=(const nsTHashtable<EntryType>&) = delete;
+
   /**
    * Return the generation number for the table. This increments whenever
    * the table data items are moved.
@@ -553,11 +556,14 @@ template <class EntryType>
       EntryType::ALLOW_MEMMOVE
           ? mozilla::detail::FixedSizeEntryMover<sizeof(EntryType)>
           : s_CopyEntry,
+      // Simplify hashtable clearing in case our entries are trivially
+      // destructible.
+      std::is_trivially_destructible_v<EntryType> ? nullptr : s_ClearEntry,
       // We don't use a generic initEntry hook because we want to allow
       // initialization of data members defined in derived classes directly
       // in the entry constructor (for example when a member can't be default
       // constructed).
-      s_ClearEntry, nullptr};
+      nullptr};
   return &sOps;
 }
 

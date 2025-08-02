@@ -19,16 +19,13 @@ TEST(storage_binding_params, ASCIIString)
   nsCOMPtr<mozIStorageConnection> db(getMemoryDatabase());
 
   // Create table with a single string column.
-  (void)db->ExecuteSimpleSQL(
-      NS_LITERAL_CSTRING("CREATE TABLE test (str STRING)"));
+  (void)db->ExecuteSimpleSQL("CREATE TABLE test (str STRING)"_ns);
 
   // Create statements to INSERT and SELECT the string.
   nsCOMPtr<mozIStorageStatement> insert, select;
-  (void)db->CreateStatement(
-      NS_LITERAL_CSTRING("INSERT INTO test (str) VALUES (?1)"),
-      getter_AddRefs(insert));
-  (void)db->CreateStatement(NS_LITERAL_CSTRING("SELECT str FROM test"),
-                            getter_AddRefs(select));
+  (void)db->CreateStatement("INSERT INTO test (str) VALUES (?1)"_ns,
+                            getter_AddRefs(insert));
+  (void)db->CreateStatement("SELECT str FROM test"_ns, getter_AddRefs(select));
 
   // Roundtrip a string through the table, and ensure it comes out as expected.
   nsAutoCString inserted("I'm an ASCII string");
@@ -51,7 +48,7 @@ TEST(storage_binding_params, ASCIIString)
 
   do_check_true(result == inserted);
 
-  (void)db->ExecuteSimpleSQL(NS_LITERAL_CSTRING("DELETE FROM test"));
+  (void)db->ExecuteSimpleSQL("DELETE FROM test"_ns);
 }
 
 TEST(storage_binding_params, CString)
@@ -59,16 +56,13 @@ TEST(storage_binding_params, CString)
   nsCOMPtr<mozIStorageConnection> db(getMemoryDatabase());
 
   // Create table with a single string column.
-  (void)db->ExecuteSimpleSQL(
-      NS_LITERAL_CSTRING("CREATE TABLE test (str STRING)"));
+  (void)db->ExecuteSimpleSQL("CREATE TABLE test (str STRING)"_ns);
 
   // Create statements to INSERT and SELECT the string.
   nsCOMPtr<mozIStorageStatement> insert, select;
-  (void)db->CreateStatement(
-      NS_LITERAL_CSTRING("INSERT INTO test (str) VALUES (?1)"),
-      getter_AddRefs(insert));
-  (void)db->CreateStatement(NS_LITERAL_CSTRING("SELECT str FROM test"),
-                            getter_AddRefs(select));
+  (void)db->CreateStatement("INSERT INTO test (str) VALUES (?1)"_ns,
+                            getter_AddRefs(insert));
+  (void)db->CreateStatement("SELECT str FROM test"_ns, getter_AddRefs(select));
 
   // Roundtrip a string through the table, and ensure it comes out as expected.
   static const char sCharArray[] =
@@ -95,7 +89,7 @@ TEST(storage_binding_params, CString)
     do_check_true(result == inserted);
   }
 
-  (void)db->ExecuteSimpleSQL(NS_LITERAL_CSTRING("DELETE FROM test"));
+  (void)db->ExecuteSimpleSQL("DELETE FROM test"_ns);
 }
 
 TEST(storage_binding_params, UTFStrings)
@@ -103,16 +97,13 @@ TEST(storage_binding_params, UTFStrings)
   nsCOMPtr<mozIStorageConnection> db(getMemoryDatabase());
 
   // Create table with a single string column.
-  (void)db->ExecuteSimpleSQL(
-      NS_LITERAL_CSTRING("CREATE TABLE test (str STRING)"));
+  (void)db->ExecuteSimpleSQL("CREATE TABLE test (str STRING)"_ns);
 
   // Create statements to INSERT and SELECT the string.
   nsCOMPtr<mozIStorageStatement> insert, select;
-  (void)db->CreateStatement(
-      NS_LITERAL_CSTRING("INSERT INTO test (str) VALUES (?1)"),
-      getter_AddRefs(insert));
-  (void)db->CreateStatement(NS_LITERAL_CSTRING("SELECT str FROM test"),
-                            getter_AddRefs(select));
+  (void)db->CreateStatement("INSERT INTO test (str) VALUES (?1)"_ns,
+                            getter_AddRefs(insert));
+  (void)db->CreateStatement("SELECT str FROM test"_ns, getter_AddRefs(select));
 
   // Roundtrip a UTF8 string through the table, using UTF8 input and output.
   static const char sCharArray[] = R"(I'm a ûüâäç UTF8 string!)";
@@ -153,7 +144,7 @@ TEST(storage_binding_params, UTFStrings)
     do_check_true(result == insertedUTF16);
   }
 
-  (void)db->ExecuteSimpleSQL(NS_LITERAL_CSTRING("DELETE FROM test"));
+  (void)db->ExecuteSimpleSQL("DELETE FROM test"_ns);
 
   // Roundtrip the same string using UTF16 input and UTF8 output.
   {
@@ -189,5 +180,5 @@ TEST(storage_binding_params, UTFStrings)
     do_check_true(result == insertedUTF16);
   }
 
-  (void)db->ExecuteSimpleSQL(NS_LITERAL_CSTRING("DELETE FROM test"));
+  (void)db->ExecuteSimpleSQL("DELETE FROM test"_ns);
 }

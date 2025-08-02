@@ -81,10 +81,10 @@ class DataMutex {
   };
 
  public:
-  explicit DataMutex(const char* aName) : mMutex(aName) {}
+  explicit DataMutex() : mMutex() {}
 
-  DataMutex(T&& aValue, const char* aName)
-      : mMutex(aName), mValue(std::move(aValue)) {}
+  DataMutex(T&& aValue)
+      : mMutex(), mValue(std::move(aValue)) {}
 
   AutoLock Lock() { return AutoLock(this); }
 

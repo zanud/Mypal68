@@ -42,5 +42,7 @@ function prefs(state = PrefState(), action) {
   return state;
 }
 
-exports.PrefState = PrefState;
-exports.prefs = prefs;
+module.exports = {
+  PrefState,
+  prefs,
+};

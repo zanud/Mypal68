@@ -128,11 +128,6 @@ add_task(async function test_source_uri_rewrite() {
       SERVER_ADDRESS + "/require.xpi?src=sync",
       install.sourceURI.spec
     );
-    Assert.deepEqual(
-      install.installTelemetryInfo,
-      { source: "sync" },
-      "Got the expected installTelemetryInfo"
-    );
 
     return { id: addon.id, addon, install };
   };

@@ -124,7 +124,7 @@ nsresult nsPrintObject::InitAsNestedObject(nsIDocShell* aDocShell,
 
   // "frame" elements not in a frameset context should be treated
   // as iframes
-  if (mContent->IsHTMLElement(nsGkAtoms::frame) &&
+  if (mContent && mContent->IsHTMLElement(nsGkAtoms::frame) &&
       mParent->mFrameType == eFrameSet) {
     mFrameType = eFrame;
   } else {

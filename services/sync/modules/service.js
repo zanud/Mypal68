@@ -74,12 +74,12 @@ const { DeclinedEngines } = ChromeUtils.import(
   "resource://services-sync/stages/declined.js"
 );
 const { Status } = ChromeUtils.import("resource://services-sync/status.js");
-ChromeUtils.import("resource://services-sync/telemetry.js");
 const { Svc, Utils } = ChromeUtils.import("resource://services-sync/util.js");
 
 function getEngineModules() {
   let result = {
     Addons: { module: "addons.js", symbol: "AddonsEngine" },
+    Bookmarks: { module: "bookmarks.js", symbol: "BookmarksEngine" },
     Form: { module: "forms.js", symbol: "FormEngine" },
     History: { module: "history.js", symbol: "HistoryEngine" },
     Password: { module: "passwords.js", symbol: "PasswordEngine" },
@@ -102,12 +102,6 @@ function getEngineModules() {
       symbol: "CreditCardsEngine",
     };
   }
-  result.Bookmarks = {
-    module: "bookmarks.js",
-    controllingPref: "services.sync.engine.bookmarks.buffer",
-    whenFalse: "BookmarksEngine",
-    whenTrue: "BufferedBookmarksEngine",
-  };
   return result;
 }
 
@@ -1030,9 +1024,7 @@ Sync11Service.prototype = {
       );
     } else if (configResponse.status != 200) {
       this._log.warn(
-        `info/configuration returned ${
-          configResponse.status
-        } - using default configuration`
+        `info/configuration returned ${configResponse.status} - using default configuration`
       );
       this.errorHandler.checkServerError(configResponse);
       return false;
@@ -1290,18 +1282,9 @@ Sync11Service.prototype = {
     return this._lock(
       "service.js: sync",
       this._notify("sync", JSON.stringify({ why }), async function onNotify() {
-        let histogram = Services.telemetry.getHistogramById(
-          "WEAVE_START_COUNT"
-        );
-        histogram.add(1);
 
         let synchronizer = new EngineSynchronizer(this);
         await synchronizer.sync(engineNamesToSync, why); // Might throw!
-
-        histogram = Services.telemetry.getHistogramById(
-          "WEAVE_COMPLETE_SUCCESS_COUNT"
-        );
-        histogram.add(1);
 
         // We successfully synchronized.
         // Check if the identity wants to pre-fetch a migration sentinel from
@@ -1420,9 +1403,6 @@ Sync11Service.prototype = {
    */
   async wipeServer(collections) {
     let response;
-    let histogram = Services.telemetry.getHistogramById(
-      "WEAVE_WIPE_SERVER_SUCCEEDED"
-    );
     if (!collections) {
       // Strip the trailing slash.
       let res = this.resource(this.storageURL.slice(0, -1));
@@ -1431,7 +1411,6 @@ Sync11Service.prototype = {
         response = await res.delete();
       } catch (ex) {
         this._log.debug("Failed to wipe server", ex);
-        histogram.add(false);
         throw ex;
       }
       if (response.status != 200 && response.status != 404) {
@@ -1441,10 +1420,8 @@ Sync11Service.prototype = {
             " response for " +
             this.storageURL
         );
-        histogram.add(false);
         throw response;
       }
-      histogram.add(true);
       return response.headers["x-weave-timestamp"];
     }
 
@@ -1455,7 +1432,6 @@ Sync11Service.prototype = {
         response = await this.resource(url).delete();
       } catch (ex) {
         this._log.debug("Failed to wipe '" + name + "' collection", ex);
-        histogram.add(false);
         throw ex;
       }
 
@@ -1466,7 +1442,6 @@ Sync11Service.prototype = {
             " response for " +
             url
         );
-        histogram.add(false);
         throw response;
       }
 
@@ -1474,7 +1449,6 @@ Sync11Service.prototype = {
         timestamp = response.headers["x-weave-timestamp"];
       }
     }
-    histogram.add(true);
     return timestamp;
   },
 
@@ -1575,10 +1549,6 @@ Sync11Service.prototype = {
         await engine.resetClient();
       }
     })();
-  },
-
-  recordTelemetryEvent(object, method, value, extra = undefined) {
-    Svc.Obs.notify("weave:telemetry:event", { object, method, value, extra });
   },
 };
 

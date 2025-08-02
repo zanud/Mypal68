@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import buildconfig
 
 services = []
 
@@ -50,8 +51,9 @@ service('ThirdPartyUtil', 'mozIThirdPartyUtil',
         "@mozilla.org/thirdpartyutil;1")
 service('URIFixup', 'nsIURIFixup',
         "@mozilla.org/docshell/urifixup;1")
-service('Bits', 'nsIBits',
-        "@mozilla.org/bits;1")
+if buildconfig.substs.get('MOZ_BITS_DOWNLOAD'):
+    service('Bits', 'nsIBits',
+            "@mozilla.org/bits;1")
 # NB: this should also expose nsIXULAppInfo, as does Services.jsm.
 service('AppInfoService', 'nsIXULRuntime',
         "@mozilla.org/xre/app-info;1")
@@ -87,7 +89,9 @@ CPP_INCLUDES = """
 #include "nsIUUIDGenerator.h"
 #include "nsIGfxInfo.h"
 #include "nsIURIFixup.h"
-#include "nsIBits.h"
+#ifdef MOZ_BITS_DOWNLOAD
+#  include "nsIBits.h"
+#endif
 #include "nsIXULRuntime.h"
 """
 

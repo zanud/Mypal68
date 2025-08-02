@@ -16,8 +16,6 @@ var EXPORTED_SYMBOLS = [
   "promiseNamedTimer",
   "MockFxaStorageManager",
   "AccountState", // from a module import
-  "sumHistogram",
-  "getLoginTelemetryScalar",
   "syncTestLogging",
 ];
 
@@ -145,7 +143,6 @@ var makeIdentityConfig = function(overrides) {
         duration: 300,
         id: "id",
         key: "key",
-        hashed_fxa_uid: "f".repeat(32), // used during telemetry validation
         // uid will be set to the username.
       },
     },
@@ -292,27 +289,3 @@ function encryptPayload(cleartext) {
     hmac: fakeSHA256HMAC(cleartext, CryptoUtils.makeHMACKey("")),
   };
 }
-
-var sumHistogram = function(name, options = {}) {
-  let histogram = options.key
-    ? Services.telemetry.getKeyedHistogramById(name)
-    : Services.telemetry.getHistogramById(name);
-  let snapshot = histogram.snapshot();
-  let sum = -Infinity;
-  if (snapshot) {
-    if (options.key && snapshot[options.key]) {
-      sum = snapshot[options.key].sum;
-    } else {
-      sum = snapshot.sum;
-    }
-  }
-  histogram.clear();
-  return sum;
-};
-
-var getLoginTelemetryScalar = function() {
-  let snapshot = Services.telemetry.getSnapshotForKeyedScalars("main", true);
-  return snapshot.parent
-    ? snapshot.parent["services.sync.sync_login_state_transitions"]
-    : {};
-};

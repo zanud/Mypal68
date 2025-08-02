@@ -10,7 +10,6 @@
 #include "GeckoProfiler.h"
 #include "platform.h"
 #include "ProfileBuffer.h"
-#include "ProfileJSONWriter.h"
 #include "ProfilerMarkerPayload.h"
 
 #include "js/Initialization.h"
@@ -19,6 +18,7 @@
 #include "json/json.h"
 #include "mozilla/Atomics.h"
 #include "mozilla/ProfileBufferEntrySerializationGeckoExtensions.h"
+#include "mozilla/ProfileJSONWriter.h"
 #include "mozilla/UniquePtrExtensions.h"
 #include "nsIThread.h"
 #include "nsThreadUtils.h"
@@ -26,6 +26,7 @@
 #include "gtest/gtest.h"
 
 #include <cstring>
+#include <thread>
 
 // Note: profiler_init() has already been called in XRE_main(), so we can't
 // test it here. Likewise for profiler_shutdown(), and AutoProfilerInit
@@ -44,7 +45,7 @@ static void InactiveFeaturesAndParamsCheck() {
 
   ASSERT_TRUE(!profiler_is_active());
   ASSERT_TRUE(!profiler_feature_active(ProfilerFeature::MainThreadIO));
-  ASSERT_TRUE(!profiler_feature_active(ProfilerFeature::Privacy));
+  ASSERT_TRUE(!profiler_feature_active(ProfilerFeature::NativeAllocations));
 
   profiler_get_start_params(&entries, &duration, &interval, &features,
                             &filters);
@@ -94,7 +95,7 @@ TEST(GeckoProfiler, FeaturesAndParams)
 
     ASSERT_TRUE(profiler_is_active());
     ASSERT_TRUE(!profiler_feature_active(ProfilerFeature::MainThreadIO));
-    ASSERT_TRUE(!profiler_feature_active(ProfilerFeature::Privacy));
+    ASSERT_TRUE(!profiler_feature_active(ProfilerFeature::IPCMessages));
 
     ActiveParamsCheck(
         PROFILER_DEFAULT_ENTRIES.Value(), PROFILER_DEFAULT_INTERVAL, features,
@@ -108,7 +109,7 @@ TEST(GeckoProfiler, FeaturesAndParams)
   // Try some different features and filters.
   {
     uint32_t features =
-        ProfilerFeature::MainThreadIO | ProfilerFeature::Privacy;
+        ProfilerFeature::MainThreadIO | ProfilerFeature::IPCMessages;
     const char* filters[] = {"GeckoMain", "Foo", "Bar"};
 
     // Testing with some arbitrary buffer size (as could be provided by
@@ -118,7 +119,7 @@ TEST(GeckoProfiler, FeaturesAndParams)
 
     ASSERT_TRUE(profiler_is_active());
     ASSERT_TRUE(profiler_feature_active(ProfilerFeature::MainThreadIO));
-    ASSERT_TRUE(profiler_feature_active(ProfilerFeature::Privacy));
+    ASSERT_TRUE(profiler_feature_active(ProfilerFeature::IPCMessages));
 
     // Profiler::Threads is added because filters has multiple entries.
     ActiveParamsCheck(PowerOfTwo32(999999).Value(), 3,
@@ -133,7 +134,7 @@ TEST(GeckoProfiler, FeaturesAndParams)
   // Try with no duration
   {
     uint32_t features =
-        ProfilerFeature::MainThreadIO | ProfilerFeature::Privacy;
+        ProfilerFeature::MainThreadIO | ProfilerFeature::IPCMessages;
     const char* filters[] = {"GeckoMain", "Foo", "Bar"};
 
     profiler_start(PowerOfTwo32(999999), 3, features, filters,
@@ -141,7 +142,7 @@ TEST(GeckoProfiler, FeaturesAndParams)
 
     ASSERT_TRUE(profiler_is_active());
     ASSERT_TRUE(profiler_feature_active(ProfilerFeature::MainThreadIO));
-    ASSERT_TRUE(profiler_feature_active(ProfilerFeature::Privacy));
+    ASSERT_TRUE(profiler_feature_active(ProfilerFeature::IPCMessages));
 
     // Profiler::Threads is added because filters has multiple entries.
     ActiveParamsCheck(PowerOfTwo32(999999).Value(), 3,
@@ -163,7 +164,7 @@ TEST(GeckoProfiler, FeaturesAndParams)
 
     ASSERT_TRUE(profiler_is_active());
     ASSERT_TRUE(profiler_feature_active(ProfilerFeature::MainThreadIO));
-    ASSERT_TRUE(profiler_feature_active(ProfilerFeature::Privacy));
+    ASSERT_TRUE(profiler_feature_active(ProfilerFeature::IPCMessages));
 
     ActiveParamsCheck(PowerOfTwo32(88888).Value(), 10, availableFeatures,
                       filters, MOZ_ARRAY_LENGTH(filters), Some(15.0));
@@ -183,7 +184,7 @@ TEST(GeckoProfiler, FeaturesAndParams)
 
     ASSERT_TRUE(profiler_is_active());
     ASSERT_TRUE(!profiler_feature_active(ProfilerFeature::MainThreadIO));
-    ASSERT_TRUE(!profiler_feature_active(ProfilerFeature::Privacy));
+    ASSERT_TRUE(!profiler_feature_active(ProfilerFeature::IPCMessages));
 
     // Entries and intervals go to defaults if 0 is specified.
     ActiveParamsCheck(PROFILER_DEFAULT_ENTRIES.Value(),
@@ -284,6 +285,58 @@ TEST(GeckoProfiler, EnsureStarted)
   }
 }
 
+TEST(GeckoProfiler, MultiRegistration)
+{
+  // This whole test only checks that function calls don't crash, they don't
+  // actually verify that threads get profiled or not.
+  char top;
+  profiler_register_thread("Main thread again", &top);
+
+  {
+    std::thread thread([]() {
+      char top;
+      profiler_register_thread("thread, no unreg", &top);
+    });
+    thread.join();
+  }
+
+  {
+    std::thread thread([]() { profiler_unregister_thread(); });
+    thread.join();
+  }
+
+  {
+    std::thread thread([]() {
+      char top;
+      profiler_register_thread("thread 1st", &top);
+      profiler_unregister_thread();
+      profiler_register_thread("thread 2nd", &top);
+      profiler_unregister_thread();
+    });
+    thread.join();
+  }
+
+  {
+    std::thread thread([]() {
+      char top;
+      profiler_register_thread("thread once", &top);
+      profiler_register_thread("thread again", &top);
+      profiler_unregister_thread();
+    });
+    thread.join();
+  }
+
+  {
+    std::thread thread([]() {
+      char top;
+      profiler_register_thread("thread to unreg twice", &top);
+      profiler_unregister_thread();
+      profiler_unregister_thread();
+    });
+    thread.join();
+  }
+}
+
 TEST(GeckoProfiler, DifferentThreads)
 {
   InactiveFeaturesAndParamsCheck();
@@ -309,7 +362,7 @@ TEST(GeckoProfiler, DifferentThreads)
 
     ASSERT_TRUE(profiler_is_active());
     ASSERT_TRUE(!profiler_feature_active(ProfilerFeature::MainThreadIO));
-    ASSERT_TRUE(!profiler_feature_active(ProfilerFeature::Privacy));
+    ASSERT_TRUE(!profiler_feature_active(ProfilerFeature::IPCMessages));
 
     ActiveParamsCheck(PROFILER_DEFAULT_ENTRIES.Value(),
                       PROFILER_DEFAULT_INTERVAL, features, filters,
@@ -339,7 +392,8 @@ TEST(GeckoProfiler, DifferentThreads)
               ASSERT_TRUE(profiler_is_active());
               ASSERT_TRUE(
                   !profiler_feature_active(ProfilerFeature::MainThreadIO));
-              ASSERT_TRUE(!profiler_feature_active(ProfilerFeature::Privacy));
+              ASSERT_TRUE(
+                  !profiler_feature_active(ProfilerFeature::IPCMessages));
 
               ActiveParamsCheck(PROFILER_DEFAULT_ENTRIES.Value(),
                                 PROFILER_DEFAULT_INTERVAL, features, filters,
@@ -385,19 +439,6 @@ TEST(GeckoProfiler, GetBacktrace)
       u[i] = profiler_get_backtrace();
       ASSERT_TRUE(u[i]);
     }
-
-    profiler_stop();
-  }
-
-  {
-    uint32_t features = ProfilerFeature::Privacy;
-    const char* filters[] = {"GeckoMain"};
-
-    profiler_start(PROFILER_DEFAULT_ENTRIES, PROFILER_DEFAULT_INTERVAL,
-                   features, filters, MOZ_ARRAY_LENGTH(filters));
-
-    // No backtraces obtained when ProfilerFeature::Privacy is set.
-    ASSERT_TRUE(!profiler_get_backtrace());
 
     profiler_stop();
   }
@@ -522,8 +563,9 @@ void GTestMarkerPayload::StreamPayload(SpliceableJSONWriter& aWriter,
                                        UniqueStacks& aUniqueStacks) const {
   StreamCommonProps("gtest", aWriter, aStartTime, aUniqueStacks);
   char buf[64];
-  SprintfLiteral(buf, "gtest-%d", mN);
-  aWriter.IntProperty(buf, mN);
+  int written = SprintfLiteral(buf, "gtest-%d", mN);
+  ASSERT_GT(written, 0);
+  aWriter.IntProperty(mozilla::Span<const char>(buf, size_t(written)), mN);
   ++sNumStreamed;
 }
 
@@ -534,6 +576,9 @@ TEST(GeckoProfiler, Markers)
 
   profiler_start(PROFILER_DEFAULT_ENTRIES, PROFILER_DEFAULT_INTERVAL, features,
                  filters, MOZ_ARRAY_LENGTH(filters));
+
+  // Used in markers below.
+  TimeStamp ts0 = TimeStamp::NowUnfuzzed();
 
   profiler_tracing_marker("A", "tracing event",
                           JS::ProfilingCategoryPair::OTHER, TRACING_EVENT);
@@ -549,11 +594,11 @@ TEST(GeckoProfiler, Markers)
 
   PROFILER_ADD_MARKER("M1", OTHER);
   PROFILER_ADD_MARKER_WITH_PAYLOAD("M2", OTHER, TracingMarkerPayload,
-                                   ("C", TRACING_EVENT));
+                                   ("C", TRACING_EVENT, ts0));
   PROFILER_ADD_MARKER("M3", OTHER);
   PROFILER_ADD_MARKER_WITH_PAYLOAD(
       "M4", OTHER, TracingMarkerPayload,
-      ("C", TRACING_EVENT, mozilla::Nothing(), mozilla::Nothing(),
+      ("C", TRACING_EVENT, ts0, mozilla::Nothing(), mozilla::Nothing(),
        profiler_get_backtrace()));
 
   for (int i = 0; i < 10; i++) {
@@ -573,20 +618,32 @@ TEST(GeckoProfiler, Markers)
   UniquePtr<char[]> okstr1 = MakeUnique<char[]>(kMax);
   UniquePtr<char[]> okstr2 = MakeUnique<char[]>(kMax);
   UniquePtr<char[]> longstr = MakeUnique<char[]>(kMax + 1);
+  UniquePtr<char[]> longstrCut = MakeUnique<char[]>(kMax + 1);
   for (size_t i = 0; i < kMax; i++) {
     okstr1[i] = 'a';
     okstr2[i] = 'b';
     longstr[i] = 'c';
+    longstrCut[i] = 'c';
   }
   okstr1[kMax - 1] = '\0';
   okstr2[kMax - 1] = '\0';
   longstr[kMax] = '\0';
+  longstrCut[kMax] = '\0';
   // Should be output as-is.
+  AUTO_PROFILER_LABEL_DYNAMIC_CSTR("", LAYOUT, "");
   AUTO_PROFILER_LABEL_DYNAMIC_CSTR("", LAYOUT, okstr1.get());
   // Should be output as label + space + okstr2.
   AUTO_PROFILER_LABEL_DYNAMIC_CSTR("okstr2", LAYOUT, okstr2.get());
-  // Should be output as "(too long)".
+  // Should be output with kMax length, ending with "...\0".
   AUTO_PROFILER_LABEL_DYNAMIC_CSTR("", LAYOUT, longstr.get());
+  ASSERT_EQ(longstrCut[kMax - 4], 'c');
+  longstrCut[kMax - 4] = '.';
+  ASSERT_EQ(longstrCut[kMax - 3], 'c');
+  longstrCut[kMax - 3] = '.';
+  ASSERT_EQ(longstrCut[kMax - 2], 'c');
+  longstrCut[kMax - 2] = '.';
+  ASSERT_EQ(longstrCut[kMax - 1], 'c');
+  longstrCut[kMax - 1] = '\0';
 
   // Used in markers below.
   TimeStamp ts1 = TimeStamp::NowUnfuzzed();
@@ -700,7 +757,7 @@ TEST(GeckoProfiler, Markers)
 
   SpliceableChunkedJSONWriter w;
   w.Start();
-  EXPECT_TRUE(profiler_stream_json_for_this_process(w));
+  EXPECT_TRUE(::profiler_stream_json_for_this_process(w));
   w.End();
 
   // The GTestMarkerPayloads should have been deserialized, streamed, and
@@ -711,7 +768,7 @@ TEST(GeckoProfiler, Markers)
   EXPECT_EQ(GTestMarkerPayload::sNumStreamed, 0 + 10);
   EXPECT_EQ(GTestMarkerPayload::sNumDestroyed, 10 + 10);
 
-  UniquePtr<char[]> profile = w.WriteFunc()->CopyData();
+  UniquePtr<char[]> profile = w.ChunkedWriteFunc().CopyData();
   ASSERT_TRUE(!!profile.get());
 
   // Expected markers, in order.
@@ -819,6 +876,7 @@ TEST(GeckoProfiler, Markers)
       ASSERT_TRUE(stringTable.isArray());
 
       // Test the expected labels in the string table.
+      bool foundEmpty = false;
       bool foundOkstr1 = false;
       bool foundOkstr2 = false;
       const std::string okstr2Label = std::string("okstr2 ") + okstr2.get();
@@ -826,19 +884,23 @@ TEST(GeckoProfiler, Markers)
       for (const auto& s : stringTable) {
         ASSERT_TRUE(s.isString());
         std::string sString = s.asString();
-        if (sString == okstr1.get()) {
+        if (sString.empty()) {
+          EXPECT_FALSE(foundEmpty);
+          foundEmpty = true;
+        } else if (sString == okstr1.get()) {
           EXPECT_FALSE(foundOkstr1);
           foundOkstr1 = true;
         } else if (sString == okstr2Label) {
           EXPECT_FALSE(foundOkstr2);
           foundOkstr2 = true;
-        } else if (sString == "(too long)") {
+        } else if (sString == longstrCut.get()) {
           EXPECT_FALSE(foundTooLong);
           foundTooLong = true;
         } else {
           EXPECT_NE(sString, longstr.get());
         }
       }
+      EXPECT_TRUE(foundEmpty);
       EXPECT_TRUE(foundOkstr1);
       EXPECT_TRUE(foundOkstr2);
       EXPECT_TRUE(foundTooLong);
@@ -856,23 +918,77 @@ TEST(GeckoProfiler, Markers)
           // root.threads[0].markers.data is an array.
 
           for (const Json::Value& marker : data) {
+            // Name the indexes into the marker tuple:
+            // [name, startTime, endTime, phase, category, payload]
+            const unsigned int NAME = 0u;
+            const unsigned int START_TIME = 1u;
+            const unsigned int END_TIME = 2u;
+            const unsigned int PHASE = 3u;
+            const unsigned int CATEGORY = 4u;
+            const unsigned int PAYLOAD = 5u;
+
+            const unsigned int PHASE_INSTANT = 0;
+            const unsigned int PHASE_INTERVAL = 1;
+            const unsigned int PHASE_START = 2;
+            const unsigned int PHASE_END = 3;
+
+            const unsigned int SIZE_WITHOUT_PAYLOAD = 5u;
+            const unsigned int SIZE_WITH_PAYLOAD = 6u;
+
             ASSERT_TRUE(marker.isArray());
-            ASSERT_GE(marker.size(), 3u);
-            ASSERT_LE(marker.size(), 4u);
+            // The payload is optional.
+            ASSERT_GE(marker.size(), SIZE_WITHOUT_PAYLOAD);
+            ASSERT_LE(marker.size(), SIZE_WITH_PAYLOAD);
 
-            // root.threads[0].markers.data[i] is an array with 3 or 4 elements.
+            // root.threads[0].markers.data[i] is an array with 5 or 6 elements.
 
-            ASSERT_TRUE(marker[0].isUInt());  // name id
-            const Json::Value& name = stringTable[marker[0].asUInt()];
+            ASSERT_TRUE(marker[NAME].isUInt());  // name id
+            const Json::Value& name = stringTable[marker[NAME].asUInt()];
             ASSERT_TRUE(name.isString());
             std::string nameString = name.asString();
 
-            EXPECT_TRUE(marker[1].isNumeric());  // timestamp
+            EXPECT_TRUE(marker[START_TIME].isNumeric());
+            EXPECT_TRUE(marker[END_TIME].isNumeric());
+            EXPECT_TRUE(marker[PHASE].isUInt());
+            EXPECT_TRUE(marker[PHASE].asUInt() < 4);
+            EXPECT_TRUE(marker[CATEGORY].isUInt());
 
-            EXPECT_TRUE(marker[2].isUInt());  // category
+#define EXPECT_TIMING_INSTANT                  \
+  EXPECT_NE(marker[START_TIME].asDouble(), 0); \
+  EXPECT_EQ(marker[END_TIME].asDouble(), 0);   \
+  EXPECT_EQ(marker[PHASE].asUInt(), PHASE_INSTANT);
+#define EXPECT_TIMING_INTERVAL                 \
+  EXPECT_NE(marker[START_TIME].asDouble(), 0); \
+  EXPECT_NE(marker[END_TIME].asDouble(), 0);   \
+  EXPECT_EQ(marker[PHASE].asUInt(), PHASE_INTERVAL);
+#define EXPECT_TIMING_START                    \
+  EXPECT_NE(marker[START_TIME].asDouble(), 0); \
+  EXPECT_EQ(marker[END_TIME].asDouble(), 0);   \
+  EXPECT_EQ(marker[PHASE].asUInt(), PHASE_START);
+#define EXPECT_TIMING_END                      \
+  EXPECT_EQ(marker[START_TIME].asDouble(), 0); \
+  EXPECT_NE(marker[END_TIME].asDouble(), 0);   \
+  EXPECT_EQ(marker[PHASE].asUInt(), PHASE_END);
 
-            if (marker.size() == 3u) {
-              // root.threads[0].markers.data[i] is an array with 3 elements,
+#define EXPECT_TIMING_INSTANT_AT(t)            \
+  EXPECT_EQ(marker[START_TIME].asDouble(), t); \
+  EXPECT_EQ(marker[END_TIME].asDouble(), 0);   \
+  EXPECT_EQ(marker[PHASE].asUInt(), PHASE_INSTANT);
+#define EXPECT_TIMING_INTERVAL_AT(start, end)      \
+  EXPECT_EQ(marker[START_TIME].asDouble(), start); \
+  EXPECT_EQ(marker[END_TIME].asDouble(), end);     \
+  EXPECT_EQ(marker[PHASE].asUInt(), PHASE_INTERVAL);
+#define EXPECT_TIMING_START_AT(start)              \
+  EXPECT_EQ(marker[START_TIME].asDouble(), start); \
+  EXPECT_EQ(marker[END_TIME].asDouble(), 0);       \
+  EXPECT_EQ(marker[PHASE].asUInt(), PHASE_START);
+#define EXPECT_TIMING_END_AT(end)              \
+  EXPECT_EQ(marker[START_TIME].asDouble(), 0); \
+  EXPECT_EQ(marker[END_TIME].asDouble(), end); \
+  EXPECT_EQ(marker[PHASE].asUInt(), PHASE_END);
+
+            if (marker.size() == SIZE_WITHOUT_PAYLOAD) {
+              // root.threads[0].markers.data[i] is an array with 5 elements,
               // so there is no payload.
               if (nameString == "M1") {
                 ASSERT_EQ(state, S_M1);
@@ -882,12 +998,13 @@ TEST(GeckoProfiler, Markers)
                 state = State(state + 1);
               }
             } else {
-              // root.threads[0].markers.data[i] is an array with 4 elements,
+              // root.threads[0].markers.data[i] is an array with 6 elements,
               // so there is a payload.
-              const Json::Value& payload = marker[3];
+              const Json::Value& payload = marker[PAYLOAD];
               ASSERT_TRUE(payload.isObject());
 
-              // root.threads[0].markers.data[i][3] is an object (payload).
+              // root.threads[0].markers.data[i][PAYLOAD] is an object
+              // (payload).
 
               // It should at least have a "type" string.
               const Json::Value& type = payload["type"];
@@ -898,6 +1015,7 @@ TEST(GeckoProfiler, Markers)
                 EXPECT_EQ(state, S_tracing_event);
                 state = State(S_tracing_event + 1);
                 EXPECT_EQ(typeString, "tracing");
+                EXPECT_TIMING_INSTANT;
                 EXPECT_EQ_JSON(payload["category"], String, "A");
                 EXPECT_TRUE(payload["interval"].isNull());
                 EXPECT_TRUE(payload["stack"].isNull());
@@ -906,6 +1024,7 @@ TEST(GeckoProfiler, Markers)
                 EXPECT_EQ(state, S_tracing_start);
                 state = State(S_tracing_start + 1);
                 EXPECT_EQ(typeString, "tracing");
+                EXPECT_TIMING_START;
                 EXPECT_EQ_JSON(payload["category"], String, "A");
                 EXPECT_EQ_JSON(payload["interval"], String, "start");
                 EXPECT_TRUE(payload["stack"].isNull());
@@ -914,6 +1033,7 @@ TEST(GeckoProfiler, Markers)
                 EXPECT_EQ(state, S_tracing_end);
                 state = State(S_tracing_end + 1);
                 EXPECT_EQ(typeString, "tracing");
+                EXPECT_TIMING_END;
                 EXPECT_EQ_JSON(payload["category"], String, "A");
                 EXPECT_EQ_JSON(payload["interval"], String, "end");
                 EXPECT_TRUE(payload["stack"].isNull());
@@ -922,6 +1042,7 @@ TEST(GeckoProfiler, Markers)
                 EXPECT_EQ(state, S_tracing_event_with_stack);
                 state = State(S_tracing_event_with_stack + 1);
                 EXPECT_EQ(typeString, "tracing");
+                EXPECT_TIMING_INSTANT;
                 EXPECT_EQ_JSON(payload["category"], String, "B");
                 EXPECT_TRUE(payload["interval"].isNull());
                 EXPECT_TRUE(payload["stack"].isObject());
@@ -930,12 +1051,16 @@ TEST(GeckoProfiler, Markers)
                 switch (state) {
                   case S_tracing_auto_tracing_start:
                     state = State(S_tracing_auto_tracing_start + 1);
+                    EXPECT_EQ(typeString, "tracing");
+                    EXPECT_TIMING_START;
                     EXPECT_EQ_JSON(payload["category"], String, "C");
                     EXPECT_EQ_JSON(payload["interval"], String, "start");
                     EXPECT_TRUE(payload["stack"].isNull());
                     break;
                   case S_tracing_auto_tracing_end:
                     state = State(S_tracing_auto_tracing_end + 1);
+                    EXPECT_EQ(typeString, "tracing");
+                    EXPECT_TIMING_END;
                     EXPECT_EQ_JSON(payload["category"], String, "C");
                     EXPECT_EQ_JSON(payload["interval"], String, "end");
                     ASSERT_TRUE(payload["stack"].isNull());
@@ -950,6 +1075,7 @@ TEST(GeckoProfiler, Markers)
                 EXPECT_EQ(state, S_tracing_M2_C);
                 state = State(S_tracing_M2_C + 1);
                 EXPECT_EQ(typeString, "tracing");
+                EXPECT_TIMING_INSTANT;
                 EXPECT_EQ_JSON(payload["category"], String, "C");
                 EXPECT_TRUE(payload["interval"].isNull());
                 EXPECT_TRUE(payload["stack"].isNull());
@@ -958,6 +1084,7 @@ TEST(GeckoProfiler, Markers)
                 EXPECT_EQ(state, S_tracing_M4_C_stack);
                 state = State(S_tracing_M4_C_stack + 1);
                 EXPECT_EQ(typeString, "tracing");
+                EXPECT_TIMING_INSTANT;
                 EXPECT_EQ_JSON(payload["category"], String, "C");
                 EXPECT_TRUE(payload["interval"].isNull());
                 EXPECT_TRUE(payload["stack"].isObject());
@@ -989,14 +1116,12 @@ TEST(GeckoProfiler, Markers)
                 // Record start and end times, to compare with timestamps in
                 // following markers.
                 EXPECT_EQ(ts1Double, 0.0);
-                ts1Double = payload["startTime"].asDouble();
+                ts1Double = marker[START_TIME].asDouble();
                 EXPECT_NE(ts1Double, 0.0);
                 EXPECT_EQ(ts2Double, 0.0);
-                ts2Double = payload["endTime"].asDouble();
+                ts2Double = marker[END_TIME].asDouble();
                 EXPECT_NE(ts2Double, 0.0);
-
-                // Start timestamp is also stored in marker outside of payload.
-                EXPECT_EQ_JSON(marker[1], Double, ts1Double);
+                EXPECT_EQ_JSON(marker[PHASE], UInt, PHASE_INTERVAL);
 
                 EXPECT_TRUE(payload["stack"].isNull());
                 EXPECT_EQ_JSON(payload["operation"], String, "operation");
@@ -1008,10 +1133,7 @@ TEST(GeckoProfiler, Markers)
                 EXPECT_EQ(state, S_FileIOMarkerPayloadOffMT);
                 state = State(S_FileIOMarkerPayloadOffMT + 1);
                 EXPECT_EQ(typeString, "FileIO");
-                EXPECT_EQ_JSON(payload["startTime"], Double, ts1Double);
-                EXPECT_EQ_JSON(payload["endTime"], Double, ts2Double);
-                // Start timestamp is also stored in marker outside of payload.
-                EXPECT_EQ_JSON(marker[1], Double, ts1Double);
+                EXPECT_TIMING_INTERVAL_AT(ts1Double, ts2Double);
                 EXPECT_TRUE(payload["stack"].isNull());
                 EXPECT_EQ_JSON(payload["operation"], String, "operation2");
                 EXPECT_EQ_JSON(payload["source"], String, "source2");
@@ -1032,10 +1154,7 @@ TEST(GeckoProfiler, Markers)
                 EXPECT_EQ(state, S_GCMajorMarkerPayload);
                 state = State(S_GCMajorMarkerPayload + 1);
                 EXPECT_EQ(typeString, "GCMajor");
-                EXPECT_EQ_JSON(payload["startTime"], Double, ts1Double);
-                // Start timestamp is also stored in marker outside of payload.
-                EXPECT_EQ_JSON(marker[1], Double, ts1Double);
-                EXPECT_EQ_JSON(payload["endTime"], Double, ts2Double);
+                EXPECT_TIMING_INTERVAL_AT(ts1Double, ts2Double);
                 EXPECT_TRUE(payload["stack"].isNull());
                 EXPECT_EQ_JSON(payload["timings"], Int, 42);
 
@@ -1043,10 +1162,7 @@ TEST(GeckoProfiler, Markers)
                 EXPECT_EQ(state, S_GCMinorMarkerPayload);
                 state = State(S_GCMinorMarkerPayload + 1);
                 EXPECT_EQ(typeString, "GCMinor");
-                EXPECT_EQ_JSON(payload["startTime"], Double, ts1Double);
-                // Start timestamp is also stored in marker outside of payload.
-                EXPECT_EQ_JSON(marker[1], Double, ts1Double);
-                EXPECT_EQ_JSON(payload["endTime"], Double, ts2Double);
+                EXPECT_TIMING_INTERVAL_AT(ts1Double, ts2Double);
                 EXPECT_TRUE(payload["stack"].isNull());
                 EXPECT_EQ_JSON(payload["nursery"], Int, 43);
 
@@ -1054,10 +1170,7 @@ TEST(GeckoProfiler, Markers)
                 EXPECT_EQ(state, S_GCSliceMarkerPayload);
                 state = State(S_GCSliceMarkerPayload + 1);
                 EXPECT_EQ(typeString, "GCSlice");
-                EXPECT_EQ_JSON(payload["startTime"], Double, ts1Double);
-                // Start timestamp is also stored in marker outside of payload.
-                EXPECT_EQ_JSON(marker[1], Double, ts1Double);
-                EXPECT_EQ_JSON(payload["endTime"], Double, ts2Double);
+                EXPECT_TIMING_INTERVAL_AT(ts1Double, ts2Double);
                 EXPECT_TRUE(payload["stack"].isNull());
                 EXPECT_EQ_JSON(payload["timings"], Int, 44);
 
@@ -1065,20 +1178,14 @@ TEST(GeckoProfiler, Markers)
                 EXPECT_EQ(state, S_HangMarkerPayload);
                 state = State(S_HangMarkerPayload + 1);
                 EXPECT_EQ(typeString, "BHR-detected hang");
-                EXPECT_EQ_JSON(payload["startTime"], Double, ts1Double);
-                // Start timestamp is also stored in marker outside of payload.
-                EXPECT_EQ_JSON(marker[1], Double, ts1Double);
-                EXPECT_EQ_JSON(payload["endTime"], Double, ts2Double);
+                EXPECT_TIMING_INTERVAL_AT(ts1Double, ts2Double);
                 EXPECT_TRUE(payload["stack"].isNull());
 
               } else if (nameString == "LogMarkerPayload marker") {
                 EXPECT_EQ(state, S_LogMarkerPayload);
                 state = State(S_LogMarkerPayload + 1);
                 EXPECT_EQ(typeString, "Log");
-                EXPECT_EQ_JSON(payload["startTime"], Double, ts1Double);
-                // Start timestamp is also stored in marker outside of payload.
-                EXPECT_EQ_JSON(marker[1], Double, ts1Double);
-                EXPECT_EQ_JSON(payload["endTime"], Double, ts1Double);
+                EXPECT_TIMING_INSTANT_AT(ts1Double);
                 EXPECT_TRUE(payload["stack"].isNull());
                 EXPECT_EQ_JSON(payload["name"], String, "text");
                 EXPECT_EQ_JSON(payload["module"], String, "module");
@@ -1087,10 +1194,7 @@ TEST(GeckoProfiler, Markers)
                 EXPECT_EQ(state, S_LongTaskMarkerPayload);
                 state = State(S_LongTaskMarkerPayload + 1);
                 EXPECT_EQ(typeString, "MainThreadLongTask");
-                EXPECT_EQ_JSON(payload["startTime"], Double, ts1Double);
-                // Start timestamp is also stored in marker outside of payload.
-                EXPECT_EQ_JSON(marker[1], Double, ts1Double);
-                EXPECT_EQ_JSON(payload["endTime"], Double, ts2Double);
+                EXPECT_TIMING_INTERVAL_AT(ts1Double, ts2Double);
                 EXPECT_TRUE(payload["stack"].isNull());
                 EXPECT_EQ_JSON(payload["category"], String, "LongTask");
 
@@ -1098,10 +1202,7 @@ TEST(GeckoProfiler, Markers)
                 EXPECT_EQ(state, S_NativeAllocationMarkerPayload);
                 state = State(S_NativeAllocationMarkerPayload + 1);
                 EXPECT_EQ(typeString, "Native allocation");
-                EXPECT_EQ_JSON(payload["startTime"], Double, ts1Double);
-                // Start timestamp is also stored in marker outside of payload.
-                EXPECT_EQ_JSON(marker[1], Double, ts1Double);
-                EXPECT_EQ_JSON(payload["endTime"], Double, ts1Double);
+                EXPECT_TIMING_INSTANT_AT(ts1Double);
                 EXPECT_TRUE(payload["stack"].isNull());
                 EXPECT_EQ_JSON(payload["size"], Int64, 9876543210);
                 EXPECT_EQ_JSON(payload["memoryAddress"], Int64, 1234);
@@ -1111,10 +1212,7 @@ TEST(GeckoProfiler, Markers)
                 EXPECT_EQ(state, S_PrefMarkerPayload);
                 state = State(S_PrefMarkerPayload + 1);
                 EXPECT_EQ(typeString, "PreferenceRead");
-                EXPECT_EQ_JSON(payload["startTime"], Double, ts1Double);
-                // Start timestamp is also stored in marker outside of payload.
-                EXPECT_EQ_JSON(marker[1], Double, ts1Double);
-                EXPECT_EQ_JSON(payload["endTime"], Double, ts1Double);
+                EXPECT_TIMING_INSTANT_AT(ts1Double);
                 EXPECT_TRUE(payload["stack"].isNull());
                 EXPECT_EQ_JSON(payload["prefAccessTime"], Double, ts1Double);
                 EXPECT_EQ_JSON(payload["prefName"], String, "preference name");
@@ -1137,10 +1235,7 @@ TEST(GeckoProfiler, Markers)
                 EXPECT_EQ(state, S_TextMarkerPayload1);
                 state = State(S_TextMarkerPayload1 + 1);
                 EXPECT_EQ(typeString, "Text");
-                EXPECT_EQ_JSON(payload["startTime"], Double, ts1Double);
-                // Start timestamp is also stored in marker outside of payload.
-                EXPECT_EQ_JSON(marker[1], Double, ts1Double);
-                EXPECT_EQ_JSON(payload["endTime"], Double, ts1Double);
+                EXPECT_TIMING_INSTANT_AT(ts1Double);
                 EXPECT_TRUE(payload["stack"].isNull());
                 EXPECT_EQ_JSON(payload["name"], String, "text");
 
@@ -1148,10 +1243,7 @@ TEST(GeckoProfiler, Markers)
                 EXPECT_EQ(state, S_TextMarkerPayload2);
                 state = State(S_TextMarkerPayload2 + 1);
                 EXPECT_EQ(typeString, "Text");
-                EXPECT_EQ_JSON(payload["startTime"], Double, ts1Double);
-                // Start timestamp is also stored in marker outside of payload.
-                EXPECT_EQ_JSON(marker[1], Double, ts1Double);
-                EXPECT_EQ_JSON(payload["endTime"], Double, ts2Double);
+                EXPECT_TIMING_INTERVAL_AT(ts1Double, ts2Double);
                 EXPECT_TRUE(payload["stack"].isNull());
                 EXPECT_EQ_JSON(payload["name"], String, "text");
 
@@ -1159,10 +1251,7 @@ TEST(GeckoProfiler, Markers)
                 EXPECT_EQ(state, S_UserTimingMarkerPayload_mark);
                 state = State(S_UserTimingMarkerPayload_mark + 1);
                 EXPECT_EQ(typeString, "UserTiming");
-                EXPECT_EQ_JSON(payload["startTime"], Double, ts1Double);
-                // Start timestamp is also stored in marker outside of payload.
-                EXPECT_EQ_JSON(marker[1], Double, ts1Double);
-                EXPECT_EQ_JSON(payload["endTime"], Double, ts1Double);
+                EXPECT_TIMING_INSTANT_AT(ts1Double);
                 EXPECT_TRUE(payload["stack"].isNull());
                 EXPECT_EQ_JSON(payload["name"], String, "mark name");
                 EXPECT_EQ_JSON(payload["entryType"], String, "mark");
@@ -1172,10 +1261,7 @@ TEST(GeckoProfiler, Markers)
                 EXPECT_EQ(state, S_UserTimingMarkerPayload_measure);
                 state = State(S_UserTimingMarkerPayload_measure + 1);
                 EXPECT_EQ(typeString, "UserTiming");
-                EXPECT_EQ_JSON(payload["startTime"], Double, ts1Double);
-                // Start timestamp is also stored in marker outside of payload.
-                EXPECT_EQ_JSON(marker[1], Double, ts1Double);
-                EXPECT_EQ_JSON(payload["endTime"], Double, ts2Double);
+                EXPECT_TIMING_INTERVAL_AT(ts1Double, ts2Double);
                 EXPECT_TRUE(payload["stack"].isNull());
                 EXPECT_EQ_JSON(payload["name"], String, "measure name");
                 EXPECT_EQ_JSON(payload["entryType"], String, "measure");
@@ -1187,7 +1273,7 @@ TEST(GeckoProfiler, Markers)
                 state = State(S_VsyncMarkerPayload + 1);
                 EXPECT_EQ(typeString, "VsyncTimestamp");
                 // Timestamp is stored in marker outside of payload.
-                EXPECT_EQ_JSON(marker[1], Double, ts1Double);
+                EXPECT_TIMING_INSTANT_AT(ts1Double);
                 EXPECT_TRUE(payload["stack"].isNull());
               }
             }  // marker with payload
@@ -1247,7 +1333,7 @@ TEST(GeckoProfiler, Markers)
   profiler_start(PROFILER_DEFAULT_ENTRIES, PROFILER_DEFAULT_INTERVAL, features,
                  filters, MOZ_ARRAY_LENGTH(filters));
 
-  EXPECT_TRUE(profiler_stream_json_for_this_process(w));
+  EXPECT_TRUE(::profiler_stream_json_for_this_process(w));
 
   profiler_stop();
 
@@ -1321,9 +1407,9 @@ TEST(GeckoProfiler, Counters)
 
   // Verify we got counters in the output
   SpliceableChunkedJSONWriter w;
-  ASSERT_TRUE(profiler_stream_json_for_this_process(w));
+  ASSERT_TRUE(::profiler_stream_json_for_this_process(w));
 
-  UniquePtr<char[]> profile = w.WriteFunc()->CopyData();
+  UniquePtr<char[]> profile = w.ChunkedWriteFunc().CopyData();
 
   // counter name and description should appear as is.
   ASSERT_TRUE(strstr(profile.get(), COUNTER_NAME));
@@ -1334,9 +1420,9 @@ TEST(GeckoProfiler, Counters)
   AUTO_PROFILER_COUNT_TOTAL(TestCounter2, 10);
   PR_Sleep(PR_MillisecondsToInterval(200));
 
-  ASSERT_TRUE(profiler_stream_json_for_this_process(w));
+  ASSERT_TRUE(::profiler_stream_json_for_this_process(w));
 
-  profile = w.WriteFunc()->CopyData();
+  profile = w.ChunkedWriteFunc().CopyData();
   ASSERT_TRUE(strstr(profile.get(), COUNTER_NAME));
   ASSERT_TRUE(strstr(profile.get(), COUNTER_DESCRIPTION));
   ASSERT_TRUE(strstr(profile.get(), COUNTER_NAME2));
@@ -1414,22 +1500,22 @@ TEST(GeckoProfiler, StreamJSONForThisProcess)
   const char* filters[] = {"GeckoMain"};
 
   SpliceableChunkedJSONWriter w;
-  ASSERT_TRUE(!profiler_stream_json_for_this_process(w));
+  ASSERT_TRUE(!::profiler_stream_json_for_this_process(w));
 
   profiler_start(PROFILER_DEFAULT_ENTRIES, PROFILER_DEFAULT_INTERVAL, features,
                  filters, MOZ_ARRAY_LENGTH(filters));
 
   w.Start();
-  ASSERT_TRUE(profiler_stream_json_for_this_process(w));
+  ASSERT_TRUE(::profiler_stream_json_for_this_process(w));
   w.End();
 
-  UniquePtr<char[]> profile = w.WriteFunc()->CopyData();
+  UniquePtr<char[]> profile = w.ChunkedWriteFunc().CopyData();
 
   JSONOutputCheck(profile.get());
 
   profiler_stop();
 
-  ASSERT_TRUE(!profiler_stream_json_for_this_process(w));
+  ASSERT_TRUE(!::profiler_stream_json_for_this_process(w));
 }
 
 TEST(GeckoProfiler, StreamJSONForThisProcessThreaded)
@@ -1443,7 +1529,7 @@ TEST(GeckoProfiler, StreamJSONForThisProcessThreaded)
   const char* filters[] = {"GeckoMain"};
 
   SpliceableChunkedJSONWriter w;
-  ASSERT_TRUE(!profiler_stream_json_for_this_process(w));
+  ASSERT_TRUE(!::profiler_stream_json_for_this_process(w));
 
   // Start the profiler on the main thread.
   profiler_start(PROFILER_DEFAULT_ENTRIES, PROFILER_DEFAULT_INTERVAL, features,
@@ -1455,12 +1541,12 @@ TEST(GeckoProfiler, StreamJSONForThisProcessThreaded)
           "GeckoProfiler_StreamJSONForThisProcessThreaded_Test::TestBody",
           [&]() {
             w.Start();
-            ASSERT_TRUE(profiler_stream_json_for_this_process(w));
+            ASSERT_TRUE(::profiler_stream_json_for_this_process(w));
             w.End();
           }),
       NS_DISPATCH_SYNC);
 
-  UniquePtr<char[]> profile = w.WriteFunc()->CopyData();
+  UniquePtr<char[]> profile = w.ChunkedWriteFunc().CopyData();
 
   JSONOutputCheck(profile.get());
 
@@ -1471,13 +1557,13 @@ TEST(GeckoProfiler, StreamJSONForThisProcessThreaded)
           "GeckoProfiler_StreamJSONForThisProcessThreaded_Test::TestBody",
           [&]() {
             profiler_stop();
-            ASSERT_TRUE(!profiler_stream_json_for_this_process(w));
+            ASSERT_TRUE(!::profiler_stream_json_for_this_process(w));
           }),
       NS_DISPATCH_SYNC);
   thread->Shutdown();
 
   // Call profiler_stream_json_for_this_process on the main thread.
-  ASSERT_TRUE(!profiler_stream_json_for_this_process(w));
+  ASSERT_TRUE(!::profiler_stream_json_for_this_process(w));
 }
 
 TEST(GeckoProfiler, ProfilingStack)

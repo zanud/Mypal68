@@ -136,7 +136,6 @@ EXTRA_JS_MODULES += [
     'FormValidationHandler.jsm',
     'HomePage.jsm',
     'LaterRun.jsm',
-    'LiveBookmarkMigrator.jsm',
     'NewTabPagePreloading.jsm',
     'OpenInTabsUtils.jsm',
     'PageActions.jsm',

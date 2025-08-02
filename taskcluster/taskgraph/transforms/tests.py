@@ -625,6 +625,43 @@ def setup_raptor(config, tests):
         if test['require-signed-extensions']:
             extra_options.append('--is-release-build')
 
+        # add urlparams based on platform, test names and projects
+        testurlparams_by_platform_and_project = {
+            "android-hw-g5": [
+                {
+                    "branches": [],  # For all branches
+                    "testnames": ["youtube-playback"],
+                    "urlparams": [
+                        # param used for excluding youtube-playback tests from executing
+                        # it excludes the tests with videos >1080p
+                        "exclude=1,2,9,10,17,18,21,22,26,28,30,32,39,40,47,"
+                        "48,55,56,63,64,71,72,79,80,83,84,89,90,95,96",
+                    ]
+                },
+            ]
+        }
+
+        for platform, testurlparams_by_project_definitions \
+                in testurlparams_by_platform_and_project.items():
+
+            if test['test-platform'].startswith(platform):
+                # For every platform it may have several definitions
+                for testurlparams_by_project in testurlparams_by_project_definitions:
+                    # The test should contain at least one defined testname
+                    if any(
+                        testname in test['test-name']
+                        for testname in testurlparams_by_project['testnames']
+                    ):
+                        branches = testurlparams_by_project['branches']
+                        if (
+                            branches == [] or
+                            config.params.get('project') in branches or
+                            config.params.is_try() and 'try' in branches
+                        ):
+                            params_query = '&'.join(testurlparams_by_project['urlparams'])
+                            add_extra_params_option = "--test-url-params={}".format(params_query)
+                            extra_options.append(add_extra_params_option)
+
         yield test
 
 
@@ -686,15 +723,10 @@ def set_treeherder_machine_platform(config, tests):
         # The build names for Android platforms have partially evolved over the
         # years and need to be translated.
         'android-api-16/debug': 'android-em-4-3-armv7-api16/debug',
-        'android-api-16-beta/debug': 'android-em-4-3-armv7-api16-beta/debug',
-        'android-api-16-release/debug': 'android-em-4-3-armv7-api16-release/debug',
         'android-api-16-ccov/debug': 'android-em-4-3-armv7-api16-ccov/debug',
         'android-api-16/opt': 'android-em-4-3-armv7-api16/opt',
-        'android-api-16-beta-test/opt': 'android-em-4-3-armv7-api16-beta/opt',
-        'android-api-16-release-test/opt': 'android-em-4-3-armv7-api16-release/opt',
         'android-api-16-pgo/opt': 'android-em-4-3-armv7-api16/pgo',
         'android-x86/opt': 'android-em-4-2-x86/opt',
-        'android-api-16-gradle/opt': 'android-api-16-gradle/opt',
     }
     for test in tests:
         # For most desktop platforms, the above table is not used for "regular"
@@ -1222,7 +1254,12 @@ def make_job_description(config, tests):
     taskgraph.transforms.job)"""
 
     for test in tests:
-        label = '{}-{}-{}'.format(config.kind, test['test-platform'], test['test-name'])
+        mobile = get_mobile_project(test)
+        if mobile and (mobile not in test['test-name']):
+            label = '{}-{}-{}-{}'.format(config.kind, test['test-platform'], mobile,
+                                         test['test-name'])
+        else:
+            label = '{}-{}-{}'.format(config.kind, test['test-platform'], test['test-name'])
         if test['chunks'] > 1:
             label += '-{}'.format(test['this-chunk'])
 

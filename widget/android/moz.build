@@ -38,6 +38,7 @@ EXPORTS.mozilla.widget += [
 
 SOURCES += [
     '!GeneratedJNIWrappers.cpp',
+    'MediaKeysEventSourceFactory.cpp',
 ]
 
 UNIFIED_SOURCES += [

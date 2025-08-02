@@ -440,27 +440,3 @@ async function validationPing(server, client, duration) {
   Svc.Obs.notify("weave:service:sync:finish");
   return pingPromise;
 }
-
-add_task(async function test_telemetry_integration() {
-  let { server, client } = getDummyServerAndClient();
-  // remove "c"
-  server.pop();
-  server[0].children.pop();
-  const duration = 50;
-  let ping = await validationPing(server, client, duration);
-  ok(ping.engines);
-  let bme = ping.engines.find(e => e.name === "bookmarks");
-  ok(bme);
-  ok(bme.validation);
-  ok(bme.validation.problems);
-  equal(bme.validation.checked, server.length);
-  equal(bme.validation.took, duration);
-  bme.validation.problems.sort((a, b) => String(a.name).localeCompare(b.name));
-  equal(bme.validation.version, new BookmarkValidator().version);
-  deepEqual(bme.validation.problems, [
-    { name: "badClientRoots", count: 3 },
-    { name: "sdiff:childGUIDs", count: 1 },
-    { name: "serverMissing", count: 1 },
-    { name: "structuralDifferences", count: 1 },
-  ]);
-});

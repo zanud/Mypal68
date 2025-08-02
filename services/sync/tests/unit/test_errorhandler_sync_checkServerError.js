@@ -65,7 +65,6 @@ async function generateAndUploadKeys(server) {
 
 add_task(async function setup() {
   await engineManager.clear();
-  validate_all_future_pings();
   await engineManager.register(CatapultEngine);
 });
 

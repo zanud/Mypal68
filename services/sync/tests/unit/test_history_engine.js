@@ -85,7 +85,7 @@ add_task(async function test_history_download_limit() {
   // the backlog between syncs.
   engine.guidFetchBatchSize = 0;
 
-  let ping = await sync_engine_and_validate_telem(engine, false);
+  let ping = await sync_engine(engine);
   deepEqual(ping.engines[0].incoming, { applied: 5 });
 
   let backlogAfterFirstSync = Array.from(engine.toFetch).sort();
@@ -106,7 +106,7 @@ add_task(async function test_history_download_limit() {
   equal(await engine.getLastSync(), lastSync + 15);
 
   engine.lastModified = collection.modified;
-  ping = await sync_engine_and_validate_telem(engine, false);
+  ping = await sync_engine(engine);
   ok(!ping.engines[0].incoming);
 
   // After the second sync, our backlog still contains the same GUIDs: we
@@ -135,7 +135,7 @@ add_task(async function test_history_download_limit() {
   collection.insertWBO(newWBO);
 
   engine.lastModified = collection.modified;
-  ping = await sync_engine_and_validate_telem(engine, false);
+  ping = await sync_engine(engine);
   deepEqual(ping.engines[0].incoming, { applied: 1 });
 
   // Our backlog should remain the same.
@@ -149,7 +149,7 @@ add_task(async function test_history_download_limit() {
   engine.guidFetchBatchSize = 2;
 
   engine.lastModified = collection.modified;
-  ping = await sync_engine_and_validate_telem(engine, false);
+  ping = await sync_engine(engine);
   deepEqual(ping.engines[0].incoming, { applied: 5 });
 
   deepEqual(Array.from(engine.toFetch).sort(), [
@@ -162,7 +162,7 @@ add_task(async function test_history_download_limit() {
 
   // Sync again to clear out the backlog.
   engine.lastModified = collection.modified;
-  ping = await sync_engine_and_validate_telem(engine, false);
+  ping = await sync_engine(engine);
   deepEqual(ping.engines[0].incoming, { applied: 5 });
 
   deepEqual(Array.from(engine.toFetch), []);
@@ -203,7 +203,7 @@ add_task(async function test_history_visit_roundtrip() {
   let collection = server.user("foo").collection("history");
 
   // Sync the visit up to the server.
-  await sync_engine_and_validate_telem(engine, false);
+  await sync_engine(engine);
 
   collection.updateRecord(
     id,
@@ -225,7 +225,7 @@ add_task(async function test_history_visit_roundtrip() {
 
   // Force a remote sync.
   await engine.setLastSync(Date.now() / 1000 - 30);
-  await sync_engine_and_validate_telem(engine, false);
+  await sync_engine(engine);
 
   // Make sure that we didn't duplicate the visit when inserting. (Prior to bug
   // 1423395, we would insert a duplicate visit, where the timestamp was
@@ -272,7 +272,7 @@ add_task(async function test_history_visit_dedupe_old() {
 
   let collection = server.user("foo").collection("history");
 
-  await sync_engine_and_validate_telem(engine, false);
+  await sync_engine(engine);
 
   collection.updateRecord(
     guid,
@@ -302,7 +302,7 @@ add_task(async function test_history_visit_dedupe_old() {
   );
 
   await engine.setLastSync(Date.now() / 1000 - 30);
-  await sync_engine_and_validate_telem(engine, false);
+  await sync_engine(engine);
 
   allVisits = (await PlacesUtils.history.fetch("https://www.example.com", {
     includeVisits: true,

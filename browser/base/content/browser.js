@@ -283,9 +283,45 @@ XPCOMUtils.defineLazyGetter(this, "gNavToolbox", () => {
 });
 
 XPCOMUtils.defineLazyGetter(this, "gURLBar", () => {
-  return new UrlbarInput({
+  let urlbar = new UrlbarInput({
     textbox: document.getElementById("urlbar"),
   });
+
+  let beforeFocusOrSelect = event => {
+    // In customize mode, the url bar is disabled. If a new tab is opened or the
+    // user switches to a different tab, this function gets called before we've
+    // finished leaving customize mode, and the url bar will still be disabled.
+    // We can't focus it when it's disabled, so we need to re-run ourselves when
+    // we've finished leaving customize mode.
+    if (
+      CustomizationHandler.isCustomizing() ||
+      CustomizationHandler.isExitingCustomizeMode
+    ) {
+      gNavToolbox.addEventListener(
+        "aftercustomization",
+        () => {
+          if (event.type == "beforeselect") {
+            gURLBar.select();
+          } else {
+            gURLBar.focus();
+          }
+        },
+        {
+          once: true,
+        }
+      );
+      event.preventDefault();
+      return;
+    }
+
+    if (window.fullScreen) {
+      FullScreen.showNavToolbox();
+    }
+  };
+  urlbar.addEventListener("beforefocus", beforeFocusOrSelect);
+  urlbar.addEventListener("beforeselect", beforeFocusOrSelect);
+
+  return urlbar;
 });
 
 XPCOMUtils.defineLazyGetter(this, "ReferrerInfo", () =>
@@ -1985,7 +2021,7 @@ var gBrowserInit = {
     let shouldRemoveFocusedAttribute = true;
     this._callWithURIToLoad(uriToLoad => {
       if (isBlankPageURL(uriToLoad) || uriToLoad == "about:privatebrowsing") {
-        focusAndSelectUrlBar();
+        gURLBar.select();
         shouldRemoveFocusedAttribute = false;
         return;
       }
@@ -2122,11 +2158,6 @@ var gBrowserInit = {
     });
 
     scheduleIdleTask(() => {
-      // Initialize the all tabs menu
-      gTabsPanel.init();
-    });
-
-    scheduleIdleTask(() => {
       CombinedStopReload.startAnimationPrefMonitoring();
     });
 
@@ -2140,11 +2171,6 @@ var gBrowserInit = {
 
     scheduleIdleTask(() => {
       gBrowserThumbnails.init();
-    });
-
-    // Show the addons private browsing panel the first time a private window.
-    scheduleIdleTask(() => {
-      ExtensionsUI.showPrivateBrowsingNotification(window);
     });
 
     scheduleIdleTask(
@@ -2585,7 +2611,7 @@ function BrowserHome(aEvent) {
         null
       );
       if (isBlankPageURL(homePage)) {
-        focusAndSelectUrlBar();
+        gURLBar.select();
       } else {
         gBrowser.selectedBrowser.focus();
       }
@@ -2648,32 +2674,9 @@ function loadOneOrMoreURIs(aURIString, aTriggeringPrincipal, aCsp) {
   } catch (e) {}
 }
 
-/**
- * Focuses and expands the location bar input field and selects its contents.
- */
-function focusAndSelectUrlBar() {
-  // In customize mode, the url bar is disabled. If a new tab is opened or the
-  // user switches to a different tab, this function gets called before we've
-  // finished leaving customize mode, and the url bar will still be disabled.
-  // We can't focus it when it's disabled, so we need to re-run ourselves when
-  // we've finished leaving customize mode.
-  if (CustomizationHandler.isCustomizing()) {
-    gNavToolbox.addEventListener("aftercustomization", focusAndSelectUrlBar, {
-      once: true,
-    });
-    return;
-  }
-
-  if (window.fullScreen) {
-    FullScreen.showNavToolbox();
-  }
-
-  gURLBar.select();
-}
-
 function openLocation() {
   if (window.location.href == AppConstants.BROWSER_CHROME_URL) {
-    focusAndSelectUrlBar();
+    gURLBar.select();
     gURLBar.view.autoOpen();
     return;
   }
@@ -4097,9 +4100,6 @@ var newTabButtonObserver = {
         let data = await UrlbarUtils.getShortcutOrURIAndPostData(link.url);
         // Allow third-party services to fixup this URL.
         openNewTabWith(data.url, shiftKey, {
-          // TODO fix allowInheritPrincipal
-          // (this is required by javascript: drop to the new window) Bug 1475201
-          allowInheritPrincipal: true,
           postData: data.postData,
           allowThirdPartyFixup: true,
           triggeringPrincipal,
@@ -4170,14 +4170,7 @@ const DOMEventHandler = {
         break;
 
       case "Link:SetIcon":
-        this.setIconFromLink(
-          aMsg.target,
-          aMsg.data.pageURL,
-          aMsg.data.originalURL,
-          aMsg.data.canUseForTab,
-          aMsg.data.expiration,
-          aMsg.data.iconURL
-        );
+        this.setIconFromLink(aMsg.target, aMsg.data);
         break;
 
       case "Link:SetFailedIcon":
@@ -4215,25 +4208,21 @@ const DOMEventHandler = {
   },
 
   setIconFromLink(
-    aBrowser,
-    aPageURL,
-    aOriginalURL,
-    aCanUseForTab,
-    aExpiration,
-    aIconURL
+    browser,
+    { pageURL, originalURL, canUseForTab, expiration, iconURL, canStoreIcon }
   ) {
-    let tab = gBrowser.getTabForBrowser(aBrowser);
+    let tab = gBrowser.getTabForBrowser(browser);
     if (!tab) {
       return;
     }
 
-    if (aCanUseForTab) {
-      this.clearPendingIcon(aBrowser);
+    if (canUseForTab) {
+      this.clearPendingIcon(browser);
     }
 
     let iconURI;
     try {
-      iconURI = Services.io.newURI(aIconURL);
+      iconURI = Services.io.newURI(iconURL);
     } catch (ex) {
       Cu.reportError(ex);
       return;
@@ -4241,7 +4230,7 @@ const DOMEventHandler = {
     if (iconURI.scheme != "data") {
       try {
         Services.scriptSecurityManager.checkLoadURIWithPrincipal(
-          aBrowser.contentPrincipal,
+          browser.contentPrincipal,
           iconURI,
           Services.scriptSecurityManager.ALLOW_CHROME
         );
@@ -4249,21 +4238,23 @@ const DOMEventHandler = {
         return;
       }
     }
-    try {
-      PlacesUIUtils.loadFavicon(
-        aBrowser,
-        Services.scriptSecurityManager.getSystemPrincipal(),
-        makeURI(aPageURL),
-        makeURI(aOriginalURL),
-        aExpiration,
-        iconURI
-      );
-    } catch (ex) {
-      Cu.reportError(ex);
+    if (canStoreIcon) {
+      try {
+        PlacesUIUtils.loadFavicon(
+          browser,
+          Services.scriptSecurityManager.getSystemPrincipal(),
+          makeURI(pageURL),
+          makeURI(originalURL),
+          expiration,
+          iconURI
+        );
+      } catch (ex) {
+        Cu.reportError(ex);
+      }
     }
 
-    if (aCanUseForTab) {
-      gBrowser.setIcon(tab, aIconURL, aOriginalURL);
+    if (canUseForTab) {
+      gBrowser.setIcon(tab, iconURL, originalURL);
     }
   },
 
@@ -4461,15 +4452,11 @@ const BrowserSearch = {
    *                      use the default placeholder.
    */
   _setURLBarPlaceholder(name) {
-    let placeholder;
-    if (name) {
-      placeholder = gBrowserBundle.formatStringFromName("urlbar.placeholder", [
-        name,
-      ]);
-    } else {
-      placeholder = gURLBar.getAttribute("defaultPlaceholder");
-    }
-    gURLBar.placeholder = placeholder;
+    document.l10n.setAttributes(
+      gURLBar.inputField,
+      name ? "urlbar-placeholder-with-name" : "urlbar-placeholder",
+      name ? { name } : undefined
+    );
   },
 
   addEngine(browser, engine, uri) {
@@ -6526,6 +6513,15 @@ function onViewToolbarsPopupShowing(aEvent, aInsertPoint) {
     node.hidden = !showTabStripItems;
   }
 
+  MozXULElement.insertFTLIfNeeded("browser/toolbarContextMenu.ftl");
+  document
+    .getElementById("toolbar-context-menu")
+    .querySelectorAll("[data-lazy-l10n-id]")
+    .forEach(el => {
+      el.setAttribute("data-l10n-id", el.getAttribute("data-lazy-l10n-id"));
+      el.removeAttribute("data-lazy-l10n-id");
+    });
+
   if (showTabStripItems) {
     let multipleTabsSelected = !!gBrowser.multiSelectedTabsCount;
     document.getElementById(
@@ -6545,15 +6541,6 @@ function onViewToolbarsPopupShowing(aEvent, aInsertPoint) {
     ).disabled = gBrowser.allTabsSelected();
     document.getElementById("toolbar-context-undoCloseTab").disabled =
       SessionStore.getClosedTabCount(window) == 0;
-
-    MozXULElement.insertFTLIfNeeded("browser/toolbarContextMenu.ftl");
-    document
-      .getElementById("toolbar-context-menu")
-      .querySelectorAll("[data-lazy-l10n-id]")
-      .forEach(el => {
-        el.setAttribute("data-l10n-id", el.getAttribute("data-lazy-l10n-id"));
-        el.removeAttribute("data-lazy-l10n-id");
-      });
     return;
   }
 

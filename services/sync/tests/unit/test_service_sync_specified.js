@@ -62,7 +62,6 @@ async function setUp() {
 
 add_task(async function setup() {
   await Service.engineManager.clear();
-  validate_all_future_pings();
 
   await Service.engineManager.register(SteamEngine);
   await Service.engineManager.register(StirlingEngine);

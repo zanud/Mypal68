@@ -20,3 +20,26 @@ toolbar-context-menu-select-all-tabs =
 toolbar-context-menu-undo-close-tab =
     .label = Undo Close Tab
     .accesskey = U
+
+toolbar-context-menu-manage-extension =
+    .label = Manage Extension
+    .accesskey = E
+toolbar-context-menu-remove-extension =
+    .label = Remove Extension
+    .accesskey = v
+
+# Can appear on the same context menu as menubarCmd ("Menu Bar") and
+# personalbarCmd ("Bookmarks Toolbar"), so they should have different
+# access keys.
+toolbar-context-menu-pin-to-overflow-menu =
+    .label = Pin to Overflow Menu
+    .accesskey = P
+toolbar-context-menu-auto-hide-downloads-button =
+    .label = Auto-Hide in Toolbar
+    .accesskey = A
+toolbar-context-menu-remove-from-toolbar =
+    .label = Remove from Toolbar
+    .accesskey = R
+toolbar-context-menu-view-customize-toolbar =
+    .label = Customize…
+    .accesskey = C

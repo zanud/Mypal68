@@ -46,18 +46,6 @@ ChromeUtils.defineModuleGetter(
   "resource://gre/modules/FxAccounts.jsm"
 );
 
-ChromeUtils.defineModuleGetter(
-  this,
-  "getRepairRequestor",
-  "resource://services-sync/collection_repair.js"
-);
-
-ChromeUtils.defineModuleGetter(
-  this,
-  "getRepairResponder",
-  "resource://services-sync/collection_repair.js"
-);
-
 const CLIENTS_TTL = 1814400; // 21 days
 const CLIENTS_TTL_REFRESH = 604800; // 7 days
 const STALE_CLIENT_REMOTE_AGE = 604800; // 7 days
@@ -632,43 +620,6 @@ ClientEngine.prototype = {
     }
   },
 
-  async _syncFinish() {
-    // Record histograms for our device types, and also write them to a pref
-    // so non-histogram telemetry (eg, UITelemetry) and the sync scheduler
-    // has easy access to them, and so they are accurate even before we've
-    // successfully synced the first time after startup.
-    let deviceTypeCounts = this.deviceTypes;
-    for (let [deviceType, count] of deviceTypeCounts) {
-      let hid;
-      let prefName = this.name + ".devices.";
-      switch (deviceType) {
-        case DEVICE_TYPE_DESKTOP:
-          hid = "WEAVE_DEVICE_COUNT_DESKTOP";
-          prefName += "desktop";
-          break;
-        case DEVICE_TYPE_MOBILE:
-          hid = "WEAVE_DEVICE_COUNT_MOBILE";
-          prefName += "mobile";
-          break;
-        default:
-          this._log.warn(
-            `Unexpected deviceType "${deviceType}" recording device telemetry.`
-          );
-          continue;
-      }
-      Services.telemetry.getHistogramById(hid).add(count);
-      // Optimization: only write the pref if it changed since our last sync.
-      if (
-        this._lastDeviceCounts == null ||
-        this._lastDeviceCounts.get(prefName) != count
-      ) {
-        Svc.Prefs.set(prefName, count);
-      }
-    }
-    this._lastDeviceCounts = deviceTypeCounts;
-    return SyncEngine.prototype._syncFinish.call(this);
-  },
-
   async _reconcile(item) {
     // Every incoming record is reconciled, so we use this to track the
     // contents of the collection on the server.
@@ -768,16 +719,6 @@ ClientEngine.prototype = {
       importance: 1,
       desc: "Instruct a client to display a URI",
     },
-    repairRequest: {
-      args: 1,
-      importance: 2,
-      desc: "Instruct a client to initiate a repair",
-    },
-    repairResponse: {
-      args: 1,
-      importance: 2,
-      desc: "Instruct a client a repair request is complete",
-    },
   },
 
   /**
@@ -787,7 +728,7 @@ ClientEngine.prototype = {
    * @param args Array of arguments/data for command
    * @param clientId Client to send command to
    */
-  async _sendCommandToClient(command, args, clientId, telemetryExtra) {
+  async _sendCommandToClient(command, args, clientId) {
     this._log.trace("Sending " + command + " to " + clientId);
 
     let client = this._store._remoteClients[clientId];
@@ -801,26 +742,11 @@ ClientEngine.prototype = {
     let action = {
       command,
       args,
-      // We send the flowID to the other client so *it* can report it in its
-      // telemetry - we record it in ours below.
-      flowID: telemetryExtra.flowID,
     };
 
     if (await this._addClientCommand(clientId, action)) {
       this._log.trace(`Client ${clientId} got a new action`, [command, args]);
       await this._tracker.addChangedID(clientId);
-      try {
-        telemetryExtra.deviceID = this.service.identity.hashedDeviceID(
-          clientId
-        );
-      } catch (_) {}
-
-      this.service.recordTelemetryEvent(
-        "sendcommand",
-        command,
-        undefined,
-        telemetryExtra
-      );
     } else {
       this._log.trace(`Client ${clientId} got a duplicate action`, [
         command,
@@ -857,13 +783,6 @@ ClientEngine.prototype = {
         let { command, args, flowID } = rawCommand;
         this._log.debug("Processing command " + command, args);
 
-        this.service.recordTelemetryEvent(
-          "processcommand",
-          command,
-          undefined,
-          { flowID }
-        );
-
         let engines = [args[0]];
         switch (command) {
           case "resetAll":
@@ -885,55 +804,6 @@ ClientEngine.prototype = {
             let [uri, clientId, title] = args;
             URIsToDisplay.push({ uri, clientId, title });
             break;
-          case "repairResponse": {
-            // When we send a repair request to another device that understands
-            // it, that device will send a response indicating what it did.
-            let response = args[0];
-            let requestor = getRepairRequestor(response.collection);
-            if (!requestor) {
-              this._log.warn("repairResponse for unknown collection", response);
-              break;
-            }
-            if (!(await requestor.continueRepairs(response))) {
-              this._log.warn(
-                "repairResponse couldn't continue the repair",
-                response
-              );
-            }
-            break;
-          }
-          case "repairRequest": {
-            // Another device has sent us a request to make some repair.
-            let request = args[0];
-            let responder = getRepairResponder(request.collection);
-            if (!responder) {
-              this._log.warn("repairRequest for unknown collection", request);
-              break;
-            }
-            try {
-              if (await responder.repair(request, rawCommand)) {
-                // We've started a repair - once that collection has synced it
-                // will write a "response" command and arrange for this repair
-                // request to be removed from the local command list - if we
-                // removed it now we might fail to write a response in cases of
-                // premature shutdown etc.
-                shouldRemoveCommand = false;
-              }
-            } catch (ex) {
-              if (Async.isShutdownException(ex)) {
-                // Let's assume this error was caused by the shutdown, so let
-                // it try again next time.
-                throw ex;
-              }
-              // otherwise there are no second chances - the command is removed
-              // and will not be tried again.
-              // (Note that this shouldn't be hit in the normal case - it's
-              // expected the responder will handle all reasonable failures and
-              // write a response indicating that it couldn't do what was asked.)
-              this._log.error("Failed to handle a repair request", ex);
-            }
-            break;
-          }
           default:
             this._log.warn("Received an unknown command: " + command);
             break;
@@ -971,11 +841,8 @@ ClientEngine.prototype = {
    * @param clientId
    *        Client ID to send command to. If undefined, send to all remote
    *        clients.
-   * @param flowID
-   *        A unique identifier used to track success for this operation across
-   *        devices.
    */
-  async sendCommand(command, args, clientId = null, telemetryExtra = {}) {
+  async sendCommand(command, args, clientId = null) {
     let commandData = this._commands[command];
     // Don't send commands that we don't know about.
     if (!commandData) {
@@ -994,18 +861,12 @@ ClientEngine.prototype = {
       return;
     }
 
-    // We allocate a "flowID" here, so it is used for each client.
-    telemetryExtra = Object.assign({}, telemetryExtra); // don't clobber the caller's object
-    if (!telemetryExtra.flowID) {
-      telemetryExtra.flowID = Utils.makeGUID();
-    }
-
     if (clientId) {
-      await this._sendCommandToClient(command, args, clientId, telemetryExtra);
+      await this._sendCommandToClient(command, args, clientId);
     } else {
       for (let [id, record] of Object.entries(this._store._remoteClients)) {
         if (!record.stale) {
-          await this._sendCommandToClient(command, args, id, telemetryExtra);
+          await this._sendCommandToClient(command, args, id);
         }
       }
     }
@@ -1189,9 +1050,7 @@ ClientStore.prototype = {
       let truncatedCommands = Utils.tryFitItems(commands, maxPayloadSize);
       if (truncatedCommands.length != record.commands.length) {
         this._log.warn(
-          `Removing commands from client ${id} (from ${
-            record.commands.length
-          } to ${truncatedCommands.length})`
+          `Removing commands from client ${id} (from ${record.commands.length} to ${truncatedCommands.length})`
         );
         // Restore original order.
         record.commands = truncatedCommands.sort(

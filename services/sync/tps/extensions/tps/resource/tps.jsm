@@ -56,9 +56,6 @@ const { WEAVE_VERSION } = ChromeUtils.import(
 );
 const { Weave } = ChromeUtils.import("resource://services-sync/main.js");
 const { Svc } = ChromeUtils.import("resource://services-sync/util.js");
-const { SyncTelemetry } = ChromeUtils.import(
-  "resource://services-sync/telemetry.js"
-);
 const { BookmarkValidator } = ChromeUtils.import(
   "resource://services-sync/bookmark_validator.js"
 );
@@ -174,7 +171,6 @@ var TPS = {
   _setupComplete: false,
   _syncActive: false,
   _syncCount: 0,
-  _syncsReportedViaTelemetry: 0,
   _syncErrors: 0,
   _syncWipeAction: null,
   _tabsAdded: 0,
@@ -951,10 +947,6 @@ var TPS = {
         if (this.shouldValidateAddons) {
           await this.ValidateAddons();
         }
-        // Force this early so that we run the validation and detect missing pings
-        // *before* we start shutting down, since if we do it after, the python
-        // code won't notice the failure.
-        SyncTelemetry.shutdown();
         // we're all done
         Logger.logInfo(
           "test phase " +
@@ -1007,55 +999,6 @@ var TPS = {
     let root = file.parent.parent.parent.parent.parent; // <root>/services/sync/tests/tps/test_foo.js // <root>/services/sync/tests/tps // <root>/services/sync/tests // <root>/services/sync // <root>/services // <root>
     root.appendRelativePath(OS.Path.normalize(relativePath));
     return root;
-  },
-
-  // Default ping validator that always says the ping passes. This should be
-  // overridden unless the `testing.tps.skipPingValidation` pref is true.
-  pingValidator(ping) {
-    Logger.logInfo("Not validating ping -- disabled by pref");
-    return true;
-  },
-
-  // Attempt to load the sync_ping_schema.json and initialize `this.pingValidator`
-  // based on the source of the tps file. Assumes that it's at "../unit/sync_ping_schema.json"
-  // relative to the directory the tps test file (testFile) is contained in.
-  _tryLoadPingSchema(testFile) {
-    if (Services.prefs.getBoolPref("testing.tps.skipPingValidation", false)) {
-      return;
-    }
-    try {
-      let schemaFile = this._getFileRelativeToSourceRoot(
-        testFile,
-        "services/sync/tests/unit/sync_ping_schema.json"
-      );
-
-      let stream = Cc[
-        "@mozilla.org/network/file-input-stream;1"
-      ].createInstance(Ci.nsIFileInputStream);
-
-      stream.init(schemaFile, FileUtils.MODE_RDONLY, FileUtils.PERMS_FILE, 0);
-
-      let bytes = NetUtil.readInputStream(stream, stream.available());
-      let schema = JSON.parse(gTextDecoder.decode(bytes));
-      Logger.logInfo("Successfully loaded schema");
-
-      // Importing resource://testing-common/* isn't possible from within TPS,
-      // so we load Ajv manually.
-      let ajvFile = this._getFileRelativeToSourceRoot(
-        testFile,
-        "testing/modules/ajv-4.1.1.js"
-      );
-      let ajvURL = fileProtocolHandler.getURLSpecFromFile(ajvFile);
-      let ns = {};
-      ChromeUtils.import(ajvURL, ns);
-      let ajv = new ns.Ajv({ async: "co*" });
-      this.pingValidator = ajv.compile(schema);
-    } catch (e) {
-      this.DumpError(
-        `Failed to load ping schema and AJV relative to "${testFile}".`,
-        e
-      );
-    }
   },
 
   /**
@@ -1139,9 +1082,6 @@ var TPS = {
         let profileToClean = this._currentPhase.slice("cleanup-".length);
         this.phases[this._currentPhase] = profileToClean;
         this.Phase(this._currentPhase, [[this.Cleanup]]);
-      } else {
-        // Don't bother doing this for cleanup phases.
-        this._tryLoadPingSchema(file);
       }
       let this_phase = this._phaselist[this._currentPhase];
 
@@ -1176,8 +1116,6 @@ var TPS = {
       );
       Weave.Svc.Prefs.set("client.name", this.phases[this._currentPhase]);
 
-      this._interceptSyncTelemetry();
-
       // start processing the test actions
       this._currentAction = 0;
       await SessionStore.promiseAllWindowsRestored;
@@ -1185,61 +1123,6 @@ var TPS = {
     } catch (e) {
       this.DumpError("_executeTestPhase failed", e);
     }
-  },
-
-  /**
-   * Override sync telemetry functions so that we can detect errors generating
-   * the sync ping, and count how many pings we report.
-   */
-  _interceptSyncTelemetry() {
-    let originalObserve = SyncTelemetry.observe;
-    let self = this;
-    SyncTelemetry.observe = function() {
-      try {
-        originalObserve.apply(this, arguments);
-      } catch (e) {
-        self.DumpError("Error when generating sync telemetry", e);
-      }
-    };
-    SyncTelemetry.submit = record => {
-      Logger.logInfo(
-        "Intercepted sync telemetry submission: " + JSON.stringify(record)
-      );
-      this._syncsReportedViaTelemetry +=
-        record.syncs.length + (record.discarded || 0);
-      if (record.discarded) {
-        if (record.syncs.length != SyncTelemetry.maxPayloadCount) {
-          this.DumpError(
-            "Syncs discarded from ping before maximum payload count reached"
-          );
-        }
-      }
-      // If this is the shutdown ping, check and see that the telemetry saw all the syncs.
-      if (record.why === "shutdown") {
-        // If we happen to sync outside of tps manually causing it, its not an
-        // error in the telemetry, so we only complain if we didn't see all of them.
-        if (this._syncsReportedViaTelemetry < this._syncCount) {
-          this.DumpError(
-            `Telemetry missed syncs: Saw ${
-              this._syncsReportedViaTelemetry
-            }, should have >= ${this._syncCount}.`
-          );
-        }
-      }
-      if (!record.syncs.length) {
-        // Note: we're overwriting submit, so this is called even for pings that
-        // may have no data (which wouldn't be submitted to telemetry and would
-        // fail validation).
-        return;
-      }
-      if (!this.pingValidator(record)) {
-        // Note that we already logged the record.
-        this.DumpError(
-          "Sync ping validation failed with errors: " +
-            JSON.stringify(this.pingValidator.errors)
-        );
-      }
-    };
   },
 
   /**

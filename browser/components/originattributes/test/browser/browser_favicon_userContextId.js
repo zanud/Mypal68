@@ -154,11 +154,9 @@ FaviconObserver.prototype = {
 
 function waitOnFaviconLoaded(aFaviconURL) {
   return PlacesTestUtils.waitForNotification(
-    "onPageChanged",
-    (uri, attr, value, id) =>
-      attr === Ci.nsINavHistoryObserver.ATTRIBUTE_FAVICON &&
-      value === aFaviconURL,
-    "history"
+    "favicon-changed",
+    events => events.some(e => e.faviconUrl == aFaviconURL),
+    "places"
   );
 }
 
@@ -257,6 +255,8 @@ async function doTestForAllTabsFavicon(aTestPage, aFaviconHost, aFaviconURL) {
   // We need to clear the image cache here for making sure the network request will
   // be made for the favicon of allTabs menuitem.
   clearAllImageCaches();
+
+  gTabsPanel.init();
 
   // Make the popup of allTabs showing up and trigger the loading of the favicon.
   let allTabsView = document.getElementById("allTabsMenu-allTabsView");

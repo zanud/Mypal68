@@ -7,16 +7,17 @@
 #include "CertVerifier.h"
 #include "ExtendedValidation.h"
 #include "NSSCertDBTrustDomain.h"
+#include "X509CertValidity.h"
 #include "certdb.h"
 #include "ipc/IPCMessageUtils.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/Base64.h"
 #include "mozilla/Casting.h"
-#include "mozilla/ipc/TransportSecurityInfoUtils.h"
 #include "mozilla/NotNull.h"
 #include "mozilla/Span.h"
 #include "mozilla/TextUtils.h"
 #include "mozilla/Unused.h"
+#include "mozilla/ipc/TransportSecurityInfoUtils.h"
 #include "mozilla/net/DNS.h"
 #include "mozpkix/Result.h"
 #include "mozpkix/pkixnss.h"
@@ -30,7 +31,6 @@
 #include "nsNSSASN1Object.h"
 #include "nsNSSCertHelper.h"
 #include "nsNSSCertTrust.h"
-#include "nsNSSCertValidity.h"
 #include "nsPK11TokenDB.h"
 #include "nsPKCS12Blob.h"
 #include "nsProxyRelease.h"
@@ -711,12 +711,15 @@ CERTCertificate* nsNSSCertificate::GetCert() {
 NS_IMETHODIMP
 nsNSSCertificate::GetValidity(nsIX509CertValidity** aValidity) {
   NS_ENSURE_ARG(aValidity);
-
   if (!mCert) {
     return NS_ERROR_FAILURE;
   }
-
-  nsCOMPtr<nsIX509CertValidity> validity = new nsX509CertValidity(mCert);
+  pkix::Input certInput;
+  pkix::Result rv = certInput.Init(mCert->derCert.data, mCert->derCert.len);
+  if (rv != pkix::Success) {
+    return NS_ERROR_FAILURE;
+  }
+  nsCOMPtr<nsIX509CertValidity> validity = new X509CertValidity(certInput);
   validity.forget(aValidity);
   return NS_OK;
 }

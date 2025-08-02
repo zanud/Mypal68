@@ -7,7 +7,6 @@
 
 #include "mozStorageService.h"
 #include "mozStorageConnection.h"
-#include "nsCollationCID.h"
 #include "nsComponentManagerUtils.h"
 #include "nsEmbedCID.h"
 #include "nsExceptionHandler.h"
@@ -16,10 +15,11 @@
 #include "nsIObserverService.h"
 #include "nsIPropertyBag2.h"
 #include "mozilla/Services.h"
-#include "mozilla/Preferences.h"
-//#include "mozilla/LateWriteChecks.h"
+#include "mozilla/LateWriteChecks.h"
 #include "mozIStorageCompletionCallback.h"
 #include "mozIStoragePendingStatement.h"
+#include "mozilla/intl/Collator.h"
+#include "mozilla/intl/LocaleService.h"
 
 #include "sqlite3.h"
 #include "mozilla/AutoSQLiteLifetime.h"
@@ -29,17 +29,7 @@
 #  undef CompareString
 #endif
 
-////////////////////////////////////////////////////////////////////////////////
-//// Defines
-
-#define PREF_TS_SYNCHRONOUS "toolkit.storage.synchronous"
-#define PREF_TS_SYNCHRONOUS_DEFAULT 1
-
-#define PREF_TS_PAGESIZE "toolkit.storage.pageSize"
-
-// This value must be kept in sync with the value of SQLITE_DEFAULT_PAGE_SIZE in
-// third_party/sqlite3/src/Makefile.in.
-#define PREF_TS_PAGESIZE_DEFAULT 32768
+using mozilla::intl::Collator;
 
 namespace mozilla {
 namespace storage {
@@ -125,28 +115,22 @@ Service::CollectReports(nsIHandleReportCallback* aHandleReport,
 
       SQLiteMutexAutoLock lockedScope(conn->sharedDBMutex);
 
-      NS_NAMED_LITERAL_CSTRING(
-          stmtDesc,
+      constexpr auto stmtDesc =
           "Memory (approximate) used by all prepared statements used by "
-          "connections to this database.");
-      ReportConn(aHandleReport, aData, conn, pathHead,
-                 NS_LITERAL_CSTRING("stmt"), stmtDesc,
+          "connections to this database."_ns;
+      ReportConn(aHandleReport, aData, conn, pathHead, "stmt"_ns, stmtDesc,
                  SQLITE_DBSTATUS_STMT_USED, &totalConnSize);
 
-      NS_NAMED_LITERAL_CSTRING(
-          cacheDesc,
+      constexpr auto cacheDesc =
           "Memory (approximate) used by all pager caches used by connections "
-          "to this database.");
-      ReportConn(aHandleReport, aData, conn, pathHead,
-                 NS_LITERAL_CSTRING("cache"), cacheDesc,
+          "to this database."_ns;
+      ReportConn(aHandleReport, aData, conn, pathHead, "cache"_ns, cacheDesc,
                  SQLITE_DBSTATUS_CACHE_USED_SHARED, &totalConnSize);
 
-      NS_NAMED_LITERAL_CSTRING(
-          schemaDesc,
+      constexpr auto schemaDesc =
           "Memory (approximate) used to store the schema for all databases "
-          "associated with connections to this database.");
-      ReportConn(aHandleReport, aData, conn, pathHead,
-                 NS_LITERAL_CSTRING("schema"), schemaDesc,
+          "associated with connections to this database."_ns;
+      ReportConn(aHandleReport, aData, conn, pathHead, "schema"_ns, schemaDesc,
                  SQLITE_DBSTATUS_SCHEMA_USED, &totalConnSize);
     }
 
@@ -192,15 +176,9 @@ already_AddRefed<Service> Service::getSingleton() {
   return nullptr;
 }
 
-int32_t Service::sSynchronousPref;
-
-// static
-int32_t Service::getSynchronousPref() { return sSynchronousPref; }
-
-int32_t Service::sDefaultPageSize = PREF_TS_PAGESIZE_DEFAULT;
-
 Service::Service()
     : mMutex("Service::mMutex"),
+      mSqliteExclVFS(nullptr),
       mSqliteVFS(nullptr),
       mRegistrationMutex("Service::mRegistrationMutex"),
       mConnections() {}
@@ -209,12 +187,16 @@ Service::~Service() {
   mozilla::UnregisterWeakMemoryReporter(this);
   mozilla::UnregisterStorageSQLiteDistinguishedAmount();
 
-  int rc = sqlite3_vfs_unregister(mSqliteVFS);
-  if (rc != SQLITE_OK) NS_WARNING("Failed to unregister sqlite vfs wrapper.");
+  int srv = sqlite3_vfs_unregister(mSqliteVFS);
+  if (srv != SQLITE_OK) NS_WARNING("Failed to unregister sqlite vfs wrapper.");
+  srv = sqlite3_vfs_unregister(mSqliteExclVFS);
+  if (srv != SQLITE_OK) NS_WARNING("Failed to unregister sqlite vfs wrapper.");
 
   gService = nullptr;
   delete mSqliteVFS;
   mSqliteVFS = nullptr;
+  delete mSqliteExclVFS;
+  mSqliteExclVFS = nullptr;
 }
 
 void Service::registerConnection(Connection* aConnection) {
@@ -277,7 +259,7 @@ void Service::minimizeMemory() {
       continue;
     }
 
-    NS_NAMED_LITERAL_CSTRING(shrinkPragma, "PRAGMA shrink_memory");
+    constexpr auto shrinkPragma = "PRAGMA shrink_memory"_ns;
     bool onOpenedThread = false;
 
     if (!conn->operationSupported(Connection::SYNCHRONOUS)) {
@@ -313,8 +295,8 @@ void Service::minimizeMemory() {
   }
 }
 
-sqlite3_vfs* ConstructTelemetryVFS();
-const char* GetVFSName();
+sqlite3_vfs* ConstructTelemetryVFS(bool);
+const char* GetVFSName(bool);
 
 static const char* sObserverTopics[] = {"memory-pressure",
                                         "xpcom-shutdown-threads"};
@@ -325,12 +307,17 @@ nsresult Service::initialize() {
   int rc = AutoSQLiteLifetime::getInitResult();
   if (rc != SQLITE_OK) return convertResultCode(rc);
 
-  mSqliteVFS = ConstructTelemetryVFS();
+  mSqliteVFS = ConstructTelemetryVFS(false);
+  MOZ_ASSERT(mSqliteVFS, "Non-exclusive VFS should be created");
   if (mSqliteVFS) {
     rc = sqlite3_vfs_register(mSqliteVFS, 0);
     if (rc != SQLITE_OK) return convertResultCode(rc);
-  } else {
-    NS_WARNING("Failed to register telemetry VFS");
+  }
+  mSqliteExclVFS = ConstructTelemetryVFS(true);
+  MOZ_ASSERT(mSqliteExclVFS, "Exclusive VFS should be created");
+  if (mSqliteExclVFS) {
+    rc = sqlite3_vfs_register(mSqliteExclVFS, 0);
+    if (rc != SQLITE_OK) return convertResultCode(rc);
   }
 
   nsCOMPtr<nsIObserverService> os = mozilla::services::GetObserverService();
@@ -343,18 +330,6 @@ nsresult Service::initialize() {
     }
   }
 
-  // We need to obtain the toolkit.storage.synchronous preferences on the main
-  // thread because the preference service can only be accessed there.  This
-  // is cached in the service for all future Open[Unshared]Database calls.
-  sSynchronousPref =
-      Preferences::GetInt(PREF_TS_SYNCHRONOUS, PREF_TS_SYNCHRONOUS_DEFAULT);
-
-  // We need to obtain the toolkit.storage.pageSize preferences on the main
-  // thread because the preference service can only be accessed there.  This
-  // is cached in the service for all future Open[Unshared]Database calls.
-  sDefaultPageSize =
-      Preferences::GetInt(PREF_TS_PAGESIZE, PREF_TS_PAGESIZE_DEFAULT);
-
   mozilla::RegisterWeakMemoryReporter(this);
   mozilla::RegisterStorageSQLiteDistinguishedAmount(
       StorageSQLiteDistinguishedAmount);
@@ -364,47 +339,60 @@ nsresult Service::initialize() {
 
 int Service::localeCompareStrings(const nsAString& aStr1,
                                   const nsAString& aStr2,
-                                  int32_t aComparisonStrength) {
-  // The implementation of nsICollation.CompareString() is platform-dependent.
-  // On Linux it's not thread-safe.  It may not be on Windows and OS X either,
-  // but it's more difficult to tell.  We therefore synchronize this method.
+                                  Collator::Sensitivity aSensitivity) {
+  // The mozilla::intl::Collator is not thread safe, since the Collator::Options
+  // can be changed.
   MutexAutoLock mutex(mMutex);
 
-  nsICollation* coll = getLocaleCollation();
-  if (!coll) {
+  Collator* collator = getCollator();
+  if (!collator) {
     NS_ERROR("Storage service has no collation");
     return 0;
   }
 
-  int32_t res;
-  nsresult rv = coll->CompareString(aComparisonStrength, aStr1, aStr2, &res);
-  if (NS_FAILED(rv)) {
-    NS_ERROR("Collation compare string failed");
-    return 0;
+  if (aSensitivity != mLastSensitivity) {
+    Collator::Options options{};
+    options.sensitivity = aSensitivity;
+    auto result = mCollator->SetOptions(options);
+
+    if (result.isErr()) {
+      NS_WARNING("Could not configure the mozilla::intl::Collation.");
+      return 0;
+    }
+    mLastSensitivity = aSensitivity;
   }
 
-  return res;
+  return collator->CompareStrings(aStr1, aStr2);
 }
 
-nsICollation* Service::getLocaleCollation() {
+Collator* Service::getCollator() {
   mMutex.AssertCurrentThreadOwns();
 
-  if (mLocaleCollation) return mLocaleCollation;
+  if (mCollator) {
+    return mCollator.get();
+  }
 
-  nsCOMPtr<nsICollationFactory> collFact =
-      do_CreateInstance(NS_COLLATIONFACTORY_CONTRACTID);
-  if (!collFact) {
-    NS_WARNING("Could not create collation factory");
+  auto result = mozilla::intl::LocaleService::TryCreateComponent<Collator>();
+  if (result.isErr()) {
+    NS_WARNING("Could not create mozilla::intl::Collation.");
     return nullptr;
   }
 
-  nsresult rv = collFact->CreateCollation(getter_AddRefs(mLocaleCollation));
-  if (NS_FAILED(rv)) {
-    NS_WARNING("Could not create collation");
+  mCollator = result.unwrap();
+
+  // Sort in a case-insensitive way, where "base" letters are considered
+  // equal, e.g: a = á, a = A, a ≠ b.
+  Collator::Options options{};
+  options.sensitivity = Collator::Sensitivity::Base;
+  auto optResult = mCollator->SetOptions(options);
+
+  if (optResult.isErr()) {
+    NS_WARNING("Could not configure the mozilla::intl::Collation.");
+    mCollator = nullptr;
     return nullptr;
   }
 
-  return mLocaleCollation;
+  return mCollator.get();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -515,10 +503,10 @@ Service::OpenAsyncDatabase(nsIVariant* aDatabaseStore,
 
   // Deal with options first:
   if (aOptions) {
-    rv = aOptions->GetPropertyAsBool(NS_LITERAL_STRING("readOnly"), &readOnly);
+    rv = aOptions->GetPropertyAsBool(u"readOnly"_ns, &readOnly);
     FAIL_IF_SET_BUT_INVALID(rv);
 
-    rv = aOptions->GetPropertyAsBool(NS_LITERAL_STRING("ignoreLockingMode"),
+    rv = aOptions->GetPropertyAsBool(u"ignoreLockingMode"_ns,
                                      &ignoreLockingMode);
     FAIL_IF_SET_BUT_INVALID(rv);
     // Specifying ignoreLockingMode will force use of the readOnly flag:
@@ -526,12 +514,11 @@ Service::OpenAsyncDatabase(nsIVariant* aDatabaseStore,
       readOnly = true;
     }
 
-    rv = aOptions->GetPropertyAsBool(NS_LITERAL_STRING("shared"), &shared);
+    rv = aOptions->GetPropertyAsBool(u"shared"_ns, &shared);
     FAIL_IF_SET_BUT_INVALID(rv);
 
     // NB: we re-set to -1 if we don't have a storage file later on.
-    rv = aOptions->GetPropertyAsInt32(NS_LITERAL_STRING("growthIncrement"),
-                                      &growthIncrement);
+    rv = aOptions->GetPropertyAsInt32(u"growthIncrement"_ns, &growthIncrement);
     FAIL_IF_SET_BUT_INVALID(rv);
   }
   int flags = readOnly ? SQLITE_OPEN_READONLY : SQLITE_OPEN_READWRITE;

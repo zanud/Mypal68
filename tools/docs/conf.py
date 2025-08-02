@@ -8,9 +8,9 @@ import os
 import re
 import sys
 
-from recommonmark.parser import CommonMarkParser
-
 from datetime import datetime
+
+from recommonmark.transform import AutoStructify
 
 # Set up Python environment to load build system packages.
 OUR_DIR = os.path.dirname(__file__)
@@ -40,6 +40,8 @@ extensions = [
     'sphinx.ext.todo',
     'mozbuild.sphinx',
     'sphinx_js',
+    'sphinxcontrib.mermaid',
+    'recommonmark',
 ]
 
 # JSDoc must run successfully for dirs specified, so running
@@ -52,14 +54,11 @@ js_source_path = [
     'toolkit/mozapps/extensions',
 ]
 root_for_relative_js_paths = '.'
-jsdoc_config_path = 'tools/docs/jsdoc.json'
+jsdoc_config_path = 'jsdoc.json'
 
 templates_path = ['_templates']
 source_suffix = '.rst'
 source_suffix = ['.rst', '.md']
-source_parsers = {
-   '.md': CommonMarkParser,
-}
 master_doc = 'index'
 project = u'Mozilla Source Tree Docs'
 year = datetime.now().year
@@ -105,3 +104,13 @@ htmlhelp_basename = 'MozillaTreeDocs'
 moz_project_name = 'main'
 
 html_show_copyright = False
+
+
+def setup(app):
+    app.add_config_value('recommonmark_config', {
+        # Crashes with sphinx
+        'enable_inline_math': False,
+        # We use it for testing/web-platform/tests
+        'enable_eval_rst': True,
+            }, True)
+    app.add_transform(AutoStructify)

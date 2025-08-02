@@ -6,7 +6,7 @@
 #define mozilla_dom_CanonicalBrowsingContext_h
 
 #include "mozilla/dom/BrowsingContext.h"
-#include "mozilla/dom/MediaController.h"
+#include "mozilla/dom/MediaControlKeysEvent.h"
 #include "mozilla/RefPtr.h"
 #include "nsCycleCollectionParticipant.h"
 #include "nsWrapperCache.h"
@@ -18,6 +18,7 @@ class nsIDocShell;
 namespace mozilla {
 namespace dom {
 
+class MediaController;
 class WindowGlobalParent;
 
 // CanonicalBrowsingContext is a BrowsingContext living in the parent
@@ -79,7 +80,7 @@ class CanonicalBrowsingContext final : public BrowsingContext {
 
   // This function would update the media action for the current outer window
   // and propogate the action to other browsing contexts in content processes.
-  void UpdateMediaAction(MediaControlActions aAction);
+  void UpdateMediaControlKeysEvent(MediaControlKeysEvent aEvent);
 
   // Validate that the given process is allowed to perform the given
   // transaction. aSource is |nullptr| if set in the parent process.
@@ -90,9 +91,17 @@ class CanonicalBrowsingContext final : public BrowsingContext {
                               const FieldEpochs& aEpochs);
   const FieldEpochs& GetFieldEpochsForChild(ContentParent* aChild);
 
+  // Return a media controller from the top-level browsing context that can
+  // control all media belonging to this browsing context tree. Return nullptr
+  // if the top-level browsing context has been discarded.
+  MediaController* GetMediaController();
+
  protected:
   void Traverse(nsCycleCollectionTraversalCallback& cb);
   void Unlink();
+
+  // Called when the browsing context is being discarded.
+  void CanonicalDiscard();
 
   using Type = BrowsingContext::Type;
   CanonicalBrowsingContext(BrowsingContext* aParent,
@@ -115,6 +124,11 @@ class CanonicalBrowsingContext final : public BrowsingContext {
   // Generation information for each content process which has interacted with
   // this CanonicalBrowsingContext, by ChildID.
   nsDataHashtable<nsUint64HashKey, FieldEpochs> mChildFieldEpochs;
+
+  // Tab media controller is used to control all media existing in the same
+  // browsing context tree, so it would only exist in the top level browsing
+  // context.
+  RefPtr<MediaController> mTabMediaController;
 };
 
 }  // namespace dom

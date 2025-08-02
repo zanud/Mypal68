@@ -28,12 +28,14 @@
 #include "mozilla/ServoTraversalStatistics.h"
 
 namespace mozilla {
+namespace baseprofiler {
+class SpliceableJSONWriter;
+}  // namespace baseprofiler
 namespace layers {
 class Layer;
 }  // namespace layers
 }  // namespace mozilla
 
-class SpliceableJSONWriter;
 class UniqueStacks;
 
 // This is an abstract class that can be implemented to supply data to be
@@ -92,11 +94,15 @@ class ProfilerMarkerPayload {
     return deserializer(aER);
   }
 
-  virtual void StreamPayload(SpliceableJSONWriter& aWriter,
-                             const mozilla::TimeStamp& aProcessStartTime,
-                             UniqueStacks& aUniqueStacks) const = 0;
+  virtual void StreamPayload(
+      mozilla::baseprofiler::SpliceableJSONWriter& aWriter,
+      const mozilla::TimeStamp& aProcessStartTime,
+      UniqueStacks& aUniqueStacks) const = 0;
 
-  mozilla::TimeStamp GetStartTime() const { return mCommonProps.mStartTime; }
+  const mozilla::TimeStamp& GetStartTime() const {
+    return mCommonProps.mStartTime;
+  }
+  const mozilla::TimeStamp& GetEndTime() const { return mCommonProps.mEndTime; }
 
  protected:
   // A `Deserializer` is a free function that can read a serialized payload from
@@ -155,11 +161,15 @@ class ProfilerMarkerPayload {
   static CommonProps DeserializeCommonProps(
       mozilla::ProfileBufferEntryReader& aEntryReader);
 
-  void StreamType(const char* aMarkerType, SpliceableJSONWriter& aWriter) const;
+  void StreamType(const char* aMarkerType,
+                  mozilla::baseprofiler::SpliceableJSONWriter& aWriter) const;
 
-  void StreamCommonProps(const char* aMarkerType, SpliceableJSONWriter& aWriter,
+  void StreamCommonProps(const char* aMarkerType,
+                         mozilla::baseprofiler::SpliceableJSONWriter& aWriter,
                          const mozilla::TimeStamp& aProcessStartTime,
                          UniqueStacks& aUniqueStacks) const;
+  void StreamStartEndTime(mozilla::baseprofiler::SpliceableJSONWriter& aWriter,
+                          const mozilla::TimeStamp& aProcessStartTime) const;
 
  private:
   // Compute the number of bytes needed to serialize payload in
@@ -176,7 +186,7 @@ class ProfilerMarkerPayload {
 };
 
 #define DECL_STREAM_PAYLOAD                                                    \
-  void StreamPayload(SpliceableJSONWriter& aWriter,                            \
+  void StreamPayload(mozilla::baseprofiler::SpliceableJSONWriter& aWriter,     \
                      const mozilla::TimeStamp& aProcessStartTime,              \
                      UniqueStacks& aUniqueStacks) const override;              \
   static mozilla::UniquePtr<ProfilerMarkerPayload> Deserialize(                \
@@ -191,14 +201,26 @@ class ProfilerMarkerPayload {
 class TracingMarkerPayload : public ProfilerMarkerPayload {
  public:
   TracingMarkerPayload(
-      const char* aCategory, TracingKind aKind,
+      const char* aCategory, TracingKind aKind, const mozilla::TimeStamp& aTime,
       const mozilla::Maybe<nsID>& aDocShellId = mozilla::Nothing(),
       const mozilla::Maybe<uint32_t>& aDocShellHistoryId = mozilla::Nothing(),
       UniqueProfilerBacktrace aCause = nullptr)
-      : ProfilerMarkerPayload(aDocShellId, aDocShellHistoryId,
-                              std::move(aCause)),
+      : ProfilerMarkerPayload(
+            (aKind != TracingKind::TRACING_INTERVAL_END) ? aTime
+                                                         : mozilla::TimeStamp{},
+            (aKind != TracingKind::TRACING_INTERVAL_START)
+                ? aTime
+                : mozilla::TimeStamp{},
+            aDocShellId, aDocShellHistoryId, std::move(aCause)),
         mCategory(aCategory),
         mKind(aKind) {}
+
+  TracingMarkerPayload(const char* aCategory, const mozilla::TimeStamp& aStart,
+                       const mozilla::TimeStamp& aEnd)
+      : ProfilerMarkerPayload(aStart, aEnd, mozilla::Nothing(),
+                              mozilla::Nothing(), nullptr),
+        mCategory(aCategory),
+        mKind(TRACING_EVENT) {}
 
   DECL_STREAM_PAYLOAD
 
@@ -217,6 +239,19 @@ class TracingMarkerPayload : public ProfilerMarkerPayload {
  private:
   const char* mCategory;
   TracingKind mKind;
+};
+
+class BudgetMarkerPayload : public ProfilerMarkerPayload {
+ public:
+  BudgetMarkerPayload(const mozilla::TimeStamp& aStartTime,
+                      const mozilla::TimeStamp& aEndTime)
+      : ProfilerMarkerPayload(aStartTime, aEndTime) {}
+
+  DECL_STREAM_PAYLOAD
+
+ private:
+  explicit BudgetMarkerPayload(CommonProps&& aCommonProps)
+      : ProfilerMarkerPayload(std::move(aCommonProps)) {}
 };
 
 class FileIOMarkerPayload : public ProfilerMarkerPayload {
@@ -261,12 +296,17 @@ class FileIOMarkerPayload : public ProfilerMarkerPayload {
 
 class DOMEventMarkerPayload : public TracingMarkerPayload {
  public:
+  // `aTimeStamp` is the internal timestamp of the event, and recorded
+  // separately from the tracing marker timestamp, which is now (the time of
+  // this recording.)
   DOMEventMarkerPayload(const nsAString& aEventType,
                         const mozilla::TimeStamp& aTimeStamp,
                         const char* aCategory, TracingKind aKind,
                         const mozilla::Maybe<nsID>& aDocShellId,
                         const mozilla::Maybe<uint32_t>& aDocShellHistoryId)
-      : TracingMarkerPayload(aCategory, aKind, aDocShellId, aDocShellHistoryId),
+      : TracingMarkerPayload(aCategory, aKind,
+                             mozilla::TimeStamp::NowUnfuzzed(), aDocShellId,
+                             aDocShellHistoryId),
         mTimeStamp(aTimeStamp),
         mEventType(aEventType) {}
 

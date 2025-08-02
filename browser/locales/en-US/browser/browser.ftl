@@ -2,6 +2,9 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+appmenuitem-customize-mode =
+    .label = Customize…
+
 urlbar-identity-button =
     .aria-label = View site information
 
@@ -71,6 +74,16 @@ urlbar-midi-blocked =
 urlbar-install-blocked =
     .tooltiptext = You have blocked add-on installation for this website.
 
+# Variables
+#   $shortcut (String) - A keyboard shortcut for the edit bookmark command.
+urlbar-star-edit-bookmark =
+    .tooltiptext = Edit this bookmark ({ $shortcut })
+
+# Variables
+#   $shortcut (String) - A keyboard shortcut for the add bookmark command.
+urlbar-star-add-bookmark =
+    .tooltiptext = Bookmark this page ({ $shortcut })
+
 ## Page Action Context Menu
 
 page-action-add-to-urlbar =
@@ -123,3 +136,38 @@ bookmark-panel-done-button =
 # Cancel/Remove Bookmark buttons.
 bookmark-panel =
     .style = min-width: 23em
+
+## WebRTC Pop-up notifications
+
+popup-select-camera =
+.value = Camera to share:
+.accesskey = C
+popup-select-microphone =
+.value = Microphone to share:
+.accesskey = M
+popup-all-windows-shared = All visible windows on your screen will be shared.
+
+## URL Bar
+
+urlbar-placeholder =
+  .placeholder = Search or enter address
+
+# Variables
+#  $name (String): the name of the user's default search engine
+urlbar-placeholder-with-name =
+  .placeholder = Search with { $name } or enter address
+urlbar-remote-control-notification-anchor =
+  .tooltiptext = Browser is under remote control
+urlbar-permissions-granted =
+  .tooltiptext = You have granted this website additional permissions.
+urlbar-switch-to-tab =
+  .value = Switch to tab:
+
+# Used to indicate that a selected autocomplete entry is provided by an extension.
+urlbar-extension =
+  .value = Extension:
+
+urlbar-go-end-cap =
+  .tooltiptext = Go to the address in the Location Bar
+urlbar-page-action-button =
+  .tooltiptext = Page actions

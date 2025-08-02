@@ -84,7 +84,7 @@ add_task(async function test_history_change_during_sync() {
     ];
     collection.insert(remoteRec.id, encryptPayload(remoteRec.cleartext));
 
-    await sync_engine_and_validate_telem(engine, true);
+    await sync_engine(engine);
     strictEqual(
       Service.scheduler.globalScore,
       0,
@@ -97,7 +97,7 @@ add_task(async function test_history_change_during_sync() {
       "New local visit should not exist on server after first sync"
     );
 
-    await sync_engine_and_validate_telem(engine, true);
+    await sync_engine(engine);
     strictEqual(
       Service.scheduler.globalScore,
       0,
@@ -162,7 +162,7 @@ add_task(async function test_passwords_change_during_sync() {
     remoteRec.timePasswordChanged = Date.now();
     collection.insert(remoteRec.id, encryptPayload(remoteRec.cleartext));
 
-    await sync_engine_and_validate_telem(engine, true);
+    await sync_engine(engine);
     strictEqual(
       Service.scheduler.globalScore,
       0,
@@ -175,7 +175,7 @@ add_task(async function test_passwords_change_during_sync() {
       "New local password should not exist on server after first sync"
     );
 
-    await sync_engine_and_validate_telem(engine, true);
+    await sync_engine(engine);
     strictEqual(
       Service.scheduler.globalScore,
       0,
@@ -233,7 +233,7 @@ add_task(async function test_prefs_change_during_sync() {
     };
     collection.insert(remoteRec.id, encryptPayload(remoteRec.cleartext));
 
-    await sync_engine_and_validate_telem(engine, true);
+    await sync_engine(engine);
     strictEqual(
       Service.scheduler.globalScore,
       0,
@@ -251,7 +251,7 @@ add_task(async function test_prefs_change_during_sync() {
       "Should not upload pref value changed during first sync"
     );
 
-    await sync_engine_and_validate_telem(engine, true);
+    await sync_engine(engine);
     strictEqual(
       Service.scheduler.globalScore,
       0,
@@ -320,7 +320,7 @@ add_task(async function test_forms_change_during_sync() {
     remoteRec.value = "alice";
     collection.insert(remoteRec.id, encryptPayload(remoteRec.cleartext));
 
-    await sync_engine_and_validate_telem(engine, true);
+    await sync_engine(engine);
     strictEqual(
       Service.scheduler.globalScore,
       0,
@@ -333,7 +333,7 @@ add_task(async function test_forms_change_during_sync() {
       "New local form should not exist on server after first sync"
     );
 
-    await sync_engine_and_validate_telem(engine, true);
+    await sync_engine(engine);
     strictEqual(
       Service.scheduler.globalScore,
       0,
@@ -510,8 +510,6 @@ add_task(async function test_bookmark_change_during_sync() {
       "Folder should have 1 child before first sync"
     );
 
-    let pingsPromise = wait_for_pings(2);
-
     let changes = await PlacesSyncUtils.bookmarks.pullChanges();
     deepEqual(
       Object.keys(changes).sort(),
@@ -519,21 +517,8 @@ add_task(async function test_bookmark_change_during_sync() {
       "Should track bookmark and folder created before first sync"
     );
 
-    // Unlike the tests above, we can't use `sync_engine_and_validate_telem`
-    // because the bookmarks engine will automatically schedule a follow-up
-    // sync for us.
     _("Perform first sync and immediate follow-up sync");
     Service.sync({ engines: ["bookmarks"] });
-
-    let pings = await pingsPromise;
-    equal(pings.length, 2, "Should submit two pings");
-    ok(
-      pings.every(p => {
-        assert_success_ping(p);
-        return p.syncs.length == 1;
-      }),
-      "Should submit 1 sync per ping"
-    );
 
     strictEqual(
       Service.scheduler.globalScore,
@@ -551,8 +536,8 @@ add_task(async function test_bookmark_change_during_sync() {
     });
     ok(bmk2, "Remote bookmark should be applied during first sync");
     {
-      // We only check child GUIDs, and not their order, because the legacy and
-      // buffered bookmarks engines use different logic to merge children.
+      // We only check child GUIDs, and not their order, because the exact
+      // order is an implementation detail.
       let folder1Children = await PlacesSyncUtils.bookmarks.fetchChildRecordIds(
         folder1.guid
       );

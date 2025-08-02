@@ -104,7 +104,6 @@ UNIFIED_SOURCES += [
     'nsNSSCertificate.cpp',
     'nsNSSCertificateDB.cpp',
     'nsNSSCertTrust.cpp',
-    'nsNSSCertValidity.cpp',
     'nsNSSComponent.cpp',
     'nsNSSIOLayer.cpp',
     'nsNSSModule.cpp',
@@ -123,7 +122,6 @@ UNIFIED_SOURCES += [
     'nsSSLSocketProvider.cpp',
     'nsTLSSocketProvider.cpp',
     'OSKeyStore.cpp',
-    'OSReauthenticator.cpp',
     'PKCS11ModuleDB.cpp',
     'PSMContentListener.cpp',
     'PSMRunnable.cpp',
@@ -133,9 +131,22 @@ UNIFIED_SOURCES += [
     'SharedSSLState.cpp',
     'SSLServerCertVerification.cpp',
     'TransportSecurityInfo.cpp',
+    'X509CertValidity.cpp',
 ]
 
-if 'gtk' in CONFIG['MOZ_WIDGET_TOOLKIT']:
+if CONFIG['OS_ARCH'] == 'WINNT':
+    # On Windows this file includes ntsecapi.h, which contains definitions that
+    # conflict with headers included in remaining source files. We compile this
+    # one independently to prevent that interferance.
+    SOURCES += [
+        'OSReauthenticator.cpp',
+    ]
+else:
+    UNIFIED_SOURCES += [
+        'OSReauthenticator.cpp',
+    ]
+
+if CONFIG['MOZ_WIDGET_TOOLKIT'] == 'gtk':
     UNIFIED_SOURCES += [
         'LibSecret.cpp',
     ]

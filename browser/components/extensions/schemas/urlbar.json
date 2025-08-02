@@ -45,7 +45,7 @@
             "type": "string",
             "description": "The current search string."
           },
-          "acceptableSources": {
+          "sources": {
             "type": "array",
             "description": "List of acceptable SourceType to return.",
             "items": {

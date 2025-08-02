@@ -694,7 +694,6 @@ bool BackgroundChildImpl::DeallocPEndpointForReportChild(
 }
 #endif
 
-
 dom::PMediaTransportChild* BackgroundChildImpl::AllocPMediaTransportChild() {
   // We don't allocate here: MediaTransportHandlerIPC is in charge of that,
   // so we don't need to know the implementation particulars here.

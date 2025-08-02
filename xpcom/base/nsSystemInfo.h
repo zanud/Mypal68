@@ -14,6 +14,11 @@
 #  include "mozilla/dom/PContent.h"
 #endif  // MOZ_WIDGET_ANDROID
 
+// Synchronous info collection, avoid calling it from the main thread, consider
+// using the promise-based `nsISystemInfo::GetProcessInfo()` instead.
+// Note that only known fields will be written.
+//nsresult CollectProcessInfo(ProcessInfo& info);
+
 class nsSystemInfo final : public nsHashPropertyBag
 #if defined(XP_WIN)
     ,

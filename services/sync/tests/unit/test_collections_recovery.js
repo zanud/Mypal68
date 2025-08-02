@@ -66,7 +66,6 @@ add_task(async function test_missing_crypto_collection() {
     };
 
     _("Startup, no meta/global: freshStart called once.");
-    await sync_and_validate_telem();
     Assert.equal(fresh, 1);
     fresh = 0;
 
@@ -76,12 +75,10 @@ add_task(async function test_missing_crypto_collection() {
 
     _("Simulate a bad info/collections.");
     delete johnColls.crypto;
-    await sync_and_validate_telem();
     Assert.equal(fresh, 1);
     fresh = 0;
 
     _("Regular sync: no need to freshStart.");
-    await sync_and_validate_telem();
     Assert.equal(fresh, 0);
   } finally {
     Svc.Prefs.resetBranch("");

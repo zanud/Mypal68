@@ -17,10 +17,10 @@ import hashlib
 import itertools
 import os
 import re
+import six
 import stat
 import sys
 import time
-import types
 
 from collections import (
     Iterable,
@@ -31,10 +31,6 @@ from io import (
     BytesIO,
 )
 
-if sys.version_info[0] == 3:
-    str_type = str
-else:
-    str_type = basestring
 
 if sys.platform == 'win32':
     _kernel32 = ctypes.windll.kernel32
@@ -76,7 +72,7 @@ def hash_file(path, hasher=None):
     return h.hexdigest()
 
 
-class EmptyValue(unicode):
+class EmptyValue(six.text_type):
     """A dummy type that behaves like an empty string and sequence.
 
     This type exists in order to support
@@ -92,7 +88,7 @@ class ReadOnlyNamespace(object):
     """A class for objects with immutable attributes set at initialization."""
 
     def __init__(self, **kwargs):
-        for k, v in kwargs.iteritems():
+        for k, v in six.iteritems(kwargs):
             super(ReadOnlyNamespace, self).__setattr__(k, v)
 
     def __delattr__(self, key):
@@ -173,7 +169,7 @@ def mkdir(path, not_indexed=False):
 
     if not_indexed:
         if sys.platform == 'win32':
-            if isinstance(path, str_type):
+            if isinstance(path, six.string_types):
                 fn = _kernel32.SetFileAttributesW
             else:
                 fn = _kernel32.SetFileAttributesA
@@ -227,7 +223,7 @@ class FileAvoidWrite(BytesIO):
         self.mode = mode
 
     def write(self, buf):
-        if isinstance(buf, unicode):
+        if isinstance(buf, six.text_type):
             buf = buf.encode('utf-8')
         BytesIO.write(self, buf)
 
@@ -388,7 +384,7 @@ class ListMixin(object):
     def __add__(self, other):
         # Allow None and EmptyValue is a special case because it makes undefined
         # variable references in moz.build behave better.
-        other = [] if isinstance(other, (types.NoneType, EmptyValue)) else other
+        other = [] if isinstance(other, (type(None), EmptyValue)) else other
         if not isinstance(other, list):
             raise ValueError('Only lists can be appended to lists.')
 
@@ -397,7 +393,7 @@ class ListMixin(object):
         return new_list
 
     def __iadd__(self, other):
-        other = [] if isinstance(other, (types.NoneType, EmptyValue)) else other
+        other = [] if isinstance(other, (type(None), EmptyValue)) else other
         if not isinstance(other, list):
             raise ValueError('Only lists can be appended to lists.')
 
@@ -581,7 +577,7 @@ def FlagsFactory(flags):
         _flags = flags
 
         def update(self, **kwargs):
-            for k, v in kwargs.iteritems():
+            for k, v in six.iteritems(kwargs):
                 setattr(self, k, v)
 
         def __getattr__(self, name):
@@ -819,7 +815,7 @@ class HierarchicalStringList(object):
         if not isinstance(value, list):
             raise ValueError('Expected a list of strings, not %s' % type(value))
         for v in value:
-            if not isinstance(v, str_type):
+            if not isinstance(v, six.string_types):
                 raise ValueError(
                     'Expected a list of strings, not an element of %s' % type(v))
 
@@ -1162,7 +1158,7 @@ def expand_variables(s, variables):
         value = variables.get(name)
         if not value:
             continue
-        if not isinstance(value, types.StringTypes):
+        if not isinstance(value, six.string_types):
             value = ' '.join(value)
         result += value
     return result
@@ -1190,7 +1186,7 @@ class EnumStringComparisonError(Exception):
     pass
 
 
-class EnumString(unicode):
+class EnumString(six.text_type):
     '''A string type that only can have a limited set of values, similarly to
     an Enum, and can only be compared against that set of values.
 
@@ -1227,20 +1223,21 @@ def _escape_char(c):
     # quoting could be done with either ' or ".
     if c == "'":
         return "\\'"
-    return unicode(c.encode('unicode_escape'))
+    return six.text_type(c.encode('unicode_escape'))
 
 
-# Mapping table between raw characters below \x80 and their escaped
-# counterpart, when they differ
-_INDENTED_REPR_TABLE = {
-    c: e
-    for c, e in map(lambda x: (x, _escape_char(x)),
-                    map(unichr, range(128)))
-    if c != e
-}
-# Regexp matching all characters to escape.
-_INDENTED_REPR_RE = re.compile(
-    '([' + ''.join(_INDENTED_REPR_TABLE.values()) + ']+)')
+if six.PY2:  # Not supported for py3 yet
+    # Mapping table between raw characters below \x80 and their escaped
+    # counterpart, when they differ
+    _INDENTED_REPR_TABLE = {
+        c: e
+        for c, e in map(lambda x: (x, _escape_char(x)),
+                        map(unichr, range(128)))
+        if c != e
+    }
+    # Regexp matching all characters to escape.
+    _INDENTED_REPR_RE = re.compile(
+        '([' + ''.join(_INDENTED_REPR_TABLE.values()) + ']+)')
 
 
 def indented_repr(o, indent=4):
@@ -1249,6 +1246,8 @@ def indented_repr(o, indent=4):
     One notable difference with repr is that the returned representation
     assumes `from __future__ import unicode_literals`.
     '''
+    if six.PY3:
+        raise NotImplementedError("indented_repr is not yet supported on py3")
     one_indent = ' ' * indent
 
     def recurse_indented_repr(o, level):
@@ -1267,7 +1266,7 @@ def indented_repr(o, indent=4):
         elif isinstance(o, bytes):
             yield 'b'
             yield repr(o)
-        elif isinstance(o, unicode):
+        elif isinstance(o, six.text_type):
             yield "'"
             # We want a readable string (non escaped unicode), but some
             # special characters need escaping (e.g. \n, \t, etc.)
@@ -1297,11 +1296,11 @@ def encode(obj, encoding='utf-8'):
     if isinstance(obj, dict):
         return {
             encode(k, encoding): encode(v, encoding)
-            for k, v in obj.iteritems()
+            for k, v in six.iteritems(obj)
         }
     if isinstance(obj, bytes):
         return obj
-    if isinstance(obj, unicode):
+    if isinstance(obj, six.text_type):
         return obj.encode(encoding)
     if isinstance(obj, Iterable):
         return [encode(i, encoding) for i in obj]
@@ -1395,7 +1394,7 @@ def patch_main():
 
 
 def ensure_bytes(value):
-    if isinstance(value, basestring):
+    if isinstance(value, six.text_type):
         return value.encode('utf8')
     return value
 

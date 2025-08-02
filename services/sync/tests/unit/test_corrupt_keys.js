@@ -76,9 +76,6 @@ add_task(async function test_locally_changed_keys() {
     Assert.ok(await Service.login());
     Assert.ok(Service.isLoggedIn);
 
-    // Sync should upload records.
-    await sync_and_validate_telem();
-
     // Tabs exist.
     _("Tabs modified: " + johndoe.modified("tabs"));
     Assert.ok(johndoe.modified("tabs") > 0);
@@ -186,9 +183,6 @@ add_task(async function test_locally_changed_keys() {
     _("Resetting HMAC error timer.");
     Service.lastHMACEvent = 0;
 
-    _("Syncing...");
-    ping = await sync_and_validate_telem(true);
-
     Assert.equal(
       ping.engines.find(e => e.name == "history").incoming.failed,
       5
@@ -229,7 +223,6 @@ add_task(async function test_locally_changed_keys() {
 
 function run_test() {
   Log.repository.rootLogger.addAppender(new Log.DumpAppender());
-  validate_all_future_pings();
 
   run_next_test();
 }

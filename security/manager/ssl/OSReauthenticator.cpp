@@ -9,6 +9,7 @@
 #include "mozilla/dom/Promise.h"
 #include "mozilla/Logging.h"
 #include "nsISupportsUtils.h"
+#include "nsServiceManagerUtils.h" //MY
 #include "nsThreadUtils.h"
 
 NS_IMPL_ISUPPORTS(OSReauthenticator, nsIOSReauthenticator)

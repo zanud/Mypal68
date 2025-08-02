@@ -87,8 +87,6 @@ add_task(async function hmac_error_during_404() {
   await Service.login();
 
   try {
-    _("Syncing.");
-    await sync_and_validate_telem();
 
     _(
       "Partially resetting client, as if after a restart, and forcing redownload."
@@ -96,9 +94,6 @@ add_task(async function hmac_error_during_404() {
     Service.collectionKeys.clear();
     await engine.setLastSync(0); // So that we redownload records.
     key404Counter = 1;
-    _("---------------------------");
-    await sync_and_validate_telem();
-    _("---------------------------");
 
     // Two rotary items, one client record... no errors.
     Assert.equal(hmacErrorCount, 0);

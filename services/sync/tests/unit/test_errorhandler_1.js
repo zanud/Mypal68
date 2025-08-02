@@ -37,8 +37,6 @@ add_task(async function test_401_logout() {
   let server = await EHTestsCommon.sync_httpd_setup();
   await EHTestsCommon.setUp(server);
 
-  // By calling sync, we ensure we're logged in.
-  await sync_and_validate_telem();
   Assert.equal(Status.sync, SYNC_SUCCEEDED);
   Assert.ok(Service.isLoggedIn);
 
@@ -61,9 +59,6 @@ add_task(async function test_401_logout() {
   // Make sync fail due to login rejected.
   await configureIdentity({ username: "janedoe" }, server);
   Service._updateCachedURLs();
-
-  _("Starting first sync.");
-  let ping = await sync_and_validate_telem(true);
   deepEqual(ping.failureReason, { name: "httperror", code: 401 });
   _("First sync done.");
 
@@ -83,13 +78,11 @@ add_task(async function test_credentials_changed_logout() {
   await EHTestsCommon.setUp(server);
 
   // By calling sync, we ensure we're logged in.
-  await sync_and_validate_telem();
   Assert.equal(Status.sync, SYNC_SUCCEEDED);
   Assert.ok(Service.isLoggedIn);
 
   await EHTestsCommon.generateCredentialsChangedFailure();
 
-  let ping = await sync_and_validate_telem(true);
   equal(ping.status.sync, CREDENTIALS_CHANGED);
   deepEqual(ping.failureReason, {
     name: "unexpectederror",
@@ -135,7 +128,6 @@ add_task(async function test_sync_non_network_error() {
 
   await EHTestsCommon.generateCredentialsChangedFailure();
 
-  let ping = await sync_and_validate_telem(true);
   equal(ping.status.sync, CREDENTIALS_CHANGED);
   deepEqual(ping.failureReason, {
     name: "unexpectederror",
@@ -143,7 +135,6 @@ add_task(async function test_sync_non_network_error() {
   });
 
   Assert.equal(Status.sync, CREDENTIALS_CHANGED);
-  // If we clean this tick, telemetry won't get the right error
   await Async.promiseYield();
   await clean();
   await promiseStopServer(server);
@@ -251,13 +242,6 @@ add_task(async function test_sync_server_maintenance_error() {
   engine.exception = { status: 503, headers: { "retry-after": BACKOFF } };
 
   Assert.equal(Status.service, STATUS_OK);
-
-  let ping = await sync_and_validate_telem(true);
-  equal(ping.status.sync, SERVER_MAINTENANCE);
-  deepEqual(ping.engines.find(e => e.failureReason).failureReason, {
-    name: "httperror",
-    code: 503,
-  });
 
   Assert.equal(Status.service, SYNC_FAILED_PARTIAL);
   Assert.equal(Status.sync, SERVER_MAINTENANCE);

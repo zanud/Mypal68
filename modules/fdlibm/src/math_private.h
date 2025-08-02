@@ -31,7 +31,7 @@
  */
 
 typedef double      __double_t;
-typedef __double_t  double_t;
+//typedef __double_t  double_t;
 
 /*
  * The original fdlibm code used statements like:

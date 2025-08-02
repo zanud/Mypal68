@@ -5,8 +5,8 @@
 #ifndef TrustOverrides_h
 #define TrustOverrides_h
 
+#include "X509CertValidity.h"
 #include "nsNSSCertificate.h"
-#include "nsNSSCertValidity.h"
 #include "mozilla/ArrayUtils.h"
 
 using namespace mozilla;

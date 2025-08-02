@@ -4,7 +4,7 @@
 
 #include "PageInformation.h"
 
-#include "ProfileJSONWriter.h"
+#include "mozilla/ProfileJSONWriter.h"
 
 PageInformation::PageInformation(const nsID& aDocShellId,
                                  uint32_t aDocShellHistoryId,
@@ -22,9 +22,10 @@ bool PageInformation::Equals(PageInformation* aOtherPageInfo) {
 
 void PageInformation::StreamJSON(SpliceableJSONWriter& aWriter) {
   aWriter.StartObjectElement();
-  aWriter.StringProperty("docshellId", nsIDToCString(DocShellId()).get());
+  aWriter.StringProperty(
+      "docshellId", mozilla::MakeStringSpan(nsIDToCString(DocShellId()).get()));
   aWriter.DoubleProperty("historyId", DocShellHistoryId());
-  aWriter.StringProperty("url", Url().get());
+  aWriter.StringProperty("url", Url());
   aWriter.BoolProperty("isSubFrame", IsSubFrame());
   aWriter.EndObject();
 }

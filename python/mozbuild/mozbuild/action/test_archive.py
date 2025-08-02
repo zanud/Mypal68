@@ -168,12 +168,6 @@ ARCHIVE_FILES = {
         },
         {
             'source': buildconfig.topsrcdir,
-            'base': 'toolkit/components/telemetry/tests/marionette',
-            'pattern': '/**',
-            'dest': 'telemetry/marionette',
-        },
-        {
-            'source': buildconfig.topsrcdir,
             'base': 'js/src',
             'pattern': 'jit-test/**',
             'dest': 'jit-test',

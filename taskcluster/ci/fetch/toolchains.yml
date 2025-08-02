@@ -240,3 +240,189 @@ wine-3.0.3:
         gpg-signature:
             sig-url: "{url}.sign"
             key-path: build/unix/build-gcc/DA23579A74D4AD9AF9D3F945CEFAC8EAAF17519D.key
+
+cbindgen-0.11.1:
+    description: cbindgen source code
+    fetch:
+        type: git
+        repo: https://github.com/eqrion/cbindgen
+        revision: e050442d057e0d0a4f309672ec2863d51f1ec0b0
+
+cctools-port:
+    description: cctools-port source code
+    fetch:
+        type: git
+        repo: https://github.com/tpoechtrager/cctools-port
+        revision: 3f979bbcd7ee29d79fb93f829edf3d1d16441147
+
+libtapi:
+    description: libtapi source code
+    fetch:
+        type: git
+        repo: https://github.com/tpoechtrager/apple-libtapi
+        revision: 3efb201881e7a76a21e0554906cf306432539cef
+
+libdmg-hfsplus:
+    description: libdmg-hfsplug source code
+    fetch:
+        type: git
+        repo: https://github.com/mozilla/libdmg-hfsplus/
+        revision: 2ee327795680101d36f9700bd0fb618362237718
+
+hfsplus-tools:
+    description: hfstools-plus source code
+    fetch:
+        type: static-url
+        # Most-upstream is https://opensource.apple.com/source/diskdev_cmds/
+        url: https://src.fedoraproject.org/repo/pkgs/hfsplus-tools/diskdev_cmds-540.1.linux3.tar.gz/0435afc389b919027b69616ad1b05709/diskdev_cmds-540.1.linux3.tar.gz
+        sha256: b01b203a97f9a3bf36a027c13ddfc59292730552e62722d690d33bd5c24f5497
+        size: 411205
+
+llvm-for-dsymutil:
+    description: llvm source code for dsymutil
+    fetch:
+        type: git
+        repo: https://github.com/llvm/llvm-project
+        revision: 3b7811f6441be13c9f613f81ef93297d231b4f8e
+
+tup:
+    description: tup source code
+    fetch:
+        type: git
+        repo: https://github.com/gittup/tup
+        revision: 4371a41ba4ece660bf060b598b9eee4c2eb347d8
+
+rust-size:
+    description: rust-size source code
+    fetch:
+        type: git
+        repo: https://github.com/luser/rust-size
+        revision: ab659d93b1faba95307df952aefe3fbed3583669
+
+gn:
+    description: GN source code
+    fetch:
+        type: git
+        repo: https://gn.googlesource.com/gn
+        revision: d69a9c3765dee2e650bcccebbadf72c5d42d92b1
+
+grcov:
+    description: grcov source code
+    fetch:
+        type: git
+        repo: https://github.com/marco-c/grcov
+        revision: 9214a916805838265764f9c69eaed657ea3db021
+
+sccache:
+    description: sccache source code
+    fetch:
+        type: git
+        repo: https://github.com/mozilla/sccache
+        # 0.2.9 + some change
+        revision: 93475f3458f7776c37b08201ae0d83ecac4b8fa2
+
+openssl-1.1.0g:
+    description: openssl 1.1.0g source code
+    fetch:
+        type: static-url
+        url: https://www.openssl.org/source/openssl-1.1.0g.tar.gz
+        sha256: de4d501267da39310905cb6dc8c6121f7a2cad45a7707f76df828fe1b85073af
+        size: 5404748
+
+fxc2:
+    description: fxc2 source code
+    fetch:
+        type: git
+        repo: https://github.com/mozilla/fxc2
+        revision: 63ad74b7faa7033f2c1be9cc1cd0225241a1a9a5
+
+mingw-w64:
+    description: mingw-w64 source code
+    fetch:
+        type: git
+        repo: git://git.code.sf.net/p/mingw-w64/mingw-w64
+        revision: 8db8dd5aa1885e7807424a06bd14eebc9c0effd4
+
+libunwind:
+    description: libunwind source code
+    fetch:
+        type: git
+        repo: https://github.com/llvm-mirror/libunwind
+        revision: 6ee92fcc97350ae32db3172a269e9afcc2bab686
+
+llvm-mingw:
+    description: llvm-mingw source code
+    fetch:
+        type: git
+        repo: https://github.com/mstorsjo/llvm-mingw
+        revision: c3a16814bd26aa6702e1e5b482a3d9044bb0f725
+
+android-rs-glue:
+    description: android-rs-glue source code
+    fetch:
+        type: git
+        repo: https://github.com/rust-windowing/android-rs-glue
+        revision: e3ac6edea5814e1faca0c31ea8fac6877cb929ea
+
+clang-5.0:
+    description: clang 5.0.2 source code
+    fetch:
+        type: git
+        repo: https://github.com/llvm/llvm-project
+        revision: 6a075b6de4cafebec9ca1ff9eec7229a617c93f6
+
+clang-7:
+    description: clang 7 source code
+    fetch:
+        type: git
+        repo: https://github.com/llvm/llvm-project
+        revision: d0d8eb2e5415b8be29343e3c17a18e49e67b5551
+
+clang-8:
+    description: clang 8.0.1 source code
+    fetch:
+        type: git
+        repo: https://github.com/llvm/llvm-project
+        revision: 19a71f6bdf2dddb10764939e7f0ec2b98dba76c9
+
+clang-9:
+    description: clang 9.0.0 source code
+    fetch:
+        type: git
+        repo: https://github.com/llvm/llvm-project
+        revision: 0399d5a9682b3cef71c653373e38890c63c4c365
+
+wasi-sdk:
+    description: wasi-sdk source code
+    fetch:
+        type: git
+        repo: https://github.com/CraneStation/wasi-sdk
+        revision: 5225b05436ce57f01fe649f411f3ff701246628b
+
+ninja:
+    description: ninja 1.9.0
+    fetch:
+        type: static-url
+        url: https://github.com/ninja-build/ninja/releases/download/v1.9.0/ninja-win.zip
+        sha256: 2d70010633ddaacc3af4ffbd21e22fae90d158674a09e132e06424ba3ab036e9
+        size: 254497
+        artifact-name: ninja.tar.zst
+        add-prefix: ninja/bin/
+
+cmake:
+    description: cmake 3.15.1
+    fetch:
+        type: static-url
+        url: https://github.com/Kitware/CMake/releases/download/v3.15.1/cmake-3.15.1-win64-x64.zip
+        sha256: 82a0edfed4cb0b45b25d2f99e621d3ed4014f66191d8f3c7eadf1d9ccf9c461b
+        size: 32214192
+        artifact-name: cmake.tar.zst
+        strip-components: 1
+        add-prefix: cmake/
+
+lucetc-source:
+    description: lucetc source code
+    fetch:
+        type: git
+        repo: https://github.com/PLSysSec/lucet_sandbox_compiler/
+        revision: 5c22392b5b1aaa60e915c75e92b57391e1e61e6d

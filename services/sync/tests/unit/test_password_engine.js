@@ -205,7 +205,7 @@ add_task(async function test_password_engine() {
   await engine._tracker.stop();
 
   try {
-    await sync_engine_and_validate_telem(engine, false);
+    await sync_engine(engine);
 
     let newRec = collection.cleartext(newLogin.guid);
     equal(
@@ -257,7 +257,7 @@ add_task(async function test_password_dupe() {
 
   try {
     _("Perform sync");
-    await sync_engine_and_validate_telem(engine, false);
+    await sync_engine(engine);
 
     let logins = Services.logins.findLogins("https://www.example.com", "", "");
 

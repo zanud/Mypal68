@@ -836,7 +836,7 @@ def main(args):
     vcs_checkout_from_args(args, 'comm')
 
     try:
-        for k in ('GECKO_PATH', 'MOZ_FETCHES_DIR'):
+        for k in ('GECKO_PATH', 'MOZ_FETCHES_DIR', 'UPLOAD_DIR'):
             if k in os.environ:
                 # Normalize paths to use forward slashes. Some shell scripts
                 # tolerate that better on Windows.

@@ -136,59 +136,6 @@ struct IsSame : FalseType {};
 template <typename T>
 struct IsSame<T, T> : TrueType {};
 
-/* 20.9.7 Transformations between types [meta.trans] */
-
-/* 20.9.7.1 Const-volatile modifications [meta.trans.cv] */
-
-/**
- * RemoveConst removes top-level const qualifications on a type.
- *
- * mozilla::RemoveConst<int>::Type is int;
- * mozilla::RemoveConst<const int>::Type is int;
- * mozilla::RemoveConst<const int*>::Type is const int*;
- * mozilla::RemoveConst<int* const>::Type is int*.
- */
-template <typename T>
-struct RemoveConst {
-  typedef T Type;
-};
-
-template <typename T>
-struct RemoveConst<const T> {
-  typedef T Type;
-};
-
-/**
- * RemoveVolatile removes top-level volatile qualifications on a type.
- *
- * mozilla::RemoveVolatile<int>::Type is int;
- * mozilla::RemoveVolatile<volatile int>::Type is int;
- * mozilla::RemoveVolatile<volatile int*>::Type is volatile int*;
- * mozilla::RemoveVolatile<int* volatile>::Type is int*.
- */
-template <typename T>
-struct RemoveVolatile {
-  typedef T Type;
-};
-
-template <typename T>
-struct RemoveVolatile<volatile T> {
-  typedef T Type;
-};
-
-/**
- * RemoveCV removes top-level const and volatile qualifications on a type.
- *
- * mozilla::RemoveCV<int>::Type is int;
- * mozilla::RemoveCV<const int>::Type is int;
- * mozilla::RemoveCV<volatile int>::Type is int;
- * mozilla::RemoveCV<int* const volatile>::Type is int*.
- */
-template <typename T>
-struct RemoveCV {
-  typedef typename RemoveConst<typename RemoveVolatile<T>::Type>::Type Type;
-};
-
 } /* namespace mozilla */
 
 #endif /* mozilla_TypeTraits_h */

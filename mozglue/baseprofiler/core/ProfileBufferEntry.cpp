@@ -202,9 +202,8 @@ UniqueJSONStrings::UniqueJSONStrings(const UniqueJSONStrings& aOther) {
       mStringHashToIndexMap.putNewInfallible(iter.get().key(),
                                              iter.get().value());
     }
-    UniquePtr<char[]> stringTableJSON =
-        aOther.mStringTableWriter.WriteFunc()->CopyData();
-    mStringTableWriter.Splice(stringTableJSON.get());
+    mStringTableWriter.CopyAndSplice(
+        aOther.mStringTableWriter.ChunkedWriteFunc());
   }
 }
 
@@ -218,7 +217,7 @@ uint32_t UniqueJSONStrings::GetOrAddIndex(const char* aStr) {
   }
 
   MOZ_RELEASE_ASSERT(mStringHashToIndexMap.add(entry, hash, count));
-  mStringTableWriter.StringElement(aStr);
+  mStringTableWriter.StringElement(MakeStringSpan(aStr));
   return count;
 }
 
@@ -273,12 +272,12 @@ uint32_t UniqueStacks::GetOrAddFrameIndex(const FrameKey& aFrame) {
 
 void UniqueStacks::SpliceFrameTableElements(SpliceableJSONWriter& aWriter) {
   mFrameTableWriter.EndBareList();
-  aWriter.TakeAndSplice(mFrameTableWriter.WriteFunc());
+  aWriter.TakeAndSplice(mFrameTableWriter.TakeChunkedWriteFunc());
 }
 
 void UniqueStacks::SpliceStackTableElements(SpliceableJSONWriter& aWriter) {
   mStackTableWriter.EndBareList();
-  aWriter.TakeAndSplice(mStackTableWriter.WriteFunc());
+  aWriter.TakeAndSplice(mStackTableWriter.TakeChunkedWriteFunc());
 }
 
 void UniqueStacks::StreamStack(const StackKey& aStack) {
@@ -334,7 +333,9 @@ struct CStringWriteFunc : public JSONWriteFunc {
   std::string& mBuffer;  // The struct must not outlive this buffer
   explicit CStringWriteFunc(std::string& aBuffer) : mBuffer(aBuffer) {}
 
-  void Write(const char* aStr) override { mBuffer += aStr; }
+  void Write(const Span<const char>& aStr) override {
+    mBuffer.append(aStr.data(), aStr.size());
+  }
 };
 
 struct ProfileSample {
@@ -519,15 +520,6 @@ class EntryGetter {
 //     DynamicStringFragment("ed:914)")
 //     LineNumber(945)
 //     CategoryPair(ProfilingCategoryPair::JS)
-//
-// - A profiling stack frame with a dynamic string, but with privacy enabled:
-//
-//     Label("nsObserverService::NotifyObservers")
-//     FrameFlags(uint64_t(ProfilingStackFrame::Flags::IS_LABEL_FRAME))
-//     DynamicStringFragment("(private")
-//     DynamicStringFragment(")")
-//     LineNumber(291)
-//     CategoryPair(ProfilingCategoryPair::OTHER)
 //
 // - A profiling stack frame with an overly long dynamic string:
 //
@@ -1094,9 +1086,11 @@ void ProfileBuffer::StreamCountersToJSON(SpliceableJSONWriter& aWriter,
           static_cast<const BaseProfilerCount*>(iter.get().key());
 
       aWriter.Start();
-      aWriter.StringProperty("name", base_counter->mLabel);
-      aWriter.StringProperty("category", base_counter->mCategory);
-      aWriter.StringProperty("description", base_counter->mDescription);
+      aWriter.StringProperty("name", MakeStringSpan(base_counter->mLabel));
+      aWriter.StringProperty("category",
+                             MakeStringSpan(base_counter->mCategory));
+      aWriter.StringProperty("description",
+                             MakeStringSpan(base_counter->mDescription));
 
       aWriter.StartArrayProperty("sample_groups");
       for (auto counter_iter = counter.iter(); !counter_iter.done();
@@ -1172,7 +1166,7 @@ static void AddPausedRange(SpliceableJSONWriter& aWriter, const char* aReason,
   } else {
     aWriter.NullProperty("endTime");
   }
-  aWriter.StringProperty("reason", aReason);
+  aWriter.StringProperty("reason", MakeStringSpan(aReason));
   aWriter.End();
 }
 

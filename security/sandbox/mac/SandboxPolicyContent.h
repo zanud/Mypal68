@@ -5,7 +5,7 @@
 #ifndef mozilla_SandboxPolicyContent_h
 #define mozilla_SandboxPolicyContent_h
 
-#define MAX_TESTING_READ_PATHS 4
+#define MAX_CONTENT_TESTING_READ_PATHS 4
 
 namespace mozilla {
 
@@ -68,12 +68,15 @@ static const char SandboxPolicyContent[] = R"SANDBOX_LITERAL(
         (subpath "/Library/Filesystems/NetFSPlugins")
         (subpath "/usr/share"))))
 
+  ; Timezone
+  (allow file-read*
+    (subpath "/private/var/db/timezone")
+    (subpath "/usr/share/zoneinfo")
+    (subpath "/usr/share/zoneinfo.default")
+    (literal "/private/etc/localtime"))
+
   ; For stat and symlink resolution
   (allow file-read-metadata (subpath "/"))
-
-  (allow file-read-metadata
-    (literal "/private/etc/localtime")
-    (regex #"^/private/tmp/KSInstallAction\."))
 
   ; Allow read access to standard special files.
   (allow file-read*

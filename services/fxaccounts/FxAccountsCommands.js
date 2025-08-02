@@ -88,12 +88,6 @@ class FxAccountsCommands {
             device: { ...device, lastCommandIndex: index },
           });
           log.info(`Handling ${messages.length} messages`);
-          if (scheduledFetch) {
-            Services.telemetry.scalarAdd(
-              "identity.fxaccounts.missed_commands_fetched",
-              messages.length
-            );
-          }
           await this._handleCommands(messages);
         }
       }

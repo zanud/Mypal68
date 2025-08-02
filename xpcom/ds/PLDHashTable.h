@@ -776,9 +776,9 @@ struct PLDHashTableOps {
   PLDHashHashKey hashKey;
   PLDHashMatchEntry matchEntry;
   PLDHashMoveEntry moveEntry;
-  PLDHashClearEntry clearEntry;
 
   // Optional hooks start here. If null, these are not called.
+  PLDHashClearEntry clearEntry;
   PLDHashInitEntry initEntry;
 };
 

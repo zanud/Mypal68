@@ -58,8 +58,6 @@ typedef ASTConsumer *ASTConsumerPtr;
 #define hasIgnoringParenImpCasts(x) has(ignoringParenImpCasts(x))
 #endif
 
-#endif
-
 // In order to support running our checks using clang-tidy, we implement a
 // source compatible base check class called BaseCheck, and we use the
 // preprocessor to decide which base class to pick.
@@ -70,3 +68,5 @@ typedef clang::tidy::ClangTidyContext ContextType;
 #else
 #include "BaseCheck.h"
 #endif
+
+#endif // plugin_h__

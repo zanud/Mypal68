@@ -109,10 +109,33 @@ def mozharness_test_on_docker(config, job, taskdesc):
         'MOZILLA_BUILD_URL': {'task-reference': installer_url},
         'NEED_PULSEAUDIO': 'true',
         'NEED_WINDOW_MANAGER': 'true',
+        'NEED_COMPIZ': 'true',
         'ENABLE_E10S': str(bool(test.get('e10s'))).lower(),
-        'MOZ_AUTOMATION': '1',
         'WORKING_DIR': '/builds/worker',
     })
+
+    # by default, require compiz unless proven otherwise, hence a whitelist.
+    # See https://bugzilla.mozilla.org/show_bug.cgi?id=1552563
+    # if using regex this list can be shortened greatly.
+    suites_not_need_compiz = [
+        'mochitest-webgl1-core',
+        'mochitest-webgl1-ext',
+        'mochitest-plain-gpu',
+        'mochitest-browser-chrome-screenshots',
+        'gtest',
+        'cppunittest',
+        'jsreftest',
+        'crashtest',
+        'reftest',
+        'reftest-no-accel',
+        'web-platform-tests',
+        'web-platform-tests-reftests',
+        'xpcshell'
+    ]
+    if job['run']['test']['suite'] in suites_not_need_compiz or (
+            job['run']['test']['suite'] == 'mochitest-plain-chunked' and
+            job['run']['test']['try-name'] == 'mochitest-plain-headless'):
+        env['NEED_COMPIZ'] = 'false'
 
     if mozharness.get('mochitest-flavor'):
         env['MOCHITEST_FLAVOR'] = mozharness['mochitest-flavor']
@@ -264,7 +287,6 @@ def mozharness_test_on_generic_worker(config, job, taskdesc):
     worker['artifacts'] = artifacts
 
     env = worker.setdefault('env', {})
-    env['MOZ_AUTOMATION'] = '1'
     env['GECKO_HEAD_REPOSITORY'] = config.params['head_repository']
     env['GECKO_HEAD_REV'] = config.params['head_rev']
 
@@ -448,7 +470,6 @@ def mozharness_test_on_script_engine_autophone(config, job, taskdesc):
         "NO_FAIL_ON_TEST_ERRORS": '1',
         "MOZ_HIDE_RESULTS_TABLE": '1',
         "MOZ_NODE_PATH": "/usr/local/bin/node",
-        'MOZ_AUTOMATION': '1',
         'WORKING_DIR': '/builds/worker',
         'WORKSPACE': '/builds/worker/workspace',
         'TASKCLUSTER_WORKER_TYPE': job['worker-type'],

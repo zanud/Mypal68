@@ -163,7 +163,7 @@ static void DumpPrintObjectsTreeLayout(const UniquePtr<nsPrintObject>& aPO,
 #endif
 
 static bool CollectDocuments(Document& aDoc,
-                                  nsTArray<nsCOMPtr<Document>>& aDocs) {
+                             nsTArray<nsCOMPtr<Document>>& aDocs) {
   aDocs.AppendElement(&aDoc);
   auto recurse = [&aDocs](Document& aSubDoc) {
     return CollectDocuments(aSubDoc, aDocs);
@@ -565,9 +565,8 @@ nsresult nsPrintJob::DoCommonPrint(bool aIsPrintPreview,
     printData->mPrintObject->mFrameType =
         printData->mIsParentAFrameSet ? eFrameSet : eDoc;
 
-    // Build the "tree" of PrintObjects
-    BuildDocTree(printData->mPrintObject->mDocShell, &printData->mPrintDocList,
-                 printData->mPrintObject);
+    BuildNestedPrintObjects(printData->mPrintObject->mDocShell,
+                            &printData->mPrintDocList, printData->mPrintObject);
   }
 
   if (!aSourceDoc->IsStaticDocument()) {
@@ -954,9 +953,9 @@ bool nsPrintJob::IsThereARangeSelection(nsPIDOMWindowOuter* aDOMWin) {
 //---------------------------------------------------------------------
 // Recursively build a list of sub documents to be printed
 // that mirrors the document tree
-void nsPrintJob::BuildDocTree(nsIDocShell* aParentNode,
-                              nsTArray<nsPrintObject*>* aDocList,
-                              const UniquePtr<nsPrintObject>& aPO) {
+void nsPrintJob::BuildNestedPrintObjects(nsIDocShell* aParentNode,
+                                         nsTArray<nsPrintObject*>* aDocList,
+                                         const UniquePtr<nsPrintObject>& aPO) {
   NS_ASSERTION(aParentNode, "Pointer is null!");
   NS_ASSERTION(aDocList, "Pointer is null!");
   NS_ASSERTION(aPO, "Pointer is null!");
@@ -973,12 +972,14 @@ void nsPrintJob::BuildDocTree(nsIDocShell* aParentNode,
       childAsShell->GetContentViewer(getter_AddRefs(viewer));
       if (viewer) {
         nsCOMPtr<Document> doc = do_GetInterface(childAsShell);
-        auto po = MakeUnique<nsPrintObject>();
-        nsresult rv = po->InitAsNestedObject(childAsShell, doc, po.get());
+        auto childPO = MakeUnique<nsPrintObject>();
+        childPO->mParent = aPO.get();
+        nsresult rv = childPO->InitAsNestedObject(childAsShell, doc, aPO.get());
         if (NS_FAILED(rv)) MOZ_ASSERT_UNREACHABLE("Init failed?");
-        aPO->mKids.AppendElement(std::move(po));
+        aPO->mKids.AppendElement(std::move(childPO));
         aDocList->AppendElement(aPO->mKids.LastElement().get());
-        BuildDocTree(childAsShell, aDocList, aPO->mKids.LastElement());
+        BuildNestedPrintObjects(childAsShell, aDocList,
+                                aPO->mKids.LastElement());
       }
     }
   }

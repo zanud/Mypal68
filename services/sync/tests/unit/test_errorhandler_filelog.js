@@ -19,7 +19,6 @@ const DELAY_BUFFER = 500; // Buffer for timers on different OS platforms.
 var errorHandler = Service.errorHandler;
 
 function run_test() {
-  validate_all_future_pings();
   run_next_test();
 }
 

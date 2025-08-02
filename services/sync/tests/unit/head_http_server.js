@@ -17,12 +17,10 @@ var {
   configureFxAccountIdentity,
   configureIdentity,
   encryptPayload,
-  getLoginTelemetryScalar,
   makeFxAccountsInternalMock,
   makeIdentityConfig,
   promiseNamedTimer,
   promiseZeroTimer,
-  sumHistogram,
   syncTestLogging,
   waitForZeroTimer,
 } = ChromeUtils.import("resource://testing-common/services/sync/utils.js");
@@ -1180,9 +1178,7 @@ SyncServer.prototype = {
               let wbo = coll.wbo(wboID);
               if (xius < wbo.modified) {
                 this._log.info(
-                  `x-if-unmodified-since mismatch - request wants ${xius} but wbo has ${
-                    wbo.modified
-                  }`
+                  `x-if-unmodified-since mismatch - request wants ${xius} but wbo has ${wbo.modified}`
                 );
                 respond(412, "precondition failed", "precondition failed");
                 return undefined;

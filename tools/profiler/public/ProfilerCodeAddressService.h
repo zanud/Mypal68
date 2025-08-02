@@ -6,6 +6,7 @@
 #define ProfilerCodeAddressService_h
 
 #include "CodeAddressService.h"
+#include "nsTArray.h"
 
 namespace mozilla {
 

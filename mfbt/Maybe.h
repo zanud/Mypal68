@@ -15,10 +15,10 @@
 #include "mozilla/Alignment.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/Attributes.h"
+#include "mozilla/MaybeStorageBase.h"
 #include "mozilla/MemoryChecking.h"
 #include "mozilla/OperatorNewExtensions.h"
 #include "mozilla/Poison.h"
-#include "mozilla/TypeTraits.h"
 
 class nsCycleCollectionTraversalCallback;
 
@@ -101,12 +101,6 @@ struct MaybePoisoner {
     MOZ_MAKE_MEM_UNDEFINED(aPtr, N);
   }
 };
-
-template <typename T>
-constexpr bool IsTriviallyDestructibleAndCopyable =
-    std::is_trivially_destructible_v<T> &&
-    (std::is_trivially_copy_constructible_v<T> ||
-     !std::is_copy_constructible_v<T>);
 
 template <typename T,
           bool TriviallyDestructibleAndCopyable =
@@ -495,6 +489,13 @@ class MOZ_INHERIT_TYPE_ANNOTATIONS_FROM_TEMPLATE_ARGS Maybe
   /*
    * Returns the contents of this Maybe<T> by value. If |isNothing()|, returns
    * the default value provided.
+   *
+   * Note: If the value passed to aDefault is not the result of a trivial
+   * expression, but expensive to evaluate, e.g. |valueOr(ExpensiveFunction())|,
+   * use |valueOrFrom| instead, e.g.
+   * |valueOrFrom([arg] { return ExpensiveFunction(arg); })|. This ensures
+   * that the expensive expression is only evaluated when its result will
+   * actually be used.
    */
   template <typename V>
   constexpr T valueOr(V&& aDefault) const {
@@ -877,6 +878,11 @@ constexpr Maybe<T&> SomeRef(T& aValue) {
   Maybe<T&> value;
   value.emplace(aValue);
   return value;
+}
+
+template <typename T>
+constexpr Maybe<T&> ToMaybeRef(T* const aPtr) {
+  return aPtr ? SomeRef(*aPtr) : Nothing{};
 }
 
 template <typename T>

@@ -21,7 +21,7 @@ namespace storage {
  * @param  aDB
  *         The database we'll be registering the collations with.
  * @param  aService
- *         The Service that owns the nsICollation used by our collations.
+ *         The Service that owns the collator used by our collations.
  * @return the SQLite status code indicating success or failure.
  */
 int registerCollations(sqlite3* aDB, Service* aService);
@@ -34,7 +34,7 @@ int registerCollations(sqlite3* aDB, Service* aService);
  * Comparison is case- and accent-insensitive.  This is called by SQLite.
  *
  * @param  aService
- *         The Service that owns the nsICollation used by this collation.
+ *         The Service that owns the collator used by this collation.
  * @param  aLen1
  *         The number of bytes in aStr1.
  * @param  aStr1
@@ -58,7 +58,7 @@ int localeCollation8(void* aService, int aLen1, const void* aStr1, int aLen2,
  * SQLite.
  *
  * @param  aService
- *         The Service that owns the nsICollation used by this collation.
+ *         The Service that owns the collator used by this collation.
  * @param  aLen1
  *         The number of bytes in aStr1.
  * @param  aStr1
@@ -82,7 +82,7 @@ int localeCollationCaseSensitive8(void* aService, int aLen1, const void* aStr1,
  * SQLite.
  *
  * @param  aService
- *         The Service that owns the nsICollation used by this collation.
+ *         The Service that owns the collator used by this collation.
  * @param  aLen1
  *         The number of bytes in aStr1.
  * @param  aStr1
@@ -106,7 +106,7 @@ int localeCollationAccentSensitive8(void* aService, int aLen1,
  * Comparison is case- and accent-sensitive.  This is called by SQLite.
  *
  * @param  aService
- *         The Service that owns the nsICollation used by this collation.
+ *         The Service that owns the collator used by this collation.
  * @param  aLen1
  *         The number of bytes in aStr1.
  * @param  aStr1
@@ -130,7 +130,7 @@ int localeCollationCaseAccentSensitive8(void* aService, int aLen1,
  * Comparison is case- and accent-insensitive.  This is called by SQLite.
  *
  * @param  aService
- *         The Service that owns the nsICollation used by this collation.
+ *         The Service that owns the collator used by this collation.
  * @param  aLen1
  *         The number of bytes (not characters) in aStr1.
  * @param  aStr1
@@ -154,7 +154,7 @@ int localeCollation16(void* aService, int aLen1, const void* aStr1, int aLen2,
  * SQLite.
  *
  * @param  aService
- *         The Service that owns the nsICollation used by this collation.
+ *         The Service that owns the collator used by this collation.
  * @param  aLen1
  *         The number of bytes (not characters) in aStr1.
  * @param  aStr1
@@ -178,7 +178,7 @@ int localeCollationCaseSensitive16(void* aService, int aLen1, const void* aStr1,
  * SQLite.
  *
  * @param  aService
- *         The Service that owns the nsICollation used by this collation.
+ *         The Service that owns the collator used by this collation.
  * @param  aLen1
  *         The number of bytes (not characters) in aStr1.
  * @param  aStr1
@@ -202,7 +202,7 @@ int localeCollationAccentSensitive16(void* aService, int aLen1,
  * Comparison is case- and accent-sensitive.  This is called by SQLite.
  *
  * @param  aService
- *         The Service that owns the nsICollation used by this collation.
+ *         The Service that owns the collator used by this collation.
  * @param  aLen1
  *         The number of bytes (not characters) in aStr1.
  * @param  aStr1

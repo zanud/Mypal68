@@ -77,7 +77,10 @@
   <link rel="localization" href="toolkit/global/textActions.ftl"/>
   <link rel="localization" href="browser/browser.ftl"/>
   <link rel="localization" href="browser/browserContext.ftl"/>
+  <link rel="localization" href="browser/browserSets.ftl"/>
   <link rel="localization" href="browser/menubar.ftl"/>
+  <link rel="localization" href="browser/sidebarMenu.ftl"/>
+  <link rel="localization" href="browser/allTabsMenu.ftl"/>
 
   <title>&mainWindow.title;</title>
 
@@ -267,56 +270,58 @@
       <description/>
     </panel>
 
-    <panel id="editBookmarkPanel"
-           class="panel-no-padding"
-           type="arrow"
-           orient="vertical"
-           ignorekeys="true"
-           hidden="true"
-           tabspecific="true"
-           aria-labelledby="editBookmarkPanelTitle">
-      <box class="panel-header">
-        <label id="editBookmarkPanelTitle"/>
-      </box>
-      <html:div id="editBookmarkPanelInfoArea">
-        <html:div id="editBookmarkPanelRecommendation"></html:div>
-        <html:div id="editBookmarkPanelFaviconContainer">
-          <html:img id="editBookmarkPanelFavicon"/>
+    <html:template id="editBookmarkPanelTemplate">
+      <panel id="editBookmarkPanel"
+             class="panel-no-padding"
+             type="arrow"
+             orient="vertical"
+             ignorekeys="true"
+             hidden="true"
+             tabspecific="true"
+             aria-labelledby="editBookmarkPanelTitle">
+        <box class="panel-header">
+          <label id="editBookmarkPanelTitle"/>
+        </box>
+        <html:div id="editBookmarkPanelInfoArea">
+          <html:div id="editBookmarkPanelRecommendation"></html:div>
+          <html:div id="editBookmarkPanelFaviconContainer">
+            <html:img id="editBookmarkPanelFavicon"/>
+          </html:div>
+          <html:div id="editBookmarkPanelImage"></html:div>
         </html:div>
-        <html:div id="editBookmarkPanelImage"></html:div>
-      </html:div>
 #include ../../components/places/content/editBookmarkPanel.inc.xhtml
-      <vbox id="editBookmarkPanelBottomContent"
-            flex="1">
-        <checkbox id="editBookmarkPanel_showForNewBookmarks"
-                  data-l10n-id="bookmark-panel-show-editor-checkbox"
-                  oncommand="StarUI.onShowForNewBookmarksCheckboxCommand();"/>
-      </vbox>
-      <hbox id="editBookmarkPanelBottomButtons"
-            class="panel-footer"
-            data-l10n-id="bookmark-panel"
-            data-l10n-attrs="style">
+          <vbox id="editBookmarkPanelBottomContent"
+                flex="1">
+            <checkbox id="editBookmarkPanel_showForNewBookmarks"
+                      data-l10n-id="bookmark-panel-show-editor-checkbox"
+                      oncommand="StarUI.onShowForNewBookmarksCheckboxCommand();"/>
+          </vbox>
+          <hbox id="editBookmarkPanelBottomButtons"
+                class="panel-footer"
+                data-l10n-id="bookmark-panel"
+                data-l10n-attrs="style">
 #ifndef XP_UNIX
-        <button id="editBookmarkPanelDoneButton"
-                class="editBookmarkPanelBottomButton"
-                data-l10n-id="bookmark-panel-done-button"
-                default="true"
-                oncommand="StarUI.panel.hidePopup();"/>
-        <button id="editBookmarkPanelRemoveButton"
-                class="editBookmarkPanelBottomButton"
-                oncommand="StarUI.removeBookmarkButtonCommand();"/>
+            <button id="editBookmarkPanelDoneButton"
+                    class="editBookmarkPanelBottomButton"
+                    data-l10n-id="bookmark-panel-done-button"
+                    default="true"
+                    oncommand="StarUI.panel.hidePopup();"/>
+            <button id="editBookmarkPanelRemoveButton"
+                    class="editBookmarkPanelBottomButton"
+                    oncommand="StarUI.removeBookmarkButtonCommand();"/>
 #else
-        <button id="editBookmarkPanelRemoveButton"
-                class="editBookmarkPanelBottomButton"
-                oncommand="StarUI.removeBookmarkButtonCommand();"/>
-        <button id="editBookmarkPanelDoneButton"
-                class="editBookmarkPanelBottomButton"
-                data-l10n-id="bookmark-panel-done-button"
-                default="true"
-                oncommand="StarUI.panel.hidePopup();"/>
+            <button id="editBookmarkPanelRemoveButton"
+                    class="editBookmarkPanelBottomButton"
+                    oncommand="StarUI.removeBookmarkButtonCommand();"/>
+            <button id="editBookmarkPanelDoneButton"
+                    class="editBookmarkPanelBottomButton"
+                    data-l10n-id="bookmark-panel-done-button"
+                    default="true"
+                    oncommand="StarUI.panel.hidePopup();"/>
 #endif
-      </hbox>
-    </panel>
+          </hbox>
+      </panel>
+    </html:template>
 
     <panel id="sidebarMenu-popup"
            class="cui-widget-panel"
@@ -328,19 +333,19 @@
            position="bottomcenter topleft">
       <toolbarbutton id="sidebar-switcher-bookmarks"
                      type="checkbox"
-                     label="&bookmarksButton.label;"
+                     data-l10n-id="sidebar-menu-bookmarks"
                      class="subviewbutton subviewbutton-iconic"
                      key="viewBookmarksSidebarKb"
                      oncommand="SidebarUI.show('viewBookmarksSidebar');"/>
       <toolbarbutton id="sidebar-switcher-history"
                      type="checkbox"
-                     label="&historyButton.label;"
+                     data-l10n-id="sidebar-menu-history"
                      class="subviewbutton subviewbutton-iconic"
                      key="key_gotoHistory"
                      oncommand="SidebarUI.show('viewHistorySidebar');"/>
       <toolbarbutton id="sidebar-switcher-tabs"
                      type="checkbox"
-                     label="&syncedTabs.sidebar.label;"
+                     data-l10n-id="sidebar-menu-synced-tabs"
                      class="subviewbutton subviewbutton-iconic sync-ui-item"
                      oncommand="SidebarUI.show('viewTabsSidebar');"/>
       <toolbarseparator/>
@@ -350,7 +355,7 @@
                      class="subviewbutton"
                      oncommand="SidebarUI.reversePosition()"/>
       <toolbarseparator/>
-      <toolbarbutton label="&sidebarMenuClose.label;"
+      <toolbarbutton data-l10n-id="sidebar-menu-close"
                      class="subviewbutton"
                      oncommand="SidebarUI.hide()"/>
     </panel>
@@ -358,30 +363,25 @@
     <menupopup id="toolbar-context-menu"
                onpopupshowing="onViewToolbarsPopupShowing(event, document.getElementById('viewToolbarsMenuSeparator')); ToolbarContextMenu.updateDownloadsAutoHide(this); ToolbarContextMenu.updateExtension(this)">
       <menuitem oncommand="ToolbarContextMenu.openAboutAddonsForContextAction(this.parentElement)"
-                accesskey="&customizeMenu.manageExtension.accesskey;"
-                label="&customizeMenu.manageExtension.label;"
+                data-lazy-l10n-id="toolbar-context-menu-manage-extension"
                 contexttype="toolbaritem"
                 class="customize-context-manageExtension"/>
       <menuitem oncommand="ToolbarContextMenu.removeExtensionForContextAction(this.parentElement)"
-                accesskey="&customizeMenu.removeExtension.accesskey;"
-                label="&customizeMenu.removeExtension.label;"
+                data-lazy-l10n-id="toolbar-context-menu-remove-extension"
                 contexttype="toolbaritem"
                 class="customize-context-removeExtension"/>
       <menuseparator/>
       <menuitem oncommand="gCustomizeMode.addToPanel(document.popupNode)"
-                accesskey="&customizeMenu.pinToOverflowMenu.accesskey;"
-                label="&customizeMenu.pinToOverflowMenu.label;"
+                data-lazy-l10n-id="toolbar-context-menu-pin-to-overflow-menu"
                 contexttype="toolbaritem"
                 class="customize-context-moveToPanel"/>
       <menuitem id="toolbar-context-autohide-downloads-button"
                 oncommand="ToolbarContextMenu.onDownloadsAutoHideChange(event);"
                 type="checkbox"
-                accesskey="&customizeMenu.autoHideDownloadsButton.accesskey;"
-                label="&customizeMenu.autoHideDownloadsButton.label;"
+                data-lazy-l10n-id="toolbar-context-menu-auto-hide-downloads-button"
                 contexttype="toolbaritem"/>
       <menuitem oncommand="gCustomizeMode.removeFromArea(document.popupNode)"
-                accesskey="&customizeMenu.removeFromToolbar.accesskey;"
-                label="&customizeMenu.removeFromToolbar.label;"
+                data-lazy-l10n-id="toolbar-context-menu-remove-from-toolbar"
                 contexttype="toolbaritem"
                 class="customize-context-removeFromToolbar"/>
       <menuitem id="toolbar-context-reloadSelectedTab"
@@ -419,8 +419,7 @@
       <menuitem oncommand="gCustomizeMode.enter()"
                 observes="cmd_CustomizeToolbars"
                 class="viewCustomizeToolbar"
-                label="&viewCustomizeToolbar.label;"
-                accesskey="&viewCustomizeToolbar.accesskey;"/>
+                data-lazy-l10n-id="toolbar-context-menu-view-customize-toolbar"/>
     </menupopup>
 
     <menupopup id="blockedPopupOptions"
@@ -705,7 +704,7 @@
             <toolbarbutton id="alltabs-button"
                            class="toolbarbutton-1 chromeclass-toolbar-additional tabs-alltabs-button"
                            badged="true"
-                           oncommand="gTabsPanel.showAllTabsPanel();"
+                           oncommand="gTabsPanel.showAllTabsPanel(event);"
                            label="&listAllTabs.label;"
                            tooltiptext="&listAllTabs.label;"
                            removable="false"/>
@@ -802,7 +801,7 @@
                      class="chromeclass-location" overflows="false">
           <toolbartabstop/>
           <hbox id="urlbar" flex="1"
-                defaultPlaceholder="&urlbar.placeholder2;"
+                context=""
                 focused="true"
                 pageproxystate="invalid">
             <hbox id="urlbar-input-container"
@@ -821,7 +820,7 @@
                        consumeanchor="identity-box"
                        onclick="PageProxyClickHandler(event);"/>
                 <image id="permissions-granted-icon"
-                       tooltiptext="&urlbar.permissionsGranted.tooltip;"/>
+                       data-l10n-id="urlbar-permissions-granted"/>
                 <image id="sharing-icon" mousethrough="always"/>
                 <box id="tracking-protection-icon-box" animationsenabled="true">
                   <image id="tracking-protection-icon"/>
@@ -904,15 +903,15 @@
                 <image id="connection-icon"/>
                 <image id="extension-icon"/>
                 <image id="remote-control-icon"
-                       tooltiptext="&urlbar.remoteControlNotificationAnchor.tooltip;"/>
+                       data-l10n-id="urlbar-remote-control-notification-anchor"/>
                 <hbox id="identity-icon-labels">
                   <label id="identity-icon-label" class="plain" flex="1"/>
                   <label id="identity-icon-country-label" class="plain"/>
                 </hbox>
               </box>
               <box id="urlbar-label-box" align="center">
-                <label id="urlbar-label-switchtab" class="urlbar-label" value="&urlbar.switchToTab.label;"/>
-                <label id="urlbar-label-extension" class="urlbar-label" value="&urlbar.extension.label;"/>
+                <label id="urlbar-label-switchtab" class="urlbar-label" data-l10n-id="urlbar-switch-to-tab"/>
+                <label id="urlbar-label-extension" class="urlbar-label" data-l10n-id="urlbar-extension"/>
               </box>
               <moz-input-box tooltip="aHTMLTooltip"
                              class="urlbar-input-box"
@@ -926,12 +925,13 @@
                             aria-controls="urlbar-results"
                             aria-autocomplete="both"
                             inputmode="mozAwesomebar"
-                            placeholder="&urlbar.placeholder2;"/>
+                            data-l10n-id="urlbar-placeholder"
+                            data-l10n-attrs="placeholder"/>
               </moz-input-box>
               <image id="urlbar-go-button"
                      class="urlbar-icon"
                      onclick="gURLBar.handleCommand(event);"
-                     tooltiptext="&goEndCap.tooltip;"/>
+                     data-l10n-id="urlbar-go-end-cap"/>
               <image class="urlbar-history-dropmarker urlbar-icon chromeclass-toolbar-additional"
                      tooltiptext="&urlbar.openHistoryPopup.tooltip;"/>
               <hbox id="page-action-buttons" context="pageActionContextMenu">
@@ -954,7 +954,7 @@
                 <image id="pageActionButton"
                        class="urlbar-icon urlbar-page-action"
                        role="button"
-                       tooltiptext="&pageActionButton.tooltip;"
+                       data-l10n-id="urlbar-page-action-button"
                        onmousedown="BrowserPageActions.mainButtonClicked(event);"
                        onkeypress="BrowserPageActions.mainButtonClicked(event);"/>
                 <hbox id="star-button-box"
@@ -1127,6 +1127,19 @@
                          placespopup="true"
                          tooltip="bhTooltip" popupsinherittooltip="true"
                          context="placesContext"/>
+            </toolbarbutton>
+            <toolbarbutton type="menu"
+                           id="OtherBookmarks"
+                           class="bookmark-item"
+                           hidden="true"
+                           label="&bookmarksMenuButton.other.label;"
+                           container="true"
+                           onpopupshowing="document.getElementById('PlacesToolbar')
+                                                   ._placesView._onOtherBookmarksPopupShowing(event);">
+              <menupopup id="OtherBookmarksPopup"
+                         is="places-popup"
+                         placespopup="true"
+                         context="placesContext" />
             </toolbarbutton>
           </hbox>
         </hbox>

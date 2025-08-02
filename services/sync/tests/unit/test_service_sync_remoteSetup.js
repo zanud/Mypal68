@@ -6,7 +6,6 @@ const { Service } = ChromeUtils.import("resource://services-sync/service.js");
 add_task(async function run_test() {
   enableValidationPrefs();
 
-  validate_all_future_pings();
   Log.repository.rootLogger.addAppender(new Log.DumpAppender());
 
   let clients = new ServerCollection();

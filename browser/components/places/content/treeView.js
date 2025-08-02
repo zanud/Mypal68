@@ -1207,8 +1207,6 @@ PlacesTreeView.prototype = {
     if (this._tree && val) {
       this._finishInit();
     }
-
-    return val;
   },
 
   /**

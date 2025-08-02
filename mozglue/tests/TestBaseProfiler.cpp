@@ -5,9 +5,9 @@
 #include "BaseProfiler.h"
 
 #include "mozilla/Attributes.h"
+#include "mozilla/BaseProfileJSONWriter.h"
 
 #ifdef MOZ_GECKO_PROFILER
-#  include "BaseProfileJSONWriter.h"
 #  include "BaseProfilerMarkerPayload.h"
 #  include "mozilla/leb128iterator.h"
 #  include "mozilla/ModuloBuffer.h"

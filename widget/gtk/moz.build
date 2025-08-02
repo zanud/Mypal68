@@ -51,6 +51,7 @@ UNIFIED_SOURCES += [
 ]
 
 SOURCES += [
+    'MediaKeysEventSourceFactory.cpp',
     'nsWindow.cpp', # conflicts with X11 headers
 ]
 

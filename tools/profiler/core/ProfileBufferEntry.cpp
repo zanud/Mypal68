@@ -214,9 +214,8 @@ UniqueJSONStrings::UniqueJSONStrings(const UniqueJSONStrings& aOther) {
       mStringHashToIndexMap.putNewInfallible(iter.get().key(),
                                              iter.get().value());
     }
-    UniquePtr<char[]> stringTableJSON =
-        aOther.mStringTableWriter.WriteFunc()->CopyData();
-    mStringTableWriter.Splice(stringTableJSON.get());
+    mStringTableWriter.CopyAndSplice(
+        aOther.mStringTableWriter.ChunkedWriteFunc());
   }
 }
 
@@ -230,7 +229,7 @@ uint32_t UniqueJSONStrings::GetOrAddIndex(const char* aStr) {
   }
 
   MOZ_RELEASE_ASSERT(mStringHashToIndexMap.add(entry, hash, count));
-  mStringTableWriter.StringElement(aStr);
+  mStringTableWriter.StringElement(MakeStringSpan(aStr));
   return count;
 }
 
@@ -353,7 +352,7 @@ UniqueStacks::LookupFramesForJITAddressFromBufferPos(void* aJITAddress,
       auto frameJSON =
           jitFrameInfoRange.mJITFrameToFrameJSONMap.lookup(jitFrameKey);
       MOZ_RELEASE_ASSERT(frameJSON, "Should have cached JSON for this frame");
-      mFrameTableWriter.Splice(frameJSON->value().get());
+      mFrameTableWriter.Splice(frameJSON->value());
       MOZ_RELEASE_ASSERT(mFrameToIndexMap.add(entry, frameKey, index));
     }
     MOZ_RELEASE_ASSERT(frameKeys.append(std::move(frameKey)));
@@ -376,12 +375,12 @@ uint32_t UniqueStacks::GetOrAddFrameIndex(const FrameKey& aFrame) {
 
 void UniqueStacks::SpliceFrameTableElements(SpliceableJSONWriter& aWriter) {
   mFrameTableWriter.EndBareList();
-  aWriter.TakeAndSplice(mFrameTableWriter.WriteFunc());
+  aWriter.TakeAndSplice(mFrameTableWriter.TakeChunkedWriteFunc());
 }
 
 void UniqueStacks::SpliceStackTableElements(SpliceableJSONWriter& aWriter) {
   mStackTableWriter.EndBareList();
-  aWriter.TakeAndSplice(mStackTableWriter.WriteFunc());
+  aWriter.TakeAndSplice(mStackTableWriter.TakeChunkedWriteFunc());
 }
 
 void UniqueStacks::StreamStack(const StackKey& aStack) {
@@ -475,7 +474,7 @@ struct CStringWriteFunc : public JSONWriteFunc {
   nsACString& mBuffer;  // The struct must not outlive this buffer
   explicit CStringWriteFunc(nsACString& aBuffer) : mBuffer(aBuffer) {}
 
-  void Write(const char* aStr) override { mBuffer.Append(aStr); }
+  void Write(const Span<const char>& aStr) override { mBuffer.Append(aStr); }
 };
 
 static nsCString JSONForJITFrame(JSContext* aContext,
@@ -723,15 +722,6 @@ class EntryGetter {
 //     DynamicStringFragment("ed:914)")
 //     LineNumber(945)
 //     CategoryPair(JS::ProfilingCategoryPair::JS)
-//
-// - A profiling stack frame with a dynamic string, but with privacy enabled:
-//
-//     Label("nsObserverService::NotifyObservers")
-//     FrameFlags(uint64_t(ProfilingStackFrame::Flags::IS_LABEL_FRAME))
-//     DynamicStringFragment("(private")
-//     DynamicStringFragment(")")
-//     LineNumber(291)
-//     CategoryPair(JS::ProfilingCategoryPair::OTHER)
 //
 // - A profiling stack frame with an overly long dynamic string:
 //
@@ -1173,21 +1163,38 @@ void ProfileBuffer::StreamMarkersToJSON(SpliceableJSONWriter& aWriter,
                    ProfileBufferEntry::Kind::MODERN_LIMIT));
     if (type == ProfileBufferEntry::Kind::MarkerData &&
         aER.ReadObject<int>() == aThreadId) {
-      // Schema:
-      //   [name, time, category, data]
-
       aWriter.StartArrayElement();
       {
-        std::string name = aER.ReadObject<std::string>();
+        // Extract the information from the buffer:
+        // Each entry is made up of the following:
+        //
+        // [
+        //   ProfileBufferEntry::Kind::MarkerData,  <- already read
+        //   threadId,                              <- already read
+        //   name,                                  <- next location in entries
+        //   startTime,
+        //   endTime,
+        //   phase,
+        //   categoryPair,
+        //   payload,
+        // ]
+        auto name = aER.ReadObject<std::string>();
+        auto startTime = aER.ReadObject<double>();
+        auto endTime = aER.ReadObject<double>();
+        auto phase = aER.ReadObject<uint8_t>();
         const JS::ProfilingCategoryPairInfo& info =
             GetProfilingCategoryPairInfo(static_cast<JS::ProfilingCategoryPair>(
                 aER.ReadObject<uint32_t>()));
         auto payload = aER.ReadObject<UniquePtr<ProfilerMarkerPayload>>();
-        double time = aER.ReadObject<double>();
+
         MOZ_ASSERT(aER.RemainingBytes() == 0);
 
+        // Now write this information to JSON with the following schema:
+        // [name, startTime, endTime, phase, category, data]
         aUniqueStacks.mUniqueStrings->WriteElement(aWriter, name.c_str());
-        aWriter.DoubleElement(time);
+        aWriter.DoubleElement(startTime);
+        aWriter.DoubleElement(endTime);
+        aWriter.IntElement(phase);
         aWriter.IntElement(unsigned(info.mCategory));
         if (payload) {
           aWriter.StartObjectElement(SpliceableJSONWriter::SingleLineStyle);
@@ -1452,9 +1459,11 @@ void ProfileBuffer::StreamCountersToJSON(SpliceableJSONWriter& aWriter,
           static_cast<const BaseProfilerCount*>(iter.get().key());
 
       aWriter.Start();
-      aWriter.StringProperty("name", base_counter->mLabel);
-      aWriter.StringProperty("category", base_counter->mCategory);
-      aWriter.StringProperty("description", base_counter->mDescription);
+      aWriter.StringProperty("name", MakeStringSpan(base_counter->mLabel));
+      aWriter.StringProperty("category",
+                             MakeStringSpan(base_counter->mCategory));
+      aWriter.StringProperty("description",
+                             MakeStringSpan(base_counter->mDescription));
 
       aWriter.StartArrayProperty("sample_groups");
       for (auto counter_iter = counter.iter(); !counter_iter.done();
@@ -1535,7 +1544,7 @@ static void AddPausedRange(SpliceableJSONWriter& aWriter, const char* aReason,
   } else {
     aWriter.NullProperty("endTime");
   }
-  aWriter.StringProperty("reason", aReason);
+  aWriter.StringProperty("reason", MakeStringSpan(aReason));
   aWriter.End();
 }
 

@@ -41,12 +41,10 @@ var {
   configureFxAccountIdentity,
   configureIdentity,
   encryptPayload,
-  getLoginTelemetryScalar,
   makeFxAccountsInternalMock,
   makeIdentityConfig,
   promiseNamedTimer,
   promiseZeroTimer,
-  sumHistogram,
   syncTestLogging,
   waitForZeroTimer,
 } = ChromeUtils.import("resource://testing-common/services/sync/utils.js");
@@ -64,42 +62,6 @@ add_task(async function head_setup() {
   if (typeof Service !== "undefined") {
     await Service.promiseInitialized;
   }
-});
-
-XPCOMUtils.defineLazyGetter(this, "SyncPingSchema", function() {
-  let ns = {};
-  ChromeUtils.import("resource://gre/modules/FileUtils.jsm", ns);
-  ChromeUtils.import("resource://gre/modules/NetUtil.jsm", ns);
-  let stream = Cc["@mozilla.org/network/file-input-stream;1"].createInstance(
-    Ci.nsIFileInputStream
-  );
-  let schema;
-  try {
-    let schemaFile = do_get_file("sync_ping_schema.json");
-    stream.init(
-      schemaFile,
-      ns.FileUtils.MODE_RDONLY,
-      ns.FileUtils.PERMS_FILE,
-      0
-    );
-
-    let bytes = ns.NetUtil.readInputStream(stream, stream.available());
-    schema = JSON.parse(new TextDecoder().decode(bytes));
-  } finally {
-    stream.close();
-  }
-
-  // Allow tests to make whatever engines they want, this shouldn't cause
-  // validation failure.
-  schema.definitions.engine.properties.name = { type: "string" };
-  return schema;
-});
-
-XPCOMUtils.defineLazyGetter(this, "SyncPingValidator", function() {
-  let ns = {};
-  ChromeUtils.import("resource://testing-common/ajv-4.1.1.js", ns);
-  let ajv = new ns.Ajv({ async: "co*" });
-  return ajv.compile(SyncPingSchema);
 });
 
 // This is needed for loadAddonTestFunctions().
@@ -272,208 +234,16 @@ function mockGetWindowEnumerator(url, numWindows, numTabs, indexes, moreURLs) {
   return elements.values();
 }
 
-// Helper function to get the sync telemetry and add the typically used test
-// engine names to its list of allowed engines.
-function get_sync_test_telemetry() {
-  let ns = {};
-  ChromeUtils.import("resource://services-sync/telemetry.js", ns);
-  let testEngines = ["rotary", "steam", "sterling", "catapult"];
-  for (let engineName of testEngines) {
-    ns.SyncTelemetry.allowedEngines.add(engineName);
-  }
-  ns.SyncTelemetry.submissionInterval = -1;
-  return ns.SyncTelemetry;
-}
-
-function assert_valid_ping(record) {
-  // This is called as the test harness tears down due to shutdown. This
-  // will typically have no recorded syncs, and the validator complains about
-  // it. So ignore such records (but only ignore when *both* shutdown and
-  // no Syncs - either of them not being true might be an actual problem)
-  if (record && (record.why != "shutdown" || record.syncs.length != 0)) {
-    if (!SyncPingValidator(record)) {
-      if (SyncPingValidator.errors.length) {
-        // validation failed - using a simple |deepEqual([], errors)| tends to
-        // truncate the validation errors in the output and doesn't show that
-        // the ping actually was - so be helpful.
-        info("telemetry ping validation failed");
-        info("the ping data is: " + JSON.stringify(record, undefined, 2));
-        info(
-          "the validation failures: " +
-            JSON.stringify(SyncPingValidator.errors, undefined, 2)
-        );
-        ok(
-          false,
-          "Sync telemetry ping validation failed - see output above for details"
-        );
-      }
-    }
-    equal(record.version, 1);
-    record.syncs.forEach(p => {
-      lessOrEqual(p.when, Date.now());
-      if (p.devices) {
-        ok(!p.devices.some(device => device.id == record.deviceID));
-        equal(
-          new Set(p.devices.map(device => device.id)).size,
-          p.devices.length,
-          "Duplicate device ids in ping devices list"
-        );
-      }
-    });
-  }
-}
-
-// Asserts that `ping` is a ping that doesn't contain any failure information
-function assert_success_ping(ping) {
-  ok(!!ping);
-  assert_valid_ping(ping);
-  ping.syncs.forEach(record => {
-    ok(!record.failureReason, JSON.stringify(record.failureReason));
-    equal(undefined, record.status);
-    greater(record.engines.length, 0);
-    for (let e of record.engines) {
-      ok(!e.failureReason);
-      equal(undefined, e.status);
-      if (e.validation) {
-        equal(undefined, e.validation.problems);
-        equal(undefined, e.validation.failureReason);
-      }
-      if (e.outgoing) {
-        for (let o of e.outgoing) {
-          equal(undefined, o.failed);
-          notEqual(undefined, o.sent);
-        }
-      }
-      if (e.incoming) {
-        equal(undefined, e.incoming.failed);
-        equal(undefined, e.incoming.newFailed);
-        notEqual(undefined, e.incoming.applied || e.incoming.reconciled);
-      }
-    }
-  });
-}
-
-// Hooks into telemetry to validate all pings after calling.
-function validate_all_future_pings() {
-  let telem = get_sync_test_telemetry();
-  telem.submit = assert_valid_ping;
-}
-
-function wait_for_pings(expectedPings) {
-  return new Promise(resolve => {
-    let telem = get_sync_test_telemetry();
-    let oldSubmit = telem.submit;
-    let pings = [];
-    telem.submit = function(record) {
-      pings.push(record);
-      if (pings.length == expectedPings) {
-        telem.submit = oldSubmit;
-        resolve(pings);
-      }
-    };
-  });
-}
-
-async function wait_for_ping(callback, allowErrorPings, getFullPing = false) {
-  let pingsPromise = wait_for_pings(1);
-  await callback();
-  let [record] = await pingsPromise;
-  if (allowErrorPings) {
-    assert_valid_ping(record);
-  } else {
-    assert_success_ping(record);
-  }
-  if (getFullPing) {
-    return record;
-  }
-  equal(record.syncs.length, 1);
-  return record.syncs[0];
-}
-
-// Short helper for wait_for_ping
-function sync_and_validate_telem(allowErrorPings, getFullPing = false) {
-  return wait_for_ping(() => Service.sync(), allowErrorPings, getFullPing);
-}
-
 // Used for the (many) cases where we do a 'partial' sync, where only a single
 // engine is actually synced, but we still want to ensure we're generating a
 // valid ping. Returns a promise that resolves to the ping, or rejects with the
 // thrown error after calling an optional callback.
-async function sync_engine_and_validate_telem(
+async function sync_engine(
   engine,
-  allowErrorPings,
   onError
 ) {
-  let telem = get_sync_test_telemetry();
   let caughtError = null;
-  // Clear out status, so failures from previous syncs won't show up in the
-  // telemetry ping.
-  let ns = {};
-  ChromeUtils.import("resource://services-sync/status.js", ns);
-  ns.Status._engines = {};
-  ns.Status.partial = false;
-  // Ideally we'd clear these out like we do with engines, (probably via
-  // Status.resetSync()), but this causes *numerous* tests to fail, so we just
-  // assume that if no failureReason or engine failures are set, and the
-  // status properties are the same as they were initially, that it's just
-  // a leftover.
-  // This is only an issue since we're triggering the sync of just one engine,
-  // without doing any other parts of the sync.
-  let initialServiceStatus = ns.Status._service;
-  let initialSyncStatus = ns.Status._sync;
 
-  let oldSubmit = telem.submit;
-  let submitPromise = new Promise((resolve, reject) => {
-    telem.submit = function(ping) {
-      telem.submit = oldSubmit;
-      ping.syncs.forEach(record => {
-        if (record && record.status) {
-          // did we see anything to lead us to believe that something bad actually happened
-          let realProblem =
-            record.failureReason ||
-            record.engines.some(e => {
-              if (e.failureReason || e.status) {
-                return true;
-              }
-              if (e.outgoing && e.outgoing.some(o => o.failed > 0)) {
-                return true;
-              }
-              return e.incoming && e.incoming.failed;
-            });
-          if (!realProblem) {
-            // no, so if the status is the same as it was initially, just assume
-            // that its leftover and that we can ignore it.
-            if (record.status.sync && record.status.sync == initialSyncStatus) {
-              delete record.status.sync;
-            }
-            if (
-              record.status.service &&
-              record.status.service == initialServiceStatus
-            ) {
-              delete record.status.service;
-            }
-            if (!record.status.sync && !record.status.service) {
-              delete record.status;
-            }
-          }
-        }
-      });
-      if (allowErrorPings) {
-        assert_valid_ping(ping);
-      } else {
-        assert_success_ping(ping);
-      }
-      equal(ping.syncs.length, 1);
-      if (caughtError) {
-        if (onError) {
-          onError(ping.syncs[0], ping);
-        }
-        reject(caughtError);
-      } else {
-        resolve(ping.syncs[0]);
-      }
-    };
-  });
   // neuter the scheduler as it interacts badly with some of the tests - the
   // engine being synced usually isn't the registered engine, so we see
   // scored incremented and not removed, which schedules unexpected syncs.
@@ -592,9 +362,8 @@ async function promiseVisit(expectedType, expectedURI) {
   return new Promise(resolve => {
     function done(type, uri) {
       if (uri == expectedURI.spec && type == expectedType) {
-        PlacesUtils.history.removeObserver(observer);
         PlacesObservers.removeListener(
-          ["page-visited"],
+          ["page-visited", "page-removed"],
           observer.handlePlacesEvents
         );
         resolve();
@@ -603,23 +372,19 @@ async function promiseVisit(expectedType, expectedURI) {
     let observer = {
       handlePlacesEvents(events) {
         Assert.equal(events.length, 1);
-        Assert.equal(events[0].type, "page-visited");
-        done("added", events[0].url);
+
+        if (events[0].type === "page-visited") {
+          done("added", events[0].url);
+        } else if (events[0].type === "page-removed") {
+          Assert.ok(events[0].isRemovedFromStore);
+          done("removed", events[0].url);
+        }
       },
-      onBeginUpdateBatch() {},
-      onEndUpdateBatch() {},
-      onTitleChanged() {},
-      onFrecencyChanged() {},
-      onManyFrecenciesChanged() {},
-      onDeleteURI(uri) {
-        done("removed", uri.spec);
-      },
-      onClearHistory() {},
-      onPageChanged() {},
-      onDeleteVisits() {},
     };
-    PlacesUtils.history.addObserver(observer, false);
-    PlacesObservers.addListener(["page-visited"], observer.handlePlacesEvents);
+    PlacesObservers.addListener(
+      ["page-visited", "page-removed"],
+      observer.handlePlacesEvents
+    );
   });
 }
 
@@ -653,13 +418,6 @@ function bookmarkNodesToInfos(nodes) {
     if (node.children) {
       info.children = bookmarkNodesToInfos(node.children);
     }
-    // Check orphan parent anno.
-    if (PlacesUtils.annotations.itemHasAnnotation(node.id, "sync/parent")) {
-      info.requestedParent = PlacesUtils.annotations.getItemAnnotation(
-        node.id,
-        "sync/parent"
-      );
-    }
     return info;
   });
 }
@@ -677,9 +435,20 @@ async function assertBookmarksTreeMatches(rootGuid, expected, message) {
   }
 }
 
-function bufferedBookmarksEnabled() {
-  return Services.prefs.getBoolPref(
-    "services.sync.engine.bookmarks.buffer",
-    false
+function add_bookmark_test(task) {
+  const { BookmarksEngine } = ChromeUtils.import(
+    "resource://services-sync/engines/bookmarks.js"
   );
+
+  add_task(async function() {
+    _(`Running bookmarks test ${task.name}`);
+    let engine = new BookmarksEngine(Service);
+    await engine.initialize();
+    await engine._resetClient();
+    try {
+      await task(engine);
+    } finally {
+      await engine.finalize();
+    }
+  });
 }

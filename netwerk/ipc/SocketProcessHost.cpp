@@ -12,6 +12,10 @@
 #  include "ProfilerParent.h"
 #endif
 
+#if defined(XP_MACOSX) && defined(MOZ_SANDBOX)
+#  include "mozilla/Sandbox.h"
+#endif
+
 namespace mozilla {
 namespace net {
 
@@ -74,6 +78,10 @@ class OfflineObserver final : public nsIObserver {
 
 NS_IMPL_ISUPPORTS(OfflineObserver, nsIObserver)
 
+#if defined(XP_MACOSX) && defined(MOZ_SANDBOX)
+bool SocketProcessHost::sLaunchWithMacSandbox = false;
+#endif
+
 SocketProcessHost::SocketProcessHost(Listener* aListener)
     : GeckoChildProcessHost(GeckoProcessType_Socket),
       mListener(aListener),
@@ -83,6 +91,13 @@ SocketProcessHost::SocketProcessHost(Listener* aListener)
       mChannelClosed(false) {
   MOZ_ASSERT(NS_IsMainThread());
   MOZ_COUNT_CTOR(SocketProcessHost);
+#if defined(XP_MACOSX) && defined(MOZ_SANDBOX)
+  if (!sLaunchWithMacSandbox) {
+    sLaunchWithMacSandbox =
+        (PR_GetEnv("MOZ_DISABLE_SOCKET_PROCESS_SANDBOX") == nullptr);
+  }
+  mDisableOSActivityMode = sLaunchWithMacSandbox;
+#endif
 }
 
 SocketProcessHost::~SocketProcessHost() {
@@ -138,7 +153,6 @@ void SocketProcessHost::OnChannelConnected(int32_t peer_pid) {
 
 void SocketProcessHost::OnChannelError() {
   MOZ_ASSERT(!NS_IsMainThread());
-
   GeckoChildProcessHost::OnChannelError();
 
   // Post a task to the main thread. Take the lock because mTaskFactory is not
@@ -254,6 +268,21 @@ void SocketProcessHost::DestroyProcess() {
   MessageLoop::current()->PostTask(NS_NewRunnableFunction(
       "DestroySocketProcessRunnable", [this] { Destroy(); }));
 }
+
+#if defined(XP_MACOSX) && defined(MOZ_SANDBOX)
+bool SocketProcessHost::FillMacSandboxInfo(MacSandboxInfo& aInfo) {
+  GeckoChildProcessHost::FillMacSandboxInfo(aInfo);
+  if (!aInfo.shouldLog && PR_GetEnv("MOZ_SANDBOX_SOCKET_PROCESS_LOGGING")) {
+    aInfo.shouldLog = true;
+  }
+  return true;
+}
+
+/* static */
+MacSandboxType SocketProcessHost::GetMacSandboxType() {
+  return MacSandboxType_Socket;
+}
+#endif
 
 //-----------------------------------------------------------------------------
 // SocketProcessMemoryReporter

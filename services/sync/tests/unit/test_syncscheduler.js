@@ -91,8 +91,6 @@ add_task(async function setup() {
   clientsEngine._removeRemoteClient = async id => {};
   await Service.engineManager.clear();
 
-  validate_all_future_pings();
-
   scheduler.setDefaults();
 
   await Service.engineManager.register(CatapultEngine);

@@ -131,37 +131,34 @@ class SpliceableJSONWriter;
     MACRO(6, "noiostacks", NoIOStacks,                                         \
           "File I/O markers do not capture stacks, to reduce overhead")        \
                                                                                \
-    MACRO(7, "privacy", Privacy,                                               \
-          "Do not include user-identifiable information")                      \
-                                                                               \
-    MACRO(8, "screenshots", Screenshots,                                       \
+    MACRO(7, "screenshots", Screenshots,                                       \
           "Take a snapshot of the window on every composition")                \
                                                                                \
-    MACRO(9, "seqstyle", SequentialStyle,                                      \
+    MACRO(8, "seqstyle", SequentialStyle,                                      \
           "Disable parallel traversal in styling")                             \
                                                                                \
-    MACRO(10, "stackwalk", StackWalk,                                          \
+    MACRO(9, "stackwalk", StackWalk,                                           \
           "Walk the C++ stack, not available on all platforms")                \
                                                                                \
-    MACRO(11, "tasktracer", TaskTracer,                                        \
+    MACRO(10, "tasktracer", TaskTracer,                                        \
           "Start profiling with feature TaskTracer")                           \
                                                                                \
-    MACRO(12, "threads", Threads, "Profile the registered secondary threads")  \
+    MACRO(11, "threads", Threads, "Profile the registered secondary threads")  \
                                                                                \
-    MACRO(13, "jstracer", JSTracer, "Enable tracing of the JavaScript engine") \
+    MACRO(12, "jstracer", JSTracer, "Enable tracing of the JavaScript engine") \
                                                                                \
-    MACRO(14, "jsallocations", JSAllocations,                                  \
+    MACRO(13, "jsallocations", JSAllocations,                                  \
           "Have the JavaScript engine track allocations")                      \
                                                                                \
-    MACRO(15, "nostacksampling", NoStackSampling,                              \
+    MACRO(14, "nostacksampling", NoStackSampling,                              \
           "Disable all stack sampling: Cancels \"js\", \"leaf\", "             \
           "\"stackwalk\" and labels")                                          \
                                                                                \
-    MACRO(16, "nativeallocations", NativeAllocations,                          \
+    MACRO(15, "nativeallocations", NativeAllocations,                          \
           "Collect the stacks from a smaller subset of all native "            \
           "allocations, biasing towards collecting larger allocations")        \
                                                                                \
-    MACRO(17, "ipcmessages", IPCMessages,                                      \
+    MACRO(16, "ipcmessages", IPCMessages,                                      \
           "Have the IPC layer track cross-process messages")
 
 struct ProfilerFeature {
@@ -207,9 +204,7 @@ class RacyFeatures {
 
   MFBT_API static bool IsActiveWithFeature(uint32_t aFeature);
 
-  MFBT_API static bool IsActiveWithoutPrivacy();
-
-  MFBT_API static bool IsActiveAndUnpausedWithoutPrivacy();
+  MFBT_API static bool IsActiveAndUnpaused();
 
  private:
   static constexpr uint32_t Active = 1u << 31;
@@ -415,8 +410,7 @@ inline bool profiler_is_active() {
 //     BASE_PROFILER_ADD_MARKER_WITH_PAYLOAD(name, OTHER, expensivePayload);
 //   }
 inline bool profiler_can_accept_markers() {
-  return baseprofiler::detail::RacyFeatures::
-      IsActiveAndUnpausedWithoutPrivacy();
+  return baseprofiler::detail::RacyFeatures::IsActiveAndUnpaused();
 }
 
 // Is the profiler active, and is the current thread being profiled?
@@ -488,7 +482,7 @@ class ProfilerStackCollector {
 // This method suspends the thread identified by aThreadId, samples its
 // profiling stack, JS stack, and (optionally) native stack, passing the
 // collected frames into aCollector. aFeatures dictates which compiler features
-// are used. |Privacy| and |Leaf| are the only relevant ones.
+// are used. |Leaf| is the only relevant one.
 MFBT_API void profiler_suspend_and_sample_thread(
     int aThreadId, uint32_t aFeatures, ProfilerStackCollector& aCollector,
     bool aSampleNative = true);
@@ -501,7 +495,7 @@ using UniqueProfilerBacktrace =
     UniquePtr<ProfilerBacktrace, ProfilerBacktraceDestructor>;
 
 // Immediately capture the current thread's call stack and return it. A no-op
-// if the profiler is inactive or in privacy mode.
+// if the profiler is inactive.
 MFBT_API UniqueProfilerBacktrace profiler_get_backtrace();
 
 struct ProfilerStats {
@@ -738,8 +732,7 @@ class MOZ_RAII AutoProfilerStats {
 // recorded in the profile buffer if a sample is collected while the label is
 // on the label stack, markers will always be recorded in the profile buffer.
 // aMarkerName is copied, so the caller does not need to ensure it lives for a
-// certain length of time. A no-op if the profiler is inactive or in privacy
-// mode.
+// certain length of time. A no-op if the profiler is inactive.
 
 #  define BASE_PROFILER_ADD_MARKER(markerName, categoryPair)             \
     do {                                                                 \
@@ -813,8 +806,7 @@ enum TracingKind {
       docShellHistoryId = mozilla::Nothing();            \
     }
 
-// Adds a tracing marker to the profile. A no-op if the profiler is inactive or
-// in privacy mode.
+// Adds a tracing marker to the profile. A no-op if the profiler is inactive.
 
 #  define BASE_PROFILER_TRACING_MARKER(categoryString, markerName, \
                                        categoryPair, kind)         \
