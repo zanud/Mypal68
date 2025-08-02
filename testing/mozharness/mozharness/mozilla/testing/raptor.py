@@ -6,7 +6,6 @@ from __future__ import absolute_import, print_function, unicode_literals
 
 import argparse
 import copy
-import json
 import os
 import re
 import sys
@@ -137,6 +136,11 @@ class Raptor(TestingMixin, MercurialScript, CodeCoverageMixin, AndroidMixin):
             "help": "The number of times a cold load test is repeated (for cold load tests only, "
                     "where the browser is shutdown and restarted between test iterations)"
         }],
+        [["--test-url-params"], {
+            "action": "store",
+            "dest": "test_url_params",
+            "help": "Parameters to add to the test_url query string"
+        }],
         [["--host"], {
             "dest": "host",
             "help": "Hostname from which to serve urls (default: 127.0.0.1). "
@@ -211,29 +215,26 @@ class Raptor(TestingMixin, MercurialScript, CodeCoverageMixin, AndroidMixin):
             # which are passed in from mach inside 'raptor_cmd_line_args'
             # cmd line args can be in two formats depending on how user entered them
             # i.e. "--app=geckoview" or separate as "--app", "geckoview" so we have to
-            # check each cmd line arg individually
+            # parse carefully.  It's simplest to use `argparse` to parse partially.
             self.app = "firefox"
             if 'raptor_cmd_line_args' in self.config:
-                for app in ['chrome', 'geckoview', 'fennec', 'refbrow', 'fenix']:
-                    for next_arg in self.config['raptor_cmd_line_args']:
-                        if app in next_arg:
-                            self.app = app
-                            break
-                # repeat and get 'activity' argument
-                for activity in ['GeckoViewActivity',
-                                 'BrowserTestActivity',
-                                 'browser.BrowserPerformanceTestActivity']:
-                    for next_arg in self.config['raptor_cmd_line_args']:
-                        if activity in next_arg:
-                            self.activity = activity
-                            break
-                # repeat and get 'intent' argument
-                for intent in ['android.intent.action.MAIN',
-                               'android.intent.action.VIEW']:
-                    for next_arg in self.config['raptor_cmd_line_args']:
-                        if intent in next_arg:
-                            self.intent = intent
-                            break
+                sub_parser = argparse.ArgumentParser()
+                # It's not necessary to limit the allowed values: each value
+                # will be parsed and verifed by raptor/raptor.py.
+                sub_parser.add_argument('--app', default=None, dest='app')
+                sub_parser.add_argument('-i', '--intent', default=None, dest='intent')
+                sub_parser.add_argument('-a', '--activity', default=None, dest='activity')
+
+                # We'd prefer to use `parse_known_intermixed_args`, but that's
+                # new in Python 3.7.
+                known, unknown = sub_parser.parse_known_args(self.config['raptor_cmd_line_args'])
+
+                if known.app:
+                    self.app = known.app
+                if known.intent:
+                    self.intent = known.intent
+                if known.activity:
+                    self.activity = known.activity
         else:
             # raptor initiated in production via mozharness
             self.test = self.config['test']
@@ -255,6 +256,7 @@ class Raptor(TestingMixin, MercurialScript, CodeCoverageMixin, AndroidMixin):
         self.gecko_profile_interval = self.config.get('gecko_profile_interval')
         self.gecko_profile_entries = self.config.get('gecko_profile_entries')
         self.test_packages_url = self.config.get('test_packages_url')
+        self.test_url_params = self.config.get('test_url_params')
         self.host = self.config.get('host')
         if self.host == 'HOST_IP':
             self.host = os.environ['HOST_IP']
@@ -376,6 +378,9 @@ class Raptor(TestingMixin, MercurialScript, CodeCoverageMixin, AndroidMixin):
             kw_options['symbolsPath'] = self.symbols_path
         if self.config.get('obj_path', None) is not None:
             kw_options['obj-path'] = self.config['obj_path']
+        if self.test_url_params:
+            kw_options['test-url-params'] = self.test_url_params
+
         kw_options.update(kw)
         if self.host:
             kw_options['host'] = self.host
@@ -522,34 +527,6 @@ class Raptor(TestingMixin, MercurialScript, CodeCoverageMixin, AndroidMixin):
             self.info("installing requirements for the view-gecko-profile tool")
             self.install_module(requirements=[view_gecko_profile_req])
 
-    def _validate_treeherder_data(self, parser):
-        # late import is required, because install is done in create_virtualenv
-        import jsonschema
-
-        expected_perfherder = 1
-        if self.config.get('power_test', None):
-            expected_perfherder += 1
-        if self.config.get('memory_test', None):
-            expected_perfherder += 1
-        if self.config.get('cpu_test', None):
-            expected_perfherder += 1
-        if len(parser.found_perf_data) != expected_perfherder:
-            self.critical("PERFHERDER_DATA was seen %d times, expected %d."
-                          % (len(parser.found_perf_data), expected_perfherder))
-            return
-
-        schema_path = os.path.join(external_tools_path,
-                                   'performance-artifact-schema.json')
-        self.info("Validating PERFHERDER_DATA against %s" % schema_path)
-        try:
-            with open(schema_path) as f:
-                schema = json.load(f)
-            data = json.loads(parser.found_perf_data[0])
-            jsonschema.validate(data, schema)
-        except Exception as e:
-            self.exception("Error while validating PERFHERDER_DATA")
-            self.info(str(e))
-
     def _artifact_perf_data(self, src, dest):
         if not os.path.isdir(os.path.dirname(dest)):
             # create upload dir if it doesn't already exist
@@ -646,35 +623,32 @@ class Raptor(TestingMixin, MercurialScript, CodeCoverageMixin, AndroidMixin):
             for item in parser.minidump_output:
                 self.run_command(["ls", "-l", item])
 
-        elif '--no-upload-results' not in options:
-            if not self.gecko_profile:
-                self._validate_treeherder_data(parser)
-            if not self.run_local:
-                # copy results to upload dir so they are included as an artifact
-                self.info("copying raptor results to upload dir:")
+        elif not self.run_local:
+            # copy results to upload dir so they are included as an artifact
+            self.info("copying raptor results to upload dir:")
 
-                src = os.path.join(self.query_abs_dirs()['abs_work_dir'], 'raptor.json')
-                dest = os.path.join(env['MOZ_UPLOAD_DIR'], 'perfherder-data.json')
-                self.info(str(dest))
+            src = os.path.join(self.query_abs_dirs()['abs_work_dir'], 'raptor.json')
+            dest = os.path.join(env['MOZ_UPLOAD_DIR'], 'perfherder-data.json')
+            self.info(str(dest))
+            self._artifact_perf_data(src, dest)
+
+            if self.power_test:
+                src = os.path.join(self.query_abs_dirs()['abs_work_dir'], 'raptor-power.json')
                 self._artifact_perf_data(src, dest)
 
-                if self.power_test:
-                    src = os.path.join(self.query_abs_dirs()['abs_work_dir'], 'raptor-power.json')
-                    self._artifact_perf_data(src, dest)
+            if self.memory_test:
+                src = os.path.join(self.query_abs_dirs()['abs_work_dir'], 'raptor-memory.json')
+                self._artifact_perf_data(src, dest)
 
-                if self.memory_test:
-                    src = os.path.join(self.query_abs_dirs()['abs_work_dir'], 'raptor-memory.json')
-                    self._artifact_perf_data(src, dest)
+            if self.cpu_test:
+                src = os.path.join(self.query_abs_dirs()['abs_work_dir'], 'raptor-cpu.json')
+                self._artifact_perf_data(src, dest)
 
-                if self.cpu_test:
-                    src = os.path.join(self.query_abs_dirs()['abs_work_dir'], 'raptor-cpu.json')
-                    self._artifact_perf_data(src, dest)
-
-                src = os.path.join(self.query_abs_dirs()['abs_work_dir'], 'screenshots.html')
-                if os.path.exists(src):
-                    dest = os.path.join(env['MOZ_UPLOAD_DIR'], 'screenshots.html')
-                    self.info(str(dest))
-                    self._artifact_perf_data(src, dest)
+            src = os.path.join(self.query_abs_dirs()['abs_work_dir'], 'screenshots.html')
+            if os.path.exists(src):
+                dest = os.path.join(env['MOZ_UPLOAD_DIR'], 'screenshots.html')
+                self.info(str(dest))
+                self._artifact_perf_data(src, dest)
 
 
 class RaptorOutputParser(OutputParser):

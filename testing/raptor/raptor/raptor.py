@@ -57,7 +57,7 @@ from manifest import get_raptor_test_list
 from memory import generate_android_memory_profile
 from power import init_android_power_test, finish_android_power_test
 from results import RaptorResultsHandler
-from utils import view_gecko_profile
+from utils import view_gecko_profile, write_yml_file
 from cpu import generate_android_cpu_profile
 
 LOG = RaptorLogger(component='raptor-main')
@@ -135,11 +135,11 @@ class Raptor(object):
 
         LOG.info("main raptor init, config is: %s" % str(self.config))
 
-        # create results holder
-        self.results_handler = RaptorResultsHandler()
+        # setup the control server
+        self.results_handler = RaptorResultsHandler(self.config)
+        self.start_control_server()
 
         self.build_browser_profile()
-        self.start_control_server()
 
     @property
     def profile_data_dir(self):
@@ -182,26 +182,39 @@ class Raptor(object):
     def run_tests(self, tests, test_names):
         try:
             for test in tests:
-                self.run_test(test, timeout=int(test['page_timeout']))
+                self.run_test(test, timeout=int(test.get('page_timeout')))
 
             return self.process_results(test_names)
-
         finally:
             self.clean_up()
 
-    def run_test(self, test, timeout=None):
+    def run_test(self, test, timeout):
         raise NotImplementedError()
 
     def wait_for_test_finish(self, test, timeout):
+        # this is a 'back-stop' i.e. if for some reason Raptor doesn't finish for some
+        # serious problem; i.e. the test was unable to send a 'page-timeout' to the control
+        # server, etc. Therefore since this is a 'back-stop' we want to be generous here;
+        # we don't want this timeout occurring unless abosultely necessary
+
         # convert timeout to seconds and account for page cycles
         timeout = int(timeout / 1000) * int(test.get('page_cycles', 1))
         # account for the pause the raptor webext runner takes after browser startup
         # and the time an exception is propagated through the framework
         timeout += (int(self.post_startup_delay / 1000) + 10)
 
+        # for page-load tests we don't start the page-timeout timer until the pageload.js content
+        # is successfully injected and invoked; which differs per site being tested; therefore we
+        # need to be generous here - let's add 10 seconds extra per page-cycle
+        if test.get('type') == "pageload":
+            timeout += (10 * int(test.get('page_cycles', 1)))
+
         # if geckoProfile enabled, give browser more time for profiling
         if self.config['gecko_profile'] is True:
             timeout += 5 * 60
+
+        # we also need to give time for results processing, not just page/browser cycles!
+        timeout += 60
 
         elapsed_time = 0
         while not self.control_server._finished:
@@ -253,8 +266,9 @@ class Raptor(object):
             LOG.info("Merging profile: {}".format(path))
             self.profile.merge(path)
 
-        # add profile dir to our config
+        # share the profile dir with the config and the control server
         self.config['local_profile_dir'] = self.profile.profile
+        self.control_server.user_profile = self.profile
 
     def start_control_server(self):
         self.control_server = RaptorControlServer(self.results_handler, self.debug_mode)
@@ -464,21 +478,22 @@ class RaptorDesktop(Raptor):
     def start_runner_proc(self):
         # launch the browser via our previously-created runner
         self.runner.start()
+
         proc = self.runner.process_handler
         self.output_handler.proc = proc
 
         # give our control server the browser process so it can shut it down later
         self.control_server.browser_proc = proc
 
-    def run_test(self, test, timeout=None):
+    def run_test(self, test, timeout):
         # tests will be run warm (i.e. NO browser restart between page-cycles)
         # unless otheriwse specified in the test INI by using 'cold = true'
         if test.get('cold', False) is True:
-            self.run_test_cold(test, timeout)
+            self.__run_test_cold(test, timeout)
         else:
-            self.run_test_warm(test, timeout)
+            self.__run_test_warm(test, timeout)
 
-    def run_test_cold(self, test, timeout=None):
+    def __run_test_cold(self, test, timeout):
         '''
         Run the Raptor test but restart the entire browser app between page-cycles.
 
@@ -533,7 +548,7 @@ class RaptorDesktop(Raptor):
 
         self.run_test_teardown()
 
-    def run_test_warm(self, test, timeout=None):
+    def __run_test_warm(self, test, timeout):
         self.run_test_setup(test)
 
         try:
@@ -610,9 +625,10 @@ class RaptorDesktopFirefox(RaptorDesktop):
         # if geckoProfile is enabled, initialize it
         if self.config['gecko_profile'] is True:
             self._init_gecko_profiling(test)
-            # tell the control server the gecko_profile dir; the control server will
-            # receive the actual gecko profiles from the web ext and will write them
-            # to disk; then profiles are picked up by gecko_profile.symbolicate
+            # tell the control server the gecko_profile dir; the control server
+            # will receive the filename of the stored gecko profile from the web
+            # extension, and will move it out of the browser user profile to
+            # this directory; where it is picked-up by gecko_profile.symbolicate
             self.control_server.gecko_profile_dir = self.gecko_profiler.gecko_profile_dir
 
 
@@ -664,6 +680,10 @@ class RaptorAndroid(Raptor):
 
         self.remote_test_root = os.path.abspath(os.path.join(os.sep, 'sdcard', 'raptor'))
         self.remote_profile = os.path.join(self.remote_test_root, "profile")
+        self.os_baseline_data = None
+        self.screen_off_timeout = 0
+        self.screen_brightness = 127
+        self.app_launched = False
 
     def set_reverse_port(self, port):
         tcp_port = "tcp:{}".format(port)
@@ -694,6 +714,7 @@ class RaptorAndroid(Raptor):
         self.device.chmod(self.remote_test_root, recursive=True, root=True)
 
         self.clear_app_data()
+        self.set_debug_app_flag()
 
     def tune_performance(self):
         """Set various performance-oriented parameters, to reduce jitter.
@@ -878,6 +899,11 @@ class RaptorAndroid(Raptor):
         LOG.info("clearing %s app data" % self.config['binary'])
         self.device.shell("pm clear %s" % self.config['binary'])
 
+    def set_debug_app_flag(self):
+        # required so release apks will read the android config.yml file
+        LOG.info("setting debug-app flag for %s" % self.config['binary'])
+        self.device.shell("am set-debug-app --persistent %s" % self.config['binary'])
+
     def copy_profile_to_device(self):
         """Copy the profile to the device, and update permissions of all files."""
         if not self.device.is_app_installed(self.config['binary']):
@@ -908,6 +934,48 @@ class RaptorAndroid(Raptor):
         proxy_prefs["network.proxy.no_proxies_on"] = self.config['host']
         self.profile.set_preferences(proxy_prefs)
 
+    def log_android_device_temperature(self):
+        # retrieve and log the android device temperature
+        thermal_zone0 = float(self.device.shell_output('cat sys/class/thermal/thermal_zone0/temp'))
+        zone_type = self.device.shell_output('cat sys/class/thermal/thermal_zone0/type')
+        LOG.info("(thermal_zone0) device temperature: %.3f zone type: %s"
+                 % (thermal_zone0 / 1000, zone_type))
+
+    def write_android_app_config(self):
+        # geckoview supports having a local on-device config file; use this file
+        # to tell the app to use the specified browser profile, as well as other opts
+        # on-device: /data/local/tmp/com.yourcompany.yourapp-geckoview-config.yaml
+        # https://mozilla.github.io/geckoview/tutorials/automation.html#configuration-file-format
+
+        # only supported for geckoview apps
+        if self.config['app'] == "fennec":
+            return
+        LOG.info("creating android app config.yml")
+
+        yml_config_data = dict(
+            args=['--profile', self.remote_profile, 'use_multiprocess', self.config['e10s']],
+            env=dict(
+                LOG_VERBOSE=1,
+                R_LOG_LEVEL=6,
+                MOZ_WEBRENDER=int(self.config['enable_webrender']),
+            )
+        )
+
+        yml_name = '%s-geckoview-config.yaml' % self.config['binary']
+        yml_on_host = os.path.join(tempfile.mkdtemp(), yml_name)
+        write_yml_file(yml_on_host, yml_config_data)
+        yml_on_device = os.path.join('/data', 'local', 'tmp', yml_name)
+
+        try:
+            LOG.info("copying %s to device: %s" % (yml_on_host, yml_on_device))
+            self.device.rm(yml_on_device, force=True, recursive=True)
+            self.device.push(yml_on_host, yml_on_device)
+            self.device.chmod(yml_on_device, recursive=True, root=True)
+
+        except Exception:
+            LOG.critical("failed to push %s to device!" % yml_on_device)
+            raise
+
     def launch_firefox_android_app(self, test_name):
         LOG.info("starting %s" % self.config['app'])
 
@@ -927,19 +995,13 @@ class RaptorAndroid(Raptor):
                                           fail_if_running=False)
             else:
 
-                # Additional command line arguments that the app will read and use (e.g.
-                # with a custom profile)
-                extras = {}
-                if extra_args:
-                    extras['args'] = " ".join(extra_args)
-
-                # add e10s=True
-                extras['use_multiprocess'] = self.config['e10s']
+                # command line 'extra' args not used with geckoview apps; instead we use
+                # an on-device config.yml file (see write_android_app_config)
 
                 self.device.launch_application(self.config['binary'],
                                                self.config['activity'],
                                                self.config['intent'],
-                                               extras=extras,
+                                               extras=None,
                                                url='about:blank',
                                                fail_if_running=False)
 
@@ -947,6 +1009,7 @@ class RaptorAndroid(Raptor):
             if not self.device.process_exist(self.config['binary']):
                 raise Exception("Error launching %s. App did not start properly!" %
                                 self.config['binary'])
+            self.app_launched = True
         except Exception as e:
             LOG.error("Exception launching %s" % self.config['binary'])
             LOG.error("Exception: %s %s" % (type(e).__name__, str(e)))
@@ -987,14 +1050,25 @@ class RaptorAndroid(Raptor):
 
         super(RaptorAndroid, self).run_test_teardown()
 
-    def run_test(self, test, timeout=None):
+    def run_test(self, test, timeout):
         # tests will be run warm (i.e. NO browser restart between page-cycles)
         # unless otheriwse specified in the test INI by using 'cold = true'
         try:
+
+            if self.config['power_test']:
+                # gather OS baseline data
+                init_android_power_test(self)
+                LOG.info("Running OS baseline, pausing for 1 minute...")
+                time.sleep(60)
+                finish_android_power_test(self, 'os-baseline', os_baseline=True)
+
+                # initialize for the test
+                init_android_power_test(self)
+
             if test.get('cold', False) is True:
-                self.run_test_cold(test, timeout)
+                self.__run_test_cold(test, timeout)
             else:
-                self.run_test_warm(test, timeout)
+                self.__run_test_warm(test, timeout)
 
         except SignalHandlerException:
             self.device.stop_application(self.config['binary'])
@@ -1004,7 +1078,7 @@ class RaptorAndroid(Raptor):
                 finish_android_power_test(self, test['name'])
             self.run_test_teardown()
 
-    def run_test_cold(self, test, timeout=None):
+    def __run_test_cold(self, test, timeout):
         '''
         Run the Raptor test but restart the entire browser app between page-cycles.
 
@@ -1031,9 +1105,6 @@ class RaptorAndroid(Raptor):
         LOG.info("test %s is running in cold mode; browser WILL be restarted between "
                  "page cycles" % test['name'])
 
-        if self.config['power_test']:
-            init_android_power_test(self)
-
         for test['browser_cycle'] in range(1, test['expected_browser_cycles'] + 1):
 
             LOG.info("begin browser cycle %d of %d for test %s"
@@ -1041,8 +1112,8 @@ class RaptorAndroid(Raptor):
 
             self.run_test_setup(test)
 
-            # clear the android app data before the next app startup
             self.clear_app_data()
+            self.set_debug_app_flag()
 
             if test['browser_cycle'] == 1:
                 if test.get('playback') is not None:
@@ -1077,6 +1148,10 @@ class RaptorAndroid(Raptor):
                 self.turn_on_android_app_proxy()
 
             self.copy_profile_to_device()
+            self.log_android_device_temperature()
+
+            # write android app config.yml
+            self.write_android_app_config()
 
             # now start the browser/app under test
             self.launch_firefox_android_app(test['name'])
@@ -1099,11 +1174,9 @@ class RaptorAndroid(Raptor):
             if len(self.results_handler.page_timeout_list) > 0:
                 break
 
-    def run_test_warm(self, test, timeout=None):
+    def __run_test_warm(self, test, timeout):
         LOG.info("test %s is running in warm mode; browser will NOT be restarted between "
                  "page cycles" % test['name'])
-        if self.config['power_test']:
-            init_android_power_test(self)
 
         self.run_test_setup(test)
 
@@ -1117,7 +1190,12 @@ class RaptorAndroid(Raptor):
             self.turn_on_android_app_proxy()
 
         self.clear_app_data()
+        self.set_debug_app_flag()
         self.copy_profile_to_device()
+        self.log_android_device_temperature()
+
+        # write android app config.yml
+        self.write_android_app_config()
 
         # now start the browser/app under test
         self.launch_firefox_android_app(test['name'])
@@ -1137,6 +1215,10 @@ class RaptorAndroid(Raptor):
             self.runner.wait(timeout=None)
 
     def check_for_crashes(self):
+        if not self.app_launched:
+            LOG.info("skipping check_for_crashes: application has not been launched")
+            return
+        self.app_launched = False
         # Turn off verbose to prevent logcat from being inserted into the main log.
         verbose = self.device._verbose
         self.device._verbose = False

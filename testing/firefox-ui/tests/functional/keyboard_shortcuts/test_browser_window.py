@@ -17,13 +17,15 @@ class TestBrowserWindowShortcuts(PuppeteerMixin, MarionetteTestCase):
 
         # TODO: To be moved to the upcoming add-ons library
         def opener(tab):
-            tab.window.send_shortcut(tab.window.localize_entity('addons.commandkey'),
-                                     accel=True, shift=True)
+            tab.window.send_shortcut('a', accel=True, shift=True)
         self.browser.tabbar.open_tab(opener)
 
         # TODO: Marionette currently fails to detect the correct tab
         # with self.marionette.using_content('content'):
-        #     self.wait_for_condition(lambda mn: mn.get_url() == "about:addons")
+        #     Wait(self.marionette).until(
+        #         lambda mn: mn.get_url() == "about:addons",
+        #         message="Url does not match with 'about:addons'"
+        #     )
 
         # TODO: remove extra switch once it is done automatically
         self.browser.tabbar.tabs[1].switch_to()
@@ -37,12 +39,8 @@ class TestBrowserWindowShortcuts(PuppeteerMixin, MarionetteTestCase):
         # This doesn't test anything if we're already at input.
         self.assertNotEqual(current_name, "input")
 
-        # TODO: To be moved to the upcoming search library
-        if self.marionette.session_capabilities['platformName'] == 'linux':
-            key = 'searchFocusUnix.commandkey'
-        else:
-            key = 'searchFocus.commandkey'
-        self.browser.send_shortcut(self.browser.localize_entity(key),
+        is_linux = self.marionette.session_capabilities['platformName'] == 'linux'
+        self.browser.send_shortcut('j' if is_linux else 'k',
                                    accel=True)
 
         # TODO: Check that the right input box is focused
