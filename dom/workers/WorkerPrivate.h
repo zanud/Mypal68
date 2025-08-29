@@ -92,7 +92,7 @@ class SharedMutex {
   void AssertCurrentThreadOwns() const { mMutex->AssertCurrentThreadOwns(); }
 };
 
-class WorkerPrivate : public RelativeTimeline {
+class WorkerPrivate final : public RelativeTimeline {
  public:
   struct LocationInfo {
     nsCString mHref;

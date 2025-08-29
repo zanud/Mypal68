@@ -312,7 +312,7 @@ nsMixedContentBlocker::ShouldLoad(nsIURI* aContentLocation,
                                   nsILoadInfo* aLoadInfo,
                                   const nsACString& aMimeGuess,
                                   int16_t* aDecision) {
-  uint32_t contentType = aLoadInfo->InternalContentPolicyType();
+  nsContentPolicyType contentType = aLoadInfo->InternalContentPolicyType();
   nsCOMPtr<nsISupports> requestingContext = aLoadInfo->GetLoadingContext();
   nsCOMPtr<nsIPrincipal> requestPrincipal = aLoadInfo->TriggeringPrincipal();
   nsCOMPtr<nsIURI> requestingLocation;
@@ -467,7 +467,7 @@ bool nsMixedContentBlocker::IsPotentiallyTrustworthyOrigin(nsIURI* aURI) {
  * logic.  Called from non-static ShouldLoad().
  */
 nsresult nsMixedContentBlocker::ShouldLoad(
-    bool aHadInsecureImageRedirect, uint32_t aContentType,
+    bool aHadInsecureImageRedirect, nsContentPolicyType aContentType,
     nsIURI* aContentLocation, nsIURI* aRequestingLocation,
     nsISupports* aRequestingContext, const nsACString& aMimeGuess,
     nsIPrincipal* aRequestPrincipal, int16_t* aDecision) {
@@ -486,7 +486,7 @@ nsresult nsMixedContentBlocker::ShouldLoad(
       aContentType == nsIContentPolicy::TYPE_INTERNAL_WORKER ||
       aContentType == nsIContentPolicy::TYPE_INTERNAL_SHARED_WORKER ||
       aContentType == nsIContentPolicy::TYPE_INTERNAL_SERVICE_WORKER;
-  aContentType =
+  ExtContentPolicyType contentType =
       nsContentUtils::InternalContentPolicyTypeToExternal(aContentType);
 
   // Assume active (high risk) content and blocked by default
@@ -551,36 +551,32 @@ nsresult nsMixedContentBlocker::ShouldLoad(
   // without involving a docShell. This kind of loading must be always be
   // allowed.
 
-  static_assert(TYPE_DATAREQUEST == TYPE_XMLHTTPREQUEST,
-                "TYPE_DATAREQUEST is not a synonym for "
-                "TYPE_XMLHTTPREQUEST");
-
-  switch (aContentType) {
+  switch (contentType) {
     // The top-level document cannot be mixed content by definition
-    case TYPE_DOCUMENT:
+    case ExtContentPolicy::TYPE_DOCUMENT:
       *aDecision = ACCEPT;
       return NS_OK;
     // Creating insecure websocket connections in a secure page is blocked
     // already in the websocket constructor. We don't need to check the blocking
     // here and we don't want to un-block
-    case TYPE_WEBSOCKET:
+    case ExtContentPolicy::TYPE_WEBSOCKET:
       *aDecision = ACCEPT;
       return NS_OK;
 
     // Creating insecure connections for a save-as link download is acceptable.
     // This download is completely disconnected from the docShell, but still
     // using the same loading principal.
-    case TYPE_SAVEAS_DOWNLOAD:
+    case ExtContentPolicy::TYPE_SAVEAS_DOWNLOAD:
       *aDecision = ACCEPT;
       return NS_OK;
 
     // Static display content is considered moderate risk for mixed content so
     // these will be blocked according to the mixed display preference
-    case TYPE_IMAGE:
-    case TYPE_MEDIA:
+    case ExtContentPolicy::TYPE_IMAGE:
+    case ExtContentPolicy::TYPE_MEDIA:
       classification = eMixedDisplay;
       break;
-    case TYPE_OBJECT_SUBREQUEST:
+    case ExtContentPolicy::TYPE_OBJECT_SUBREQUEST:
       if (StaticPrefs::security_mixed_content_block_object_subrequest()) {
         classification = eMixedScript;
       } else {
@@ -591,27 +587,28 @@ nsresult nsMixedContentBlocker::ShouldLoad(
     // Active content (or content with a low value/risk-of-blocking ratio)
     // that has been explicitly evaluated; listed here for documentation
     // purposes and to avoid the assertion and warning for the default case.
-    case TYPE_BEACON:
-    case TYPE_CSP_REPORT:
-    case TYPE_DTD:
-    case TYPE_FETCH:
-    case TYPE_FONT:
-    case TYPE_IMAGESET:
-    case TYPE_OBJECT:
-    case TYPE_SCRIPT:
-    case TYPE_STYLESHEET:
-    case TYPE_SUBDOCUMENT:
-    case TYPE_PING:
-    case TYPE_WEB_MANIFEST:
-    case TYPE_XMLHTTPREQUEST:
-    case TYPE_XSLT:
-    case TYPE_OTHER:
-    case TYPE_SPECULATIVE:
+    case ExtContentPolicy::TYPE_BEACON:
+    case ExtContentPolicy::TYPE_CSP_REPORT:
+    case ExtContentPolicy::TYPE_DTD:
+    case ExtContentPolicy::TYPE_FETCH:
+    case ExtContentPolicy::TYPE_FONT:
+    case ExtContentPolicy::TYPE_UA_FONT:
+    case ExtContentPolicy::TYPE_IMAGESET:
+    case ExtContentPolicy::TYPE_OBJECT:
+    case ExtContentPolicy::TYPE_SCRIPT:
+    case ExtContentPolicy::TYPE_STYLESHEET:
+    case ExtContentPolicy::TYPE_SUBDOCUMENT:
+    case ExtContentPolicy::TYPE_PING:
+    case ExtContentPolicy::TYPE_WEB_MANIFEST:
+    case ExtContentPolicy::TYPE_XMLHTTPREQUEST:
+    case ExtContentPolicy::TYPE_XSLT:
+    case ExtContentPolicy::TYPE_OTHER:
+    case ExtContentPolicy::TYPE_SPECULATIVE:
       break;
 
-    // This content policy works as a allowlist.
-    default:
+    case ExtContentPolicy::TYPE_INVALID:
       MOZ_ASSERT(false, "Mixed content of unknown type");
+      // Do not add default: so that compilers can catch the missing case.
   }
 
   // Make sure to get the URI the load started with. No need to check
@@ -734,18 +731,6 @@ nsresult nsMixedContentBlocker::ShouldLoad(
     return NS_OK;
   }
 
-  nsCOMPtr<nsIDocShell> docShell =
-      NS_CP_GetDocShellFromContext(aRequestingContext);
-  // Carve-out: if we're in the parent and we're loading media, e.g. through
-  // webbrowserpersist, don't reject it if we can't find a docshell.
-  if (XRE_IsParentProcess() && !docShell &&
-      (aContentType == TYPE_IMAGE || aContentType == TYPE_MEDIA)) {
-    *aDecision = ACCEPT;
-    return NS_OK;
-  }
-  // Otherwise, we must have a docshell
-  NS_ENSURE_TRUE(docShell, NS_OK);
-
   // Disallow mixed content loads for workers, shared workers and service
   // workers.
   if (isWorkerType) {
@@ -778,6 +763,20 @@ nsresult nsMixedContentBlocker::ShouldLoad(
   // pages. Hence, we only have to check against http: here. Skip mixed content
   // blocking if the subresource load uses http: and the CSP directive
   // 'upgrade-insecure-requests' is present on the page.
+
+  nsCOMPtr<nsIDocShell> docShell =
+      NS_CP_GetDocShellFromContext(aRequestingContext);
+  // Carve-out: if we're in the parent and we're loading media, e.g. through
+  // webbrowserpersist, don't reject it if we can't find a docshell.
+  if (XRE_IsParentProcess() && !docShell &&
+      (contentType == ExtContentPolicy::TYPE_IMAGE ||
+       contentType == ExtContentPolicy::TYPE_MEDIA)) {
+    *aDecision = ACCEPT;
+    return NS_OK;
+  }
+  // Otherwise, we must have a docshell
+  NS_ENSURE_TRUE(docShell, NS_OK);
+
   Document* document = docShell->GetDocument();
   MOZ_ASSERT(document, "Expected a document");
   if (isHttpScheme && document->GetUpgradeInsecureRequests(isPreload)) {
@@ -790,7 +789,7 @@ nsresult nsMixedContentBlocker::ShouldLoad(
   // This behaves like GetUpgradeInsecureRequests above in that the channel will
   // be upgraded to https before fetching any data from the netwerk.
   bool isUpgradableDisplayType =
-      nsContentUtils::IsUpgradableDisplayType(aContentType) &&
+      nsContentUtils::IsUpgradableDisplayType(contentType) &&
       StaticPrefs::security_mixed_content_upgrade_display_content();
   if (isHttpScheme && isUpgradableDisplayType) {
     *aDecision = ACCEPT;
@@ -845,7 +844,8 @@ nsresult nsMixedContentBlocker::ShouldLoad(
   // When navigating an iframe, the iframe may be https
   // but its parents may not be.  Check the parents to see if any of them are
   // https. If none of the parents are https, allow the load.
-  if (aContentType == TYPE_SUBDOCUMENT && !rootHasSecureConnection) {
+  if (contentType == ExtContentPolicyType::TYPE_SUBDOCUMENT &&
+      !rootHasSecureConnection) {
     bool httpsParentExists = false;
 
     nsCOMPtr<nsIDocShellTreeItem> parentTreeItem;
@@ -947,7 +947,7 @@ nsresult nsMixedContentBlocker::ShouldLoad(
   }
 
   // set hasMixedContentObjectSubrequest on this object if necessary
-  if (aContentType == TYPE_OBJECT_SUBREQUEST) {
+  if (contentType == ExtContentPolicyType::TYPE_OBJECT_SUBREQUEST) {
     if (!StaticPrefs::security_mixed_content_block_object_subrequest()) {
       rootDoc->WarnOnceAbout(DeprecatedOperations::eMixedDisplayObjectSubrequest);
     }
@@ -1138,7 +1138,8 @@ nsMixedContentBlocker::ShouldProcess(nsIURI* aContentLocation,
   if (!aContentLocation) {
     // aContentLocation may be null when a plugin is loading without an
     // associated URI resource
-    if (aLoadInfo->GetExternalContentPolicyType() == TYPE_OBJECT) {
+    if (aLoadInfo->GetExternalContentPolicyType() ==
+        ExtContentPolicyType::TYPE_OBJECT) {
       *aDecision = ACCEPT;
       return NS_OK;
     }

@@ -22,6 +22,7 @@
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/dom/IdleDeadline.h"
 #include "mozilla/dom/JSWindowActorService.h"
+#include "mozilla/dom/Performance.h"
 #include "mozilla/dom/PopupBlocker.h"
 #include "mozilla/dom/Promise.h"
 #ifdef THE_REPORTING
@@ -35,6 +36,9 @@
 #include "nsThreadUtils.h"
 #include "mozJSComponentLoader.h"
 #include "GeckoProfiler.h"
+#ifdef MOZ_GECKO_PROFILER
+#  include "ProfilerMarkerPayload.h"
+#endif
 #include "nsIException.h"
 
 namespace mozilla::dom {
@@ -172,6 +176,50 @@ void ChromeUtils::ReleaseAssert(GlobalObject& aGlobal, bool aCondition,
   // Actually crash.
   MOZ_CRASH_UNSAFE_PRINTF("Failed ChromeUtils.releaseAssert(\"%s\") @ %s:%u",
                           messageUtf8.get(), filenameUtf8.get(), lineNo);
+}
+
+/* static */
+void ChromeUtils::AddProfilerMarker(
+    GlobalObject& aGlobal, const nsACString& aName,
+    const Optional<DOMHighResTimeStamp>& aStartTime,
+    const Optional<nsACString>& aText) {
+#ifdef MOZ_GECKO_PROFILER
+  MarkerOptions options;
+
+  if (aStartTime.WasPassed()) {
+    RefPtr<Performance> performance;
+
+    if (NS_IsMainThread()) {
+      nsCOMPtr<nsPIDOMWindowInner> ownerWindow =
+          do_QueryInterface(aGlobal.GetAsSupports());
+      if (ownerWindow) {
+        performance = ownerWindow->GetPerformance();
+      }
+    } else {
+      JSContext* cx = aGlobal.Context();
+      WorkerPrivate* workerPrivate = GetWorkerPrivateFromContext(cx);
+      if (workerPrivate) {
+        performance = workerPrivate->GlobalScope()->GetPerformance();
+      }
+    }
+
+    if (performance) {
+      options.Set(MarkerTiming::IntervalUntilNowFrom(
+          performance->CreationTimeStamp() +
+          TimeDuration::FromMilliseconds(aStartTime.Value())));
+    } else {
+      options.Set(MarkerTiming::IntervalUntilNowFrom(
+          TimeStamp::ProcessCreation() +
+          TimeDuration::FromMilliseconds(aStartTime.Value())));
+    }
+  }
+
+  if (aText.WasPassed()) {
+    PROFILER_MARKER_TEXT(aName, JS, std::move(options), aText.Value());
+  } else {
+    PROFILER_MARKER_UNTYPED(aName, JS, std::move(options));
+  }
+#endif  // MOZ_GECKO_PROFILER
 }
 
 /* static */
@@ -406,8 +454,8 @@ void ChromeUtils::Import(const GlobalObject& aGlobal,
 
   NS_ConvertUTF16toUTF8 registryLocation(aResourceURI);
 
-  AUTO_PROFILER_LABEL_DYNAMIC_NSCSTRING("ChromeUtils::Import", OTHER,
-                                        registryLocation);
+  AUTO_PROFILER_LABEL_DYNAMIC_NSCSTRING_NONSENSITIVE("ChromeUtils::Import",
+                                                     OTHER, registryLocation);
 
   JSContext* cx = aGlobal.Context();
 

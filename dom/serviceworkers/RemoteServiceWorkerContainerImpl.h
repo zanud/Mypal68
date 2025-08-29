@@ -14,7 +14,7 @@ class ServiceWorkerContainerChild;
 
 class RemoteServiceWorkerContainerImpl final
     : public ServiceWorkerContainer::Inner {
-  ServiceWorkerContainerChild* mActor;
+  RefPtr<ServiceWorkerContainerChild> mActor;
   ServiceWorkerContainer* mOuter;
   bool mShutdown;
 

@@ -1159,15 +1159,23 @@ nsDOMWindowUtils::NodesFromRect(float aX, float aY, float aTopSize,
                                 float aRightSize, float aBottomSize,
                                 float aLeftSize, bool aIgnoreRootScrollFrame,
                                 bool aFlushLayout, bool aOnlyVisible,
+                                float aVisibleThreshold,
                                 nsINodeList** aReturn) {
   RefPtr<Document> doc = GetDocument();
   NS_ENSURE_STATE(doc);
 
   auto list = MakeRefPtr<nsSimpleContentList>(doc);
 
+  // The visible threshold was omitted or given a zero value (which makes no
+  // sense), so give a reasonable default.
+  if (aVisibleThreshold == 0.0f) {
+    aVisibleThreshold = 1.0f;
+  }
+
   AutoTArray<RefPtr<nsINode>, 8> nodes;
   doc->NodesFromRect(aX, aY, aTopSize, aRightSize, aBottomSize, aLeftSize,
-                     aIgnoreRootScrollFrame, aFlushLayout, aOnlyVisible, nodes);
+                     aIgnoreRootScrollFrame, aFlushLayout, aOnlyVisible,
+                     aVisibleThreshold, nodes);
   list->SetCapacity(nodes.Length());
   for (auto& node : nodes) {
     list->AppendElement(node->AsContent());
@@ -2469,6 +2477,26 @@ nsDOMWindowUtils::DisableApzForElement(Element* aElement) {
   return NS_OK;
 }
 
+static nsTArray<nsIScrollableFrame*> CollectScrollableAncestors(
+    nsIFrame* aStart) {
+  nsTArray<nsIScrollableFrame*> result;
+  nsIFrame* frame = aStart;
+  while (frame) {
+    frame = nsLayoutUtils::GetCrossDocParentFrame(frame);
+    if (!frame) {
+      break;
+    }
+    nsIScrollableFrame* scrollAncestor =
+        nsLayoutUtils::GetAsyncScrollableAncestorFrame(frame);
+    if (!scrollAncestor) {
+      break;
+    }
+    result.AppendElement(scrollAncestor);
+    frame = do_QueryFrame(scrollAncestor);
+  }
+  return result;
+}
+
 NS_IMETHODIMP
 nsDOMWindowUtils::ZoomToFocusedInput() {
   nsIWidget* widget = GetWidget();
@@ -2573,7 +2601,34 @@ nsDOMWindowUtils::ZoomToFocusedInput() {
   }
 
   bounds.Inflate(15.0f, 0.0f);
-  widget->ZoomToRect(presShellId, viewId, bounds, flags);
+
+  bool waitForRefresh = false;
+  for (nsIScrollableFrame* scrollAncestor :
+       CollectScrollableAncestors(element->GetPrimaryFrame())) {
+    if (scrollAncestor->HasScrollUpdates()) {
+      waitForRefresh = true;
+      break;
+    }
+  }
+  if (waitForRefresh) {
+    waitForRefresh = false;
+    if (nsPresContext* presContext = presShell->GetPresContext()) {
+      waitForRefresh = true;
+      presContext->RegisterManagedPostRefreshObserver(
+          new ManagedPostRefreshObserver(
+              presContext, [widget = RefPtr<nsIWidget>(widget), presShellId,
+                            viewId, bounds, flags](bool aWasCanceled) {
+                if (!aWasCanceled) {
+                  widget->ZoomToRect(presShellId, viewId, bounds, flags);
+                }
+                return ManagedPostRefreshObserver::Unregister::Yes;
+              }));
+    }
+  }
+  if (!waitForRefresh) {
+    widget->ZoomToRect(presShellId, viewId, bounds, flags);
+  }
+
   return NS_OK;
 }
 
@@ -3115,7 +3170,7 @@ static void PrepareForFullscreenChange(PresShell* aPresShell,
 
 NS_IMETHODIMP
 nsDOMWindowUtils::HandleFullscreenRequests(bool* aRetVal) {
-  PROFILER_ADD_MARKER("Enter fullscreen", DOM);
+  PROFILER_MARKER_UNTYPED("Enter fullscreen", DOM);
   nsCOMPtr<Document> doc = GetDocument();
   NS_ENSURE_STATE(doc);
 
@@ -3136,7 +3191,7 @@ nsDOMWindowUtils::HandleFullscreenRequests(bool* aRetVal) {
 }
 
 nsresult nsDOMWindowUtils::ExitFullscreen() {
-  PROFILER_ADD_MARKER("Exit fullscreen", DOM);
+  PROFILER_MARKER_UNTYPED("Exit fullscreen", DOM);
   nsCOMPtr<Document> doc = GetDocument();
   NS_ENSURE_STATE(doc);
 

@@ -19,6 +19,7 @@
 #endif
 
 #include "chrome/common/process_watcher.h"
+#include "mozilla/Result.h"
 
 #ifdef ACCESSIBILITY
 #  include "mozilla/a11y/PDocAccessible.h"
@@ -89,7 +90,6 @@
 #include "mozilla/dom/FileSystemSecurity.h"
 #include "mozilla/dom/GeolocationBinding.h"
 #include "mozilla/dom/GetFilesHelper.h"
-#include "mozilla/dom/IPCBlobInputStreamParent.h"
 #include "mozilla/dom/IPCBlobUtils.h"
 #include "mozilla/dom/JSWindowActorService.h"
 #include "mozilla/dom/LocalStorageCommon.h"
@@ -120,6 +120,7 @@
 #include "mozilla/gfx/GPUProcessManager.h"
 #include "mozilla/gfx/gfxVars.h"
 #include "mozilla/hal_sandbox/PHalParent.h"
+#include "mozilla/intl/L10nRegistry.h"
 #include "mozilla/intl/LocaleService.h"
 #include "mozilla/ipc/BackgroundChild.h"
 #include "mozilla/ipc/BackgroundParent.h"
@@ -144,7 +145,7 @@
 #include "mozilla/net/NeckoParent.h"
 #include "mozilla/net/PCookieServiceParent.h"
 #include "mozilla/plugins/PluginBridge.h"
-#include "mozilla/psm/PSMContentListener.h"
+#include "mozilla/RemoteLazyInputStreamParent.h"
 #include "mozilla/widget/ScreenManager.h"
 #include "nsAnonymousTemporaryFile.h"
 #include "nsAppRunner.h"
@@ -2170,9 +2171,12 @@ bool ContentParent::InitInternal(ProcessPriority aInitialPriority) {
 
   spellChecker->GetDictionaryList(&xpcomInit.dictionaries());
 
-  LocaleService::GetInstance()->GetAppLocalesAsLangTags(xpcomInit.appLocales());
+  LocaleService::GetInstance()->GetAppLocalesAsBCP47(xpcomInit.appLocales());
   LocaleService::GetInstance()->GetRequestedLocales(
       xpcomInit.requestedLocales());
+
+  L10nRegistry::GetParentProcessFileSourceDescriptors(
+      xpcomInit.l10nFileSources());
 
   nsCOMPtr<nsIClipboard> clipboard(
       do_GetService("@mozilla.org/widget/clipboard;1"));
@@ -2439,9 +2443,9 @@ bool ContentParent::InitInternal(ProcessPriority aInitialPriority) {
     // Send down to the content process the permissions for each of the
     // registered service worker scopes.
     for (auto& registration : registrations) {
-      nsCOMPtr<nsIPrincipal> principal =
-          PrincipalInfoToPrincipal(registration.principal());
-      if (principal) {
+      auto principalOrErr = PrincipalInfoToPrincipal(registration.principal());
+      if (principalOrErr.isOk()) {
+        nsCOMPtr<nsIPrincipal> principal = principalOrErr.unwrap();
         TransmitPermissionsForPrincipal(principal);
       }
     }
@@ -2585,18 +2589,11 @@ void ContentParent::OnVarChanged(const GfxVarUpdate& aVar) {
   Unused << SendVarUpdate(aVar);
 }
 
-mozilla::ipc::IPCResult ContentParent::RecvReadFontList(
-    nsTArray<FontListEntry>* retValue) {
-#ifdef ANDROID
-  gfxAndroidPlatform::GetPlatform()->GetSystemFontList(retValue);
-#endif
-  return IPC_OK();
-}
-
 mozilla::ipc::IPCResult ContentParent::RecvSetClipboard(
     const IPCDataTransfer& aDataTransfer, const bool& aIsPrivateData,
     const IPC::Principal& aRequestingPrincipal,
-    const uint32_t& aContentPolicyType, const int32_t& aWhichClipboard) {
+    const nsContentPolicyType& aContentPolicyType,
+    const int32_t& aWhichClipboard) {
   nsresult rv;
   nsCOMPtr<nsIClipboard> clipboard(do_GetService(kCClipboardCID, &rv));
   NS_ENSURE_SUCCESS(rv, IPC_OK());
@@ -3427,20 +3424,6 @@ bool ContentParent::DeallocPParentToChildStreamParent(
   return true;
 }
 
-PPSMContentDownloaderParent* ContentParent::AllocPPSMContentDownloaderParent(
-    const uint32_t& aCertType) {
-  RefPtr<PSMContentDownloaderParent> downloader =
-      new PSMContentDownloaderParent(aCertType);
-  return downloader.forget().take();
-}
-
-bool ContentParent::DeallocPPSMContentDownloaderParent(
-    PPSMContentDownloaderParent* aListener) {
-  auto* listener = static_cast<PSMContentDownloaderParent*>(aListener);
-  RefPtr<PSMContentDownloaderParent> downloader = dont_AddRef(listener);
-  return true;
-}
-
 already_AddRefed<PExternalHelperAppParent>
 ContentParent::AllocPExternalHelperAppParent(
     nsIURI* uri, const Maybe<mozilla::net::LoadInfoArgs>& aLoadInfoArgs,
@@ -4168,7 +4151,7 @@ void ContentParent::NotifyUpdatedDictionaries() {
   RefPtr<mozSpellChecker> spellChecker(mozSpellChecker::Create());
   MOZ_ASSERT(spellChecker, "No spell checker?");
 
-  nsTArray<nsString> dictionaries;
+  nsTArray<nsCString> dictionaries;
   spellChecker->GetDictionaryList(&dictionaries);
 
   for (auto* cp : AllProcesses(eLive)) {

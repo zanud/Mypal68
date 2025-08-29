@@ -544,8 +544,7 @@ class Document : public nsINode,
 
 #define NS_DOCUMENT_NOTIFY_OBSERVERS(func_, params_)                          \
   do {                                                                        \
-    NS_OBSERVER_ARRAY_NOTIFY_XPCOM_OBSERVERS(mObservers, nsIDocumentObserver, \
-                                             func_, params_);                 \
+    NS_OBSERVER_ARRAY_NOTIFY_XPCOM_OBSERVERS(mObservers, func_, params_);     \
     /* FIXME(emilio): Apparently we can keep observing from the BFCache? That \
        looks bogus. */                                                        \
     if (PresShell* presShell = GetObservingPresShell()) {                     \
@@ -3772,7 +3771,7 @@ class Document : public nsINode,
     return !mIntersectionObservers.IsEmpty();
   }
 
-  void UpdateIntersectionObservations();
+  void UpdateIntersectionObservations(TimeStamp aNowTime);
   void ScheduleIntersectionObserverNotification();
   MOZ_CAN_RUN_SCRIPT void NotifyIntersectionObservers();
 
@@ -3857,11 +3856,8 @@ class Document : public nsINode,
    * of the document is completed.
    *
    * It unblocks the load event if translation was blocking it.
-   *
-   * If the `aL10nCached` is set to `true`, and the document has
-   * a prototype, it will set the `isL10nCached` flag on it.
    */
-  void InitialTranslationCompleted(bool aL10nCached);
+  void InitialTranslationCompleted();
 
   /**
    * Returns whether the document allows localization.
@@ -3879,8 +3875,6 @@ class Document : public nsINode,
   virtual bool UseWidthDeviceWidthFallbackViewport() const;
 
  private:
-  void EnsureL10n();
-
   // Returns true if there is any valid value in the viewport meta tag.
   bool ParseWidthAndHeightInMetaViewport(const nsAString& aWidthString,
                                          const nsAString& aHeightString,

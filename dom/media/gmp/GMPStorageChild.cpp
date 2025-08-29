@@ -20,14 +20,13 @@
     }                                                         \
   } while (false)
 
+namespace mozilla::gmp {
+
 static nsTArray<uint8_t> ToArray(const uint8_t* aData, uint32_t aDataSize) {
   nsTArray<uint8_t> data;
   data.AppendElements(aData, aDataSize);
   return data;
 }
-
-namespace mozilla {
-namespace gmp {
 
 GMPRecordImpl::GMPRecordImpl(GMPStorageChild* aOwner, const nsCString& aName,
                              GMPRecordClient* aClient)
@@ -237,8 +236,7 @@ mozilla::ipc::IPCResult GMPStorageChild::RecvShutdown() {
   return IPC_OK();
 }
 
-}  // namespace gmp
-}  // namespace mozilla
+}  // namespace mozilla::gmp
 
 // avoid redefined macro in unified build
 #undef ON_GMP_THREAD

@@ -332,12 +332,13 @@ CSPDirective CSP_ContentTypeToDirective(nsContentPolicyType aType) {
       return nsIContentSecurityPolicy::NO_DIRECTIVE;
 
     case nsIContentPolicy::TYPE_SAVEAS_DOWNLOAD:
+    case nsIContentPolicy::TYPE_UA_FONT:
       return nsIContentSecurityPolicy::NO_DIRECTIVE;
 
     // Fall through to error for all other directives
     case nsIContentPolicy::TYPE_INVALID:
-    case nsIContentPolicy::TYPE_REFRESH:
       MOZ_ASSERT(false, "Can not map nsContentPolicyType to CSPDirective");
+      // Do not add default: so that compilers can catch the missing case.
   }
   return nsIContentSecurityPolicy::DEFAULT_SRC_DIRECTIVE;
 }

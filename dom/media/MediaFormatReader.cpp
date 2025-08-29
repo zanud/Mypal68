@@ -2265,7 +2265,7 @@ void MediaFormatReader::SkipVideoDemuxToNextKeyFrame(TimeUnit aTimeThreshold) {
 }
 
 void MediaFormatReader::VideoSkipReset(uint32_t aSkipped) {
-  PROFILER_ADD_MARKER("SkippedVideoDecode", GRAPHICS);
+  PROFILER_MARKER_UNTYPED("SkippedVideoDecode", GRAPHICS);
   MOZ_ASSERT(OnTaskQueue());
 
   // Some frames may have been output by the decoder since we initiated the

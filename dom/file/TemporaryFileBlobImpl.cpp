@@ -4,7 +4,7 @@
 
 #include "TemporaryFileBlobImpl.h"
 
-#include "IPCBlobInputStreamThread.h"
+#include "RemoteLazyInputStreamThread.h"
 #include "mozilla/ErrorResult.h"
 #include "nsFileStreams.h"
 #include "nsIFile.h"
@@ -89,9 +89,9 @@ class TemporaryFileInputStream final : public nsFileInputStream {
   }
 
   ~TemporaryFileInputStream() {
-    // Let's delete the file on the IPCBlob Thread.
-    RefPtr<IPCBlobInputStreamThread> thread =
-        IPCBlobInputStreamThread::GetOrCreate();
+    // Let's delete the file on the RemoteLazyInputStream Thread.
+    RefPtr<RemoteLazyInputStreamThread> thread =
+        RemoteLazyInputStreamThread::GetOrCreate();
     if (NS_WARN_IF(!thread)) {
       return;
     }

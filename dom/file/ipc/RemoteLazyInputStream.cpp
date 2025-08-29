@@ -2,22 +2,23 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "IPCBlobInputStream.h"
-#include "IPCBlobInputStreamChild.h"
-#include "IPCBlobInputStreamStorage.h"
+#include "RemoteLazyInputStream.h"
+#include "RemoteLazyInputStreamChild.h"
 #include "mozilla/ipc/InputStreamParams.h"
 #include "mozilla/SlicedInputStream.h"
 #include "mozilla/NonBlockingAsyncInputStream.h"
-#include "IPCBlobInputStreamThread.h"
 #include "nsIAsyncInputStream.h"
 #include "nsIAsyncOutputStream.h"
 #include "nsIPipe.h"
 #include "nsNetUtil.h"
 #include "nsStreamUtils.h"
 #include "nsStringStream.h"
+#include "RemoteLazyInputStreamStorage.h"
+#include "RemoteLazyInputStreamThread.h"
 
 namespace mozilla {
-namespace dom {
+using namespace dom;
+class RemoteLazyInputStream;
 
 namespace {
 
@@ -27,7 +28,7 @@ class InputStreamCallbackRunnable final : public DiscardableRunnable {
   // null.
   static void Execute(nsIInputStreamCallback* aCallback,
                       nsIEventTarget* aEventTarget,
-                      IPCBlobInputStream* aStream) {
+                      RemoteLazyInputStream* aStream) {
     MOZ_ASSERT(aCallback);
 
     RefPtr<InputStreamCallbackRunnable> runnable =
@@ -51,7 +52,7 @@ class InputStreamCallbackRunnable final : public DiscardableRunnable {
 
  private:
   InputStreamCallbackRunnable(nsIInputStreamCallback* aCallback,
-                              IPCBlobInputStream* aStream)
+                              RemoteLazyInputStream* aStream)
       : DiscardableRunnable("dom::InputStreamCallbackRunnable"),
         mCallback(aCallback),
         mStream(aStream) {
@@ -60,14 +61,14 @@ class InputStreamCallbackRunnable final : public DiscardableRunnable {
   }
 
   nsCOMPtr<nsIInputStreamCallback> mCallback;
-  RefPtr<IPCBlobInputStream> mStream;
+  RefPtr<RemoteLazyInputStream> mStream;
 };
 
 class FileMetadataCallbackRunnable final : public DiscardableRunnable {
  public:
   static void Execute(nsIFileMetadataCallback* aCallback,
                       nsIEventTarget* aEventTarget,
-                      IPCBlobInputStream* aStream) {
+                      RemoteLazyInputStream* aStream) {
     MOZ_ASSERT(aCallback);
     MOZ_ASSERT(aEventTarget);
 
@@ -88,7 +89,7 @@ class FileMetadataCallbackRunnable final : public DiscardableRunnable {
 
  private:
   FileMetadataCallbackRunnable(nsIFileMetadataCallback* aCallback,
-                               IPCBlobInputStream* aStream)
+                               RemoteLazyInputStream* aStream)
       : DiscardableRunnable("dom::FileMetadataCallbackRunnable"),
         mCallback(aCallback),
         mStream(aStream) {
@@ -97,15 +98,15 @@ class FileMetadataCallbackRunnable final : public DiscardableRunnable {
   }
 
   nsCOMPtr<nsIFileMetadataCallback> mCallback;
-  RefPtr<IPCBlobInputStream> mStream;
+  RefPtr<RemoteLazyInputStream> mStream;
 };
 
 }  // namespace
 
-NS_IMPL_ADDREF(IPCBlobInputStream);
-NS_IMPL_RELEASE(IPCBlobInputStream);
+NS_IMPL_ADDREF(RemoteLazyInputStream);
+NS_IMPL_RELEASE(RemoteLazyInputStream);
 
-NS_INTERFACE_MAP_BEGIN(IPCBlobInputStream)
+NS_INTERFACE_MAP_BEGIN(RemoteLazyInputStream)
   NS_INTERFACE_MAP_ENTRY(nsIInputStream)
   NS_INTERFACE_MAP_ENTRY(nsIAsyncInputStream)
   NS_INTERFACE_MAP_ENTRY(nsIInputStreamCallback)
@@ -116,24 +117,24 @@ NS_INTERFACE_MAP_BEGIN(IPCBlobInputStream)
   NS_INTERFACE_MAP_ENTRY(nsIAsyncFileMetadata)
   NS_INTERFACE_MAP_ENTRY(nsIInputStreamLength)
   NS_INTERFACE_MAP_ENTRY(nsIAsyncInputStreamLength)
-  NS_INTERFACE_MAP_ENTRY(mozIIPCBlobInputStream)
+  NS_INTERFACE_MAP_ENTRY(mozIRemoteLazyInputStream)
   NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIInputStream)
 NS_INTERFACE_MAP_END
 
-IPCBlobInputStream::IPCBlobInputStream(IPCBlobInputStreamChild* aActor)
+RemoteLazyInputStream::RemoteLazyInputStream(RemoteLazyInputStreamChild* aActor)
     : mActor(aActor),
       mState(eInit),
       mStart(0),
       mLength(0),
       mConsumed(false),
-      mMutex("IPCBlobInputStream::mMutex") {
+      mMutex("RemoteLazyInputStream::mMutex") {
   MOZ_ASSERT(aActor);
 
   mLength = aActor->Size();
 
   if (XRE_IsParentProcess()) {
     nsCOMPtr<nsIInputStream> stream;
-    auto storage = IPCBlobInputStreamStorage::Get().unwrapOr(nullptr);
+    auto storage = RemoteLazyInputStreamStorage::Get().unwrapOr(nullptr);
     if (storage) {
       storage->GetStream(mActor->ID(), 0, mLength, getter_AddRefs(stream));
       if (stream) {
@@ -144,12 +145,12 @@ IPCBlobInputStream::IPCBlobInputStream(IPCBlobInputStreamChild* aActor)
   }
 }
 
-IPCBlobInputStream::~IPCBlobInputStream() { Close(); }
+RemoteLazyInputStream::~RemoteLazyInputStream() { Close(); }
 
 // nsIInputStream interface
 
 NS_IMETHODIMP
-IPCBlobInputStream::Available(uint64_t* aLength) {
+RemoteLazyInputStream::Available(uint64_t* aLength) {
   nsCOMPtr<nsIAsyncInputStream> asyncRemoteStream;
   {
     MutexAutoLock lock(mMutex);
@@ -180,7 +181,8 @@ IPCBlobInputStream::Available(uint64_t* aLength) {
 }
 
 NS_IMETHODIMP
-IPCBlobInputStream::Read(char* aBuffer, uint32_t aCount, uint32_t* aReadCount) {
+RemoteLazyInputStream::Read(char* aBuffer, uint32_t aCount,
+                            uint32_t* aReadCount) {
   nsCOMPtr<nsIAsyncInputStream> asyncRemoteStream;
   {
     MutexAutoLock lock(mMutex);
@@ -220,8 +222,8 @@ IPCBlobInputStream::Read(char* aBuffer, uint32_t aCount, uint32_t* aReadCount) {
 }
 
 NS_IMETHODIMP
-IPCBlobInputStream::ReadSegments(nsWriteSegmentFun aWriter, void* aClosure,
-                                 uint32_t aCount, uint32_t* aResult) {
+RemoteLazyInputStream::ReadSegments(nsWriteSegmentFun aWriter, void* aClosure,
+                                    uint32_t aCount, uint32_t* aResult) {
   nsCOMPtr<nsIAsyncInputStream> asyncRemoteStream;
   {
     MutexAutoLock lock(mMutex);
@@ -263,13 +265,13 @@ IPCBlobInputStream::ReadSegments(nsWriteSegmentFun aWriter, void* aClosure,
 }
 
 NS_IMETHODIMP
-IPCBlobInputStream::IsNonBlocking(bool* aNonBlocking) {
+RemoteLazyInputStream::IsNonBlocking(bool* aNonBlocking) {
   *aNonBlocking = true;
   return NS_OK;
 }
 
 NS_IMETHODIMP
-IPCBlobInputStream::Close() {
+RemoteLazyInputStream::Close() {
   nsCOMPtr<nsIAsyncInputStream> asyncRemoteStream;
   nsCOMPtr<nsIInputStream> remoteStream;
   {
@@ -306,14 +308,14 @@ IPCBlobInputStream::Close() {
 // nsICloneableInputStream interface
 
 NS_IMETHODIMP
-IPCBlobInputStream::GetCloneable(bool* aCloneable) {
+RemoteLazyInputStream::GetCloneable(bool* aCloneable) {
   MutexAutoLock lock(mMutex);
   *aCloneable = mState != eClosed;
   return NS_OK;
 }
 
 NS_IMETHODIMP
-IPCBlobInputStream::Clone(nsIInputStream** aResult) {
+RemoteLazyInputStream::Clone(nsIInputStream** aResult) {
   MutexAutoLock lock(mMutex);
 
   if (mState == eClosed) {
@@ -322,7 +324,7 @@ IPCBlobInputStream::Clone(nsIInputStream** aResult) {
 
   MOZ_ASSERT(mActor);
 
-  RefPtr<IPCBlobInputStream> stream = mActor->CreateStream();
+  RefPtr<RemoteLazyInputStream> stream = mActor->CreateStream();
   if (!stream) {
     return NS_ERROR_FAILURE;
   }
@@ -336,8 +338,8 @@ IPCBlobInputStream::Clone(nsIInputStream** aResult) {
 // nsICloneableInputStreamWithRange interface
 
 NS_IMETHODIMP
-IPCBlobInputStream::CloneWithRange(uint64_t aStart, uint64_t aLength,
-                                   nsIInputStream** aResult) {
+RemoteLazyInputStream::CloneWithRange(uint64_t aStart, uint64_t aLength,
+                                      nsIInputStream** aResult) {
   MutexAutoLock lock(mMutex);
 
   if (mState == eClosed) {
@@ -351,7 +353,7 @@ IPCBlobInputStream::CloneWithRange(uint64_t aStart, uint64_t aLength,
 
   MOZ_ASSERT(mActor);
 
-  RefPtr<IPCBlobInputStream> stream = mActor->CreateStream();
+  RefPtr<RemoteLazyInputStream> stream = mActor->CreateStream();
   if (!stream) {
     return NS_ERROR_FAILURE;
   }
@@ -375,17 +377,18 @@ IPCBlobInputStream::CloneWithRange(uint64_t aStart, uint64_t aLength,
 // nsIAsyncInputStream interface
 
 NS_IMETHODIMP
-IPCBlobInputStream::CloseWithStatus(nsresult aStatus) { return Close(); }
+RemoteLazyInputStream::CloseWithStatus(nsresult aStatus) { return Close(); }
 
 NS_IMETHODIMP
-IPCBlobInputStream::AsyncWait(nsIInputStreamCallback* aCallback,
-                              uint32_t aFlags, uint32_t aRequestedCount,
-                              nsIEventTarget* aEventTarget) {
+RemoteLazyInputStream::AsyncWait(nsIInputStreamCallback* aCallback,
+                                 uint32_t aFlags, uint32_t aRequestedCount,
+                                 nsIEventTarget* aEventTarget) {
   nsCOMPtr<nsIAsyncInputStream> asyncRemoteStream;
   {
     MutexAutoLock lock(mMutex);
 
-    // See IPCBlobInputStream.h for more information about this state machine.
+    // See RemoteLazyInputStream.h for more information about this state
+    // machine.
 
     switch (mState) {
       // First call, we need to retrieve the stream from the parent actor.
@@ -429,19 +432,29 @@ IPCBlobInputStream::AsyncWait(nsIInputStreamCallback* aCallback,
         break;
       }
 
-      // Stream is closed.
+      case eClosed:
+        [[fallthrough]];
       default:
         MOZ_ASSERT(mState == eClosed);
-        return NS_BASE_STREAM_CLOSED;
+        if (mInputStreamCallback && aCallback) {
+          return NS_ERROR_FAILURE;
+        }
+        break;
     }
   }
 
-  MOZ_ASSERT(asyncRemoteStream);
-  return asyncRemoteStream->AsyncWait(aCallback ? this : nullptr, 0, 0,
-                                      aEventTarget);
+  if (asyncRemoteStream) {
+    return asyncRemoteStream->AsyncWait(aCallback ? this : nullptr, 0, 0,
+                                        aEventTarget);
+  }
+
+  // if asyncRemoteStream is nullptr here, that probably means the stream has
+  // been closed and the callback can be executed immediately
+  InputStreamCallbackRunnable::Execute(aCallback, aEventTarget, this);
+  return NS_OK;
 }
 
-void IPCBlobInputStream::StreamReady(
+void RemoteLazyInputStream::StreamReady(
     already_AddRefed<nsIInputStream> aInputStream) {
   nsCOMPtr<nsIInputStream> inputStream = std::move(aInputStream);
 
@@ -512,7 +525,7 @@ void IPCBlobInputStream::StreamReady(
   }
 }
 
-void IPCBlobInputStream::InitWithExistingRange(
+void RemoteLazyInputStream::InitWithExistingRange(
     uint64_t aStart, uint64_t aLength, const MutexAutoLock& aProofOfLock) {
   MOZ_ASSERT(mActor->Size() >= aStart + aLength);
   mStart = aStart;
@@ -532,7 +545,7 @@ void IPCBlobInputStream::InitWithExistingRange(
 // nsIInputStreamCallback
 
 NS_IMETHODIMP
-IPCBlobInputStream::OnInputStreamReady(nsIAsyncInputStream* aStream) {
+RemoteLazyInputStream::OnInputStreamReady(nsIAsyncInputStream* aStream) {
   nsCOMPtr<nsIInputStreamCallback> callback;
   nsCOMPtr<nsIEventTarget> callbackEventTarget;
   {
@@ -564,7 +577,7 @@ IPCBlobInputStream::OnInputStreamReady(nsIAsyncInputStream* aStream) {
 
 // nsIIPCSerializableInputStream
 
-void IPCBlobInputStream::Serialize(mozilla::ipc::InputStreamParams& aParams,
+void RemoteLazyInputStream::Serialize(mozilla::ipc::InputStreamParams& aParams,
                                    FileDescriptorArray& aFileDescriptors,
                                    bool aDelayedStart, uint32_t aMaxSize,
                                    uint32_t* aSizeUsed,
@@ -575,7 +588,7 @@ void IPCBlobInputStream::Serialize(mozilla::ipc::InputStreamParams& aParams,
   SerializeInternal(aParams);
 }
 
-void IPCBlobInputStream::Serialize(mozilla::ipc::InputStreamParams& aParams,
+void RemoteLazyInputStream::Serialize(mozilla::ipc::InputStreamParams& aParams,
                                    FileDescriptorArray& aFileDescriptors,
                                    bool aDelayedStart, uint32_t aMaxSize,
                                    uint32_t* aSizeUsed,
@@ -586,7 +599,7 @@ void IPCBlobInputStream::Serialize(mozilla::ipc::InputStreamParams& aParams,
   SerializeInternal(aParams);
 }
 
-void IPCBlobInputStream::Serialize(mozilla::ipc::InputStreamParams& aParams,
+void RemoteLazyInputStream::Serialize(mozilla::ipc::InputStreamParams& aParams,
                                    FileDescriptorArray& aFileDescriptors,
                                    bool aDelayedStart, uint32_t aMaxSize,
                                    uint32_t* aSizeUsed,
@@ -597,7 +610,7 @@ void IPCBlobInputStream::Serialize(mozilla::ipc::InputStreamParams& aParams,
   SerializeInternal(aParams);
 }
 
-void IPCBlobInputStream::Serialize(mozilla::ipc::InputStreamParams& aParams,
+void RemoteLazyInputStream::Serialize(mozilla::ipc::InputStreamParams& aParams,
                                    FileDescriptorArray& aFileDescriptors,
                                    bool aDelayedStart, uint32_t aMaxSize,
                                    uint32_t* aSizeUsed,
@@ -608,11 +621,11 @@ void IPCBlobInputStream::Serialize(mozilla::ipc::InputStreamParams& aParams,
   SerializeInternal(aParams);
 }
 
-void IPCBlobInputStream::SerializeInternal(
+void RemoteLazyInputStream::SerializeInternal(
     mozilla::ipc::InputStreamParams& aParams) {
   MutexAutoLock lock(mMutex);
 
-  mozilla::ipc::IPCBlobInputStreamParams params;
+  mozilla::ipc::RemoteLazyInputStreamParams params;
   params.id() = mActor->ID();
   params.start() = mStart;
   params.length() = mLength;
@@ -620,7 +633,7 @@ void IPCBlobInputStream::SerializeInternal(
   aParams = params;
 }
 
-bool IPCBlobInputStream::Deserialize(
+bool RemoteLazyInputStream::Deserialize(
     const mozilla::ipc::InputStreamParams& aParams,
     const FileDescriptorArray& aFileDescriptors) {
   MOZ_CRASH("This should never be called.");
@@ -630,8 +643,8 @@ bool IPCBlobInputStream::Deserialize(
 // nsIAsyncFileMetadata
 
 NS_IMETHODIMP
-IPCBlobInputStream::AsyncFileMetadataWait(nsIFileMetadataCallback* aCallback,
-                                          nsIEventTarget* aEventTarget) {
+RemoteLazyInputStream::AsyncFileMetadataWait(nsIFileMetadataCallback* aCallback,
+                                             nsIEventTarget* aEventTarget) {
   MOZ_ASSERT(!!aCallback == !!aEventTarget);
 
   // If we have the callback, we must have the event target.
@@ -639,7 +652,7 @@ IPCBlobInputStream::AsyncFileMetadataWait(nsIFileMetadataCallback* aCallback,
     return NS_ERROR_FAILURE;
   }
 
-  // See IPCBlobInputStream.h for more information about this state machine.
+  // See RemoteLazyInputStream.h for more information about this state machine.
 
   {
     MutexAutoLock lock(mMutex);
@@ -687,7 +700,7 @@ IPCBlobInputStream::AsyncFileMetadataWait(nsIFileMetadataCallback* aCallback,
 // nsIFileMetadata
 
 NS_IMETHODIMP
-IPCBlobInputStream::GetSize(int64_t* aRetval) {
+RemoteLazyInputStream::GetSize(int64_t* aRetval) {
   nsCOMPtr<nsIFileMetadata> fileMetadata;
   {
     MutexAutoLock lock(mMutex);
@@ -701,7 +714,7 @@ IPCBlobInputStream::GetSize(int64_t* aRetval) {
 }
 
 NS_IMETHODIMP
-IPCBlobInputStream::GetLastModified(int64_t* aRetval) {
+RemoteLazyInputStream::GetLastModified(int64_t* aRetval) {
   nsCOMPtr<nsIFileMetadata> fileMetadata;
   {
     MutexAutoLock lock(mMutex);
@@ -715,7 +728,7 @@ IPCBlobInputStream::GetLastModified(int64_t* aRetval) {
 }
 
 NS_IMETHODIMP
-IPCBlobInputStream::GetFileDescriptor(PRFileDesc** aRetval) {
+RemoteLazyInputStream::GetFileDescriptor(PRFileDesc** aRetval) {
   nsCOMPtr<nsIFileMetadata> fileMetadata;
   {
     MutexAutoLock lock(mMutex);
@@ -728,7 +741,7 @@ IPCBlobInputStream::GetFileDescriptor(PRFileDesc** aRetval) {
   return fileMetadata->GetFileDescriptor(aRetval);
 }
 
-nsresult IPCBlobInputStream::EnsureAsyncRemoteStream(
+nsresult RemoteLazyInputStream::EnsureAsyncRemoteStream(
     const MutexAutoLock& aProofOfLock) {
   // We already have an async remote stream.
   if (mAsyncRemoteStream) {
@@ -769,8 +782,8 @@ nsresult IPCBlobInputStream::EnsureAsyncRemoteStream(
       return rv;
     }
 
-    RefPtr<IPCBlobInputStreamThread> thread =
-        IPCBlobInputStreamThread::GetOrCreate();
+    RefPtr<RemoteLazyInputStreamThread> thread =
+        RemoteLazyInputStreamThread::GetOrCreate();
     if (NS_WARN_IF(!thread)) {
       return NS_ERROR_FAILURE;
     }
@@ -794,7 +807,7 @@ nsresult IPCBlobInputStream::EnsureAsyncRemoteStream(
 // nsIInputStreamLength
 
 NS_IMETHODIMP
-IPCBlobInputStream::Length(int64_t* aLength) {
+RemoteLazyInputStream::Length(int64_t* aLength) {
   MutexAutoLock lock(mMutex);
 
   if (mState == eClosed) {
@@ -808,45 +821,13 @@ IPCBlobInputStream::Length(int64_t* aLength) {
   return NS_BASE_STREAM_WOULD_BLOCK;
 }
 
-// nsIAsyncInputStreamLength
-
-NS_IMETHODIMP
-IPCBlobInputStream::AsyncLengthWait(nsIInputStreamLengthCallback* aCallback,
-                                    nsIEventTarget* aEventTarget) {
-  MutexAutoLock lock(mMutex);
-
-  if (mState == eClosed) {
-    return NS_BASE_STREAM_CLOSED;
-  }
-
-  if (mConsumed) {
-    return NS_ERROR_NOT_AVAILABLE;
-  }
-
-  // If we have the callback, we must have the event target.
-  if (NS_WARN_IF(!!aCallback != !!aEventTarget)) {
-    return NS_ERROR_FAILURE;
-  }
-
-  MOZ_ASSERT(mActor);
-
-  mLengthCallback = aCallback;
-  mLengthCallbackEventTarget = aEventTarget;
-
-  if (aCallback) {
-    mActor->LengthNeeded(this, aEventTarget);
-  }
-
-  return NS_OK;
-}
-
 namespace {
 
 class InputStreamLengthCallbackRunnable final : public DiscardableRunnable {
  public:
   static void Execute(nsIInputStreamLengthCallback* aCallback,
-                      nsIEventTarget* aEventTarget, IPCBlobInputStream* aStream,
-                      int64_t aLength) {
+                      nsIEventTarget* aEventTarget,
+                      RemoteLazyInputStream* aStream, int64_t aLength) {
     MOZ_ASSERT(aCallback);
     MOZ_ASSERT(aEventTarget);
 
@@ -867,7 +848,7 @@ class InputStreamLengthCallbackRunnable final : public DiscardableRunnable {
 
  private:
   InputStreamLengthCallbackRunnable(nsIInputStreamLengthCallback* aCallback,
-                                    IPCBlobInputStream* aStream,
+                                    RemoteLazyInputStream* aStream,
                                     int64_t aLength)
       : DiscardableRunnable("dom::InputStreamLengthCallbackRunnable"),
         mCallback(aCallback),
@@ -878,32 +859,66 @@ class InputStreamLengthCallbackRunnable final : public DiscardableRunnable {
   }
 
   nsCOMPtr<nsIInputStreamLengthCallback> mCallback;
-  RefPtr<IPCBlobInputStream> mStream;
+  RefPtr<RemoteLazyInputStream> mStream;
   int64_t mLength;
 };
 
 }  // namespace
 
-void IPCBlobInputStream::LengthReady(int64_t aLength) {
+// nsIAsyncInputStreamLength
+
+NS_IMETHODIMP
+RemoteLazyInputStream::AsyncLengthWait(nsIInputStreamLengthCallback* aCallback,
+                                       nsIEventTarget* aEventTarget) {
+  // If we have the callback, we must have the event target.
+  if (NS_WARN_IF(!!aCallback != !!aEventTarget)) {
+    return NS_ERROR_FAILURE;
+  }
+
+  {
+    MutexAutoLock lock(mMutex);
+
+    mLengthCallback = aCallback;
+    mLengthCallbackEventTarget = aEventTarget;
+
+    if (mState != eClosed && !mConsumed) {
+      MOZ_ASSERT(mActor);
+
+      if (aCallback) {
+        mActor->LengthNeeded(this, aEventTarget);
+      }
+
+      return NS_OK;
+    }
+  }
+
+  // If execution has reached here, it means the stream is either closed or
+  // consumed, and therefore the callback can be executed immediately
+  InputStreamLengthCallbackRunnable::Execute(aCallback, aEventTarget, this, -1);
+  return NS_OK;
+}
+
+void RemoteLazyInputStream::LengthReady(int64_t aLength) {
   nsCOMPtr<nsIInputStreamLengthCallback> lengthCallback;
   nsCOMPtr<nsIEventTarget> lengthCallbackEventTarget;
 
   {
     MutexAutoLock lock(mMutex);
 
-    // We have been closed in the meantime.
+    // Stream has been closed in the meantime. Callback can be executed
+    // immediately
     if (mState == eClosed || mConsumed) {
-      return;
-    }
+      aLength = -1;
+    } else {
+      if (mStart > 0) {
+        aLength -= mStart;
+      }
 
-    if (mStart > 0) {
-      aLength -= mStart;
-    }
-
-    if (mLength < mActor->Size()) {
-      // If the remote stream must be sliced, we must return here the correct
-      // value.
-      aLength = XPCOM_MIN(aLength, (int64_t)mLength);
+      if (mLength < mActor->Size()) {
+        // If the remote stream must be sliced, we must return here the correct
+        // value.
+        aLength = XPCOM_MIN(aLength, (int64_t)mLength);
+      }
     }
 
     lengthCallback.swap(mLengthCallback);
@@ -916,5 +931,4 @@ void IPCBlobInputStream::LengthReady(int64_t aLength) {
   }
 }
 
-}  // namespace dom
 }  // namespace mozilla

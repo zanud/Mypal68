@@ -11,9 +11,8 @@ include protocol PParentToChildStream;
 include IPCStream;
 
 namespace mozilla {
-namespace dom {
 
-refcounted protocol PIPCBlobInputStream
+refcounted protocol PRemoteLazyInputStream
 {
   manager PBackground or PContent;
 
@@ -43,6 +42,4 @@ both:
   async __delete__();
 };
 
-} // namespace dom
 } // namespace mozilla
-

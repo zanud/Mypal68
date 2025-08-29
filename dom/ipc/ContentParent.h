@@ -805,12 +805,6 @@ class ContentParent final : public PContentParent,
 
   bool DeallocPNeckoParent(PNeckoParent* necko);
 
-  PPSMContentDownloaderParent* AllocPPSMContentDownloaderParent(
-      const uint32_t& aCertType);
-
-  bool DeallocPPSMContentDownloaderParent(
-      PPSMContentDownloaderParent* aDownloader);
-
   already_AddRefed<PExternalHelperAppParent> AllocPExternalHelperAppParent(
       nsIURI* aUri, const Maybe<mozilla::net::LoadInfoArgs>& aLoadInfoArgs,
       const nsCString& aMimeContentType, const nsCString& aContentDisposition,
@@ -857,12 +851,11 @@ class ContentParent final : public PContentParent,
 
   mozilla::ipc::IPCResult RecvGetGfxVars(nsTArray<GfxVarUpdate>* aVars);
 
-  mozilla::ipc::IPCResult RecvReadFontList(nsTArray<FontListEntry>* retValue);
-
   mozilla::ipc::IPCResult RecvSetClipboard(
       const IPCDataTransfer& aDataTransfer, const bool& aIsPrivateData,
       const IPC::Principal& aRequestingPrincipal,
-      const uint32_t& aContentPolicyType, const int32_t& aWhichClipboard);
+      const nsContentPolicyType& aContentPolicyType,
+      const int32_t& aWhichClipboard);
 
   mozilla::ipc::IPCResult RecvGetClipboard(nsTArray<nsCString>&& aTypes,
                                            const int32_t& aWhichClipboard,

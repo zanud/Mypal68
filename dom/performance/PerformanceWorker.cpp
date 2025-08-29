@@ -6,11 +6,11 @@
 #include "mozilla/dom/WorkerPrivate.h"
 #include "mozilla/StaticPrefs_dom.h"
 
-namespace mozilla {
-namespace dom {
+namespace mozilla::dom {
 
 PerformanceWorker::PerformanceWorker(WorkerPrivate* aWorkerPrivate)
-    : Performance(aWorkerPrivate->UsesSystemPrincipal()),
+    : Performance(aWorkerPrivate->GlobalScope(),
+                  aWorkerPrivate->UsesSystemPrincipal()),
       mWorkerPrivate(aWorkerPrivate) {
   mWorkerPrivate->AssertIsOnWorkerThread();
 }
@@ -44,5 +44,4 @@ uint64_t PerformanceWorker::GetRandomTimelineSeed() {
   return mWorkerPrivate->GetRandomTimelineSeed();
 }
 
-}  // namespace dom
-}  // namespace mozilla
+}  // namespace mozilla::dom

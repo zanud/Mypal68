@@ -4,12 +4,14 @@
 
 #include "mozilla/dom/cache/PrincipalVerifier.h"
 
+#include "ErrorList.h"
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/dom/cache/ManagerId.h"
 #include "mozilla/ipc/BackgroundParent.h"
 #include "mozilla/ipc/PBackgroundParent.h"
 #include "mozilla/ipc/BackgroundUtils.h"
 #include "mozilla/BasePrincipal.h"
+#include "nsCOMPtr.h"
 #include "nsContentUtils.h"
 #include "nsIPrincipal.h"
 #include "nsNetUtil.h"
@@ -102,13 +104,13 @@ void PrincipalVerifier::VerifyOnMainThread() {
   RefPtr<ContentParent> actor;
   actor.swap(mActor);
 
-  nsresult rv;
-  RefPtr<nsIPrincipal> principal =
-      PrincipalInfoToPrincipal(mPrincipalInfo, &rv);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    DispatchToInitiatingThread(rv);
+  auto principalOrErr = PrincipalInfoToPrincipal(mPrincipalInfo);
+  if (NS_WARN_IF(principalOrErr.isErr())) {
+    DispatchToInitiatingThread(principalOrErr.unwrapErr());
     return;
   }
+
+  nsCOMPtr<nsIPrincipal> principal = principalOrErr.unwrap();
 
   // We disallow null principal on the client side, but double-check here.
   if (NS_WARN_IF(principal->GetIsNullPrincipal())) {
@@ -126,6 +128,7 @@ void PrincipalVerifier::VerifyOnMainThread() {
   actor = nullptr;
 
 #ifdef DEBUG
+  nsresult rv = NS_OK;
   // Sanity check principal origin by using it to construct a URI and security
   // checking it.  Don't do this for the system principal, though, as its origin
   // is a synthetic [System Principal] string.
@@ -162,9 +165,9 @@ void PrincipalVerifier::VerifyOnMainThread() {
 
 void PrincipalVerifier::CompleteOnInitiatingThread() {
   AssertIsOnBackgroundThread();
-  ListenerList::ForwardIterator iter(mListenerList);
-  while (iter.HasMore()) {
-    iter.GetNext()->OnPrincipalVerified(mResult, mManagerId);
+
+  for (auto* listener : mListenerList.ForwardRange()) {
+    listener->OnPrincipalVerified(mResult, mManagerId);
   }
 
   // The listener must clear its reference in OnPrincipalVerified()

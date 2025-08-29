@@ -183,8 +183,8 @@ class ContentChild final : public PContentChild,
   mozilla::ipc::IPCResult RecvSetProcessSandbox(
       const Maybe<FileDescriptor>& aBroker);
 
-  already_AddRefed<PIPCBlobInputStreamChild> AllocPIPCBlobInputStreamChild(
-      const nsID& aID, const uint64_t& aSize);
+  already_AddRefed<PRemoteLazyInputStreamChild>
+  AllocPRemoteLazyInputStreamChild(const nsID& aID, const uint64_t& aSize);
 
   PHalChild* AllocPHalChild();
   bool DeallocPHalChild(PHalChild*);
@@ -246,12 +246,6 @@ class ContentChild final : public PContentChild,
 
   PParentToChildStreamChild* AllocPParentToChildStreamChild();
   bool DeallocPParentToChildStreamChild(PParentToChildStreamChild*);
-
-  PPSMContentDownloaderChild* AllocPPSMContentDownloaderChild(
-      const uint32_t& aCertType);
-
-  bool DeallocPPSMContentDownloaderChild(
-      PPSMContentDownloaderChild* aDownloader);
 
   PMediaChild* AllocPMediaChild();
 
@@ -326,6 +320,9 @@ class ContentChild final : public PContentChild,
   mozilla::ipc::IPCResult RecvRegisterStringBundles(
       nsTArray<StringBundleDescriptor>&& stringBundles);
 
+  mozilla::ipc::IPCResult RecvUpdateL10nFileSources(
+      nsTArray<L10nFileSourceDescriptor>&& aDescriptors);
+
   mozilla::ipc::IPCResult RecvUpdateSharedData(
       const FileDescriptor& aMapFile, const uint32_t& aMapSize,
       nsTArray<IPCBlob>&& aBlobs, nsTArray<nsCString>&& aChangedKeys);
@@ -340,7 +337,7 @@ class ContentChild final : public PContentChild,
   mozilla::ipc::IPCResult RecvGeolocationError(const uint16_t& errorCode);
 
   mozilla::ipc::IPCResult RecvUpdateDictionaryList(
-      nsTArray<nsString>&& aDictionaries);
+      nsTArray<nsCString>&& aDictionaries);
 
   mozilla::ipc::IPCResult RecvUpdateFontList(
       nsTArray<SystemFontListEntry>&& aFontList);
@@ -482,7 +479,7 @@ class ContentChild final : public PContentChild,
 
   FORWARD_SHMEM_ALLOCATOR_TO(PContentChild)
 
-  void GetAvailableDictionaries(nsTArray<nsString>& aDictionaries);
+  void GetAvailableDictionaries(nsTArray<nsCString>& aDictionaries);
 
   PBrowserOrId GetBrowserOrId(BrowserChild* aBrowserChild);
 
@@ -696,7 +693,7 @@ class ContentChild final : public PContentChild,
 
   nsTHashtable<nsPtrHashKey<nsIObserver>> mIdleObservers;
 
-  nsTArray<nsString> mAvailableDictionaries;
+  nsTArray<nsCString> mAvailableDictionaries;
 
   // Temporary storage for a list of available fonts, passed from the
   // parent process and used to initialize gfx in the child. Currently used

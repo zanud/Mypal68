@@ -41,12 +41,12 @@ bool nsContentSecurityManager::AllowTopLevelNavigationToDataURI(
   // we don't want to block those loads. Only exception, loads coming
   // from an external applicaton (e.g. Thunderbird) don't load
   // using a codeBasePrincipal, but we want to block those loads.
-  if (!mozilla::net::nsIOService::BlockToplevelDataUriNavigations()) {
+  if (!StaticPrefs::security_data_uri_block_toplevel_data_uri_navigations()) {
     return true;
   }
   nsCOMPtr<nsILoadInfo> loadInfo = aChannel->LoadInfo();
   if (loadInfo->GetExternalContentPolicyType() !=
-      nsIContentPolicy::TYPE_DOCUMENT) {
+      ExtContentPolicy::TYPE_DOCUMENT) {
     return true;
   }
   if (loadInfo->GetForceAllowDataURI()) {
@@ -114,7 +114,7 @@ bool nsContentSecurityManager::AllowInsecureRedirectToDataURI(
     nsIChannel* aNewChannel) {
   nsCOMPtr<nsILoadInfo> loadInfo = aNewChannel->LoadInfo();
   if (loadInfo->GetExternalContentPolicyType() !=
-      nsIContentPolicy::TYPE_SCRIPT) {
+      ExtContentPolicy::TYPE_SCRIPT) {
     return true;
   }
   nsCOMPtr<nsIURI> newURI;
@@ -165,12 +165,12 @@ nsresult nsContentSecurityManager::CheckFTPSubresourceLoad(
   }
 
   nsCOMPtr<nsILoadInfo> loadInfo = aChannel->LoadInfo();
-  nsContentPolicyType type = loadInfo->GetExternalContentPolicyType();
+  ExtContentPolicyType type = loadInfo->GetExternalContentPolicyType();
 
   // Allow top-level FTP documents and save-as download of FTP files on
   // HTTP pages.
-  if (type == nsIContentPolicy::TYPE_DOCUMENT ||
-      type == nsIContentPolicy::TYPE_SAVEAS_DOWNLOAD) {
+  if (type == ExtContentPolicy::TYPE_DOCUMENT ||
+      type == ExtContentPolicy::TYPE_SAVEAS_DOWNLOAD) {
     return NS_OK;
   }
 
@@ -365,7 +365,7 @@ static nsresult DoCORSChecks(nsIChannel* aChannel, nsILoadInfo* aLoadInfo,
 
 static nsresult DoContentSecurityChecks(nsIChannel* aChannel,
                                         nsILoadInfo* aLoadInfo) {
-  nsContentPolicyType contentPolicyType =
+  ExtContentPolicyType contentPolicyType =
       aLoadInfo->GetExternalContentPolicyType();
   nsContentPolicyType internalContentPolicyType =
       aLoadInfo->InternalContentPolicyType();
@@ -376,53 +376,47 @@ static nsresult DoContentSecurityChecks(nsIChannel* aChannel,
   NS_ENSURE_SUCCESS(rv, rv);
 
   switch (contentPolicyType) {
-    case nsIContentPolicy::TYPE_OTHER: {
+    case ExtContentPolicy::TYPE_OTHER: {
       mimeTypeGuess.Truncate();
       break;
     }
 
-    case nsIContentPolicy::TYPE_SCRIPT: {
+    case ExtContentPolicy::TYPE_SCRIPT: {
       mimeTypeGuess = "application/javascript"_ns;
       break;
     }
 
-    case nsIContentPolicy::TYPE_IMAGE: {
+    case ExtContentPolicy::TYPE_IMAGE: {
       mimeTypeGuess.Truncate();
       break;
     }
 
-    case nsIContentPolicy::TYPE_STYLESHEET: {
+    case ExtContentPolicy::TYPE_STYLESHEET: {
       mimeTypeGuess = "text/css"_ns;
       break;
     }
 
-    case nsIContentPolicy::TYPE_OBJECT: {
+    case ExtContentPolicy::TYPE_OBJECT: {
       mimeTypeGuess.Truncate();
       break;
     }
 
-    case nsIContentPolicy::TYPE_DOCUMENT: {
+    case ExtContentPolicy::TYPE_DOCUMENT: {
       mimeTypeGuess.Truncate();
       break;
     }
 
-    case nsIContentPolicy::TYPE_SUBDOCUMENT: {
+    case ExtContentPolicy::TYPE_SUBDOCUMENT: {
       mimeTypeGuess = "text/html"_ns;
       break;
     }
 
-    case nsIContentPolicy::TYPE_REFRESH: {
-      MOZ_ASSERT(false, "contentPolicyType not supported yet");
-      break;
-    }
-
-    case nsIContentPolicy::TYPE_PING: {
+    case ExtContentPolicy::TYPE_PING: {
       mimeTypeGuess.Truncate();
       break;
     }
 
-    case nsIContentPolicy::TYPE_XMLHTTPREQUEST: {
-      // alias nsIContentPolicy::TYPE_DATAREQUEST:
+    case ExtContentPolicy::TYPE_XMLHTTPREQUEST: {
 #ifdef DEBUG
       {
         nsCOMPtr<nsINode> node = aLoadInfo->LoadingNode();
@@ -445,7 +439,7 @@ static nsresult DoContentSecurityChecks(nsIChannel* aChannel,
       break;
     }
 
-    case nsIContentPolicy::TYPE_OBJECT_SUBREQUEST: {
+    case ExtContentPolicy::TYPE_OBJECT_SUBREQUEST: {
       mimeTypeGuess.Truncate();
 #ifdef DEBUG
       {
@@ -458,7 +452,7 @@ static nsresult DoContentSecurityChecks(nsIChannel* aChannel,
       break;
     }
 
-    case nsIContentPolicy::TYPE_DTD: {
+    case ExtContentPolicy::TYPE_DTD: {
       mimeTypeGuess.Truncate();
 #ifdef DEBUG
       {
@@ -470,12 +464,13 @@ static nsresult DoContentSecurityChecks(nsIChannel* aChannel,
       break;
     }
 
-    case nsIContentPolicy::TYPE_FONT: {
+    case ExtContentPolicy::TYPE_FONT:
+    case ExtContentPolicy::TYPE_UA_FONT: {
       mimeTypeGuess.Truncate();
       break;
     }
 
-    case nsIContentPolicy::TYPE_MEDIA: {
+    case ExtContentPolicy::TYPE_MEDIA: {
       if (internalContentPolicyType == nsIContentPolicy::TYPE_INTERNAL_TRACK) {
         mimeTypeGuess = "text/vtt"_ns;
       } else {
@@ -491,7 +486,7 @@ static nsresult DoContentSecurityChecks(nsIChannel* aChannel,
       break;
     }
 
-    case nsIContentPolicy::TYPE_WEBSOCKET: {
+    case ExtContentPolicy::TYPE_WEBSOCKET: {
       // Websockets have to use the proxied URI:
       // ws:// instead of http:// for CSP checks
       nsCOMPtr<nsIHttpChannelInternal> httpChannelInternal =
@@ -505,12 +500,12 @@ static nsresult DoContentSecurityChecks(nsIChannel* aChannel,
       break;
     }
 
-    case nsIContentPolicy::TYPE_CSP_REPORT: {
+    case ExtContentPolicy::TYPE_CSP_REPORT: {
       mimeTypeGuess.Truncate();
       break;
     }
 
-    case nsIContentPolicy::TYPE_XSLT: {
+    case ExtContentPolicy::TYPE_XSLT: {
       mimeTypeGuess = "application/xml"_ns;
 #ifdef DEBUG
       {
@@ -522,7 +517,7 @@ static nsresult DoContentSecurityChecks(nsIChannel* aChannel,
       break;
     }
 
-    case nsIContentPolicy::TYPE_BEACON: {
+    case ExtContentPolicy::TYPE_BEACON: {
       mimeTypeGuess.Truncate();
 #ifdef DEBUG
       {
@@ -534,35 +529,35 @@ static nsresult DoContentSecurityChecks(nsIChannel* aChannel,
       break;
     }
 
-    case nsIContentPolicy::TYPE_FETCH: {
+    case ExtContentPolicy::TYPE_FETCH: {
       mimeTypeGuess.Truncate();
       break;
     }
 
-    case nsIContentPolicy::TYPE_IMAGESET: {
+    case ExtContentPolicy::TYPE_IMAGESET: {
       mimeTypeGuess.Truncate();
       break;
     }
 
-    case nsIContentPolicy::TYPE_WEB_MANIFEST: {
+    case ExtContentPolicy::TYPE_WEB_MANIFEST: {
       mimeTypeGuess = "application/manifest+json"_ns;
       break;
     }
 
-    case nsIContentPolicy::TYPE_SAVEAS_DOWNLOAD: {
+    case ExtContentPolicy::TYPE_SAVEAS_DOWNLOAD: {
       mimeTypeGuess.Truncate();
       break;
     }
 
-    case nsIContentPolicy::TYPE_SPECULATIVE: {
+    case ExtContentPolicy::TYPE_SPECULATIVE: {
       mimeTypeGuess.Truncate();
       break;
     }
 
-    default:
-      // nsIContentPolicy::TYPE_INVALID
+    case ExtContentPolicy::TYPE_INVALID:
       MOZ_ASSERT(false,
                  "can not perform security check without a valid contentType");
+      // Do not add default: so that compilers can catch the missing case.
   }
 
   int16_t shouldLoad = nsIContentPolicy::ACCEPT;
@@ -573,11 +568,16 @@ static nsresult DoContentSecurityChecks(nsIChannel* aChannel,
     NS_SetRequestBlockingReasonIfNull(
         aLoadInfo, nsILoadInfo::BLOCKING_REASON_CONTENT_POLICY_GENERAL);
 
-    if ((NS_SUCCEEDED(rv) && shouldLoad == nsIContentPolicy::REJECT_TYPE) &&
-        (contentPolicyType == nsIContentPolicy::TYPE_DOCUMENT ||
-         contentPolicyType == nsIContentPolicy::TYPE_SUBDOCUMENT)) {
-      // for docshell loads we might have to return SHOW_ALT.
-      return NS_ERROR_CONTENT_BLOCKED_SHOW_ALT;
+    if (NS_SUCCEEDED(rv) &&
+        (contentPolicyType == ExtContentPolicy::TYPE_DOCUMENT ||
+         contentPolicyType == ExtContentPolicy::TYPE_SUBDOCUMENT)) {
+      if (shouldLoad == nsIContentPolicy::REJECT_TYPE) {
+        // for docshell loads we might have to return SHOW_ALT.
+        return NS_ERROR_CONTENT_BLOCKED_SHOW_ALT;
+      }
+      if (shouldLoad == nsIContentPolicy::REJECT_POLICY) {
+        return NS_ERROR_BLOCKED_BY_POLICY;
+      }
     }
     return NS_ERROR_CONTENT_BLOCKED;
   }
@@ -773,7 +773,7 @@ nsresult nsContentSecurityManager::CheckAllowLoadInSystemPrivilegedContext(
     return NS_OK;
   }
 
-  nsContentPolicyType contentPolicyType =
+  ExtContentPolicy contentPolicyType =
       loadInfo->GetExternalContentPolicyType();
 
   // We distinguish between 2 cases:
@@ -783,7 +783,7 @@ nsresult nsContentSecurityManager::CheckAllowLoadInSystemPrivilegedContext(
   //    which generally should also never be loaded into system
   //    privileged contexts but with some exceptions, like e.g. the
   //    discoverURL.
-  if (contentPolicyType == nsIContentPolicy::TYPE_SCRIPT) {
+  if (contentPolicyType == ExtContentPolicy::TYPE_SCRIPT) {
     if (Preferences::GetBool("domsecurity.skip_remote_script_assertion_in_"
                              "system_priv_context")) {
       return NS_OK;
@@ -801,8 +801,8 @@ nsresult nsContentSecurityManager::CheckAllowLoadInSystemPrivilegedContext(
     return NS_OK;
   }
 
-  if ((contentPolicyType != nsIContentPolicy::TYPE_DOCUMENT) &&
-      (contentPolicyType != nsIContentPolicy::TYPE_SUBDOCUMENT)) {
+  if ((contentPolicyType != ExtContentPolicy::TYPE_DOCUMENT) &&
+      (contentPolicyType != ExtContentPolicy::TYPE_SUBDOCUMENT)) {
     return NS_OK;
   }
 
@@ -957,7 +957,7 @@ nsresult nsContentSecurityManager::CheckChannel(nsIChannel* aChannel) {
   if (cookiePolicy == nsILoadInfo::SEC_COOKIES_SAME_ORIGIN) {
     // We shouldn't have the SEC_COOKIES_SAME_ORIGIN flag for top level loads
     MOZ_ASSERT(loadInfo->GetExternalContentPolicyType() !=
-               nsIContentPolicy::TYPE_DOCUMENT);
+               ExtContentPolicy::TYPE_DOCUMENT);
     nsIPrincipal* loadingPrincipal = loadInfo->GetLoadingPrincipal();
 
     // It doesn't matter what we pass for the second, data-inherits, argument.
@@ -983,9 +983,9 @@ nsresult nsContentSecurityManager::CheckChannel(nsIChannel* aChannel) {
   // Allow subresource loads if TriggeringPrincipal is the SystemPrincipal.
   if (loadInfo->TriggeringPrincipal()->IsSystemPrincipal() &&
       loadInfo->GetExternalContentPolicyType() !=
-          nsIContentPolicy::TYPE_DOCUMENT &&
+          ExtContentPolicy::TYPE_DOCUMENT &&
       loadInfo->GetExternalContentPolicyType() !=
-          nsIContentPolicy::TYPE_SUBDOCUMENT) {
+          ExtContentPolicy::TYPE_SUBDOCUMENT) {
     return NS_OK;
   }
 

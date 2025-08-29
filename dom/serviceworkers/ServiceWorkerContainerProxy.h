@@ -12,7 +12,7 @@ class ServiceWorkerContainerParent;
 
 class ServiceWorkerContainerProxy final {
   // Background thread only
-  ServiceWorkerContainerParent* mActor;
+  RefPtr<ServiceWorkerContainerParent> mActor;
 
   ~ServiceWorkerContainerProxy();
 

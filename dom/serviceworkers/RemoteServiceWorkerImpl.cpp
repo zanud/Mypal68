@@ -4,6 +4,8 @@
 
 #include "RemoteServiceWorkerImpl.h"
 
+#include <utility>
+
 #include "mozilla/dom/ClientInfo.h"
 #include "mozilla/dom/ClientState.h"
 #include "mozilla/ipc/BackgroundChild.h"
@@ -63,7 +65,7 @@ void RemoteServiceWorkerImpl::PostMessage(
     return;
   }
 
-  ClonedMessageData data;
+  ClonedOrErrorMessageData data;
   if (!aData->BuildClonedMessageDataForBackgroundChild(mActor->Manager(),
                                                        data)) {
     return;
@@ -75,7 +77,7 @@ void RemoteServiceWorkerImpl::PostMessage(
 
 RemoteServiceWorkerImpl::RemoteServiceWorkerImpl(
     const ServiceWorkerDescriptor& aDescriptor)
-    : mActor(nullptr), mWorker(nullptr), mShutdown(false) {
+    : mWorker(nullptr), mShutdown(false) {
   PBackgroundChild* parentActor =
       BackgroundChild::GetOrCreateForCurrentThread();
   if (NS_WARN_IF(!parentActor)) {
@@ -83,7 +85,7 @@ RemoteServiceWorkerImpl::RemoteServiceWorkerImpl(
     return;
   }
 
-  ServiceWorkerChild* actor = ServiceWorkerChild::Create();
+  RefPtr<ServiceWorkerChild> actor = ServiceWorkerChild::Create();
   if (NS_WARN_IF(!actor)) {
     Shutdown();
     return;
@@ -97,7 +99,7 @@ RemoteServiceWorkerImpl::RemoteServiceWorkerImpl(
   }
   MOZ_DIAGNOSTIC_ASSERT(sentActor == actor);
 
-  mActor = actor;
+  mActor = std::move(actor);
   mActor->SetOwner(this);
 }
 

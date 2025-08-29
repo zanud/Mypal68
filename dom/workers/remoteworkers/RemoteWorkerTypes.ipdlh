@@ -7,7 +7,7 @@ include PBackgroundSharedTypes;
 include URIParams;
 include DOMTypes;
 
-using struct mozilla::void_t from "ipc/IPCMessageUtils.h";
+using struct mozilla::void_t from "mozilla/ipc/IPCCore.h";
 using mozilla::StorageAccess from "mozilla/dom/ClientIPCUtils.h";
 
 namespace mozilla {

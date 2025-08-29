@@ -645,13 +645,15 @@ static bool HasCameraPermission(const ipc::PrincipalInfo& aPrincipalInfo) {
   MOZ_ASSERT(aPrincipalInfo.type() ==
              ipc::PrincipalInfo::TContentPrincipalInfo);
 
-  nsresult rv;
-  nsCOMPtr<nsIPrincipal> principal =
-      PrincipalInfoToPrincipal(aPrincipalInfo, &rv);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
+  auto principalOrErr = PrincipalInfoToPrincipal(aPrincipalInfo);
+
+  if (NS_WARN_IF(principalOrErr.isErr())) {
     return false;
   }
 
+  nsCOMPtr<nsIPrincipal> principal = principalOrErr.unwrap();
+
+  nsresult rv;
   // Name used with nsIPermissionManager
   static const nsLiteralCString cameraPermission =
       NS_LITERAL_CSTRING("MediaManagerVideo");

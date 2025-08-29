@@ -94,7 +94,6 @@ void ImageData::HoldData() { mozilla::HoldJSObjects(this); }
 
 void ImageData::DropData() {
   if (mData) {
-    mData = nullptr;
     mozilla::DropJSObjects(this);
   }
 }

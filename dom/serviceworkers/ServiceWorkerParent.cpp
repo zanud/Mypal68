@@ -29,7 +29,8 @@ IPCResult ServiceWorkerParent::RecvTeardown() {
 }
 
 IPCResult ServiceWorkerParent::RecvPostMessage(
-    const ClonedMessageData& aClonedData, const ClientInfoAndState& aSource) {
+    const ClonedOrErrorMessageData& aClonedData,
+    const ClientInfoAndState& aSource) {
   RefPtr<ServiceWorkerCloneData> data = new ServiceWorkerCloneData();
   data->CopyFromClonedMessageDataForBackgroundParent(aClonedData);
 

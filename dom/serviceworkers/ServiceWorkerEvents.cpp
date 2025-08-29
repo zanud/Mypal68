@@ -30,7 +30,6 @@
 #include "mozilla/dom/WorkerPrivate.h"
 #include "mozilla/dom/WorkerScope.h"
 #include "mozilla/net/NeckoChannelParams.h"
-#include "nsAutoPtr.h"
 #include "nsComponentManagerUtils.h"
 #include "nsContentPolicyUtils.h"
 #include "nsContentUtils.h"
@@ -1141,10 +1140,7 @@ ExtendableMessageEvent::ExtendableMessageEvent(EventTarget* aOwner)
   mozilla::HoldJSObjects(this);
 }
 
-ExtendableMessageEvent::~ExtendableMessageEvent() {
-  mData.setUndefined();
-  DropJSObjects(this);
-}
+ExtendableMessageEvent::~ExtendableMessageEvent() { DropJSObjects(this); }
 
 void ExtendableMessageEvent::GetData(JSContext* aCx,
                                      JS::MutableHandle<JS::Value> aData,

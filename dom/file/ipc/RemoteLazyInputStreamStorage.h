@@ -2,8 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef mozilla_dom_IPCBlobInputStreamStorage_h
-#define mozilla_dom_IPCBlobInputStreamStorage_h
+#ifndef mozilla_RemoteLazyInputStreamStorage_h
+#define mozilla_RemoteLazyInputStreamStorage_h
 
 #include "mozilla/RefPtr.h"
 #include "nsClassHashtable.h"
@@ -13,11 +13,10 @@ class nsIInputStream;
 struct nsID;
 
 namespace mozilla {
-namespace dom {
 
-class IPCBlobInputStreamParentCallback;
+class RemoteLazyInputStreamParentCallback;
 
-class IPCBlobInputStreamStorage final : public nsIObserver {
+class RemoteLazyInputStreamStorage final : public nsIObserver {
  public:
   NS_DECL_THREADSAFE_ISUPPORTS
   NS_DECL_NSIOBSERVER
@@ -25,29 +24,31 @@ class IPCBlobInputStreamStorage final : public nsIObserver {
   // This initializes the singleton and it must be called on the main-thread.
   static void Initialize();
 
-  static Result<RefPtr<IPCBlobInputStreamStorage>, nsresult> Get();
+  static Result<RefPtr<RemoteLazyInputStreamStorage>, nsresult> Get();
 
   void AddStream(nsIInputStream* aInputStream, const nsID& aID, uint64_t aSize,
                  uint64_t aChildID);
 
   void ForgetStream(const nsID& aID);
 
+  bool HasStream(const nsID& aID);
+
   void GetStream(const nsID& aID, uint64_t aStart, uint64_t aLength,
                  nsIInputStream** aInputStream);
 
   void StoreCallback(const nsID& aID,
-                     IPCBlobInputStreamParentCallback* aCallback);
+                     RemoteLazyInputStreamParentCallback* aCallback);
 
-  already_AddRefed<IPCBlobInputStreamParentCallback> TakeCallback(
+  already_AddRefed<RemoteLazyInputStreamParentCallback> TakeCallback(
       const nsID& aID);
 
  private:
-  IPCBlobInputStreamStorage();
-  ~IPCBlobInputStreamStorage();
+  RemoteLazyInputStreamStorage() = default;
+  ~RemoteLazyInputStreamStorage() = default;
 
   struct StreamData {
     nsCOMPtr<nsIInputStream> mInputStream;
-    RefPtr<IPCBlobInputStreamParentCallback> mCallback;
+    RefPtr<RemoteLazyInputStreamParentCallback> mCallback;
 
     // This is the Process ID connected with this inputStream. We need to store
     // this information in order to delete it if the child crashes/shutdowns.
@@ -59,7 +60,6 @@ class IPCBlobInputStreamStorage final : public nsIObserver {
   nsClassHashtable<nsIDHashKey, StreamData> mStorage;
 };
 
-}  // namespace dom
 }  // namespace mozilla
 
-#endif  // mozilla_dom_IPCBlobInputStreamStorage_h
+#endif  // mozilla_RemoteLazyInputStreamStorage_h

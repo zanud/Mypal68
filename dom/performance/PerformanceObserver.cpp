@@ -130,8 +130,9 @@ void PerformanceObserver::QueueEntry(PerformanceEntry* aEntry) {
  * Keep this list in alphabetical order.
  * https://w3c.github.io/performance-timeline/#supportedentrytypes-attribute
  */
-static const char16_t* const sValidTypeNames[5] = {
-    u"mark", u"measure", u"navigation", u"paint", u"resource",
+static const char16_t* const sValidTypeNames[7] = {
+    u"event",      u"first-input", u"mark",     u"measure",
+    u"navigation", u"paint",       u"resource",
 };
 
 void PerformanceObserver::ReportUnsupportedTypesErrorToConsole(
@@ -285,7 +286,7 @@ void PerformanceObserver::Observe(const PerformanceObserverInit& aOptions,
     /* 3.3.1.6.5 */
     if (maybeBuffered.WasPassed() && maybeBuffered.Value()) {
       nsTArray<RefPtr<PerformanceEntry>> existingEntries;
-      mPerformance->GetEntriesByType(type, existingEntries);
+      mPerformance->GetEntriesByTypeForObserver(type, existingEntries);
       if (!existingEntries.IsEmpty()) {
         mQueuedEntries.AppendElements(existingEntries);
         needQueueNotificationObserverTask = true;
@@ -325,14 +326,8 @@ void PerformanceObserver::GetSupportedEntryTypes(
 
 bool PerformanceObserver::ObservesTypeOfEntry(PerformanceEntry* aEntry) {
   for (auto& option : mOptions) {
-    if (option.mType.WasPassed()) {
-      if (option.mType.Value() == aEntry->GetEntryType()) {
-        return true;
-      }
-    } else {
-      if (option.mEntryTypes.Value().Contains(aEntry->GetEntryType())) {
-        return true;
-      }
+    if (aEntry->ShouldAddEntryToObserverBuffer(option)) {
+      return true;
     }
   }
   return false;

@@ -6,8 +6,11 @@ with Files("**"):
     BUG_COMPONENT = ("Core", "Performance")
 
 EXPORTS.mozilla.dom += [
+    "EventCounts.h",
     "Performance.h",
     "PerformanceEntry.h",
+    "PerformanceEventTiming.h",
+    "PerformanceMainThread.h",
     "PerformanceMark.h",
     "PerformanceMeasure.h",
     "PerformanceNavigation.h",
@@ -24,8 +27,10 @@ EXPORTS.mozilla.dom += [
 ]
 
 UNIFIED_SOURCES += [
+    "EventCounts.cpp",
     "Performance.cpp",
     "PerformanceEntry.cpp",
+    "PerformanceEventTiming.cpp",
     "PerformanceMainThread.cpp",
     "PerformanceMark.cpp",
     "PerformanceMeasure.cpp",

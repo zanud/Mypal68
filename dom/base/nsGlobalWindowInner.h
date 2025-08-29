@@ -179,8 +179,7 @@ class nsGlobalWindowInner final : public mozilla::dom::EventTarget,
                                   public nsIScriptObjectPrincipal,
                                   public nsSupportsWeakReference,
                                   public nsIInterfaceRequestor,
-                                  public PRCListStr,
-                                  public nsAPostRefreshObserver
+                                  public PRCListStr
 #ifdef MOZ_WEBGPU
                                   , public mozilla::webgpu::InstanceProvider
 #endif
@@ -910,8 +909,6 @@ class nsGlobalWindowInner final : public mozilla::dom::EventTarget,
       mozilla::dom::PromiseDocumentFlushedCallback& aCallback,
       mozilla::ErrorResult& aError);
 
-  void DidRefresh() override;
-
   void GetReturnValueOuter(JSContext* aCx,
                            JS::MutableHandle<JS::Value> aReturnValue,
                            nsIPrincipal& aSubjectPrincipal,
@@ -1206,14 +1203,18 @@ class nsGlobalWindowInner final : public mozilla::dom::EventTarget,
     mChromeFields.mGroupMessageManagers.Clear();
   }
 
-  // Call or Cancel mDocumentFlushedResolvers items, and perform MicroTask
-  // checkpoint after that, and adds observer if new mDocumentFlushedResolvers
-  // items are added while Promise callbacks inside the checkpoint.
-  template <bool call>
-  void CallOrCancelDocumentFlushedResolvers();
+  // Call mDocumentFlushedResolvers items, and perform MicroTask checkpoint
+  // after that.
+  //
+  // If aUntilExhaustion is true, then we call resolvers that get added as a
+  // result synchronously, otherwise we wait until the next refresh driver tick.
+  void CallDocumentFlushedResolvers(bool aUntilExhaustion);
 
-  void CallDocumentFlushedResolvers();
-  void CancelDocumentFlushedResolvers();
+  // Called after a refresh driver tick. See documentation of
+  // CallDocumentFlushedResolvers for the meaning of aUntilExhaustion.
+  //
+  // Returns whether we need to keep observing the refresh driver or not.
+  bool MaybeCallDocumentFlushedResolvers(bool aUntilExhaustion);
 
   // Return true if we need to notify browsing context to reset its user gesture
   // activation flag.
@@ -1389,12 +1390,12 @@ class nsGlobalWindowInner final : public mozilla::dom::EventTarget,
   bool mAreDialogsEnabled;
 
   // This flag keeps track of whether this window is currently
-  // observing DidRefresh notifications from the refresh driver.
-  bool mObservingDidRefresh;
-  // This flag keeps track of whether or not we're going through
-  // promiseDocumentFlushed resolvers. When true, promiseDocumentFlushed
-  // cannot be called.
+  // observing refresh notifications from the refresh driver.
+  bool mObservingRefresh;
+
   bool mIteratingDocumentFlushedResolvers;
+
+  bool TryToObserveRefresh();
 
   nsTArray<uint32_t> mEnabledSensors;
 

@@ -21,7 +21,7 @@
 #include "js/Array.h"               // JS::NewArrayObject, JS::SetArrayLength
 #include "js/Date.h"                // JS::NewDateObject, JS::TimeClip
 #include "js/PropertyAndElement.h"  // JS_DefineElement, JS_DefineProperty
-#include <mozIIPCBlobInputStream.h>
+#include <mozIRemoteLazyInputStream.h>
 #include "mozilla/ArrayAlgorithm.h"
 #include "mozilla/BasicEvents.h"
 #include "mozilla/CycleCollectedJSRuntime.h"
@@ -786,12 +786,13 @@ class WorkerPermissionChallenge final : public Runnable {
       return true;
     }
 
-    nsresult rv;
-    const nsCOMPtr<nsIPrincipal> principal =
-        mozilla::ipc::PrincipalInfoToPrincipal(mPrincipalInfo, &rv);
-    if (NS_WARN_IF(NS_FAILED(rv))) {
+    auto principalOrErr =
+        mozilla::ipc::PrincipalInfoToPrincipal(mPrincipalInfo);
+    if (NS_WARN_IF(principalOrErr.isErr())) {
       return true;
     }
+
+    const nsCOMPtr<nsIPrincipal> principal = principalOrErr.unwrap();
 
     if (XRE_IsParentProcess()) {
       const nsCOMPtr<Element> ownerElement =
@@ -1470,12 +1471,11 @@ mozilla::ipc::IPCResult BackgroundFactoryRequestChild::RecvPermissionChallenge(
     return IPC_OK();
   }
 
-  nsresult rv;
-  nsCOMPtr<nsIPrincipal> principal =
-      mozilla::ipc::PrincipalInfoToPrincipal(aPrincipalInfo, &rv);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
+  auto principalOrErr = mozilla::ipc::PrincipalInfoToPrincipal(aPrincipalInfo);
+  if (NS_WARN_IF(principalOrErr.isErr())) {
     return IPC_FAIL_NO_REASON(this);
   }
+  nsCOMPtr<nsIPrincipal> principal = principalOrErr.unwrap();
 
   if (XRE_IsParentProcess()) {
     nsCOMPtr<nsIGlobalObject> global = mFactory->GetParentObject();
@@ -2759,7 +2759,8 @@ nsresult BackgroundRequestChild::PreprocessHelper::ProcessStream() {
   // SnappyUncompressInputStream doesn't support reading from async input
   // streams.
 
-  nsCOMPtr<mozIIPCBlobInputStream> blobInputStream = do_QueryInterface(mStream);
+  nsCOMPtr<mozIRemoteLazyInputStream> blobInputStream =
+      do_QueryInterface(mStream);
   MOZ_ASSERT(blobInputStream);
 
   nsCOMPtr<nsIInputStream> internalInputStream =

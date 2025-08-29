@@ -17,7 +17,6 @@
 #include "MessageEventRunnable.h"
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/CycleCollectedJSContext.h"
-#include "mozilla/HoldDropJSObjects.h"
 #include "mozilla/Result.h"
 #include "mozilla/ScopeExit.h"
 #include "mozilla/StaticPrefs_dom.h"
@@ -2287,8 +2286,6 @@ WorkerPrivate::WorkerPrivate(WorkerPrivate* aParent,
 }
 
 WorkerPrivate::~WorkerPrivate() {
-  DropJSObjects(this);
-
   mWorkerControlEventTarget->ForgetWorkerPrivate(this);
 
   // We force the hybrid event target to forget the thread when we
@@ -3637,9 +3634,8 @@ void WorkerPrivate::NotifyWorkerRefs(WorkerStatus aStatus) {
 
   NS_ASSERTION(aStatus > Closing, "Bad status!");
 
-  nsTObserverArray<WorkerRef*>::ForwardIterator iter(data->mWorkerRefs);
-  while (iter.HasMore()) {
-    iter.GetNext()->Notify();
+  for (auto* workerRef : data->mWorkerRefs.ForwardRange()) {
+    workerRef->Notify();
   }
 
   AutoTArray<WorkerPrivate*, 10> children;
@@ -4948,9 +4944,7 @@ void WorkerPrivate::AssertIsOnWorkerThread() const {
 void WorkerPrivate::DumpCrashInformation(nsACString& aString) {
   auto data = mWorkerThreadAccessible.Access();
 
-  nsTObserverArray<WorkerRef*>::ForwardIterator iter(data->mWorkerRefs);
-  while (iter.HasMore()) {
-    WorkerRef* workerRef = iter.GetNext();
+  for (const auto* workerRef : data->mWorkerRefs.NonObservingRange()) {
     if (workerRef->IsPreventingShutdown()) {
       aString.Append("|");
       aString.Append(workerRef->Name());

@@ -2,21 +2,24 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef mozilla_dom_IPCBlobInputStreamChild_h
-#define mozilla_dom_IPCBlobInputStreamChild_h
+#ifndef mozilla_RemoteLazyInputStreamChild_h
+#define mozilla_RemoteLazyInputStreamChild_h
 
-#include "mozilla/dom/PIPCBlobInputStreamChild.h"
+#include "mozilla/PRemoteLazyInputStreamChild.h"
+#include "mozilla/RemoteLazyInputStream.h"
 #include "mozilla/Mutex.h"
 #include "mozilla/UniquePtr.h"
 #include "nsTArray.h"
 
 namespace mozilla {
+
+class RemoteLazyInputStream;
+
 namespace dom {
-
-class IPCBlobInputStream;
 class ThreadSafeWorkerRef;
+}
 
-class IPCBlobInputStreamChild final : public PIPCBlobInputStreamChild {
+class RemoteLazyInputStreamChild final : public PRemoteLazyInputStreamChild {
  public:
   enum ActorState {
     // The actor is connected via IPDL to the parent.
@@ -34,27 +37,29 @@ class IPCBlobInputStreamChild final : public PIPCBlobInputStreamChild {
     eInactiveMigrating,
   };
 
-  NS_INLINE_DECL_THREADSAFE_REFCOUNTING(IPCBlobInputStreamChild, final)
+  NS_INLINE_DECL_THREADSAFE_REFCOUNTING(RemoteLazyInputStreamChild, final)
 
-  IPCBlobInputStreamChild(const nsID& aID, uint64_t aSize);
+  RemoteLazyInputStreamChild(const nsID& aID, uint64_t aSize);
 
   void ActorDestroy(IProtocol::ActorDestroyReason aReason) override;
 
   ActorState State();
 
-  already_AddRefed<IPCBlobInputStream> CreateStream();
+  already_AddRefed<RemoteLazyInputStream> CreateStream();
 
-  void ForgetStream(IPCBlobInputStream* aStream);
+  void ForgetStream(RemoteLazyInputStream* aStream);
 
   const nsID& ID() const { return mID; }
 
   uint64_t Size() const { return mSize; }
 
-  void StreamNeeded(IPCBlobInputStream* aStream, nsIEventTarget* aEventTarget);
+  void StreamNeeded(RemoteLazyInputStream* aStream,
+                    nsIEventTarget* aEventTarget);
 
   mozilla::ipc::IPCResult RecvStreamReady(const Maybe<IPCStream>& aStream);
 
-  void LengthNeeded(IPCBlobInputStream* aStream, nsIEventTarget* aEventTarget);
+  void LengthNeeded(RemoteLazyInputStream* aStream,
+                    nsIEventTarget* aEventTarget);
 
   mozilla::ipc::IPCResult RecvLengthReady(const int64_t& aLength);
 
@@ -63,12 +68,12 @@ class IPCBlobInputStreamChild final : public PIPCBlobInputStreamChild {
   void Migrated();
 
  private:
-  ~IPCBlobInputStreamChild();
+  ~RemoteLazyInputStreamChild();
 
   // Raw pointers because these streams keep this actor alive. When the last
   // stream is unregister, the actor will be deleted. This list is protected by
   // mutex.
-  nsTArray<IPCBlobInputStream*> mStreams;
+  nsTArray<RemoteLazyInputStream*> mStreams;
 
   // This mutex protects mStreams because that can be touched in any thread.
   Mutex mMutex;
@@ -80,7 +85,7 @@ class IPCBlobInputStreamChild final : public PIPCBlobInputStreamChild {
 
   // This struct and the array are used for creating streams when needed.
   struct PendingOperation {
-    RefPtr<IPCBlobInputStream> mStream;
+    RefPtr<RemoteLazyInputStream> mStream;
     nsCOMPtr<nsIEventTarget> mEventTarget;
     enum {
       eStreamNeeded,
@@ -91,10 +96,9 @@ class IPCBlobInputStreamChild final : public PIPCBlobInputStreamChild {
 
   nsCOMPtr<nsISerialEventTarget> mOwningEventTarget;
 
-  RefPtr<ThreadSafeWorkerRef> mWorkerRef;
+  RefPtr<dom::ThreadSafeWorkerRef> mWorkerRef;
 };
 
-}  // namespace dom
 }  // namespace mozilla
 
-#endif  // mozilla_dom_IPCBlobInputStreamChild_h
+#endif  // mozilla_RemoteLazyInputStreamChild_h

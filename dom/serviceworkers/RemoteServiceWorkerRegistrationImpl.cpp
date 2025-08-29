@@ -106,7 +106,7 @@ void RemoteServiceWorkerRegistrationImpl::Unregister(
 
 RemoteServiceWorkerRegistrationImpl::RemoteServiceWorkerRegistrationImpl(
     const ServiceWorkerRegistrationDescriptor& aDescriptor)
-    : mActor(nullptr), mOuter(nullptr), mShutdown(false) {
+    : mOuter(nullptr), mShutdown(false) {
   PBackgroundChild* parentActor =
       BackgroundChild::GetOrCreateForCurrentThread();
   if (NS_WARN_IF(!parentActor)) {
@@ -114,8 +114,7 @@ RemoteServiceWorkerRegistrationImpl::RemoteServiceWorkerRegistrationImpl(
     return;
   }
 
-  ServiceWorkerRegistrationChild* actor =
-      ServiceWorkerRegistrationChild::Create();
+  auto actor = ServiceWorkerRegistrationChild::Create();
   if (NS_WARN_IF(!actor)) {
     Shutdown();
     return;
@@ -130,7 +129,7 @@ RemoteServiceWorkerRegistrationImpl::RemoteServiceWorkerRegistrationImpl(
   }
   MOZ_DIAGNOSTIC_ASSERT(sentActor == actor);
 
-  mActor = actor;
+  mActor = std::move(actor);
   mActor->SetOwner(this);
 }
 

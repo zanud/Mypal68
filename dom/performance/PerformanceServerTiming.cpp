@@ -7,8 +7,7 @@
 
 #include "mozilla/dom/PerformanceServerTimingBinding.h"
 
-namespace mozilla {
-namespace dom {
+namespace mozilla::dom {
 
 NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE(PerformanceServerTiming, mParent)
 
@@ -67,5 +66,4 @@ void PerformanceServerTiming::GetDescription(nsAString& aDescription) const {
   aDescription.Assign(NS_ConvertUTF8toUTF16(description));
 }
 
-}  // namespace dom
-}  // namespace mozilla
+}  // namespace mozilla::dom

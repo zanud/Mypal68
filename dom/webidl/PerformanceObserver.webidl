@@ -10,6 +10,8 @@ dictionary PerformanceObserverInit {
   sequence<DOMString> entryTypes;
 	DOMString type;
   boolean buffered;
+  [Pref="dom.enable_event_timing"]
+  DOMHighResTimeStamp durationThreshold;
 };
 
 callback PerformanceObserverCallback = void (PerformanceObserverEntryList entries,

@@ -3433,7 +3433,7 @@ nsresult nsContentUtils::LoadImage(
     nsIPrincipal* aLoadingPrincipal, uint64_t aRequestContextID,
     nsIReferrerInfo* aReferrerInfo, imgINotificationObserver* aObserver,
     int32_t aLoadFlags, const nsAString& initiatorType,
-    imgRequestProxy** aRequest, uint32_t aContentPolicyType,
+    imgRequestProxy** aRequest, nsContentPolicyType aContentPolicyType,
     bool aUseUrgentStartForChannel, bool aLinkPreload) {
   MOZ_ASSERT(aURI, "Must have a URI");
   MOZ_ASSERT(aContext, "Must have a context");
@@ -8165,10 +8165,10 @@ bool nsContentUtils::IsPreloadType(nsContentPolicyType aType) {
 }
 
 /* static */
-bool nsContentUtils::IsUpgradableDisplayType(nsContentPolicyType aType) {
+bool nsContentUtils::IsUpgradableDisplayType(ExtContentPolicyType aType) {
   MOZ_ASSERT(NS_IsMainThread());
-  return (aType == nsIContentPolicy::TYPE_IMAGE ||
-          aType == nsIContentPolicy::TYPE_MEDIA);
+  return (aType == ExtContentPolicy::TYPE_IMAGE ||
+          aType == ExtContentPolicy::TYPE_MEDIA);
 }
 
 // static

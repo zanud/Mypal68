@@ -71,3 +71,9 @@ partial interface Performance {
   void measure(DOMString measureName, optional DOMString startMark, optional DOMString endMark);
   void clearMeasures(optional DOMString measureName);
 };
+
+[Exposed=Window]
+partial interface Performance {
+  [Pref="dom.enable_event_timing", SameObject]
+  readonly attribute EventCounts eventCounts;
+};

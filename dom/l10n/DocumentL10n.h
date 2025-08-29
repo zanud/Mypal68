@@ -45,12 +45,10 @@ class DocumentL10n final : public DOMLocalization {
   NS_DECL_ISUPPORTS_INHERITED
   NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED(DocumentL10n, DOMLocalization)
 
-  static RefPtr<DocumentL10n> Create(Document* aDocument, const bool aSync);
+  static RefPtr<DocumentL10n> Create(Document* aDocument, bool aSync);
 
  protected:
-  explicit DocumentL10n(Document* aDocument, const bool aSync);
-  bool Init() override;
-
+  explicit DocumentL10n(Document* aDocument, bool aSync);
   virtual ~DocumentL10n() = default;
 
   RefPtr<Document> mDocument;
@@ -67,7 +65,7 @@ class DocumentL10n final : public DOMLocalization {
   void TriggerInitialTranslation();
   already_AddRefed<Promise> TranslateDocument(ErrorResult& aRv);
 
-  void InitialTranslationCompleted(bool aL10nCached);
+  void InitialTranslationCompleted();
 
   Document* GetDocument() { return mDocument; };
   void OnCreatePresShell();

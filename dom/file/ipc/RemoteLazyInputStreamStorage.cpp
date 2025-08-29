@@ -2,44 +2,37 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "IPCBlobInputStreamStorage.h"
-
+#include "mozilla/SlicedInputStream.h"
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/StaticMutex.h"
 #include "mozilla/StaticPtr.h"
 #include "nsIObserverService.h" //MY
 #include "nsIPropertyBag2.h"
 #include "nsStreamUtils.h"
+#include "RemoteLazyInputStreamStorage.h"
 
 namespace mozilla {
 
 using namespace hal;
 
-namespace dom {
-
 namespace {
 StaticMutex gMutex;
-StaticRefPtr<IPCBlobInputStreamStorage> gStorage;
+StaticRefPtr<RemoteLazyInputStreamStorage> gStorage;
 }  // namespace
 
-NS_INTERFACE_MAP_BEGIN(IPCBlobInputStreamStorage)
+NS_INTERFACE_MAP_BEGIN(RemoteLazyInputStreamStorage)
   NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIObserver)
   NS_INTERFACE_MAP_ENTRY(nsIObserver)
 NS_INTERFACE_MAP_END
 
-NS_IMPL_ADDREF(IPCBlobInputStreamStorage)
-NS_IMPL_RELEASE(IPCBlobInputStreamStorage)
-
-IPCBlobInputStreamStorage::IPCBlobInputStreamStorage() = default;
-
-IPCBlobInputStreamStorage::~IPCBlobInputStreamStorage() = default;
-
+NS_IMPL_ADDREF(RemoteLazyInputStreamStorage)
+NS_IMPL_RELEASE(RemoteLazyInputStreamStorage)
 /* static */
-Result<RefPtr<IPCBlobInputStreamStorage>, nsresult>
-IPCBlobInputStreamStorage::Get() {
+Result<RefPtr<RemoteLazyInputStreamStorage>, nsresult>
+RemoteLazyInputStreamStorage::Get() {
   mozilla::StaticMutexAutoLock lock(gMutex);
   if (gStorage) {
-    RefPtr<IPCBlobInputStreamStorage> storage = gStorage;
+    RefPtr<RemoteLazyInputStreamStorage> storage = gStorage;
     return storage;
   }
 
@@ -47,10 +40,10 @@ IPCBlobInputStreamStorage::Get() {
 }
 
 /* static */
-void IPCBlobInputStreamStorage::Initialize() {
+void RemoteLazyInputStreamStorage::Initialize() {
   mozilla::StaticMutexAutoLock lock(gMutex);
   MOZ_ASSERT(!gStorage);
-  gStorage = new IPCBlobInputStreamStorage();
+  gStorage = new RemoteLazyInputStreamStorage();
 
   nsCOMPtr<nsIObserverService> obs = mozilla::services::GetObserverService();
   if (obs) {
@@ -60,8 +53,8 @@ void IPCBlobInputStreamStorage::Initialize() {
 }
 
 NS_IMETHODIMP
-IPCBlobInputStreamStorage::Observe(nsISupports* aSubject, const char* aTopic,
-                                   const char16_t* aData) {
+RemoteLazyInputStreamStorage::Observe(nsISupports* aSubject, const char* aTopic,
+                                      const char16_t* aData) {
   if (!strcmp(aTopic, "xpcom-shutdown")) {
     nsCOMPtr<nsIObserverService> obs = mozilla::services::GetObserverService();
     if (obs) {
@@ -98,9 +91,9 @@ IPCBlobInputStreamStorage::Observe(nsISupports* aSubject, const char* aTopic,
   return NS_OK;
 }
 
-void IPCBlobInputStreamStorage::AddStream(nsIInputStream* aInputStream,
-                                          const nsID& aID, uint64_t aSize,
-                                          uint64_t aChildID) {
+void RemoteLazyInputStreamStorage::AddStream(nsIInputStream* aInputStream,
+                                             const nsID& aID, uint64_t aSize,
+                                             uint64_t aChildID) {
   MOZ_ASSERT(aInputStream);
 
   StreamData* data = new StreamData();
@@ -112,14 +105,20 @@ void IPCBlobInputStreamStorage::AddStream(nsIInputStream* aInputStream,
   mStorage.Put(aID, data);
 }
 
-void IPCBlobInputStreamStorage::ForgetStream(const nsID& aID) {
+void RemoteLazyInputStreamStorage::ForgetStream(const nsID& aID) {
   mozilla::StaticMutexAutoLock lock(gMutex);
   mStorage.Remove(aID);
 }
 
-void IPCBlobInputStreamStorage::GetStream(const nsID& aID, uint64_t aStart,
-                                          uint64_t aLength,
-                                          nsIInputStream** aInputStream) {
+bool RemoteLazyInputStreamStorage::HasStream(const nsID& aID) {
+  mozilla::StaticMutexAutoLock lock(gMutex);
+  StreamData* data = mStorage.Get(aID);
+  return !!data;
+}
+
+void RemoteLazyInputStreamStorage::GetStream(const nsID& aID, uint64_t aStart,
+                                             uint64_t aLength,
+                                             nsIInputStream** aInputStream) {
   *aInputStream = nullptr;
 
   nsCOMPtr<nsIInputStream> inputStream;
@@ -173,8 +172,8 @@ void IPCBlobInputStreamStorage::GetStream(const nsID& aID, uint64_t aStart,
   clonedStream.forget(aInputStream);
 }
 
-void IPCBlobInputStreamStorage::StoreCallback(
-    const nsID& aID, IPCBlobInputStreamParentCallback* aCallback) {
+void RemoteLazyInputStreamStorage::StoreCallback(
+    const nsID& aID, RemoteLazyInputStreamParentCallback* aCallback) {
   MOZ_ASSERT(aCallback);
 
   mozilla::StaticMutexAutoLock lock(gMutex);
@@ -185,18 +184,17 @@ void IPCBlobInputStreamStorage::StoreCallback(
   }
 }
 
-already_AddRefed<IPCBlobInputStreamParentCallback>
-IPCBlobInputStreamStorage::TakeCallback(const nsID& aID) {
+already_AddRefed<RemoteLazyInputStreamParentCallback>
+RemoteLazyInputStreamStorage::TakeCallback(const nsID& aID) {
   mozilla::StaticMutexAutoLock lock(gMutex);
   StreamData* data = mStorage.Get(aID);
   if (!data) {
     return nullptr;
   }
 
-  RefPtr<IPCBlobInputStreamParentCallback> callback;
+  RefPtr<RemoteLazyInputStreamParentCallback> callback;
   data->mCallback.swap(callback);
   return callback.forget();
 }
 
-}  // namespace dom
 }  // namespace mozilla

@@ -92,7 +92,6 @@ InProcessBrowserChildMessageManager::InProcessBrowserChildMessageManager(
 }
 
 InProcessBrowserChildMessageManager::~InProcessBrowserChildMessageManager() {
-  mAnonymousGlobalScopes.Clear();
   mozilla::DropJSObjects(this);
 }
 

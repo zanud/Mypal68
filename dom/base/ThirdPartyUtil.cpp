@@ -324,24 +324,23 @@ ThirdPartyUtil::IsThirdPartyChannel(nsIChannel* aChannel, nsIURI* aURI,
   rv = GetBaseDomain(channelURI, channelDomain);
   if (NS_FAILED(rv)) return rv;
 
-  if (!doForce) {
-    if (nsCOMPtr<nsILoadInfo> loadInfo = aChannel->LoadInfo()) {
-      parentIsThird = loadInfo->GetIsInThirdPartyContext();
-      if (!parentIsThird && loadInfo->GetExternalContentPolicyType() !=
-                                nsIContentPolicy::TYPE_DOCUMENT) {
-        // Check if the channel itself is third-party to its own requestor.
-        // Unforunately, we have to go through the loading principal.
+  BasePrincipal* loadingPrincipal = nullptr;
+  nsCOMPtr<nsILoadInfo> loadInfo = aChannel->LoadInfo();
 
-        rv = loadInfo->GetLoadingPrincipal()->IsThirdPartyURI(channelURI,
-                                                              &parentIsThird);
-        if (NS_FAILED(rv)) {
-          return rv;
-        }
-      }
-    } else {
-      NS_WARNING(
-          "Found channel with no loadinfo, assuming third-party request");
-      parentIsThird = true;
+  if (!doForce) {
+    parentIsThird = loadInfo->GetIsInThirdPartyContext();
+    if (!parentIsThird && loadInfo->GetExternalContentPolicyType() !=
+                              ExtContentPolicy::TYPE_DOCUMENT) {
+      // Check if the channel itself is third-party to its own requestor.
+      // Unfortunately, we have to go through the loading principal.
+      loadingPrincipal = BasePrincipal::Cast(loadInfo->GetLoadingPrincipal());
+    }
+  }
+
+  if (loadingPrincipal) {
+    rv = loadingPrincipal->IsThirdPartyURI(channelURI, &parentIsThird);
+    if (NS_FAILED(rv)) {
+      return rv;
     }
   }
 

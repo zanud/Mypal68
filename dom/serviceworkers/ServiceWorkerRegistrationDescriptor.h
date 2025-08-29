@@ -68,7 +68,7 @@ class ServiceWorkerRegistrationDescriptor final {
 
   const mozilla::ipc::PrincipalInfo& PrincipalInfo() const;
 
-  nsCOMPtr<nsIPrincipal> GetPrincipal() const;
+  Result<nsCOMPtr<nsIPrincipal>, nsresult> GetPrincipal() const;
 
   const nsCString& Scope() const;
 

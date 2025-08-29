@@ -198,7 +198,6 @@ bool Exception::StealJSVal(JS::Value* aVp) {
 
   if (mHoldingJSVal) {
     *aVp = mThrownJSVal;
-    mThrownJSVal.setNull();
 
     mozilla::DropJSObjects(this);
     mHoldingJSVal = false;

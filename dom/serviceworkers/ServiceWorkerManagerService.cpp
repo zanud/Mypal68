@@ -9,7 +9,6 @@
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/ipc/BackgroundParent.h"
 #include "mozilla/Unused.h"
-#include "nsAutoPtr.h"
 
 namespace mozilla {
 
@@ -108,8 +107,9 @@ void ServiceWorkerManagerService::PropagateRegistration(
         nsTArray<ContentParent*> cps;
         ContentParent::GetAll(cps);
         for (auto* cp : cps) {
-          nsCOMPtr<nsIPrincipal> principal = PrincipalInfoToPrincipal(pi);
-          if (principal) {
+          auto principalOrErr = PrincipalInfoToPrincipal(pi);
+          if (principalOrErr.isOk()) {
+            nsCOMPtr<nsIPrincipal> principal = principalOrErr.unwrap();
             cp->TransmitPermissionsForPrincipal(principal);
           }
         }

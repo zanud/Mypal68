@@ -59,7 +59,6 @@
 #include "mozilla/dom/indexedDB/PBackgroundIDBTransactionParent.h"
 #include "mozilla/dom/indexedDB/PBackgroundIDBVersionChangeTransactionParent.h"
 #include "mozilla/dom/indexedDB/PBackgroundIndexedDBUtilsParent.h"
-#include "mozilla/dom/IPCBlobInputStreamParent.h"
 #include "mozilla/dom/IPCBlobUtils.h"
 #include "mozilla/dom/quota/CheckedUnsafePtr.h"
 #include "mozilla/dom/quota/Client.h"
@@ -74,6 +73,7 @@
 #include "mozilla/ipc/InputStreamUtils.h"
 #include "mozilla/ipc/PBackground.h"
 #include "mozilla/ipc/PBackgroundParent.h"
+#include "mozilla/RemoteLazyInputStreamParent.h"
 #include "mozilla/Scoped.h"
 #include "mozilla/storage/Variant.h"
 #include "mozIStorageFunction.h"
@@ -6047,7 +6047,7 @@ class Database::StartTransactionOp final
 };
 
 class Database::UnmapBlobCallback final
-    : public IPCBlobInputStreamParentCallback {
+    : public RemoteLazyInputStreamParentCallback {
   SafeRefPtr<Database> mDatabase;
 
  public:
@@ -12576,7 +12576,7 @@ void ConnectionPool::ScheduleQueuedTransactions(ThreadInfo aThreadInfo) {
                                        /* aFromQueuedTransactions */ true);
       });
 
-  mQueuedTransactions.RemoveElementsAt(mQueuedTransactions.begin(), foundIt);
+  mQueuedTransactions.RemoveElementsRange(mQueuedTransactions.begin(), foundIt);
 
   AdjustIdleTimer();
 }
@@ -13790,11 +13790,12 @@ void Database::MapBlob(const IPCBlob& aIPCBlob,
                        SafeRefPtr<FileInfo> aFileInfo) {
   AssertIsOnBackgroundThread();
 
-  const IPCBlobStream& stream = aIPCBlob.inputStream();
-  MOZ_ASSERT(stream.type() == IPCBlobStream::TPIPCBlobInputStreamParent);
+  const RemoteLazyStream& stream = aIPCBlob.inputStream();
+  MOZ_ASSERT(stream.type() == RemoteLazyStream::TPRemoteLazyInputStreamParent);
 
-  IPCBlobInputStreamParent* actor = static_cast<IPCBlobInputStreamParent*>(
-      stream.get_PIPCBlobInputStreamParent());
+  RemoteLazyInputStreamParent* actor =
+      static_cast<RemoteLazyInputStreamParent*>(
+          stream.get_PRemoteLazyInputStreamParent());
 
   MOZ_ASSERT(!mMappedBlobs.GetWeak(actor->ID()));
   mMappedBlobs.Put(actor->ID(), AsRefPtr(std::move(aFileInfo)));
@@ -13847,18 +13848,18 @@ void Database::Stringify(nsACString& aResult) const {
 SafeRefPtr<FileInfo> Database::GetBlob(const IPCBlob& aIPCBlob) {
   AssertIsOnBackgroundThread();
 
-  const IPCBlobStream& stream = aIPCBlob.inputStream();
-  MOZ_ASSERT(stream.type() == IPCBlobStream::TIPCStream);
+  const RemoteLazyStream& stream = aIPCBlob.inputStream();
+  MOZ_ASSERT(stream.type() == RemoteLazyStream::TIPCStream);
 
   const IPCStream& ipcStream = stream.get_IPCStream();
 
   const InputStreamParams& inputStreamParams = ipcStream.stream();
   if (inputStreamParams.type() !=
-      InputStreamParams::TIPCBlobInputStreamParams) {
+      InputStreamParams::TRemoteLazyInputStreamParams) {
     return nullptr;
   }
 
-  const nsID& id = inputStreamParams.get_IPCBlobInputStreamParams().id();
+  const nsID& id = inputStreamParams.get_RemoteLazyInputStreamParams().id();
 
   RefPtr<FileInfo> fileInfo;
   if (!mMappedBlobs.Get(id, getter_AddRefs(fileInfo))) {
@@ -20764,16 +20765,17 @@ nsresult FactoryOp::CheckPermission(
 
   MOZ_ASSERT(principalInfo.type() == PrincipalInfo::TContentPrincipalInfo);
 
-  nsresult rv;
-  nsCOMPtr<nsIPrincipal> principal =
-      PrincipalInfoToPrincipal(principalInfo, &rv);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
+  auto principalOrErr = PrincipalInfoToPrincipal(principalInfo);
+  if (NS_WARN_IF(principalOrErr.isErr())) {
+    return principalOrErr.unwrapErr();
   }
+
+  nsCOMPtr<nsIPrincipal> principal = principalOrErr.unwrap();
 
   nsCString suffix;
   nsCString group;
   nsCString origin;
+  nsresult rv;
   rv = QuotaManager::GetInfoFromPrincipal(principal, &suffix, &group, &origin);
   if (NS_WARN_IF(NS_FAILED(rv))) {
     return rv;

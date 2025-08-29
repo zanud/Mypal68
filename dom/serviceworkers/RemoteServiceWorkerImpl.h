@@ -13,7 +13,7 @@ namespace dom {
 class ServiceWorkerChild;
 
 class RemoteServiceWorkerImpl final : public ServiceWorker::Inner {
-  ServiceWorkerChild* mActor;
+  RefPtr<ServiceWorkerChild> mActor;
   ServiceWorker* mWorker;
   bool mShutdown;
 

@@ -153,7 +153,6 @@ IDBTransaction::~IDBTransaction() {
   MOZ_ASSERT(!HasTransactionChild(),
              "SendDeleteMeInternal should have cleared!");
 
-  ReleaseWrapper(this);
   mozilla::DropJSObjects(this);
 }
 

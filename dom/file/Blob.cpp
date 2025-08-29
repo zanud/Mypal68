@@ -302,10 +302,7 @@ class BlobBodyStreamHolder final : public BodyStreamHolder {
 
   BlobBodyStreamHolder() { mozilla::HoldJSObjects(this); }
 
-  void NullifyStream() override {
-    mozilla::DropJSObjects(this);
-    mStream = nullptr;
-  }
+  void NullifyStream() override { mozilla::DropJSObjects(this); }
 
   void MarkAsRead() override {}
 

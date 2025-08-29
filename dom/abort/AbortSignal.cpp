@@ -29,9 +29,8 @@ void AbortSignalImpl::Abort() {
   RefPtr<AbortSignalImpl> pinThis = this;
 
   // Let's inform the followers.
-  nsTObserverArray<AbortFollower*>::ForwardIterator iter(mFollowers);
-  while (iter.HasMore()) {
-    iter.GetNext()->Abort();
+  for (AbortFollower* follower : mFollowers.ForwardRange()) {
+    follower->Abort();
   }
 }
 

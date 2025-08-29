@@ -204,7 +204,7 @@ AudioChannelService::AudioChannelService() {
   }
 }
 
-AudioChannelService::~AudioChannelService() {}
+AudioChannelService::~AudioChannelService() = default;
 
 void AudioChannelService::RegisterAudioChannelAgent(AudioChannelAgent* aAgent,
                                                     AudibleState aAudible) {
@@ -214,7 +214,7 @@ void AudioChannelService::RegisterAudioChannelAgent(AudioChannelAgent* aAgent,
   AudioChannelWindow* winData = GetWindowData(windowID);
   if (!winData) {
     winData = new AudioChannelWindow(windowID);
-    mWindows.AppendElement(winData);
+    mWindows.AppendElement(WrapUnique(winData));
   }
 
   // To make sure agent would be alive because AppendAgent() would trigger the
@@ -312,27 +312,24 @@ AudioChannelService::Observe(nsISupports* aSubject, const char* aTopic,
       return rv;
     }
 
-    nsAutoPtr<AudioChannelWindow> winData;
+    UniquePtr<AudioChannelWindow> winData;
     {
-      nsTObserverArray<nsAutoPtr<AudioChannelWindow>>::ForwardIterator iter(
+      nsTObserverArray<UniquePtr<AudioChannelWindow>>::ForwardIterator iter(
           mWindows);
       while (iter.HasMore()) {
-        nsAutoPtr<AudioChannelWindow>& next = iter.GetNext();
+        auto& next = iter.GetNext();
         if (next->mWindowID == outerID) {
-          uint32_t pos = mWindows.IndexOf(next);
-          winData = next.forget();
-          mWindows.RemoveElementAt(pos);
+          winData = std::move(next);
+          iter.Remove();
           break;
         }
       }
     }
 
     if (winData) {
-      nsTObserverArray<AudioChannelAgent*>::ForwardIterator iter(
-          winData->mAgents);
-      while (iter.HasMore()) {
-        iter.GetNext()->WindowVolumeChanged(winData->mConfig.mVolume,
-                                            winData->mConfig.mMuted);
+      for (AudioChannelAgent* agent : winData->mAgents.ForwardRange()) {
+        agent->WindowVolumeChanged(winData->mConfig.mVolume,
+                                   winData->mConfig.mMuted);
       }
     }
   }
@@ -355,9 +352,8 @@ void AudioChannelService::RefreshAgents(
     return;
   }
 
-  nsTObserverArray<AudioChannelAgent*>::ForwardIterator iter(winData->mAgents);
-  while (iter.HasMore()) {
-    aFunc(iter.GetNext());
+  for (AudioChannelAgent* agent : winData->mAgents.ForwardRange()) {
+    aFunc(agent);
   }
 }
 
@@ -404,10 +400,8 @@ void AudioChannelService::SetWindowAudioCaptured(nsPIDOMWindowOuter* aWindow,
 
   if (aCapture != winData->mIsAudioCaptured) {
     winData->mIsAudioCaptured = aCapture;
-    nsTObserverArray<AudioChannelAgent*>::ForwardIterator iter(
-        winData->mAgents);
-    while (iter.HasMore()) {
-      iter.GetNext()->WindowAudioCaptureChanged(aInnerWindowID, aCapture);
+    for (AudioChannelAgent* agent : winData->mAgents.ForwardRange()) {
+      agent->WindowAudioCaptureChanged(aInnerWindowID, aCapture);
     }
   }
 }
@@ -420,7 +414,7 @@ AudioChannelService::GetOrCreateWindowData(nsPIDOMWindowOuter* aWindow) {
   AudioChannelWindow* winData = GetWindowData(aWindow->WindowID());
   if (!winData) {
     winData = new AudioChannelWindow(aWindow->WindowID());
-    mWindows.AppendElement(winData);
+    mWindows.AppendElement(WrapUnique(winData));
   }
 
   return winData;
@@ -428,16 +422,11 @@ AudioChannelService::GetOrCreateWindowData(nsPIDOMWindowOuter* aWindow) {
 
 AudioChannelService::AudioChannelWindow* AudioChannelService::GetWindowData(
     uint64_t aWindowID) const {
-  nsTObserverArray<nsAutoPtr<AudioChannelWindow>>::ForwardIterator iter(
-      mWindows);
-  while (iter.HasMore()) {
-    AudioChannelWindow* next = iter.GetNext();
-    if (next->mWindowID == aWindowID) {
-      return next;
-    }
-  }
-
-  return nullptr;
+  const auto [begin, end] = mWindows.NonObservingRange();
+  const auto foundIt = std::find_if(begin, end, [aWindowID](const auto& next) {
+    return next->mWindowID == aWindowID;
+  });
+  return foundIt != end ? foundIt->get() : nullptr;
 }
 
 bool AudioChannelService::IsWindowActive(nsPIDOMWindowOuter* aWindow) {

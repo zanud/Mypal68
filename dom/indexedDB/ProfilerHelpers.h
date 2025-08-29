@@ -275,7 +275,7 @@ inline void MOZ_FORMAT_PRINTF(2, 3)
     MOZ_LOG(logModule, logLevel, ("%s", message.get()));
 
     if (aUseProfiler) {
-      PROFILER_ADD_MARKER(message.get(), DOM);
+      PROFILER_MARKER_UNTYPED(message, DOM);
     }
   }
 }

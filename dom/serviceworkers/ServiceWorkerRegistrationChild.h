@@ -21,6 +21,8 @@ class ServiceWorkerRegistrationChild final
 
   ServiceWorkerRegistrationChild();
 
+  ~ServiceWorkerRegistrationChild() = default;
+
   // PServiceWorkerRegistrationChild
   void ActorDestroy(ActorDestroyReason aReason) override;
 
@@ -30,9 +32,9 @@ class ServiceWorkerRegistrationChild final
   mozilla::ipc::IPCResult RecvFireUpdateFound() override;
 
  public:
-  static ServiceWorkerRegistrationChild* Create();
+  NS_INLINE_DECL_REFCOUNTING(ServiceWorkerRegistrationChild, override);
 
-  ~ServiceWorkerRegistrationChild() = default;
+  static RefPtr<ServiceWorkerRegistrationChild> Create();
 
   void SetOwner(RemoteServiceWorkerRegistrationImpl* aOwner);
 

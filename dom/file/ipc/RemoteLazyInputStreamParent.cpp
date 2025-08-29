@@ -2,20 +2,20 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "IPCBlobInputStreamParent.h"
-#include "IPCBlobInputStreamStorage.h"
+#include "RemoteLazyInputStreamParent.h"
 #include "mozilla/ipc/IPCStreamUtils.h"
 #include "mozilla/InputStreamLengthHelper.h"
 #include "nsContentUtils.h"
+#include "RemoteLazyInputStreamStorage.h"
 
 namespace mozilla {
-namespace dom {
 
 template <typename M>
 /* static */
-already_AddRefed<IPCBlobInputStreamParent> IPCBlobInputStreamParent::Create(
-    nsIInputStream* aInputStream, uint64_t aSize, uint64_t aChildID,
-    nsresult* aRv, M* aManager) {
+already_AddRefed<RemoteLazyInputStreamParent>
+RemoteLazyInputStreamParent::Create(nsIInputStream* aInputStream,
+                                    uint64_t aSize, uint64_t aChildID,
+                                    nsresult* aRv, M* aManager) {
   MOZ_ASSERT(aInputStream);
   MOZ_ASSERT(aRv);
 
@@ -25,7 +25,7 @@ already_AddRefed<IPCBlobInputStreamParent> IPCBlobInputStreamParent::Create(
     return nullptr;
   }
 
-  auto storageOrErr = IPCBlobInputStreamStorage::Get();
+  auto storageOrErr = RemoteLazyInputStreamStorage::Get();
 
   if (NS_WARN_IF(storageOrErr.isErr())) {
     *aRv = storageOrErr.unwrapErr();
@@ -35,18 +35,19 @@ already_AddRefed<IPCBlobInputStreamParent> IPCBlobInputStreamParent::Create(
   auto storage = storageOrErr.unwrap();
   storage->AddStream(aInputStream, id, aSize, aChildID);
 
-  RefPtr<IPCBlobInputStreamParent> parent =
-      new IPCBlobInputStreamParent(id, aSize, aManager);
+  RefPtr<RemoteLazyInputStreamParent> parent =
+      new RemoteLazyInputStreamParent(id, aSize, aManager);
   return parent.forget();
 }
 
 /* static */
-already_AddRefed<IPCBlobInputStreamParent> IPCBlobInputStreamParent::Create(
-    const nsID& aID, uint64_t aSize, PBackgroundParent* aManager) {
-  RefPtr<IPCBlobInputStreamParent> actor =
-      new IPCBlobInputStreamParent(aID, aSize, aManager);
+already_AddRefed<RemoteLazyInputStreamParent>
+RemoteLazyInputStreamParent::Create(const nsID& aID, uint64_t aSize,
+                                    PBackgroundParent* aManager) {
+  RefPtr<RemoteLazyInputStreamParent> actor =
+      new RemoteLazyInputStreamParent(aID, aSize, aManager);
 
-  auto storage = IPCBlobInputStreamStorage::Get().unwrapOr(nullptr);
+  auto storage = RemoteLazyInputStreamStorage::Get().unwrapOr(nullptr);
 
   if (storage) {
     actor->mCallback = storage->TakeCallback(aID);
@@ -56,35 +57,43 @@ already_AddRefed<IPCBlobInputStreamParent> IPCBlobInputStreamParent::Create(
   return nullptr;
 }
 
-IPCBlobInputStreamParent::IPCBlobInputStreamParent(const nsID& aID,
-                                                   uint64_t aSize,
-                                                   ContentParent* aManager)
+template already_AddRefed<RemoteLazyInputStreamParent>
+RemoteLazyInputStreamParent::Create<mozilla::ipc::PBackgroundParent>(
+    nsIInputStream*, uint64_t, uint64_t, nsresult*,
+    mozilla::ipc::PBackgroundParent*);
+
+template already_AddRefed<RemoteLazyInputStreamParent>
+RemoteLazyInputStreamParent::Create<ContentParent>(nsIInputStream*, uint64_t,
+                                                   uint64_t, nsresult*,
+                                                   ContentParent*);
+
+RemoteLazyInputStreamParent::RemoteLazyInputStreamParent(
+    const nsID& aID, uint64_t aSize, ContentParent* aManager)
     : mID(aID),
       mSize(aSize),
       mContentManager(aManager),
       mPBackgroundManager(nullptr),
       mMigrating(false) {}
 
-IPCBlobInputStreamParent::IPCBlobInputStreamParent(const nsID& aID,
-                                                   uint64_t aSize,
-                                                   PBackgroundParent* aManager)
+RemoteLazyInputStreamParent::RemoteLazyInputStreamParent(
+    const nsID& aID, uint64_t aSize, PBackgroundParent* aManager)
     : mID(aID),
       mSize(aSize),
       mContentManager(nullptr),
       mPBackgroundManager(aManager),
       mMigrating(false) {}
 
-void IPCBlobInputStreamParent::ActorDestroy(
+void RemoteLazyInputStreamParent::ActorDestroy(
     IProtocol::ActorDestroyReason aReason) {
   MOZ_ASSERT(mContentManager || mPBackgroundManager);
 
   mContentManager = nullptr;
   mPBackgroundManager = nullptr;
 
-  RefPtr<IPCBlobInputStreamParentCallback> callback;
+  RefPtr<RemoteLazyInputStreamParentCallback> callback;
   mCallback.swap(callback);
 
-  auto storage = IPCBlobInputStreamStorage::Get().unwrapOr(nullptr);
+  auto storage = RemoteLazyInputStreamStorage::Get().unwrapOr(nullptr);
 
   if (mMigrating) {
     if (callback && storage) {
@@ -103,19 +112,19 @@ void IPCBlobInputStreamParent::ActorDestroy(
   }
 }
 
-void IPCBlobInputStreamParent::SetCallback(
-    IPCBlobInputStreamParentCallback* aCallback) {
+void RemoteLazyInputStreamParent::SetCallback(
+    RemoteLazyInputStreamParentCallback* aCallback) {
   MOZ_ASSERT(aCallback);
   MOZ_ASSERT(!mCallback);
 
   mCallback = aCallback;
 }
 
-mozilla::ipc::IPCResult IPCBlobInputStreamParent::RecvStreamNeeded() {
+mozilla::ipc::IPCResult RemoteLazyInputStreamParent::RecvStreamNeeded() {
   MOZ_ASSERT(mContentManager || mPBackgroundManager);
 
   nsCOMPtr<nsIInputStream> stream;
-  auto storage = IPCBlobInputStreamStorage::Get().unwrapOr(nullptr);
+  auto storage = RemoteLazyInputStreamStorage::Get().unwrapOr(nullptr);
   if (storage) {
     storage->GetStream(mID, 0, mSize, getter_AddRefs(stream));
   }
@@ -150,11 +159,11 @@ mozilla::ipc::IPCResult IPCBlobInputStreamParent::RecvStreamNeeded() {
   return IPC_OK();
 }
 
-mozilla::ipc::IPCResult IPCBlobInputStreamParent::RecvLengthNeeded() {
+mozilla::ipc::IPCResult RemoteLazyInputStreamParent::RecvLengthNeeded() {
   MOZ_ASSERT(mContentManager || mPBackgroundManager);
 
   nsCOMPtr<nsIInputStream> stream;
-  auto storage = IPCBlobInputStreamStorage::Get().unwrapOr(nullptr);
+  auto storage = RemoteLazyInputStreamStorage::Get().unwrapOr(nullptr);
   if (storage) {
     storage->GetStream(mID, 0, mSize, getter_AddRefs(stream));
   }
@@ -173,7 +182,7 @@ mozilla::ipc::IPCResult IPCBlobInputStreamParent::RecvLengthNeeded() {
     return IPC_OK();
   }
 
-  RefPtr<IPCBlobInputStreamParent> self = this;
+  RefPtr<RemoteLazyInputStreamParent> self = this;
   InputStreamLengthHelper::GetAsyncLength(stream, [self](int64_t aLength) {
     if (self->mContentManager || self->mPBackgroundManager) {
       Unused << self->SendLengthReady(aLength);
@@ -183,29 +192,22 @@ mozilla::ipc::IPCResult IPCBlobInputStreamParent::RecvLengthNeeded() {
   return IPC_OK();
 }
 
-mozilla::ipc::IPCResult IPCBlobInputStreamParent::RecvClose() {
+mozilla::ipc::IPCResult RemoteLazyInputStreamParent::RecvClose() {
   MOZ_ASSERT(mContentManager || mPBackgroundManager);
 
   Unused << Send__delete__(this);
   return IPC_OK();
 }
 
-mozilla::ipc::IPCResult IPCBlobInputStreamParent::Recv__delete__() {
+mozilla::ipc::IPCResult RemoteLazyInputStreamParent::Recv__delete__() {
   MOZ_ASSERT(mContentManager || mPBackgroundManager);
   mMigrating = true;
   return IPC_OK();
 }
 
-bool IPCBlobInputStreamParent::HasValidStream() const {
-  auto storage = IPCBlobInputStreamStorage::Get().unwrapOr(nullptr);
-  if (!storage) {
-    return false;
-  }
-
-  nsCOMPtr<nsIInputStream> stream;
-  storage->GetStream(mID, 0, mSize, getter_AddRefs(stream));
-  return !!stream;
+bool RemoteLazyInputStreamParent::HasValidStream() const {
+  auto storage = RemoteLazyInputStreamStorage::Get().unwrapOr(nullptr);
+  return storage ? storage->HasStream(mID) : false;
 }
 
-}  // namespace dom
 }  // namespace mozilla

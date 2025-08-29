@@ -8,7 +8,6 @@ include protocol PClientOpenWindowOp;
 include protocol PCompositorManager;
 include protocol PContentPermissionRequest;
 include protocol PCycleCollectWithLogs;
-include protocol PPSMContentDownloader;
 include protocol PExternalHelperApp;
 include protocol PHandlerService;
 include protocol PFileDescriptorSet;
@@ -16,7 +15,7 @@ include protocol PHal;
 include protocol PHeapSnapshotTempFileHelper;
 include protocol PProcessHangMonitor;
 include protocol PImageBridge;
-include protocol PIPCBlobInputStream;
+include protocol PRemoteLazyInputStream;
 include protocol PMedia;
 include protocol PNecko;
 include protocol PStreamFilter;
@@ -115,9 +114,13 @@ union ChromeRegistryItem
 namespace mozilla {
 namespace dom {
 
+// SetXPCOMProcessAttributes passes an array of font data to the child,
+// but each platform needs different details so we have platform-specific
+// versions of the SystemFontListEntry type:
+#if defined(ANDROID)
 // Used on Android/B2G to pass the list of fonts on the device
 // to the child process
-struct FontListEntry {
+struct SystemFontListEntry {
     nsCString familyName;
     nsCString faceName;
     nsCString filepath;
@@ -126,28 +129,23 @@ struct FontListEntry {
     uint32_t  styleRange;
     uint8_t   index;
 };
-
+#elif defined(XP_MACOSX)
 // Used on Mac OS X to pass the list of font families (not faces)
 // from chrome to content processes.
 // The entryType field distinguishes several types of font family
 // record; see gfxMacPlatformFontList.h for values and meaning.
-struct FontFamilyListEntry {
+struct SystemFontListEntry {
     nsCString familyName;
     uint8_t   entryType;
 };
-
+#else
 // Used on Linux to pass list of font patterns from chrome to content.
-struct FontPatternListEntry {
+// (Unused on Windows, but there needs to be a definition of the type.)
+struct SystemFontListEntry {
     nsCString pattern;
     bool      appFontFamily;
 };
-
-// Wrap the Font*ListEntry records in a union so the SetXPCOMProcessAttributes
-// message can pass an array of either type.
-union SystemFontListEntry {
-    FontFamilyListEntry;
-    FontPatternListEntry;
-};
+#endif
 
 struct DataStorageItem {
   nsCString key;
@@ -254,6 +252,14 @@ struct GfxInfoFeatureStatus
     nsCString failureId;
 };
 
+struct L10nFileSourceDescriptor {
+  nsCString name;
+  nsCString metasource;
+  nsCString[] locales;
+  nsCString prePath;
+  nsCString[] index;
+};
+
 struct XPCOMInitData
 {
     bool isOffline;
@@ -261,7 +267,7 @@ struct XPCOMInitData
     int32_t captivePortalState;
     bool isLangRTL;
     bool haveBidiKeyboards;
-    nsString[] dictionaries;
+    nsCString[] dictionaries;
     ClipboardCapabilities clipboardCaps;
     DomainPolicyClone domainPolicy;
     nsIURI userContentSheetURL;
@@ -271,6 +277,7 @@ struct XPCOMInitData
     DataStorageEntry[] dataStorage;
     nsCString[] appLocales;
     nsCString[] requestedLocales;
+    L10nFileSourceDescriptor[] l10nFileSources;
     DynamicScalarDefinition[] dynamicScalarDefs;
 };
 
@@ -335,13 +342,12 @@ nested(upto inside_cpow) sync protocol PContent
     manages PClientOpenWindowOp;
     manages PContentPermissionRequest;
     manages PCycleCollectWithLogs;
-    manages PPSMContentDownloader;
     manages PExternalHelperApp;
     manages PFileDescriptorSet;
     manages PHal;
     manages PHandlerService;
     manages PHeapSnapshotTempFileHelper;
-    manages PIPCBlobInputStream;
+    manages PRemoteLazyInputStream;
     manages PMedia;
     manages PNecko;
     manages POfflineCacheUpdate;
@@ -502,7 +508,7 @@ child:
 
     async GeolocationError(uint16_t errorCode);
 
-    async UpdateDictionaryList(nsString[] dictionaries);
+    async UpdateDictionaryList(nsCString[] dictionaries);
 
     async UpdateFontList(SystemFontListEntry[] fontList);
 
@@ -521,6 +527,8 @@ child:
 
     async UpdateAppLocales(nsCString[] appLocales);
     async UpdateRequestedLocales(nsCString[] requestedLocales);
+
+    async UpdateL10nFileSources(L10nFileSourceDescriptor[] sources);
 
     async RegisterStringBundles(StringBundleDescriptor[] stringBundles);
 
@@ -584,7 +592,7 @@ child:
     async SetXPCOMProcessAttributes(XPCOMInitData xpcomInit,
                                     StructuredCloneData initialData,
                                     LookAndFeelInt[] lookAndFeelIntCache,
-                                    /* used on MacOSX and Linux only: */
+                                    /* used on MacOSX/Linux/Android only: */
                                     SystemFontListEntry[] systemFontList,
                                     SharedMemoryHandle? sharedUASheetHandle,
                                     uintptr_t sharedUASheetAddress);
@@ -694,7 +702,7 @@ child:
 
     async RefreshScreens(ScreenDetails[] aScreens);
 
-    async PIPCBlobInputStream(nsID aID, uint64_t aSize);
+    async PRemoteLazyInputStream(nsID aID, uint64_t aSize);
 
     /**
      * This call takes the set of plugins loaded in the chrome process, and
@@ -900,8 +908,6 @@ parent:
     // PrefService message
     sync GetGfxVars() returns (GfxVarUpdate[] vars);
 
-    sync ReadFontList() returns (FontListEntry[] retValue);
-
     sync SyncMessage(nsString aMessage, ClonedMessageData aData)
       returns (StructuredCloneData[] retval);
 
@@ -928,8 +934,6 @@ parent:
     // overhauled to directly process the notification click/close and directly
     // translate that to a ServiceWorker event.
     async NotificationEvent(nsString type, NotificationEventData data);
-
-    async PPSMContentDownloader(uint32_t aCertType);
 
     async PExternalHelperApp(nsIURI uri,
                              LoadInfoArgs? loadInfoArgs,
@@ -963,7 +967,7 @@ parent:
     async SetClipboard(IPCDataTransfer aDataTransfer,
                        bool aIsPrivateData,
                        Principal aRequestingPrincipal,
-                       uint32_t aContentPolicyType,
+                       nsContentPolicyType aContentPolicyType,
                        int32_t aWhichClipboard);
 
     // Given a list of supported types, returns the clipboard data for the

@@ -18,6 +18,8 @@
 #include "mozilla/ipc/PBackgroundSharedTypes.h"
 #include "mozilla/ClearOnShutdown.h"
 #include "mozilla/MozPromise.h"
+#include "mozilla/ScopeExit.h"
+#include "mozilla/Services.h"
 #include "mozilla/SystemGroup.h"
 #include "jsfriendapi.h"
 #include "nsIAsyncShutdown.h"
@@ -607,10 +609,13 @@ class OpenWindowRunnable final : public Runnable {
     // about:blank load in the child to have this principal. That causes us to
     // assert because the child process doesn't know that it's loading this
     // principal.
-    nsCOMPtr<nsIPrincipal> principal =
+    auto principalOrErr =
         PrincipalInfoToPrincipal(mArgs.principalInfo());
-    nsresult rv = targetProcess->TransmitPermissionsForPrincipal(principal);
-    Unused << NS_WARN_IF(NS_FAILED(rv));
+    if (principalOrErr.isOk()) {
+      nsCOMPtr<nsIPrincipal> principal = principalOrErr.unwrap();
+      nsresult rv = targetProcess->TransmitPermissionsForPrincipal(principal);
+      Unused << NS_WARN_IF(NS_FAILED(rv));
+    }
 
     // If this fails the actor will be automatically destroyed which will
     // reject the promise.

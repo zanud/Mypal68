@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "IPCBlobInputStreamThread.h"
+#include "RemoteLazyInputStreamThread.h"
 
 #include "mozilla/StaticMutex.h"
 #include "mozilla/SystemGroup.h"
@@ -13,14 +13,10 @@
 
 namespace mozilla {
 
-using namespace ipc;
-
-namespace dom {
-
 namespace {
 
-StaticMutex gIPCBlobThreadMutex;
-StaticRefPtr<IPCBlobInputStreamThread> gIPCBlobThread;
+StaticMutex gRemoteLazyThreadMutex;
+StaticRefPtr<RemoteLazyInputStreamThread> gRemoteLazyThread;
 bool gShutdownHasStarted = false;
 
 class ThreadInitializeRunnable final : public Runnable {
@@ -29,23 +25,24 @@ class ThreadInitializeRunnable final : public Runnable {
 
   NS_IMETHOD
   Run() override {
-    mozilla::StaticMutexAutoLock lock(gIPCBlobThreadMutex);
-    MOZ_ASSERT(gIPCBlobThread);
-    gIPCBlobThread->InitializeOnMainThread();
+    StaticMutexAutoLock lock(gRemoteLazyThreadMutex);
+    MOZ_ASSERT(gRemoteLazyThread);
+    gRemoteLazyThread->InitializeOnMainThread();
     return NS_OK;
   }
 };
 
 class MigrateActorRunnable final : public Runnable {
  public:
-  explicit MigrateActorRunnable(IPCBlobInputStreamChild* aActor)
+  explicit MigrateActorRunnable(RemoteLazyInputStreamChild* aActor)
       : Runnable("dom::MigrateActorRunnable"), mActor(aActor) {
     MOZ_ASSERT(mActor);
   }
 
   NS_IMETHOD
   Run() override {
-    MOZ_ASSERT(mActor->State() == IPCBlobInputStreamChild::eInactiveMigrating);
+    MOZ_ASSERT(mActor->State() ==
+               RemoteLazyInputStreamChild::eInactiveMigrating);
 
     PBackgroundChild* actorChild =
         BackgroundChild::GetOrCreateForCurrentThread();
@@ -53,8 +50,8 @@ class MigrateActorRunnable final : public Runnable {
       return NS_OK;
     }
 
-    if (actorChild->SendPIPCBlobInputStreamConstructor(mActor, mActor->ID(),
-                                                       mActor->Size())) {
+    if (actorChild->SendPRemoteLazyInputStreamConstructor(mActor, mActor->ID(),
+                                                          mActor->Size())) {
       mActor->Migrated();
     }
 
@@ -64,54 +61,54 @@ class MigrateActorRunnable final : public Runnable {
  private:
   ~MigrateActorRunnable() = default;
 
-  RefPtr<IPCBlobInputStreamChild> mActor;
+  RefPtr<RemoteLazyInputStreamChild> mActor;
 };
 
 }  // namespace
 
-NS_IMPL_ISUPPORTS(IPCBlobInputStreamThread, nsIObserver, nsIEventTarget)
+NS_IMPL_ISUPPORTS(RemoteLazyInputStreamThread, nsIObserver, nsIEventTarget)
 
 /* static */
-bool IPCBlobInputStreamThread::IsOnFileEventTarget(
+bool RemoteLazyInputStreamThread::IsOnFileEventTarget(
     nsIEventTarget* aEventTarget) {
   MOZ_ASSERT(aEventTarget);
 
-  mozilla::StaticMutexAutoLock lock(gIPCBlobThreadMutex);
-  return gIPCBlobThread && aEventTarget == gIPCBlobThread->mThread;
+  StaticMutexAutoLock lock(gRemoteLazyThreadMutex);
+  return gRemoteLazyThread && aEventTarget == gRemoteLazyThread->mThread;
 }
 
 /* static */
-IPCBlobInputStreamThread* IPCBlobInputStreamThread::Get() {
-  mozilla::StaticMutexAutoLock lock(gIPCBlobThreadMutex);
+RemoteLazyInputStreamThread* RemoteLazyInputStreamThread::Get() {
+  StaticMutexAutoLock lock(gRemoteLazyThreadMutex);
 
   if (gShutdownHasStarted) {
     return nullptr;
   }
 
-  return gIPCBlobThread;
+  return gRemoteLazyThread;
 }
 
 /* static */
-IPCBlobInputStreamThread* IPCBlobInputStreamThread::GetOrCreate() {
-  mozilla::StaticMutexAutoLock lock(gIPCBlobThreadMutex);
+RemoteLazyInputStreamThread* RemoteLazyInputStreamThread::GetOrCreate() {
+  StaticMutexAutoLock lock(gRemoteLazyThreadMutex);
 
   if (gShutdownHasStarted) {
     return nullptr;
   }
 
-  if (!gIPCBlobThread) {
-    gIPCBlobThread = new IPCBlobInputStreamThread();
-    if (!gIPCBlobThread->Initialize()) {
+  if (!gRemoteLazyThread) {
+    gRemoteLazyThread = new RemoteLazyInputStreamThread();
+    if (!gRemoteLazyThread->Initialize()) {
       return nullptr;
     }
   }
 
-  return gIPCBlobThread;
+  return gRemoteLazyThread;
 }
 
-bool IPCBlobInputStreamThread::Initialize() {
+bool RemoteLazyInputStreamThread::Initialize() {
   nsCOMPtr<nsIThread> thread;
-  nsresult rv = NS_NewNamedThread("DOM File", getter_AddRefs(thread));
+  nsresult rv = NS_NewNamedThread("RemoteLzyStream", getter_AddRefs(thread));
   if (NS_WARN_IF(NS_FAILED(rv))) {
     return false;
   }
@@ -136,7 +133,7 @@ bool IPCBlobInputStreamThread::Initialize() {
   return true;
 }
 
-void IPCBlobInputStreamThread::InitializeOnMainThread() {
+void RemoteLazyInputStreamThread::InitializeOnMainThread() {
   MOZ_ASSERT(NS_IsMainThread());
 
   nsCOMPtr<nsIObserverService> obs = services::GetObserverService();
@@ -152,11 +149,11 @@ void IPCBlobInputStreamThread::InitializeOnMainThread() {
 }
 
 NS_IMETHODIMP
-IPCBlobInputStreamThread::Observe(nsISupports* aSubject, const char* aTopic,
-                                  const char16_t* aData) {
+RemoteLazyInputStreamThread::Observe(nsISupports* aSubject, const char* aTopic,
+                                     const char16_t* aData) {
   MOZ_ASSERT(!strcmp(aTopic, NS_XPCOM_SHUTDOWN_THREADS_OBSERVER_ID));
 
-  mozilla::StaticMutexAutoLock lock(gIPCBlobThreadMutex);
+  StaticMutexAutoLock lock(gRemoteLazyThreadMutex);
 
   if (mThread) {
     mThread->Shutdown();
@@ -164,15 +161,16 @@ IPCBlobInputStreamThread::Observe(nsISupports* aSubject, const char* aTopic,
   }
 
   gShutdownHasStarted = true;
-  gIPCBlobThread = nullptr;
+  gRemoteLazyThread = nullptr;
 
   return NS_OK;
 }
 
-void IPCBlobInputStreamThread::MigrateActor(IPCBlobInputStreamChild* aActor) {
-  MOZ_ASSERT(aActor->State() == IPCBlobInputStreamChild::eInactiveMigrating);
+void RemoteLazyInputStreamThread::MigrateActor(
+    RemoteLazyInputStreamChild* aActor) {
+  MOZ_ASSERT(aActor->State() == RemoteLazyInputStreamChild::eInactiveMigrating);
 
-  mozilla::StaticMutexAutoLock lock(gIPCBlobThreadMutex);
+  StaticMutexAutoLock lock(gRemoteLazyThreadMutex);
 
   if (gShutdownHasStarted) {
     return;
@@ -187,8 +185,8 @@ void IPCBlobInputStreamThread::MigrateActor(IPCBlobInputStreamChild* aActor) {
   MigrateActorInternal(aActor);
 }
 
-void IPCBlobInputStreamThread::MigrateActorInternal(
-    IPCBlobInputStreamChild* aActor) {
+void RemoteLazyInputStreamThread::MigrateActorInternal(
+    RemoteLazyInputStreamChild* aActor) {
   RefPtr<Runnable> runnable = new MigrateActorRunnable(aActor);
   mThread->Dispatch(runnable, NS_DISPATCH_NORMAL);
 }
@@ -196,21 +194,21 @@ void IPCBlobInputStreamThread::MigrateActorInternal(
 // nsIEventTarget
 
 NS_IMETHODIMP_(bool)
-IPCBlobInputStreamThread::IsOnCurrentThreadInfallible() {
+RemoteLazyInputStreamThread::IsOnCurrentThreadInfallible() {
   return mThread->IsOnCurrentThread();
 }
 
 NS_IMETHODIMP
-IPCBlobInputStreamThread::IsOnCurrentThread(bool* aRetval) {
+RemoteLazyInputStreamThread::IsOnCurrentThread(bool* aRetval) {
   return mThread->IsOnCurrentThread(aRetval);
 }
 
 NS_IMETHODIMP
-IPCBlobInputStreamThread::Dispatch(already_AddRefed<nsIRunnable> aRunnable,
-                                   uint32_t aFlags) {
+RemoteLazyInputStreamThread::Dispatch(already_AddRefed<nsIRunnable> aRunnable,
+                                      uint32_t aFlags) {
   nsCOMPtr<nsIRunnable> runnable(aRunnable);
 
-  mozilla::StaticMutexAutoLock lock(gIPCBlobThreadMutex);
+  StaticMutexAutoLock lock(gRemoteLazyThreadMutex);
 
   if (gShutdownHasStarted) {
     return NS_ERROR_NOT_INITIALIZED;
@@ -220,28 +218,27 @@ IPCBlobInputStreamThread::Dispatch(already_AddRefed<nsIRunnable> aRunnable,
 }
 
 NS_IMETHODIMP
-IPCBlobInputStreamThread::DispatchFromScript(nsIRunnable* aRunnable,
-                                             uint32_t aFlags) {
+RemoteLazyInputStreamThread::DispatchFromScript(nsIRunnable* aRunnable,
+                                                uint32_t aFlags) {
   nsCOMPtr<nsIRunnable> runnable(aRunnable);
   return Dispatch(runnable.forget(), aFlags);
 }
 
 NS_IMETHODIMP
-IPCBlobInputStreamThread::DelayedDispatch(already_AddRefed<nsIRunnable>,
-                                          uint32_t) {
+RemoteLazyInputStreamThread::DelayedDispatch(already_AddRefed<nsIRunnable>,
+                                             uint32_t) {
   return NS_ERROR_NOT_IMPLEMENTED;
 }
 
 bool IsOnDOMFileThread() {
-  mozilla::StaticMutexAutoLock lock(gIPCBlobThreadMutex);
+  StaticMutexAutoLock lock(gRemoteLazyThreadMutex);
 
   MOZ_ASSERT(!gShutdownHasStarted);
-  MOZ_ASSERT(gIPCBlobThread);
+  MOZ_ASSERT(gRemoteLazyThread);
 
-  return gIPCBlobThread->IsOnCurrentThreadInfallible();
+  return gRemoteLazyThread->IsOnCurrentThreadInfallible();
 }
 
 void AssertIsOnDOMFileThread() { MOZ_ASSERT(IsOnDOMFileThread()); }
 
-}  // namespace dom
 }  // namespace mozilla

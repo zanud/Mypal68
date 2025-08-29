@@ -45,7 +45,6 @@
 #include "mozilla/dom/DocGroup.h"
 #include "mozilla/dom/ExternalHelperAppChild.h"
 #include "mozilla/dom/GetFilesHelper.h"
-#include "mozilla/dom/IPCBlobInputStreamChild.h"
 #include "mozilla/dom/IPCBlobUtils.h"
 #include "mozilla/dom/JSWindowActorService.h"
 #include "mozilla/dom/LSObject.h"
@@ -64,6 +63,7 @@
 #include "mozilla/gfx/Logging.h"
 #include "mozilla/gfx/gfxVars.h"
 #include "mozilla/hal_sandbox/PHalChild.h"
+#include "mozilla/intl/L10nRegistry.h"
 #include "mozilla/intl/LocaleService.h"
 #include "mozilla/ipc/BackgroundChild.h"
 #include "mozilla/ipc/FileDescriptorSetChild.h"
@@ -86,7 +86,7 @@
 #include "mozilla/net/NeckoChild.h"
 #include "mozilla/plugins/PluginInstanceParent.h"
 #include "mozilla/plugins/PluginModuleParent.h"
-#include "mozilla/psm/PSMContentListener.h"
+#include "mozilla/RemoteLazyInputStreamChild.h"
 #include "mozilla/widget/ScreenManager.h"
 #include "mozilla/widget/WidgetMessageUtils.h"
 #include "nsBaseDragService.h"
@@ -268,7 +268,6 @@ using namespace mozilla::intl;
 using namespace mozilla::layers;
 using namespace mozilla::layout;
 using namespace mozilla::net;
-using namespace mozilla::psm;
 using namespace mozilla::widget;
 using mozilla::loader::PScriptCacheChild;
 
@@ -1212,9 +1211,13 @@ void ContentChild::InitXPCOM(
 
   RecvSetOffline(aXPCOMInit.isOffline());
   RecvSetConnectivity(aXPCOMInit.isConnected());
+
   LocaleService::GetInstance()->AssignAppLocales(aXPCOMInit.appLocales());
   LocaleService::GetInstance()->AssignRequestedLocales(
       aXPCOMInit.requestedLocales());
+
+  L10nRegistry::RegisterFileSourcesFromParentProcess(
+      aXPCOMInit.l10nFileSources());
 
   RecvSetCaptivePortalState(aXPCOMInit.captivePortalState());
   RecvBidiKeyboardNotify(aXPCOMInit.isLangRTL(),
@@ -1653,7 +1656,8 @@ mozilla::ipc::IPCResult ContentChild::RecvConstructBrowser(
   return IPC_OK();
 }
 
-void ContentChild::GetAvailableDictionaries(nsTArray<nsString>& aDictionaries) {
+void ContentChild::GetAvailableDictionaries(
+    nsTArray<nsCString>& aDictionaries) {
   aDictionaries = mAvailableDictionaries;
 }
 
@@ -1677,11 +1681,11 @@ bool ContentChild::DeallocPFileDescriptorSetChild(
   return true;
 }
 
-already_AddRefed<PIPCBlobInputStreamChild>
-ContentChild::AllocPIPCBlobInputStreamChild(const nsID& aID,
-                                            const uint64_t& aSize) {
-  RefPtr<IPCBlobInputStreamChild> actor =
-      new IPCBlobInputStreamChild(aID, aSize);
+already_AddRefed<PRemoteLazyInputStreamChild>
+ContentChild::AllocPRemoteLazyInputStreamChild(const nsID& aID,
+                                               const uint64_t& aSize) {
+  RefPtr<RemoteLazyInputStreamChild> actor =
+      new RemoteLazyInputStreamChild(aID, aSize);
   return actor.forget();
 }
 
@@ -1863,20 +1867,6 @@ PParentToChildStreamChild* ContentChild::AllocPParentToChildStreamChild() {
 bool ContentChild::DeallocPParentToChildStreamChild(
     PParentToChildStreamChild* aActor) {
   delete aActor;
-  return true;
-}
-
-PPSMContentDownloaderChild* ContentChild::AllocPPSMContentDownloaderChild(
-    const uint32_t& aCertType) {
-  // NB: We don't need aCertType in the child actor.
-  RefPtr<PSMContentDownloaderChild> child = new PSMContentDownloaderChild();
-  return child.forget().take();
-}
-
-bool ContentChild::DeallocPPSMContentDownloaderChild(
-    PPSMContentDownloaderChild* aListener) {
-  auto* listener = static_cast<PSMContentDownloaderChild*>(aListener);
-  RefPtr<PSMContentDownloaderChild> child = dont_AddRef(listener);
   return true;
 }
 
@@ -2201,6 +2191,12 @@ mozilla::ipc::IPCResult ContentChild::RecvRegisterStringBundles(
   return IPC_OK();
 }
 
+mozilla::ipc::IPCResult ContentChild::RecvUpdateL10nFileSources(
+    nsTArray<mozilla::dom::L10nFileSourceDescriptor>&& aDescriptors) {
+  L10nRegistry::RegisterFileSourcesFromParentProcess(aDescriptors);
+  return IPC_OK();
+}
+
 mozilla::ipc::IPCResult ContentChild::RecvUpdateSharedData(
     const FileDescriptor& aMapFile, const uint32_t& aMapSize,
     nsTArray<IPCBlob>&& aBlobs, nsTArray<nsCString>&& aChangedKeys) {
@@ -2250,7 +2246,7 @@ mozilla::ipc::IPCResult ContentChild::RecvGeolocationError(
 }
 
 mozilla::ipc::IPCResult ContentChild::RecvUpdateDictionaryList(
-    nsTArray<nsString>&& aDictionaries) {
+    nsTArray<nsCString>&& aDictionaries) {
   mAvailableDictionaries = aDictionaries;
   mozInlineSpellChecker::UpdateCanEnableInlineSpellChecking();
   return IPC_OK();
@@ -3354,7 +3350,7 @@ already_AddRefed<nsIEventTarget> ContentChild::GetSpecificMessageEventTarget(
     case PContent::Msg_BlobURLRegistration__ID:
     case PContent::Msg_BlobURLUnregistration__ID:
     case PContent::Msg_InitBlobURLs__ID:
-    case PContent::Msg_PIPCBlobInputStreamConstructor__ID:
+    case PContent::Msg_PRemoteLazyInputStreamConstructor__ID:
     case PContent::Msg_StoreAndBroadcastBlobURLRegistration__ID:
 
       return do_AddRef(SystemGroup::EventTargetFor(TaskCategory::Other));

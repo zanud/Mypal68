@@ -18,8 +18,8 @@ void ServiceWorkerChild::ActorDestroy(ActorDestroyReason aReason) {
 }
 
 // static
-ServiceWorkerChild* ServiceWorkerChild::Create() {
-  ServiceWorkerChild* actor = new ServiceWorkerChild();
+RefPtr<ServiceWorkerChild> ServiceWorkerChild::Create() {
+  RefPtr<ServiceWorkerChild> actor = new ServiceWorkerChild();
 
   if (!NS_IsMainThread()) {
     WorkerPrivate* workerPrivate = GetCurrentThreadWorkerPrivate();
@@ -33,7 +33,6 @@ ServiceWorkerChild* ServiceWorkerChild::Create() {
         [helper] { helper->Actor()->MaybeStartTeardown(); });
 
     if (NS_WARN_IF(!actor->mIPCWorkerRef)) {
-      delete actor;
       return nullptr;
     }
   }

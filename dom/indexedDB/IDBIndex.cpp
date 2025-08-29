@@ -54,7 +54,6 @@ IDBIndex::~IDBIndex() {
   AssertIsOnOwningThread();
 
   if (mRooted) {
-    mCachedKeyPath.setUndefined();
     mozilla::DropJSObjects(this);
   }
 }

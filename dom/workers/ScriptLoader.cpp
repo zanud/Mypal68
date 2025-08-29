@@ -15,6 +15,7 @@
 #include "nsIInputStreamPump.h"
 #include "nsIIOService.h"
 #include "nsIOService.h"
+#include "nsIPrincipal.h"
 #include "nsIProtocolHandler.h"
 #include "nsIScriptError.h"
 #include "nsIScriptSecurityManager.h"
@@ -1274,9 +1275,8 @@ class ScriptLoaderRunnable final : public nsIRunnable, public nsINamed {
     AssertIsOnMainThread();
     MOZ_ASSERT(aLoadInfo.mCacheStatus == ScriptLoadInfo::Cached);
 
-    nsCOMPtr<nsIPrincipal> responsePrincipal =
-        PrincipalInfoToPrincipal(*aPrincipalInfo);
-    MOZ_DIAGNOSTIC_ASSERT(responsePrincipal);
+    auto responsePrincipalOrErr = PrincipalInfoToPrincipal(*aPrincipalInfo);
+    MOZ_DIAGNOSTIC_ASSERT(responsePrincipalOrErr.isOk());
 
     nsIPrincipal* principal = mWorkerPrivate->GetPrincipal();
     if (!principal) {
@@ -1284,6 +1284,8 @@ class ScriptLoaderRunnable final : public nsIRunnable, public nsINamed {
       MOZ_ASSERT(parentWorker, "Must have a parent!");
       principal = parentWorker->GetPrincipal();
     }
+
+    nsCOMPtr<nsIPrincipal> responsePrincipal = responsePrincipalOrErr.unwrap();
 
     aLoadInfo.mMutedErrorFlag.emplace(!principal->Subsumes(responsePrincipal));
 
@@ -1782,7 +1784,7 @@ void CacheScriptLoader::ResolvedCallback(JSContext* aCx,
     return;
   }
 
-  rv = mPump->AsyncRead(loader, nullptr);
+  rv = mPump->AsyncRead(loader);
   if (NS_WARN_IF(NS_FAILED(rv))) {
     mPump = nullptr;
     Fail(rv);

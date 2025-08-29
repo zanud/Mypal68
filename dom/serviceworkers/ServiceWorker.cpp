@@ -208,6 +208,19 @@ void ServiceWorker::PostMessage(JSContext* aCx, JS::Handle<JS::Value> aMessage,
     return;
   }
 
+  // The value of CloneScope() is set while StructuredCloneData::Write(). If the
+  // aValue contiains a shared memory object, then the scope will be restricted
+  // and thus return SameProcess. If not, it will return DifferentProcess.
+  //
+  // When we postMessage a shared memory object from a window to a service
+  // worker, the object must be sent from a cross-origin isolated process to
+  // another one. So, we mark mark this data as an error message data if the
+  // scope is limited to same process.
+  if (data->CloneScope() ==
+      StructuredCloneHolder::StructuredCloneScope::SameProcess) {
+    data->SetAsErrorMessageData();
+  }
+
   mInner->PostMessage(std::move(data), clientInfo.ref(), clientState.ref());
 }
 

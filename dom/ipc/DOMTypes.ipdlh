@@ -10,8 +10,7 @@ include IPCBlob;
 include IPCStream;
 include ProtocolTypes;
 
-using struct mozilla::void_t
-  from "ipc/IPCMessageUtils.h";
+using struct mozilla::void_t from "mozilla/ipc/IPCCore.h";
 
 using moveonly struct mozilla::SerializedStructuredCloneBuffer
   from "ipc/IPCMessageUtils.h";
@@ -56,6 +55,14 @@ struct ClonedMessageData
   IPCBlob[] blobs;
   IPCStream[] inputStreams;
   MessagePortIdentifier[] identifiers;
+};
+
+struct ErrorMessageData {
+};
+
+union ClonedOrErrorMessageData {
+  ClonedMessageData;
+  ErrorMessageData;
 };
 
 struct RefMessageData {
@@ -246,6 +253,8 @@ struct DocShellLoadStateInit
   // nsIInputStream PostDataStream; // will be used after IPC transaction
   // nsIInputStream HeadersStream; // will be used after IPC transaction
   // nsIChannel pendingRedirectedChannel; // sent through other mechanism
+
+  bool IsMetaRefresh;
 };
 
 // Struct with information to show a frame from the parent process.

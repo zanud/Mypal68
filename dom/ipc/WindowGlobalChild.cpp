@@ -288,6 +288,15 @@ void WindowGlobalChild::ReceiveRawMessage(const JSWindowActorMessageMeta& aMeta,
 }
 
 nsIURI* WindowGlobalChild::GetDocumentURI() {
+#ifdef MOZ_GECKO_PROFILER
+  // Registers a DOM Window with the profiler. It re-registers the same Inner
+  // Window ID with different URIs because when a Browsing context is first
+  // loaded, the first url loaded in it will be about:blank. This call keeps the
+  // first non-about:blank registration of window and discards the previous one.
+  profiler_register_page(mBrowsingContext->Id(), mInnerWindowId,
+                         mWindowGlobal->GetDocumentURI()->GetSpecOrDefault(),
+                         mBrowsingContext->GetParent() != nullptr);
+#endif
   return mWindowGlobal->GetDocumentURI();
 }
 
@@ -334,6 +343,10 @@ already_AddRefed<JSWindowActorChild> WindowGlobalChild::GetActor(
 void WindowGlobalChild::ActorDestroy(ActorDestroyReason aWhy) {
   mIPCClosed = true;
   gWindowGlobalChildById->Remove(mInnerWindowId);
+
+#ifdef MOZ_GECKO_PROFILER
+  profiler_unregister_page(mInnerWindowId);
+#endif
 
   // Destroy our JSWindowActors, and reject any pending queries.
   nsRefPtrHashtable<nsStringHashKey, JSWindowActorChild> windowActors;

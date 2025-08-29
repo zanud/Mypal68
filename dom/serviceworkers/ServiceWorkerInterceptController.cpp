@@ -6,9 +6,11 @@
 
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/StorageAccess.h"
+#include "nsCOMPtr.h"
 #include "nsContentUtils.h"
 #include "nsIChannel.h"
 #include "ServiceWorkerManager.h"
+#include "nsIPrincipal.h"
 
 namespace mozilla {
 namespace dom {
@@ -47,9 +49,10 @@ ServiceWorkerInterceptController::ShouldPrepareForIntercept(
       // Get ServiceWorkerRegistrationInfo by the ServiceWorkerInfo's principal
       // and scope
       if (!*aShouldIntercept && swm) {
+        nsCOMPtr<nsIPrincipal> principal =
+            controller.ref().GetPrincipal().unwrap();
         RefPtr<ServiceWorkerRegistrationInfo> registration =
-            swm->GetRegistration(controller.ref().GetPrincipal().get(),
-                                 controller.ref().Scope());
+            swm->GetRegistration(principal, controller.ref().Scope());
         MOZ_ASSERT(registration);
         registration->MaybeScheduleTimeCheckAndUpdate();
       }

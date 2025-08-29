@@ -5,6 +5,8 @@
 #include "mozilla/dom/PermissionMessageUtils.h"
 #include "mozilla/ipc/BackgroundUtils.h"
 #include "mozilla/ipc/PBackgroundSharedTypes.h"
+#include "nsCOMPtr.h"
+#include "nsIPrincipal.h"
 
 namespace mozilla {
 namespace ipc {
@@ -33,9 +35,19 @@ bool IPDLParamTraits<nsIPrincipal*>::Read(const IPC::Message* aMsg,
     return false;
   }
 
-  nsresult rv = NS_OK;
-  *aResult = info ? PrincipalInfoToPrincipal(info.ref(), &rv) : nullptr;
-  return NS_SUCCEEDED(rv);
+  if (info.isNothing()) {
+    return true;
+  }
+
+  auto principalOrErr = PrincipalInfoToPrincipal(info.ref());
+
+  if (NS_WARN_IF(principalOrErr.isErr())) {
+    return false;
+  }
+
+  nsCOMPtr<nsIPrincipal> principal = principalOrErr.unwrap();
+  *aResult = principal;
+  return true;
 }
 
 }  // namespace ipc

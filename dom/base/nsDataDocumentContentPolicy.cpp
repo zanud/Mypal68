@@ -48,12 +48,8 @@ nsDataDocumentContentPolicy::ShouldLoad(nsIURI* aContentLocation,
     }
   });
 
-  uint32_t contentType = aLoadInfo->GetExternalContentPolicyType();
+  ExtContentPolicyType contentType = aLoadInfo->GetExternalContentPolicyType();
   nsCOMPtr<nsISupports> requestingContext = aLoadInfo->GetLoadingContext();
-
-  MOZ_ASSERT(contentType == nsContentUtils::InternalContentPolicyTypeToExternal(
-                                contentType),
-             "We should only see external content policy types here.");
 
   *aDecision = nsIContentPolicy::ACCEPT;
   // Look for the document.  In most cases, requestingContext is a node.
@@ -69,7 +65,7 @@ nsDataDocumentContentPolicy::ShouldLoad(nsIURI* aContentLocation,
   }
 
   // DTDs are always OK to load
-  if (!doc || contentType == nsIContentPolicy::TYPE_DTD) {
+  if (!doc || contentType == ExtContentPolicy::TYPE_DTD) {
     return NS_OK;
   }
 
@@ -77,7 +73,7 @@ nsDataDocumentContentPolicy::ShouldLoad(nsIURI* aContentLocation,
   if (doc->IsLoadedAsData()) {
     // ...but let static (print/print preview) documents to load fonts.
     if (!doc->IsStaticDocument() ||
-        contentType != nsIContentPolicy::TYPE_FONT) {
+        contentType != ExtContentPolicy::TYPE_FONT) {
       *aDecision = nsIContentPolicy::REJECT_TYPE;
       return NS_OK;
     }
@@ -115,8 +111,8 @@ nsDataDocumentContentPolicy::ShouldLoad(nsIURI* aContentLocation,
                   0);
         }
       }
-    } else if ((contentType == nsIContentPolicy::TYPE_IMAGE ||
-                contentType == nsIContentPolicy::TYPE_IMAGESET) &&
+    } else if ((contentType == ExtContentPolicy::TYPE_IMAGE ||
+                contentType == ExtContentPolicy::TYPE_IMAGESET) &&
                doc->GetDocumentURI()) {
       // Check for (& disallow) recursive image-loads
       bool isRecursiveLoad;
@@ -136,13 +132,13 @@ nsDataDocumentContentPolicy::ShouldLoad(nsIURI* aContentLocation,
   }
 
   // For resource documents, blacklist some load types
-  if (contentType == nsIContentPolicy::TYPE_OBJECT ||
-      contentType == nsIContentPolicy::TYPE_DOCUMENT ||
-      contentType == nsIContentPolicy::TYPE_SUBDOCUMENT ||
-      contentType == nsIContentPolicy::TYPE_SCRIPT ||
-      contentType == nsIContentPolicy::TYPE_XSLT ||
-      contentType == nsIContentPolicy::TYPE_FETCH ||
-      contentType == nsIContentPolicy::TYPE_WEB_MANIFEST) {
+  if (contentType == ExtContentPolicy::TYPE_OBJECT ||
+      contentType == ExtContentPolicy::TYPE_DOCUMENT ||
+      contentType == ExtContentPolicy::TYPE_SUBDOCUMENT ||
+      contentType == ExtContentPolicy::TYPE_SCRIPT ||
+      contentType == ExtContentPolicy::TYPE_XSLT ||
+      contentType == ExtContentPolicy::TYPE_FETCH ||
+      contentType == ExtContentPolicy::TYPE_WEB_MANIFEST) {
     *aDecision = nsIContentPolicy::REJECT_TYPE;
   }
 

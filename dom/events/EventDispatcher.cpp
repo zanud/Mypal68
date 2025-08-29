@@ -38,6 +38,7 @@
 #include "mozilla/dom/MutationEvent.h"
 #include "mozilla/dom/NotifyPaintEvent.h"
 #include "mozilla/dom/PageTransitionEvent.h"
+#include "mozilla/dom/PerformanceEventTiming.h"
 #include "mozilla/dom/PointerEvent.h"
 #include "mozilla/dom/RootedDictionary.h"
 #include "mozilla/dom/ScrollAreaEvent.h"
@@ -66,10 +67,6 @@
 #  include "mozilla/dom/Element.h"
 #  include "mozilla/Likely.h"
 using namespace mozilla::tasktracer;
-#endif
-
-#ifdef MOZ_GECKO_PROFILER
-#  include "ProfilerMarkerPayload.h"
 #endif
 
 namespace mozilla {
@@ -758,6 +755,14 @@ nsresult EventDispatcher::Dispatch(nsISupports* aTarget,
 
   nsCOMPtr<EventTarget> target = do_QueryInterface(aTarget);
 
+  RefPtr<PerformanceEventTiming> eventTimingEntry;
+  // Similar to PerformancePaintTiming, we don't need to
+  // expose them for printing documents
+  if (aPresContext && !aPresContext->IsPrintingOrPrintPreview()) {
+    eventTimingEntry =
+        PerformanceEventTiming::TryGenerateEventTiming(target, aEvent);
+  }
+
   bool retargeted = false;
 
   if (aEvent->mFlags.mRetargetToNonNativeAnonymous) {
@@ -891,7 +896,10 @@ nsresult EventDispatcher::Dispatch(nsISupports* aTarget,
 
   // Create visitor object and start event dispatching.
   // GetEventTargetParent for the original target.
-  nsEventStatus status = aEventStatus ? *aEventStatus : nsEventStatus_eIgnore;
+  nsEventStatus status =
+      aDOMEvent && aDOMEvent->DefaultPrevented()
+          ? nsEventStatus_eConsumeNoDefault
+          : aEventStatus ? *aEventStatus : nsEventStatus_eIgnore;
   nsCOMPtr<EventTarget> targetForPreVisitor = aEvent->mTarget;
   EventChainPreVisitor preVisitor(aPresContext, aEvent, aDOMEvent, status,
                                   isInAnon, targetForPreVisitor);
@@ -1025,19 +1033,61 @@ nsresult EventDispatcher::Dispatch(nsISupports* aTarget,
 
           nsCOMPtr<nsIDocShell> docShell;
           docShell = nsContentUtils::GetDocShellForEventTarget(aEvent->mTarget);
-          DECLARE_DOCSHELL_AND_HISTORY_ID(docShell);
-          PROFILER_ADD_MARKER_WITH_PAYLOAD(
-              "DOMEvent", DOM, DOMEventMarkerPayload,
-              (typeStr, aEvent->mTimeStamp, "DOMEvent", TRACING_INTERVAL_START,
-               docShellId, docShellHistoryId));
+          MarkerInnerWindowId innerWindowId;
+          if (nsCOMPtr<nsPIDOMWindowInner> inner =
+                  do_QueryInterface(aEvent->mTarget->GetOwnerGlobal())) {
+            innerWindowId = MarkerInnerWindowId{inner->WindowID()};
+          }
+
+          struct DOMEventMarker {
+            static constexpr Span<const char> MarkerTypeName() {
+              // Note: DOMEventMarkerPayload was originally a sub-class of
+              // TracingMarkerPayload, so it uses the same payload type.
+              // TODO: Change to its own distinct type, but this will require
+              // front-end changes.
+              return MakeStringSpan("DOMEvent");
+            }
+            static void StreamJSONMarkerData(
+                JSONWriter& aWriter, const ProfilerString16View& aEventType,
+                const TimeStamp& aStartTime, const TimeStamp& aEventTimeStamp) {
+              aWriter.StringProperty(
+                  "eventType", NS_ConvertUTF16toUTF8(aEventType.Data(),
+                                                     aEventType.Length()));
+              // This is the event processing latency, which is the time from
+              // when the event was created, to when it was started to be
+              // processed. Note that the computation of this latency is
+              // deferred until serialization time, at the expense of some extra
+              // memory.
+              aWriter.DoubleProperty(
+                  "latency", (aStartTime - aEventTimeStamp).ToMilliseconds());
+            }
+            static MarkerSchema MarkerTypeDisplay() {
+              using MS = MarkerSchema;
+              MS schema{MS::Location::markerChart, MS::Location::markerTable,
+                        MS::Location::timelineOverview};
+              schema.SetChartLabel("{marker.data.eventType}");
+              schema.SetTooltipLabel("{marker.data.eventType} - DOMEvent");
+              schema.SetTableLabel("{marker.data.eventType}");
+              schema.AddKeyLabelFormat("latency", "Latency",
+                                       MS::Format::duration);
+              return schema;
+            }
+          };
+
+          auto startTime = TimeStamp::NowUnfuzzed();
+          profiler_add_marker("DOMEvent", geckoprofiler::category::DOM,
+                              {MarkerTiming::IntervalStart(),
+                               MarkerInnerWindowId(innerWindowId)},
+                              DOMEventMarker{}, typeStr, startTime,
+                              aEvent->mTimeStamp);
 
           EventTargetChainItem::HandleEventTargetChain(chain, postVisitor,
                                                        aCallback, cd);
 
-          PROFILER_ADD_MARKER_WITH_PAYLOAD(
-              "DOMEvent", DOM, DOMEventMarkerPayload,
-              (typeStr, aEvent->mTimeStamp, "DOMEvent", TRACING_INTERVAL_END,
-               docShellId, docShellHistoryId));
+          profiler_add_marker(
+              "DOMEvent", geckoprofiler::category::DOM,
+              {MarkerTiming::IntervalEnd(), std::move(innerWindowId)},
+              DOMEventMarker{}, typeStr, startTime, aEvent->mTimeStamp);
         } else
 #endif
         {
@@ -1077,6 +1127,9 @@ nsresult EventDispatcher::Dispatch(nsISupports* aTarget,
   aEvent->mFlags.mIsBeingDispatched = false;
   aEvent->mFlags.mDispatchedAtLeastOnce = true;
 
+  if (eventTimingEntry) {
+    eventTimingEntry->FinalizeEventTiming(aEvent->mTarget);
+  }
   // https://dom.spec.whatwg.org/#concept-event-dispatch
   // step 10. If clearTargets, then:
   //          1. Set event's target to null.
@@ -1091,7 +1144,7 @@ nsresult EventDispatcher::Dispatch(nsISupports* aTarget,
   }
 
   if (!externalDOMEvent && preVisitor.mDOMEvent) {
-    // An dom::Event was created while dispatching the event.
+    // A dom::Event was created while dispatching the event.
     // Duplicate private data if someone holds a pointer to it.
     nsrefcnt rc = 0;
     NS_RELEASE2(preVisitor.mDOMEvent, rc);
@@ -1226,14 +1279,10 @@ nsresult EventDispatcher::DispatchDOMEvent(nsISupports* aTarget,
       aEventType.LowerCaseEqualsLiteral("mouseevents")) {
     return NS_NewDOMMouseEvent(aOwner, aPresContext, nullptr);
   }
-  if (aEventType.LowerCaseEqualsLiteral("mousescrollevents")) {
-    return NS_NewDOMMouseScrollEvent(aOwner, aPresContext, nullptr);
-  }
   if (aEventType.LowerCaseEqualsLiteral("dragevent")) {
     return NS_NewDOMDragEvent(aOwner, aPresContext, nullptr);
   }
-  if (aEventType.LowerCaseEqualsLiteral("keyboardevent") ||
-      aEventType.LowerCaseEqualsLiteral("keyevents")) {
+  if (aEventType.LowerCaseEqualsLiteral("keyboardevent")) {
     return NS_NewDOMKeyboardEvent(aOwner, aPresContext, nullptr);
   }
   if (aEventType.LowerCaseEqualsLiteral("compositionevent") ||
@@ -1264,18 +1313,12 @@ nsresult EventDispatcher::DispatchDOMEvent(nsISupports* aTarget,
       aEventType.LowerCaseEqualsLiteral("svgevents")) {
     return NS_NewDOMEvent(aOwner, aPresContext, nullptr);
   }
-  if (aEventType.LowerCaseEqualsLiteral("timeevent")) {
-    return NS_NewDOMTimeEvent(aOwner, aPresContext, nullptr);
-  }
   if (aEventType.LowerCaseEqualsLiteral("messageevent")) {
     RefPtr<Event> event = new MessageEvent(aOwner, aPresContext, nullptr);
     return event.forget();
   }
   if (aEventType.LowerCaseEqualsLiteral("beforeunloadevent")) {
     return NS_NewDOMBeforeUnloadEvent(aOwner, aPresContext, nullptr);
-  }
-  if (aEventType.LowerCaseEqualsLiteral("scrollareaevent")) {
-    return NS_NewDOMScrollAreaEvent(aOwner, aPresContext, nullptr);
   }
   if (aEventType.LowerCaseEqualsLiteral("touchevent") &&
       TouchEvent::LegacyAPIEnabled(

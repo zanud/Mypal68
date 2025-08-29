@@ -7,8 +7,6 @@
 
 #include <type_traits>
 
-#include "mozilla/TypeTraits.h"
-
 namespace mozilla {
 
 // Templated struct carrying compile-time information about C++ types that may
@@ -32,7 +30,7 @@ struct DDLoggedTypeTraits;
   struct DDLoggedTypeTraits<TYPE> {                       \
     using Type = TYPE;                                    \
     static constexpr const char* Name() { return #TYPE; } \
-    using HasBase = TrueType;                             \
+    using HasBase = std::true_type;                       \
     using BaseType = BASE;                                \
     static constexpr const char* BaseTypeName() {         \
       return DDLoggedTypeTraits<BASE>::Name();            \
@@ -54,7 +52,7 @@ struct DDLoggedTypeTraits;
   struct DDLoggedTypeTraits<TYPE> {                       \
     using Type = TYPE;                                    \
     static constexpr const char* Name() { return #NAME; } \
-    using HasBase = TrueType;                             \
+    using HasBase = std::true_type;                       \
     using BaseType = BASE;                                \
     static constexpr const char* BaseTypeName() {         \
       return DDLoggedTypeTraits<BASE>::Name();            \

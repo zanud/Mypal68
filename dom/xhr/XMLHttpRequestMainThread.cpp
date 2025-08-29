@@ -244,8 +244,6 @@ XMLHttpRequestMainThread::~XMLHttpRequestMainThread() {
   MOZ_ASSERT(!mFlagSyncLooping, "we rather crash than hang");
   mFlagSyncLooping = false;
 
-  mResultJSON.setUndefined();
-  mResultArrayBuffer = nullptr;
   mozilla::DropJSObjects(this);
 }
 

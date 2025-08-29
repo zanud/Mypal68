@@ -138,6 +138,7 @@ class nsWindowSizes {
   MACRO(DOM, mDOMCommentNodesSize)                           \
   MACRO(DOM, mDOMEventTargetsSize)                           \
   MACRO(DOM, mDOMMediaQueryLists)                            \
+  MACRO(DOM, mDOMPerformanceEventEntries)                    \
   MACRO(DOM, mDOMPerformanceUserEntries)                     \
   MACRO(DOM, mDOMPerformanceResourceEntries)                 \
   MACRO(DOM, mDOMResizeObserverControllerSize)               \

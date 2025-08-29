@@ -2,11 +2,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef mozilla_dom_IPCBlobInputStream_h
-#define mozilla_dom_IPCBlobInputStream_h
+#ifndef mozilla_RemoteLazyInputStream_h
+#define mozilla_RemoteLazyInputStream_h
 
 #include "mozilla/Mutex.h"
-#include "mozIIPCBlobInputStream.h"
+#include "mozIRemoteLazyInputStream.h"
 #include "nsIAsyncInputStream.h"
 #include "nsICloneableInputStream.h"
 #include "nsIFileStreams.h"
@@ -15,25 +15,17 @@
 #include "nsCOMPtr.h"
 
 namespace mozilla {
-namespace dom {
 
-class IPCBlobInputStreamChild;
+class RemoteLazyInputStreamChild;
 
-#define IPCBLOBINPUTSTREAM_IID                       \
-  {                                                  \
-    0xbcfa38fc, 0x8b7f, 0x4d79, {                    \
-      0xbe, 0x3a, 0x1e, 0x7b, 0xbe, 0x52, 0x38, 0xcd \
-    }                                                \
-  }
-
-class IPCBlobInputStream final : public nsIAsyncInputStream,
-                                 public nsIInputStreamCallback,
-                                 public nsICloneableInputStreamWithRange,
-                                 public nsIIPCSerializableInputStream,
-                                 public nsIAsyncFileMetadata,
-                                 public nsIInputStreamLength,
-                                 public nsIAsyncInputStreamLength,
-                                 public mozIIPCBlobInputStream {
+class RemoteLazyInputStream final : public nsIAsyncInputStream,
+                                    public nsIInputStreamCallback,
+                                    public nsICloneableInputStreamWithRange,
+                                    public nsIIPCSerializableInputStream,
+                                    public nsIAsyncFileMetadata,
+                                    public nsIInputStreamLength,
+                                    public nsIAsyncInputStreamLength,
+                                    public mozIRemoteLazyInputStream {
  public:
   NS_DECL_THREADSAFE_ISUPPORTS
   NS_DECL_NSIINPUTSTREAM
@@ -47,7 +39,7 @@ class IPCBlobInputStream final : public nsIAsyncInputStream,
   NS_DECL_NSIINPUTSTREAMLENGTH
   NS_DECL_NSIASYNCINPUTSTREAMLENGTH
 
-  explicit IPCBlobInputStream(IPCBlobInputStreamChild* aActor);
+  explicit RemoteLazyInputStream(RemoteLazyInputStreamChild* aActor);
 
   void StreamReady(already_AddRefed<nsIInputStream> aInputStream);
 
@@ -55,7 +47,7 @@ class IPCBlobInputStream final : public nsIAsyncInputStream,
 
   void SerializeInternal(mozilla::ipc::InputStreamParams& aParams);
 
-  // mozIIPCBlobInputStream
+  // mozIRemoteLazyInputStream
   NS_IMETHOD_(nsIInputStream*) GetInternalStream() override {
     if (mRemoteStream) {
       return mRemoteStream;
@@ -69,14 +61,14 @@ class IPCBlobInputStream final : public nsIAsyncInputStream,
   }
 
  private:
-  ~IPCBlobInputStream();
+  ~RemoteLazyInputStream();
 
   nsresult EnsureAsyncRemoteStream(const MutexAutoLock& aProofOfLock);
 
   void InitWithExistingRange(uint64_t aStart, uint64_t aLength,
                              const MutexAutoLock& aProofOfLock);
 
-  RefPtr<IPCBlobInputStreamChild> mActor;
+  RefPtr<RemoteLazyInputStreamChild> mActor;
 
   // This is the list of possible states.
   enum {
@@ -126,7 +118,6 @@ class IPCBlobInputStream final : public nsIAsyncInputStream,
   Mutex mMutex;
 };
 
-}  // namespace dom
 }  // namespace mozilla
 
-#endif  // mozilla_dom_IPCBlobInputStream_h
+#endif  // mozilla_RemoteLazyInputStream_h
