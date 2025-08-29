@@ -119,7 +119,7 @@ class GeckoProfilerRuntime {
   MainThreadData<ProfileStringMap> strings_;
   bool slowAssertions;
   uint32_t enabled_;
-  void (*eventMarker_)(const char*);
+  void (*eventMarker_)(const char*, const char*);
 
  public:
   explicit GeckoProfilerRuntime(JSRuntime* rt);
@@ -130,14 +130,14 @@ class GeckoProfilerRuntime {
   void enableSlowAssertions(bool enabled) { slowAssertions = enabled; }
   bool slowAssertionsEnabled() { return slowAssertions; }
 
-  void setEventMarker(void (*fn)(const char*));
+  void setEventMarker(void (*fn)(const char*, const char*));
 
   static JS::UniqueChars allocProfileString(JSContext* cx, BaseScript* script);
   const char* profileString(JSContext* cx, BaseScript* script);
 
   void onScriptFinalized(BaseScript* script);
 
-  void markEvent(const char* event);
+  void markEvent(const char* event, const char* details);
 
   ProfileStringMap& strings() { return strings_.ref(); }
 

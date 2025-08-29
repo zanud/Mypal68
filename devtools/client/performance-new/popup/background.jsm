@@ -17,6 +17,13 @@ const { AppConstants } = ChromeUtils.import(
 );
 const { loader } = ChromeUtils.import("resource://devtools/shared/Loader.jsm");
 
+const ENTRIES_PREF = "devtools.performance.recording.entries";
+const INTERVAL_PREF = "devtools.performance.recording.interval";
+const FEATURES_PREF = "devtools.performance.recording.features";
+const THREADS_PREF = "devtools.performance.recording.threads";
+const OBJDIRS_PREF = "devtools.performance.recording.objdirs";
+const DURATION_PREF = "devtools.performance.recording.duration";
+
 // The following utilities are lazily loaded as they are not needed when controlling the
 // global state of the profiler, and only are used during specific funcationality like
 // symbolication or capturing a profile.
@@ -33,56 +40,25 @@ loader.lazyRequireGetter(
   true
 );
 
-// This pref contains the JSON serialization of the popup's profiler state with
-// a string key based off of the debug name and breakpad id.
-const PROFILER_STATE_PREF = "devtools.performance.popup";
-const DEFAULT_WINDOW_LENGTH = 20; // 20sec
-const DEFAULT_INTERVAL = 1; // 1ms
-const DEFAULT_BUFFER_SIZE = 10000000; // 90MB
-const DEFAULT_THREADS = "GeckoMain,Compositor";
-const DEFAULT_STACKWALK_FEATURE = true;
+const lazyPreferenceManagement = requireLazy(() => {
+  const { require } = ChromeUtils.import(
+    "resource://devtools/shared/Loader.jsm"
+  );
 
-// This Map caches the symbols from the shared libraries.
+  const preferenceManagementModule = require("devtools/client/performance-new/preference-management");
+  return preferenceManagementModule;
+});
+
 const symbolCache = new Map();
-
-const primeSymbolStore = libs => {
-  for (const { path, debugName, debugPath, breakpadId } of libs) {
-    symbolCache.set(`${debugName}/${breakpadId}`, { path, debugPath });
-  }
-};
-
-const state = initializeState();
-
-const forTestsOnly = {
-  DEFAULT_BUFFER_SIZE,
-  DEFAULT_STACKWALK_FEATURE,
-  initializeState,
-  adjustState,
-  getState() {
-    return state;
-  },
-  revertPrefs() {
-    Services.prefs.clearUserPref(PROFILER_STATE_PREF);
-  },
-};
-
-function adjustState(newState) {
-  // Deep clone the object, since this can be called through popup.xhtml,
-  // which can be unloaded thus leaving this object dead.
-  newState = JSON.parse(JSON.stringify(newState));
-  Object.assign(state, newState);
-
-  try {
-    Services.prefs.setStringPref(PROFILER_STATE_PREF, JSON.stringify(state));
-  } catch (error) {
-    console.error("Unable to save the profiler state for the popup.");
-    throw error;
-  }
-}
-
 async function getSymbolsFromThisBrowser(debugName, breakpadId) {
   if (symbolCache.size === 0) {
-    primeSymbolStore(Services.profiler.sharedLibraries);
+    // Prime the symbols cache.
+    for (const lib of Services.profiler.sharedLibraries) {
+      symbolCache.set(`${lib.debugName}/${lib.breakpadId}`, {
+        path: lib.path,
+        debugPath: lib.debugPath,
+      });
+    }
   }
 
   const cachedLibInfo = symbolCache.get(`${debugName}/${breakpadId}`);
@@ -110,13 +86,17 @@ async function getSymbolsFromThisBrowser(debugName, breakpadId) {
 }
 
 async function captureProfile() {
-  if (!state.isRunning) {
+  if (!Services.profiler.IsActive()) {
     // The profiler is not active, ignore this shortcut.
     return;
   }
+  if (Services.profiler.IsPaused()) {
+    return;
+  }
+
   // Pause profiler before we collect the profile, so that we don't capture
   // more samples while the parent process waits for subprocess profiles.
-  Services.profiler.PauseSampling();
+  Services.profiler.Pause();
 
   const profile = await Services.profiler
     .getProfileDataAsGzippedArrayBuffer()
@@ -130,33 +110,22 @@ async function captureProfile() {
   Services.profiler.StopProfiler();
 }
 
-/**
- * Not all features are supported on every version of Firefox. Get the list of checked
- * features, add a few defaults, and filter for what is actually supported.
- */
-function getEnabledFeatures(features, threads) {
-  const enabledFeatures = Object.keys(features).filter(f => features[f]);
-  if (threads.length > 0) {
-    enabledFeatures.push("threads");
-  }
-  const supportedFeatures = Services.profiler.GetFeatures([]);
-  return enabledFeatures.filter(feature => supportedFeatures.includes(feature));
-}
-
 function startProfiler() {
-  const threads = state.threads.split(",");
-  const features = getEnabledFeatures(state.features, threads);
-  const windowLength =
-    state.windowLength !== state.infiniteWindowLength ? state.windowLength : 0;
-
-  const { buffersize, interval } = state;
-
-  Services.profiler.StartProfiler(
-    buffersize,
+  const { translatePreferencesToState } = lazyPreferenceManagement();
+  const {
+    entries,
     interval,
     features,
     threads,
-    windowLength
+    duration,
+  } = translatePreferencesToState(getRecordingPreferencesFromBrowser());
+
+  Services.profiler.StartProfiler(
+    entries,
+    interval,
+    features,
+    threads,
+    duration
   );
 }
 
@@ -165,7 +134,10 @@ function stopProfiler() {
 }
 
 function toggleProfiler() {
-  if (state.isRunning) {
+  if (Services.profiler.IsPaused()) {
+    return;
+  }
+  if (Services.profiler.IsActive()) {
     stopProfiler();
   } else {
     startProfiler();
@@ -177,71 +149,6 @@ function restartProfiler() {
   startProfiler();
 }
 
-// This running observer was adapted from the web extension.
-const isRunningObserver = {
-  _observers: new Set(),
-
-  observe(subject, topic, data) {
-    switch (topic) {
-      case "profiler-started":
-      case "profiler-stopped":
-        // Make the observer calls asynchronous.
-        const isRunningPromise = Promise.resolve(topic === "profiler-started");
-        for (const observer of this._observers) {
-          isRunningPromise.then(observer);
-        }
-        break;
-    }
-  },
-
-  _startListening() {
-    Services.obs.addObserver(this, "profiler-started");
-    Services.obs.addObserver(this, "profiler-stopped");
-  },
-
-  _stopListening() {
-    Services.obs.removeObserver(this, "profiler-started");
-    Services.obs.removeObserver(this, "profiler-stopped");
-  },
-
-  addObserver(observer) {
-    if (this._observers.size === 0) {
-      this._startListening();
-    }
-
-    this._observers.add(observer);
-    // Notify the observers the current state asynchronously.
-    Promise.resolve(Services.profiler.IsActive()).then(observer);
-  },
-
-  removeObserver(observer) {
-    if (this._observers.delete(observer) && this._observers.size === 0) {
-      this._stopListening();
-    }
-  },
-};
-
-function getStoredStateOrNull() {
-  // Pull out the stored state from preferences, it is a raw string.
-  const storedStateString = Services.prefs.getStringPref(
-    PROFILER_STATE_PREF,
-    ""
-  );
-  if (storedStateString === "") {
-    return null;
-  }
-
-  try {
-    // Attempt to parse the results.
-    return JSON.parse(storedStateString);
-  } catch (error) {
-    console.error(
-      `Could not parse the stored state for the profile in the ` +
-        `preferences ${PROFILER_STATE_PREF}`
-    );
-  }
-  return null;
-}
 
 function _getArrayOfStringsPref(prefName, defaultValue) {
   let array;
@@ -284,144 +191,86 @@ function _getArrayOfStringsHostPref(prefName, defaultValue) {
   return defaultValue;
 }
 
-function getRecordingPreferencesFromBrowser(defaultSettings = {}) {
-  const [entries, interval, features, threads, objdirs] = [
-    Services.prefs.getIntPref(
-      `devtools.performance.recording.entries`,
-      defaultSettings.entries
-    ),
-    Services.prefs.getIntPref(
-      `devtools.performance.recording.interval`,
-      defaultSettings.interval
-    ),
-    _getArrayOfStringsPref(
-      `devtools.performance.recording.features`,
-      defaultSettings.features
-    ),
-    _getArrayOfStringsPref(
-      `devtools.performance.recording.threads`,
-      defaultSettings.threads
-    ),
-    _getArrayOfStringsHostPref(
-      "devtools.performance.recording.objdirs",
-      defaultSettings.objdirs
-    ),
-  ];
+let _defaultPrefs;
 
-  // The pref stores the value in usec.
-  const newInterval = interval / 1000;
-  return { entries, interval: newInterval, features, threads, objdirs };
-}
+function getDefaultRecordingPreferences() {
+  if (!_defaultPrefs) {
+    _defaultPrefs = {
+      entries: 10000000, // ~80mb,
+      // Do not expire markers, let them roll off naturally from the circular buffer.
+      duration: 0,
+      interval: 1000, // 1000µs = 1ms
+      features: ["js", "leaf", "responsiveness", "stackwalk"],
+      threads: ["GeckoMain", "Compositor"],
+      objdirs: [],
+    };
 
-function setRecordingPreferencesOnBrowser(settings) {
-  Services.prefs.setIntPref(
-    `devtools.performance.recording.entries`,
-    settings.entries
-  );
-  Services.prefs.setIntPref(
-    `devtools.performance.recording.interval`,
-    // The pref stores the value in usec.
-    settings.interval * 1000
-  );
-  Services.prefs.setCharPref(
-    `devtools.performance.recording.features`,
-    JSON.stringify(settings.features)
-  );
-  Services.prefs.setCharPref(
-    `devtools.performance.recording.threads`,
-    JSON.stringify(settings.threads)
-  );
-  Services.prefs.setCharPref(
-    "devtools.performance.recording.objdirs",
-    JSON.stringify(settings.objdirs)
-  );
-}
-
-function initializeState() {
-  const features = {
-    java: false,
-    js: true,
-    leaf: true,
-    mainthreadio: false,
-    privacy: false,
-    responsiveness: true,
-    screenshots: false,
-    seqstyle: false,
-    stackwalk: DEFAULT_STACKWALK_FEATURE,
-    tasktracer: false,
-    trackopts: false,
-    jstracer: false,
-    jsallocations: false,
-    nativeallocations: false,
-  };
-
-  if (AppConstants.platform === "android") {
-    // Java profiling is only meaningful on android.
-    features.java = true;
-  }
-
-  const storedState = getStoredStateOrNull();
-
-  if (storedState && storedState.features) {
-    const storedFeatures = storedState.features;
-    // Validate the stored state. It's possible a feature was added or removed
-    // since the profiler was last run.
-    for (const key of Object.keys(features)) {
-      features[key] =
-        key in storedFeatures ? Boolean(storedFeatures[key]) : features[key];
+    if (AppConstants.platform === "android") {
+      // Java profiling is only meaningful on android.
+      _defaultPrefs.features.push("java");
     }
   }
 
-  // This function is created inline to make it easy to validate
-  // the stored state using the captured storedState value.
-  function validateStoredState(key, type, defaultValue) {
-    if (!storedState) {
-      return defaultValue;
-    }
-    const storedValue = storedState[key];
-    return typeof storedValue === type ? storedValue : defaultValue;
-  }
+  return _defaultPrefs;
+}
+
+function getRecordingPreferencesFromBrowser() {
+  const defaultPrefs = getDefaultRecordingPreferences();
+
+  const entries = Services.prefs.getIntPref(ENTRIES_PREF, defaultPrefs.entries);
+  const interval = Services.prefs.getIntPref(
+    INTERVAL_PREF,
+    defaultPrefs.interval
+  );
+  const features = _getArrayOfStringsPref(FEATURES_PREF, defaultPrefs.features);
+  const threads = _getArrayOfStringsPref(THREADS_PREF, defaultPrefs.threads);
+  const objdirs = _getArrayOfStringsHostPref(
+    OBJDIRS_PREF,
+    defaultPrefs.objdirs
+  );
+  const duration = Services.prefs.getIntPref(
+    DURATION_PREF,
+    defaultPrefs.duration
+  );
+
+  const supportedFeatures = new Set(Services.profiler.GetFeatures());
 
   return {
-    // These values are stale, and need to be re-generated.
-    isRunning: Services.profiler.IsActive(),
-    settingsOpen: false,
-    features,
-
-    // Look these up from stored state.
-    buffersize: validateStoredState(
-      "buffersize",
-      "number",
-      DEFAULT_BUFFER_SIZE
-    ),
-    windowLength: validateStoredState(
-      "windowLength",
-      "number",
-      DEFAULT_WINDOW_LENGTH
-    ),
-    interval: validateStoredState("interval", "number", DEFAULT_INTERVAL),
-    threads: validateStoredState("threads", "string", DEFAULT_THREADS),
+    entries,
+    interval,
+    // Validate the features before passing them to the profiler.
+    features: features.filter(feature => supportedFeatures.has(feature)),
+    threads,
+    objdirs,
+    duration,
   };
 }
 
-isRunningObserver.addObserver(isRunning => {
-  adjustState({ isRunning });
-});
+function setRecordingPreferencesOnBrowser(prefs) {
+  Services.prefs.setIntPref(ENTRIES_PREF, prefs.entries);
+  // The interval pref stores the value in microseconds for extra precision.
+  Services.prefs.setIntPref(INTERVAL_PREF, prefs.interval);
+  Services.prefs.setCharPref(FEATURES_PREF, JSON.stringify(prefs.features));
+  Services.prefs.setCharPref(THREADS_PREF, JSON.stringify(prefs.threads));
+  Services.prefs.setCharPref(OBJDIRS_PREF, JSON.stringify(prefs.objdirs));
+}
 
 const platform = AppConstants.platform;
 
+function revertRecordingPreferences() {
+  setRecordingPreferencesOnBrowser(getDefaultRecordingPreferences());
+}
+
 var EXPORTED_SYMBOLS = [
-  "adjustState",
   "captureProfile",
-  "state",
   "startProfiler",
   "stopProfiler",
   "restartProfiler",
   "toggleProfiler",
-  "isRunningObserver",
   "platform",
+  "getSymbolsFromThisBrowser",
+  "getDefaultRecordingPreferences",
   "getRecordingPreferencesFromBrowser",
   "setRecordingPreferencesOnBrowser",
-  "forTestsOnly",
-  "getSymbolsFromThisBrowser",
+  "revertRecordingPreferences",
 ];

@@ -11,7 +11,6 @@
 #include "mozilla/Attributes.h"
 #include "nsDeque.h"
 #include "nsString.h"
-#include "mozilla/Telemetry.h"
 
 namespace mozilla {
 namespace net {
@@ -79,10 +78,6 @@ class Http2BaseCompressor {
 
   uint32_t mPeakSize;
   uint32_t mPeakCount;
-  MOZ_INIT_OUTSIDE_CTOR
-  Telemetry::HistogramID mPeakSizeID;
-  MOZ_INIT_OUTSIDE_CTOR
-  Telemetry::HistogramID mPeakCountID;
 
   bool mDumpTables;
 
@@ -100,14 +95,13 @@ class Http2Decompressor final : public Http2BaseCompressor {
         mDataLen(0),
         mSeenNonColonHeader(false),
         mIsPush(false) {
-    mPeakSizeID = Telemetry::HPACK_PEAK_SIZE_DECOMPRESSOR;
-    mPeakCountID = Telemetry::HPACK_PEAK_COUNT_DECOMPRESSOR;
   };
   virtual ~Http2Decompressor() = default;
 
   // NS_OK: Produces the working set of HTTP/1 formatted headers
-  MOZ_MUST_USE nsresult DecodeHeaderBlock(const uint8_t* data, uint32_t datalen,
-                                          nsACString& output, bool isPush);
+  [[nodiscard]] nsresult DecodeHeaderBlock(const uint8_t* data,
+                                           uint32_t datalen, nsACString& output,
+                                           bool isPush);
 
   void GetStatus(nsACString& hdr) { hdr = mHeaderStatus; }
   void GetHost(nsACString& hdr) { hdr = mHeaderHost; }
@@ -116,27 +110,27 @@ class Http2Decompressor final : public Http2BaseCompressor {
   void GetMethod(nsACString& hdr) { hdr = mHeaderMethod; }
 
  private:
-  MOZ_MUST_USE nsresult DoIndexed();
-  MOZ_MUST_USE nsresult DoLiteralWithoutIndex();
-  MOZ_MUST_USE nsresult DoLiteralWithIncremental();
-  MOZ_MUST_USE nsresult DoLiteralInternal(nsACString&, nsACString&, uint32_t);
-  MOZ_MUST_USE nsresult DoLiteralNeverIndexed();
-  MOZ_MUST_USE nsresult DoContextUpdate();
+  [[nodiscard]] nsresult DoIndexed();
+  [[nodiscard]] nsresult DoLiteralWithoutIndex();
+  [[nodiscard]] nsresult DoLiteralWithIncremental();
+  [[nodiscard]] nsresult DoLiteralInternal(nsACString&, nsACString&, uint32_t);
+  [[nodiscard]] nsresult DoLiteralNeverIndexed();
+  [[nodiscard]] nsresult DoContextUpdate();
 
-  MOZ_MUST_USE nsresult DecodeInteger(uint32_t prefixLen, uint32_t& result);
-  MOZ_MUST_USE nsresult OutputHeader(uint32_t index);
-  MOZ_MUST_USE nsresult OutputHeader(const nsACString& name,
-                                     const nsACString& value);
+  [[nodiscard]] nsresult DecodeInteger(uint32_t prefixLen, uint32_t& result);
+  [[nodiscard]] nsresult OutputHeader(uint32_t index);
+  [[nodiscard]] nsresult OutputHeader(const nsACString& name,
+                                      const nsACString& value);
 
-  MOZ_MUST_USE nsresult CopyHeaderString(uint32_t index, nsACString& name);
-  MOZ_MUST_USE nsresult CopyStringFromInput(uint32_t index, nsACString& val);
+  [[nodiscard]] nsresult CopyHeaderString(uint32_t index, nsACString& name);
+  [[nodiscard]] nsresult CopyStringFromInput(uint32_t index, nsACString& val);
   uint8_t ExtractByte(uint8_t bitsLeft, uint32_t& bytesConsumed);
-  MOZ_MUST_USE nsresult CopyHuffmanStringFromInput(uint32_t index,
-                                                   nsACString& val);
-  MOZ_MUST_USE nsresult
-  DecodeHuffmanCharacter(const HuffmanIncomingTable* table, uint8_t& c,
-                         uint32_t& bytesConsumed, uint8_t& bitsLeft);
-  MOZ_MUST_USE nsresult DecodeFinalHuffmanCharacter(
+  [[nodiscard]] nsresult CopyHuffmanStringFromInput(uint32_t index,
+                                                    nsACString& val);
+  [[nodiscard]] nsresult DecodeHuffmanCharacter(
+      const HuffmanIncomingTable* table, uint8_t& c, uint32_t& bytesConsumed,
+      uint8_t& bitsLeft);
+  [[nodiscard]] nsresult DecodeFinalHuffmanCharacter(
       const HuffmanIncomingTable* table, uint8_t& c, uint8_t& bitsLeft);
 
   nsCString mHeaderStatus;
@@ -159,14 +153,12 @@ class Http2Compressor final : public Http2BaseCompressor {
       : mParsedContentLength(-1),
         mBufferSizeChangeWaiting(false),
         mLowestBufferSizeWaiting(0) {
-    mPeakSizeID = Telemetry::HPACK_PEAK_SIZE_COMPRESSOR;
-    mPeakCountID = Telemetry::HPACK_PEAK_COUNT_COMPRESSOR;
   };
   virtual ~Http2Compressor() = default;
 
   // HTTP/1 formatted header block as input - HTTP/2 formatted
   // header block as output
-  MOZ_MUST_USE nsresult EncodeHeaderBlock(
+  [[nodiscard]] nsresult EncodeHeaderBlock(
       const nsCString& nvInput, const nsACString& method,
       const nsACString& path, const nsACString& host, const nsACString& scheme,
       const nsACString& protocol, bool simpleConnectForm, nsACString& output);

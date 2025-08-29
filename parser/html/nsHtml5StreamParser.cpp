@@ -175,7 +175,7 @@ class nsHtml5ExecutorFlusher : public Runnable {
         nsCOMPtr<nsIRunnable> flusher = this;
         if (NS_SUCCEEDED(
                 doc->Dispatch(TaskCategory::Network, flusher.forget()))) {
-          PROFILER_ADD_MARKER("HighPrio blocking parser flushing(1)", DOM);
+          PROFILER_MARKER_UNTYPED("HighPrio blocking parser flushing(1)", DOM);
           return NS_OK;
         }
       }
@@ -665,6 +665,7 @@ nsresult nsHtml5StreamParser::SniffStreamBytes(
     Span<const uint8_t> aFromSegment) {
   NS_ASSERTION(IsParserThread(), "Wrong thread!");
   nsresult rv = NS_OK;
+
   // mEncoding and mCharsetSource potentially have come from channel or higher
   // by now. If we find a BOM, SetupDecodingFromBom() will overwrite them.
   // If we don't find a BOM, the previously set values of mEncoding and

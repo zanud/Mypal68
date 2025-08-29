@@ -21,7 +21,7 @@
 }
 
 #appMenu-addons-button {
-  list-style-image: url(chrome://mozapps/skin/extensions/extensionGeneric-16.svg);
+  list-style-image: url(chrome://mozapps/skin/extensions/extension.svg);
 }
 
 #appMenu-preferences-button {

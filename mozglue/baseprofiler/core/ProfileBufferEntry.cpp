@@ -5,15 +5,17 @@
 #include "ProfileBufferEntry.h"
 
 #include <ostream>
+#include <type_traits>
 
 #include "mozilla/Logging.h"
 #include "mozilla/Sprintf.h"
 #include "mozilla/StackWalk.h"
 
 #include "BaseProfiler.h"
-#include "BaseProfilerMarkerPayload.h"
+#include "mozilla/BaseProfilerMarkers.h"
 #include "platform.h"
 #include "ProfileBuffer.h"
+#include "ProfilerBacktrace.h"
 
 namespace mozilla {
 namespace baseprofiler {
@@ -147,7 +149,7 @@ class MOZ_RAII AutoArraySchemaWriter {
 
   template <typename T>
   void IntElement(uint32_t aIndex, T aValue) {
-    static_assert(!IsSame<T, uint64_t>::value,
+    static_assert(!std::is_same_v<T, uint64_t>,
                   "Narrowing uint64 -> int64 conversion not allowed");
     FillUpTo(aIndex);
     mJSONWriter.IntElement(static_cast<int64_t>(aValue));
@@ -451,9 +453,9 @@ class EntryGetter {
 //     | Label FrameFlags? DynamicStringFragment* LineNumber? CategoryPair?
 //     | JitReturnAddr
 //     )+
-//     Marker*
 //     Responsiveness?
 //   )
+//   | MarkerData
 //   | ( /* Counters */
 //       CounterId
 //       Time
@@ -469,7 +471,7 @@ class EntryGetter {
 //   | Resume
 //   | ( ProfilerOverheadTime /* Sampling start timestamp */
 //       ProfilerOverheadDuration /* Lock acquisition */
-//       ProfilerOverheadDuration /* Expired markers cleaning */
+//       ProfilerOverheadDuration /* Expired data cleaning */
 //       ProfilerOverheadDuration /* Counters */
 //       ProfilerOverheadDuration /* Threads */
 //     )
@@ -592,8 +594,8 @@ void ProfileBuffer::StreamSamplesToJSON(SpliceableJSONWriter& aWriter,
       //
       // - We skip samples that don't have an appropriate ThreadId or Time.
       //
-      // - We skip range Pause, Resume, CollectionStart, Marker, Counter
-      //   and CollectionEnd entries between samples.
+      // - We skip range Pause, Resume, CollectionStart, Counter and
+      //   CollectionEnd entries between samples.
       while (e.Has()) {
         if (e.Get().IsThreadId()) {
           break;
@@ -808,31 +810,20 @@ void ProfileBuffer::StreamMarkersToJSON(SpliceableJSONWriter& aWriter,
     MOZ_ASSERT(static_cast<ProfileBufferEntry::KindUnderlyingType>(type) <
                static_cast<ProfileBufferEntry::KindUnderlyingType>(
                    ProfileBufferEntry::Kind::MODERN_LIMIT));
-    if (type == ProfileBufferEntry::Kind::MarkerData &&
-        aER.ReadObject<int>() == aThreadId) {
-      // Schema:
-      //   [name, time, category, data]
-
-      aWriter.StartArrayElement();
-      {
-        std::string name = aER.ReadObject<std::string>();
-        const ProfilingCategoryPairInfo& info = GetProfilingCategoryPairInfo(
-            static_cast<ProfilingCategoryPair>(aER.ReadObject<uint32_t>()));
-        auto payload = aER.ReadObject<UniquePtr<ProfilerMarkerPayload>>();
-        double time = aER.ReadObject<double>();
-        MOZ_ASSERT(aER.RemainingBytes() == 0);
-
-        aUniqueStacks.mUniqueStrings->WriteElement(aWriter, name.c_str());
-        aWriter.DoubleElement(time);
-        aWriter.IntElement(unsigned(info.mCategory));
-        if (payload) {
-          aWriter.StartObjectElement(SpliceableJSONWriter::SingleLineStyle);
-          { payload->StreamPayload(aWriter, aProcessStartTime, aUniqueStacks); }
-          aWriter.EndObject();
-        }
-      }
-      aWriter.EndArray();
-    } else {
+    if (type != ProfileBufferEntry::Kind::Marker ||
+        !::mozilla::base_profiler_markers_detail::DeserializeAfterKindAndStream(
+            aER, aWriter, aThreadId,
+            [&](const mozilla::ProfilerString8View& aName) {
+              aUniqueStacks.mUniqueStrings->WriteElement(
+                  aWriter, aName.String().c_str());
+            },
+            [&](ProfileChunkedBuffer& aChunkedBuffer) {
+              ProfilerBacktrace backtrace("", aThreadId, &aChunkedBuffer);
+              backtrace.StreamJSON(aWriter, TimeStamp::ProcessCreation(),
+                                   aUniqueStacks);
+            })) {
+      // Not a marker, or marker for another thread.
+      // We probably didn't read the whole entry, so we need to skip to the end.
       aER.SetRemainingBytes(0);
     }
   });
@@ -1248,6 +1239,8 @@ bool ProfileBuffer::DuplicateLastSample(int aThreadId,
       switch (e.Get().GetKind()) {
         case ProfileBufferEntry::Kind::Pause:
         case ProfileBufferEntry::Kind::Resume:
+        case ProfileBufferEntry::Kind::PauseSampling:
+        case ProfileBufferEntry::Kind::ResumeSampling:
         case ProfileBufferEntry::Kind::CollectionStart:
         case ProfileBufferEntry::Kind::CollectionEnd:
         case ProfileBufferEntry::Kind::ThreadId:

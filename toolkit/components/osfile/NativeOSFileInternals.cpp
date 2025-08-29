@@ -207,7 +207,6 @@ class AbstractResult : public nsINativeOSFileResult {
  protected:
   virtual ~AbstractResult() {
     MOZ_ASSERT(NS_IsMainThread());
-    DropJSData();
     mozilla::DropJSObjects(this);
   }
 

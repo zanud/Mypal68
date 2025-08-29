@@ -36,7 +36,6 @@ const Perf = require("devtools/client/performance-new/components/Perf");
 const ReactDOM = require("devtools/client/shared/vendor/react-dom");
 const React = require("devtools/client/shared/vendor/react");
 const createStore = require("devtools/client/shared/redux/create-store");
-const selectors = require("devtools/client/performance-new/store/selectors");
 const reducers = require("devtools/client/performance-new/store/reducers");
 const actions = require("devtools/client/performance-new/store/actions");
 const { Provider } = require("devtools/client/shared/vendor/react-redux");
@@ -62,12 +61,10 @@ document.addEventListener("DOMContentLoaded", () => {
   gInit();
 });
 
-/**
- * Initialize the panel by creating a redux store, and render the root component.
- */
 async function gInit() {
   const store = createStore(reducers);
   const perfFrontInterface = new ActorReadyGeckoProfilerInterface();
+  const supportedFeatures = await perfFrontInterface.getSupportedFeatures();
 
   // Do some initialization, especially with privileged things that are part of the
   // the browser.
@@ -75,16 +72,11 @@ async function gInit() {
     actions.initializeStore({
       perfFront: perfFrontInterface,
       receiveProfile,
-      // Pull the default recording settings from the reducer, and update them according
-      // to what's in the browser's preferences.
-      recordingSettingsFromPreferences: getRecordingPreferencesFromBrowser(
-        selectors.getRecordingSettings(store.getState())
-      ),
+      supportedFeatures,
+      // Get the preferences from the current browser
+      recordingPreferences: getRecordingPreferencesFromBrowser(),
       // In the popup, the preferences are stored directly on the current browser.
-      setRecordingPreferences: () =>
-        setRecordingPreferencesOnBrowser(
-          selectors.getRecordingSettings(store.getState())
-        ),
+      setRecordingPreferences: setRecordingPreferencesOnBrowser,
       // The popup doesn't need to support remote symbol tables from the debuggee.
       // Only get the symbols from this browser.
       getSymbolTableGetter: () => getSymbolsFromThisBrowser,

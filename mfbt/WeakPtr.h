@@ -210,7 +210,10 @@ class SupportsWeakPtr {
   using WeakReference = detail::WeakReference;
 
  protected:
-  ~SupportsWeakPtr() {
+  ~SupportsWeakPtr() { DetachWeakPtr(); }
+
+ protected:
+  void DetachWeakPtr() {
     if (mSelfReferencingWeakReference) {
       mSelfReferencingWeakReference->detach();
     }
@@ -323,6 +326,28 @@ using MainThreadWeakPtr =
     WeakPtr<T, detail::WeakPtrDestructorBehavior::ProxyToMainThread>;
 
 #endif
+
+#define NS_IMPL_CYCLE_COLLECTION_UNLINK_WEAK_PTR tmp->DetachWeakPtr();
+
+#define NS_IMPL_CYCLE_COLLECTION_WEAK_PTR(class_, ...) \
+  NS_IMPL_CYCLE_COLLECTION_CLASS(class_)               \
+  NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(class_)        \
+    NS_IMPL_CYCLE_COLLECTION_UNLINK(__VA_ARGS__)       \
+    NS_IMPL_CYCLE_COLLECTION_UNLINK_WEAK_PTR           \
+  NS_IMPL_CYCLE_COLLECTION_UNLINK_END                  \
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(class_)      \
+    NS_IMPL_CYCLE_COLLECTION_TRAVERSE(__VA_ARGS__)     \
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
+
+#define NS_IMPL_CYCLE_COLLECTION_WEAK_PTR_INHERITED(class_, super_, ...) \
+  NS_IMPL_CYCLE_COLLECTION_CLASS(class_)                                 \
+  NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN_INHERITED(class_, super_)        \
+    NS_IMPL_CYCLE_COLLECTION_UNLINK(__VA_ARGS__)                         \
+    NS_IMPL_CYCLE_COLLECTION_UNLINK_WEAK_PTR                             \
+  NS_IMPL_CYCLE_COLLECTION_UNLINK_END                                    \
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(class_, super_)      \
+    NS_IMPL_CYCLE_COLLECTION_TRAVERSE(__VA_ARGS__)                       \
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
 }  // namespace mozilla
 

@@ -18,7 +18,6 @@
 #include "Http2Push.h"
 
 #include "mozilla/EndianUtils.h"
-#include "mozilla/Telemetry.h"
 #include "mozilla/Preferences.h"
 #include "nsHttp.h"
 #include "nsHttpHandler.h"
@@ -93,7 +92,6 @@ Http2Session::Http2Session(nsISocketTransport* aSocketTransport,
       mGoAwayID(0),
       mOutgoingGoAwayID(0),
       mConcurrent(0),
-      mServerPushedResources(0),
       mServerInitialStreamWindow(kDefaultRwin),
       mLocalSessionWindow(kDefaultRwin),
       mServerSessionWindow(kDefaultRwin),
@@ -104,7 +102,6 @@ Http2Session::Http2Session(nsISocketTransport* aSocketTransport,
       mLastReadEpoch(PR_IntervalNow()),
       mPingSentEpoch(0),
       mPreviousUsed(false),
-      mAggregatedHeaderSize(0),
       mWaitingForSettingsAck(false),
       mGoAwayOnPush(false),
       mUseH2Deps(false),
@@ -179,19 +176,6 @@ Http2Session::~Http2Session() {
         mDownstreamState));
 
   Shutdown();
-
-  if (mTrrStreams) {
-    Telemetry::Accumulate(Telemetry::DNS_TRR_REQUEST_PER_CONN, mTrrStreams);
-  }
-  Telemetry::Accumulate(Telemetry::SPDY_PARALLEL_STREAMS, mConcurrentHighWater);
-  Telemetry::Accumulate(Telemetry::SPDY_REQUEST_PER_CONN,
-                        (mNextStreamID - 1) / 2);
-  Telemetry::Accumulate(Telemetry::SPDY_SERVER_INITIATED_STREAMS,
-                        mServerPushedResources);
-  Telemetry::Accumulate(Telemetry::SPDY_GOAWAY_LOCAL, mClientGoAwayReason);
-  Telemetry::Accumulate(Telemetry::SPDY_GOAWAY_PEER, mPeerGoAwayReason);
-  Telemetry::Accumulate(Telemetry::HTTP2_FAIL_BEFORE_SETTINGS,
-                        mPeerFailedHandshake);
 }
 
 inline nsresult Http2Session::SessionError(enum errorType reason) {
@@ -1443,24 +1427,9 @@ nsresult Http2Session::RecvHeaders(Http2Session* self) {
       self->mInputFrameDataSize);
   self->mLastDataReadEpoch = self->mLastReadEpoch;
 
-  if (!isContinuation) {
-    self->mAggregatedHeaderSize = self->mInputFrameDataSize -
-                                  paddingControlBytes - priorityLen -
-                                  paddingLength;
-  } else {
-    self->mAggregatedHeaderSize += self->mInputFrameDataSize -
-                                   paddingControlBytes - priorityLen -
-                                   paddingLength;
-  }
-
   if (!endHeadersFlag) {  // more are coming - don't process yet
     self->ResetDownstreamState();
     return NS_OK;
-  }
-
-  if (isContinuation) {
-    Telemetry::Accumulate(Telemetry::SPDY_CONTINUED_HEADERS,
-                          self->mAggregatedHeaderSize);
   }
 
   rv = self->ResponseHeadersComplete();
@@ -1671,12 +1640,10 @@ nsresult Http2Session::RecvSettings(Http2Session* self) {
 
       case SETTINGS_TYPE_MAX_CONCURRENT:
         self->mMaxConcurrent = value;
-        Telemetry::Accumulate(Telemetry::SPDY_SETTINGS_MAX_STREAMS, value);
         self->ProcessPending();
         break;
 
       case SETTINGS_TYPE_INITIAL_WINDOW: {
-        Telemetry::Accumulate(Telemetry::SPDY_SETTINGS_IW, value >> 10);
         int32_t delta = value - self->mServerInitialStreamWindow;
         self->mServerInitialStreamWindow = value;
 
@@ -1805,7 +1772,6 @@ nsresult Http2Session::RecvPushPromise(Http2Session* self) {
   if (NS_FAILED(rv)) return rv;
 
   Http2Stream* associatedStream = self->mInputFrameDataStream;
-  ++(self->mServerPushedResources);
 
   // Anytime we start using the high bit of stream ID (either client or server)
   // begin to migrate to a new session.
@@ -1887,27 +1853,12 @@ nsresult Http2Session::RecvPushPromise(Http2Session* self) {
       self->mInputFrameDataSize - paddingControlBytes - promiseLen -
           paddingLength);
 
-  if (self->mInputFrameType != FRAME_TYPE_CONTINUATION) {
-    self->mAggregatedHeaderSize = self->mInputFrameDataSize -
-                                  paddingControlBytes - promiseLen -
-                                  paddingLength;
-  } else {
-    self->mAggregatedHeaderSize += self->mInputFrameDataSize -
-                                   paddingControlBytes - promiseLen -
-                                   paddingLength;
-  }
-
   if (!(self->mInputFrameFlags & kFlag_END_PUSH_PROMISE)) {
     LOG3(
         ("Http2Session::RecvPushPromise not finishing processing for "
          "multi-frame push\n"));
     self->ResetDownstreamState();
     return NS_OK;
-  }
-
-  if (self->mInputFrameType == FRAME_TYPE_CONTINUATION) {
-    Telemetry::Accumulate(Telemetry::SPDY_CONTINUED_HEADERS,
-                          self->mAggregatedHeaderSize);
   }
 
   // Create the buffering transaction and push stream
@@ -3058,7 +3009,6 @@ nsresult Http2Session::ReadyToProcessDataFrame(
              newState == DISCARDING_DATA_FRAME_PADDING);
   ChangeDownstreamState(newState);
 
-  Telemetry::Accumulate(Telemetry::SPDY_CHUNK_RECVD, mInputFrameDataSize >> 10);
   mLastDataReadEpoch = mLastReadEpoch;
 
   if (!mInputFrameID) {

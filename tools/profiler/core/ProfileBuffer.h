@@ -24,7 +24,9 @@ class ProfileBuffer final {
   // manager.
   explicit ProfileBuffer(mozilla::ProfileChunkedBuffer& aBuffer);
 
-  ~ProfileBuffer();
+  mozilla::ProfileChunkedBuffer& UnderlyingChunkedBuffer() const {
+    return mEntries;
+  }
 
   bool IsThreadSafe() const { return mEntries.IsThreadSafe(); }
 
@@ -34,14 +36,6 @@ class ProfileBuffer final {
   // Add to the buffer a sample start (ThreadId) entry for aThreadId.
   // Returns the position of the entry.
   uint64_t AddThreadIdEntry(int aThreadId);
-
-  // Add a new single entry with *all* given object (using a Serializer for
-  // each), return block index.
-  template <typename... Ts>
-  mozilla::ProfileBufferBlockIndex PutObjects(
-      const ProfileBufferEntry::Kind aKind, const Ts&... aTs) {
-    return mEntries.PutObjects(aKind, aTs...);
-  }
 
   void CollectCodeLocation(
       const char* aLabel, const char* aStr, uint32_t aFrameFlags,

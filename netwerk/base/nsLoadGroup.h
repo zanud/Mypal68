@@ -62,11 +62,6 @@ class nsLoadGroup : public nsILoadGroup,
   nsresult MergeLoadFlags(nsIRequest* aRequest, nsLoadFlags& flags);
   nsresult MergeDefaultLoadFlags(nsIRequest* aRequest, nsLoadFlags& flags);
 
- private:
-  void TelemetryReport();
-  void TelemetryReportChannel(nsITimedChannel* timedChannel,
-                              bool defaultRequest);
-
  protected:
   uint32_t mForegroundCount;
   uint32_t mLoadFlags;
@@ -88,11 +83,6 @@ class nsLoadGroup : public nsILoadGroup,
   bool mIsCanceling;
   bool mDefaultLoadIsTimed;
   bool mBrowsingContextDiscarded;
-
-  /* Telemetry */
-  mozilla::TimeStamp mDefaultRequestCreationTime;
-  uint32_t mTimedRequests;
-  uint32_t mCachedRequests;
 
   nsCString mUserAgentOverrideCache;
 };

@@ -631,7 +631,6 @@ nsresult ShutdownXPCOM(nsIServiceManager* aServMgr) {
     gfxPlatform::ShutdownLayersIPC();
     mozilla::RemoteDecoderManagerChild::Shutdown();
 
-    mozilla::scache::StartupCache::DeleteSingleton();
     if (observerService) {
       mozilla::KillClearOnShutdown(ShutdownPhase::ShutdownThreads);
       observerService->NotifyObservers(
@@ -723,7 +722,9 @@ nsresult ShutdownXPCOM(nsIServiceManager* aServMgr) {
   // shutdown. This is the phase for such global objects to correctly release.
   mozilla::KillClearOnShutdown(ShutdownPhase::ShutdownPostLastCycleCollection);
 
-  PROFILER_ADD_MARKER("Shutdown xpcom", OTHER);
+  mozilla::scache::StartupCache::DeleteSingleton();
+
+  PROFILER_MARKER_UNTYPED("Shutdown xpcom", OTHER);
   // If we are doing any shutdown checks, poison writes.
   //if (gShutdownChecks != SCM_NOTHING) {
 //#ifdef XP_MACOSX

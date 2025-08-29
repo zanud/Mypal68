@@ -17,12 +17,12 @@
 #include "mozilla/StaticPrefs_privacy.h"
 #include "mozilla/StoragePrincipalHelper.h"
 #include "mozilla/TaskQueue.h"
-#include "mozilla/Telemetry.h"
 #include "nsCategoryCache.h"
 #include "nsContentUtils.h"
 #include "nsFileStreams.h"
 #include "nsHashKeys.h"
 #include "nsHttp.h"
+#include "nsMimeTypes.h"
 #include "nsIAuthPrompt.h"
 #include "nsIAuthPrompt2.h"
 #include "nsIAuthPromptAdapterFactory.h"
@@ -277,19 +277,21 @@ void AssertLoadingPrincipalAndClientInfoMatch(
   }
 
   // Perform a fast comparison for most principal checks.
-  nsCOMPtr<nsIPrincipal> clientPrincipal(aLoadingClientInfo.GetPrincipal());
-  if (aLoadingPrincipal->Equals(clientPrincipal)) {
-    return;
+  auto clientPrincipalOrErr(aLoadingClientInfo.GetPrincipal());
+  if (clientPrincipalOrErr.isOk()) {
+    nsCOMPtr<nsIPrincipal> clientPrincipal = clientPrincipalOrErr.unwrap();
+    if (aLoadingPrincipal->Equals(clientPrincipal)) {
+      return;
+    }
+    // Fall back to a slower origin equality test to support null principals.
+    nsAutoCString loadingOrigin;
+    MOZ_ALWAYS_SUCCEEDS(aLoadingPrincipal->GetOrigin(loadingOrigin));
+
+    nsAutoCString clientOrigin;
+    MOZ_ALWAYS_SUCCEEDS(clientPrincipal->GetOrigin(clientOrigin));
+
+    MOZ_DIAGNOSTIC_ASSERT(loadingOrigin == clientOrigin);
   }
-
-  // Fall back to a slower origin equality test to support null principals.
-  nsAutoCString loadingOrigin;
-  MOZ_ALWAYS_SUCCEEDS(aLoadingPrincipal->GetOrigin(loadingOrigin));
-
-  nsAutoCString clientOrigin;
-  MOZ_ALWAYS_SUCCEEDS(clientPrincipal->GetOrigin(clientOrigin));
-
-  MOZ_DIAGNOSTIC_ASSERT(loadingOrigin == clientOrigin);
 #endif
 }
 
@@ -1987,7 +1989,7 @@ bool NS_IsSafeTopLevelNav(nsIChannel* aChannel) {
   }
   nsCOMPtr<nsILoadInfo> loadInfo = aChannel->LoadInfo();
   if (loadInfo->GetExternalContentPolicyType() !=
-      nsIContentPolicy::TYPE_DOCUMENT) {
+      ExtContentPolicy::TYPE_DOCUMENT) {
     return false;
   }
   return NS_IsSafeMethodNav(aChannel);
@@ -2013,18 +2015,20 @@ bool NS_IsSameSiteForeign(nsIChannel* aChannel, nsIURI* aHostURI) {
   // Do not treat loads triggered by web extensions as foreign
   nsCOMPtr<nsIURI> channelURI;
   NS_GetFinalChannelURI(aChannel, getter_AddRefs(channelURI));
-  if (BasePrincipal::Cast(loadInfo->TriggeringPrincipal())
-          ->AddonAllowsLoad(channelURI)) {
+  RefPtr<BasePrincipal> triggeringPrincipal =
+      BasePrincipal::Cast(loadInfo->TriggeringPrincipal());
+  if (triggeringPrincipal->AddonPolicy() &&
+      triggeringPrincipal->AddonAllowsLoad(channelURI)) {
     return false;
   }
 
   nsCOMPtr<nsIURI> uri;
   if (loadInfo->GetExternalContentPolicyType() ==
-      nsIContentPolicy::TYPE_DOCUMENT) {
+      ExtContentPolicy::TYPE_DOCUMENT) {
     // for loads of TYPE_DOCUMENT we query the hostURI from the
-    // triggeringPricnipal which returns the URI of the document that caused the
+    // triggeringPrincipal which returns the URI of the document that caused the
     // navigation.
-    loadInfo->TriggeringPrincipal()->GetURI(getter_AddRefs(uri));
+    triggeringPrincipal->GetURI(getter_AddRefs(uri));
   } else {
     uri = aHostURI;
   }
@@ -2049,7 +2053,7 @@ bool NS_IsSameSiteForeign(nsIChannel* aChannel, nsIURI* aHostURI) {
   // was triggered by a cross-origin triggeringPrincipal, we treat the load as
   // foreign.
   if (loadInfo->GetExternalContentPolicyType() ==
-      nsIContentPolicy::TYPE_SUBDOCUMENT) {
+      ExtContentPolicy::TYPE_SUBDOCUMENT) {
     nsCOMPtr<nsIURI> triggeringPrincipalURI;
     loadInfo->TriggeringPrincipal()->GetURI(
         getter_AddRefs(triggeringPrincipalURI));
@@ -2698,6 +2702,25 @@ void NS_SniffContent(const char* aSnifferType, nsIRequest* aRequest,
     return;
   }
 
+  // In case XCTO nosniff was present, we could just skip sniffing here
+  nsCOMPtr<nsIChannel> channel = do_QueryInterface(aRequest);
+  if (channel) {
+    nsCOMPtr<nsILoadInfo> loadInfo = channel->LoadInfo();
+    if (loadInfo->GetSkipContentSniffing()) {
+      /* Bug 1571742
+       * We cannot skip snffing if the current MIME-Type might be a JSON.
+       * The JSON-Viewer relies on its own sniffer to determine, if it can
+       * render the page, so we need to make an exception if the Server provides
+       * a application/ mime, as it might be json.
+       */
+      nsAutoCString currentContentType;
+      channel->GetContentType(currentContentType);
+      if (!StringBeginsWith(currentContentType,
+                            NS_LITERAL_CSTRING("application/"))) {
+        return;
+      }
+    }
+  }
   nsCOMArray<nsIContentSniffer> sniffers;
   cache->GetEntries(sniffers);
   for (int32_t i = 0; i < sniffers.Count(); ++i) {
@@ -2771,8 +2794,6 @@ nsresult NS_ShouldSecureUpgrade(
               nsIScriptError::warningFlag,
               NS_LITERAL_CSTRING("upgradeInsecureRequest"), innerWindowId,
               !!aLoadInfo->GetOriginAttributes().mPrivateBrowsingId);
-          Telemetry::AccumulateCategorical(
-              Telemetry::LABELS_HTTP_SCHEME_UPGRADE_TYPE::CSP);
         } else {
           RefPtr<dom::Document> doc;
           nsINode* node = aLoadInfo->LoadingNode();
@@ -2792,8 +2813,6 @@ nsresult NS_ShouldSecureUpgrade(
                 nsContentUtils::eSECURITY_PROPERTIES,
                 "BrowserUpgradeInsecureDisplayRequest", params);
           }
-          Telemetry::AccumulateCategorical(
-              Telemetry::LABELS_HTTP_SCHEME_UPGRADE_TYPE::BrowserDisplay);
         }
 
         aShouldUpgrade = true;
@@ -2814,28 +2833,8 @@ nsresult NS_ShouldSecureUpgrade(
       if (aIsStsHost) {
         LOG(("nsHttpChannel::Connect() STS permissions found\n"));
         if (aAllowSTS) {
-          Telemetry::AccumulateCategorical(
-              Telemetry::LABELS_HTTP_SCHEME_UPGRADE_TYPE::STS);
-          switch (aHstsSource) {
-            case nsISiteSecurityService::SOURCE_PRELOAD_LIST:
-              Telemetry::Accumulate(Telemetry::HSTS_UPGRADE_SOURCE, 0);
-              break;
-            case nsISiteSecurityService::SOURCE_ORGANIC_REQUEST:
-              Telemetry::Accumulate(Telemetry::HSTS_UPGRADE_SOURCE, 1);
-              break;
-            case nsISiteSecurityService::SOURCE_UNKNOWN:
-            default:
-              // record this as an organic request
-              Telemetry::Accumulate(Telemetry::HSTS_UPGRADE_SOURCE, 1);
-              break;
-          }
           return true;
         }
-        Telemetry::AccumulateCategorical(
-            Telemetry::LABELS_HTTP_SCHEME_UPGRADE_TYPE::PrefBlockedSTS);
-      } else {
-        Telemetry::AccumulateCategorical(
-            Telemetry::LABELS_HTTP_SCHEME_UPGRADE_TYPE::NoReasonToUpgrade);
       }
       return false;
     };
@@ -2889,8 +2888,6 @@ nsresult NS_ShouldSecureUpgrade(
     return NS_OK;
   }
 
-  Telemetry::AccumulateCategorical(
-      Telemetry::LABELS_HTTP_SCHEME_UPGRADE_TYPE::AlreadyHTTPS);
   aShouldUpgrade = false;
   return NS_OK;
 }
@@ -3077,11 +3074,11 @@ bool NS_ShouldClassifyChannel(nsIChannel* aChannel) {
   }
 
   nsCOMPtr<nsILoadInfo> loadInfo = aChannel->LoadInfo();
-  nsContentPolicyType type = loadInfo->GetExternalContentPolicyType();
+  ExtContentPolicyType type = loadInfo->GetExternalContentPolicyType();
   // Skip classifying channel triggered by system unless it is a top-level
   // load.
   if (loadInfo->TriggeringPrincipal()->IsSystemPrincipal() &&
-      nsIContentPolicy::TYPE_DOCUMENT != type) {
+      ExtContentPolicy::TYPE_DOCUMENT != type) {
     return false;
   }
 

@@ -57,6 +57,10 @@ add_task(async function do_test() {
   // This will force the permission-manager to reload the data.
   Services.obs.notifyObservers(null, "testonly-reload-permissions-from-disk");
 
+  let permIsolateUserContext = Services.prefs.getBoolPref(
+    "permissions.isolateBy.userContext"
+  );
+
   let pm = Cc["@mozilla.org/permissionmanager;1"].getService(
     Ci.nsIPermissionManager
   );
@@ -156,17 +160,21 @@ add_task(async function do_test() {
     Ci.nsIPermissionManager.ALLOW_ACTION,
     pm.testPermissionFromPrincipal(principal4, TEST_PERMISSION)
   );
-  // make sure principals with userContextId or firstPartyDomain use the same permissions
+  // make sure principals with userContextId use the same / different permissions
+  // depending on pref state
   Assert.equal(
-    Ci.nsIPermissionManager.ALLOW_ACTION,
+    permIsolateUserContext
+      ? Ci.nsIPermissionManager.UNKNOWN_ACTION
+      : Ci.nsIPermissionManager.ALLOW_ACTION,
     pm.testPermissionFromPrincipal(principal6, TEST_PERMISSION)
   );
+  // make sure principals with a firstPartyDomain use different permissions
   Assert.equal(
-    Ci.nsIPermissionManager.ALLOW_ACTION,
+    Ci.nsIPermissionManager.UNKNOWN_ACTION,
     pm.testPermissionFromPrincipal(principal7, TEST_PERMISSION)
   );
   Assert.equal(
-    Ci.nsIPermissionManager.ALLOW_ACTION,
+    Ci.nsIPermissionManager.UNKNOWN_ACTION,
     pm.testPermissionFromPrincipal(principal8, TEST_PERMISSION)
   );
 
@@ -177,18 +185,11 @@ add_task(async function do_test() {
     Ci.nsIPermissionManager.UNKNOWN_ACTION,
     pm.testPermissionFromPrincipal(principal, TEST_PERMISSION)
   );
-  // make sure principals with userContextId or firstPartyDomain use the same permissions
+  // make sure principals with userContextId use the correct permissions
+  // (Should be unknown with and without OA stripping )
   Assert.equal(
     Ci.nsIPermissionManager.UNKNOWN_ACTION,
     pm.testPermissionFromPrincipal(principal6, TEST_PERMISSION)
-  );
-  Assert.equal(
-    Ci.nsIPermissionManager.UNKNOWN_ACTION,
-    pm.testPermissionFromPrincipal(principal7, TEST_PERMISSION)
-  );
-  Assert.equal(
-    Ci.nsIPermissionManager.UNKNOWN_ACTION,
-    pm.testPermissionFromPrincipal(principal8, TEST_PERMISSION)
   );
   // and we should have this UNKNOWN_ACTION reflected in the DB
   await checkCapabilityViaDB(Ci.nsIPermissionManager.UNKNOWN_ACTION);
@@ -202,17 +203,20 @@ add_task(async function do_test() {
     Ci.nsIPermissionManager.ALLOW_ACTION,
     pm.testPermissionFromPrincipal(principal, TEST_PERMISSION)
   );
-  // make sure principals with userContextId or firstPartyDomain use the same permissions
+  // make sure principals with userContextId share permissions depending on pref state
   Assert.equal(
-    Ci.nsIPermissionManager.ALLOW_ACTION,
+    permIsolateUserContext
+      ? Ci.nsIPermissionManager.UNKNOWN_ACTION
+      : Ci.nsIPermissionManager.ALLOW_ACTION,
     pm.testPermissionFromPrincipal(principal6, TEST_PERMISSION)
   );
+  // make sure principals with firstPartyDomain use different permissions
   Assert.equal(
-    Ci.nsIPermissionManager.ALLOW_ACTION,
+    Ci.nsIPermissionManager.UNKNOWN_ACTION,
     pm.testPermissionFromPrincipal(principal7, TEST_PERMISSION)
   );
   Assert.equal(
-    Ci.nsIPermissionManager.ALLOW_ACTION,
+    Ci.nsIPermissionManager.UNKNOWN_ACTION,
     pm.testPermissionFromPrincipal(principal8, TEST_PERMISSION)
   );
   // and allow it to again be seen in the enumerator.
@@ -230,17 +234,20 @@ add_task(async function do_test() {
     Ci.nsIPermissionManager.DENY_ACTION,
     pm.testPermissionFromPrincipal(principal, TEST_PERMISSION)
   );
-  // make sure principals with userContextId or firstPartyDomain use the same permissions
+  // make sure principals with userContextId share permissions depending on pref state
   Assert.equal(
-    Ci.nsIPermissionManager.DENY_ACTION,
+    permIsolateUserContext
+      ? Ci.nsIPermissionManager.UNKNOWN_ACTION
+      : Ci.nsIPermissionManager.DENY_ACTION,
     pm.testPermissionFromPrincipal(principal6, TEST_PERMISSION)
   );
+  // make sure principals with firstPartyDomain use different permissions
   Assert.equal(
-    Ci.nsIPermissionManager.DENY_ACTION,
+    Ci.nsIPermissionManager.UNKNOWN_ACTION,
     pm.testPermissionFromPrincipal(principal7, TEST_PERMISSION)
   );
   Assert.equal(
-    Ci.nsIPermissionManager.DENY_ACTION,
+    Ci.nsIPermissionManager.UNKNOWN_ACTION,
     pm.testPermissionFromPrincipal(principal8, TEST_PERMISSION)
   );
   Assert.equal(Ci.nsIPermissionManager.DENY_ACTION, findCapabilityViaEnum());
@@ -259,17 +266,20 @@ add_task(async function do_test() {
     Ci.nsIPermissionManager.PROMPT_ACTION,
     pm.testPermissionFromPrincipal(principal, TEST_PERMISSION)
   );
-  // make sure principals with userContextId or firstPartyDomain use the same permissions
+  // make sure principals with userContextId share permissions depending on pref state
   Assert.equal(
-    Ci.nsIPermissionManager.PROMPT_ACTION,
+    permIsolateUserContext
+      ? Ci.nsIPermissionManager.UNKNOWN_ACTION
+      : Ci.nsIPermissionManager.PROMPT_ACTION,
     pm.testPermissionFromPrincipal(principal6, TEST_PERMISSION)
   );
+  // make sure principals with firstPartyDomain use different permissions
   Assert.equal(
-    Ci.nsIPermissionManager.PROMPT_ACTION,
+    Ci.nsIPermissionManager.UNKNOWN_ACTION,
     pm.testPermissionFromPrincipal(principal7, TEST_PERMISSION)
   );
   Assert.equal(
-    Ci.nsIPermissionManager.PROMPT_ACTION,
+    Ci.nsIPermissionManager.UNKNOWN_ACTION,
     pm.testPermissionFromPrincipal(principal8, TEST_PERMISSION)
   );
   Assert.equal(Ci.nsIPermissionManager.PROMPT_ACTION, findCapabilityViaEnum());
@@ -342,7 +352,7 @@ add_task(async function do_test() {
 // be found.
 function findCapabilityViaEnum(origin = TEST_ORIGIN, type = TEST_PERMISSION) {
   let result = undefined;
-  for (let perm of Services.perms.all) {
+  for (let perm of Services.perms.enumerator) {
     if (perm.matchesURI(origin, true) && perm.type == type) {
       if (result !== undefined) {
         // we've already found one previously - that's bad!

@@ -1,8 +1,6 @@
 /* Any copyright is dedicated to the Public Domain.
    http://creativecommons.org/publicdomain/zero/1.0/ */
 
-var attrs;
-
 function matches_always(perm, principals) {
   principals.forEach(principal => {
     Assert.ok(
@@ -44,9 +42,13 @@ function matches_never(perm, principals) {
 
 function run_test() {
   // initialize the permission manager service
-  let pm = Services.perms;
+  let pm = Cc["@mozilla.org/permissionmanager;1"].getService(
+    Ci.nsIPermissionManager
+  );
 
-  let secMan = Services.scriptSecurityManager;
+  let secMan = Cc["@mozilla.org/scriptsecuritymanager;1"].getService(
+    Ci.nsIScriptSecurityManager
+  );
 
   // Add some permissions
   let uri0 = NetUtil.newURI("http://google.com/search?q=foo#hashtag");
@@ -96,8 +98,8 @@ function run_test() {
   pm.addFromPrincipal(uri0_cnn, "test/matches", pm.ALLOW_ACTION);
   let perm_cnn = pm.getPermissionObject(uri0_n, "test/matches", true);
 
-  matches_always(perm_n, [uri0_n, uri0_1, uri0_cnn]);
-  matches_weak(perm_n, [uri1_n, uri1_1, uri1_cnn]);
+  matches_always(perm_n, [uri0_n, uri0_1]);
+  matches_weak(perm_n, [uri1_n, uri1_1]);
   matches_never(perm_n, [
     uri2_n,
     uri3_n,
@@ -113,6 +115,8 @@ function run_test() {
     uri3_1,
     uri4_1,
     uri5_1,
+    uri0_cnn,
+    uri1_cnn,
     uri2_cnn,
     uri3_cnn,
     uri4_cnn,
@@ -146,8 +150,8 @@ function run_test() {
     uri5_cnn,
   ]);
 
-  matches_always(perm_1, [uri0_n, uri0_1, uri0_cnn]);
-  matches_weak(perm_1, [uri1_n, uri1_1, uri1_cnn]);
+  matches_always(perm_1, [uri0_n, uri0_1]);
+  matches_weak(perm_1, [uri1_n, uri1_1]);
   matches_never(perm_1, [
     uri2_n,
     uri3_n,
@@ -163,14 +167,16 @@ function run_test() {
     uri3_1,
     uri4_1,
     uri5_1,
+    uri0_cnn,
+    uri1_cnn,
     uri2_cnn,
     uri3_cnn,
     uri4_cnn,
     uri5_cnn,
   ]);
 
-  matches_always(perm_cnn, [uri0_n, uri0_1, uri0_cnn]);
-  matches_weak(perm_cnn, [uri1_n, uri1_1, uri1_cnn]);
+  matches_always(perm_cnn, [uri0_n, uri0_1]);
+  matches_weak(perm_cnn, [uri1_n, uri1_1]);
   matches_never(perm_cnn, [
     uri2_n,
     uri3_n,
@@ -186,6 +192,8 @@ function run_test() {
     uri3_1,
     uri4_1,
     uri5_1,
+    uri0_cnn,
+    uri1_cnn,
     uri2_cnn,
     uri3_cnn,
     uri4_cnn,

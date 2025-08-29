@@ -82,16 +82,17 @@ class IndexCursorResponse;
 class JSStructuredCloneData;
 
 //
-// nsTArray is a resizable array class, like std::vector.
+// nsTArray<E> is a resizable array class, like std::vector.
 //
 // Unlike std::vector, which follows C++'s construction/destruction rules,
-// nsTArray assumes that your "T" can be memmoved()'ed safely.
+// By default, nsTArray assumes that instances of E can be relocated safely
+// using memory utils (memcpy/memmove).
 //
 // The public classes defined in this header are
 //
-//   nsTArray<T>,
-//   FallibleTArray<T>,
-//   AutoTArray<T, N>, and
+//   nsTArray<E>,
+//   FallibleTArray<E>,
+//   AutoTArray<E, N>, and
 //
 // nsTArray and AutoTArray are infallible by default. To opt-in to fallible
 // behaviour, use the `mozilla::fallible` parameter and check the return value.
@@ -100,32 +101,42 @@ class JSStructuredCloneData;
 // file and don't need the full nsTArray definitions) consider including
 // nsTArrayForwardDeclare.h instead of nsTArray.h.
 //
-// The template parameter (i.e., T in nsTArray<T>) specifies the type of the
-// elements and has the following requirements:
+// The template parameter E specifies the type of the elements and has the
+// following requirements:
 //
-//   T MUST be safely memmove()'able.
-//   T MUST define a copy-constructor.
-//   T MAY define operator< for sorting.
-//   T MAY define operator== for searching.
+//   E MUST be safely memmove()'able.
+//   E MUST define a copy-constructor.
+//   E MAY define operator< for sorting.
+//   E MAY define operator== for searching.
 //
 // (Note that the memmove requirement may be relaxed for certain types - see
 // nsTArray_RelocationStrategy below.)
 //
-// For methods taking a Comparator instance, the Comparator must be a class
-// defining the following methods:
+// There is a public type elem_type defined as E within each array class, and we
+// reference the type under this name below.
+//
+// For member functions taking a Comparator instance, Comparator must be either
+// a functor with a tri-state comparison function with a signature compatible to
+//
+//   /** @return negative iff a < b, 0 iff a == b, positive iff a > b */
+//   int (const elem_type& a, const elem_type& b);
+//
+// or a class defining member functions with signatures compatible to:
 //
 //   class Comparator {
 //     public:
 //       /** @return True if the elements are equals; false otherwise. */
-//       bool Equals(const elem_type& a, const Item& b) const;
+//       bool Equals(const elem_type& a, const elem_type& b) const;
 //
 //       /** @return True if (a < b); false otherwise. */
-//       bool LessThan(const elem_type& a, const Item& b) const;
+//       bool LessThan(const elem_type& a, const elem_type& b) const;
 //   };
 //
-// The Equals method is used for searching, and the LessThan method is used for
-// searching and sorting.  The |Item| type above can be arbitrary, but must
-// match the Item type passed to the sort or search function.
+// The Equals member function is used for searching, and the LessThan member
+// function is used for searching and sorting.  Note that some member functions,
+// e.g. Compare, are templates where a different type Item can be used for the
+// element to compare to. In that case, the signatures must be compatible to
+// allow those comparisons, but the details are not documented here.
 //
 
 //
@@ -233,7 +244,7 @@ extern "C" {
 extern nsTArrayHeader sEmptyTArrayHeader;
 }
 
-// This class provides a SafeElementAt method to nsTArray<T*> which does
+// This class provides a SafeElementAt method to nsTArray<E*> which does
 // not take a second default value parameter.
 template <class E, class Derived, typename Alloc>
 struct nsTArray_SafeElementAtHelper {
@@ -727,10 +738,10 @@ struct MOZ_NEEDS_MEMMOVABLE_TYPE nsTArray_RelocationStrategy {
 // Some classes require constructors/destructors to be called, so they are
 // specialized here.
 //
-#define MOZ_DECLARE_RELOCATE_USING_MOVE_CONSTRUCTOR(T)     \
+#define MOZ_DECLARE_RELOCATE_USING_MOVE_CONSTRUCTOR(E)     \
   template <>                                              \
-  struct nsTArray_RelocationStrategy<T> {                  \
-    using Type = nsTArray_RelocateUsingMoveConstructor<T>; \
+  struct nsTArray_RelocationStrategy<E> {                  \
+    using Type = nsTArray_RelocateUsingMoveConstructor<E>; \
   };
 
 #define MOZ_DECLARE_RELOCATE_USING_MOVE_CONSTRUCTOR_FOR_TEMPLATE(T) \
@@ -925,8 +936,8 @@ class nsTArray_Impl
   typedef nsTArrayElementTraits<E> elem_traits;
   typedef nsTArray_SafeElementAtHelper<E, self_type, Alloc>
       safeelementat_helper_type;
-  typedef mozilla::ArrayIterator<elem_type&, nsTArray<E>> iterator;
-  typedef mozilla::ArrayIterator<const elem_type&, nsTArray<E>> const_iterator;
+  typedef mozilla::ArrayIterator<elem_type&, self_type> iterator;
+  typedef mozilla::ArrayIterator<const elem_type&, self_type> const_iterator;
   typedef std::reverse_iterator<iterator> reverse_iterator;
   typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
 
@@ -1542,10 +1553,10 @@ class nsTArray_Impl
   // InsertElementAt(), or no-arg AppendElement() does, but without changing the
   // length of the array.
   //
-  // array[idx] = T()
+  // array[idx] = elem_type()
   //
-  // would accomplish the same thing as long as T has the appropriate moving
-  // operator=, but some types don't for various reasons.
+  // would accomplish the same thing as long as elem_type has the appropriate
+  // moving operator=, but some types don't for various reasons.
   mozilla::NotNull<elem_type*> ReconstructElementAt(index_type aIndex) {
     elem_type* elem = &ElementAt(aIndex);
     elem_traits::Destruct(elem);
@@ -1747,7 +1758,8 @@ class nsTArray_Impl
   // std::vector::erase.
   // @param first iterator to the first of elements to remove
   // @param last iterator to the last of elements to remove
-  const_iterator RemoveElementsAt(const_iterator first, const_iterator last) {
+  const_iterator RemoveElementsRange(const_iterator first,
+                                     const_iterator last) {
     MOZ_ASSERT(first.GetArray() == this);
     MOZ_ASSERT(last.GetArray() == this);
     MOZ_ASSERT(last.GetIndex() >= first.GetIndex());
@@ -2966,33 +2978,39 @@ struct nsTArray_RelocationStrategy<AutoTArray<E, N>> {
 
 // Span integration
 namespace mozilla {
-template <typename T>
+template <typename E, typename ArrayT>
 class nsTArrayBackInserter
     : public std::iterator<std::output_iterator_tag, void, void, void, void> {
-  nsTArray<T>* mArray;
+  ArrayT* mArray;
+
+  class Proxy {
+    ArrayT& mArray;
+
+   public:
+    explicit Proxy(ArrayT& aArray) : mArray{aArray} {}
+
+    template <typename E2>
+    void operator=(E2&& aValue) {
+      mArray.AppendElement(std::forward<E2>(aValue));
+    }
+  };
 
  public:
-  explicit nsTArrayBackInserter(nsTArray<T>& aArray) : mArray{&aArray} {}
+  explicit nsTArrayBackInserter(ArrayT& aArray) : mArray{&aArray} {}
 
-  nsTArrayBackInserter& operator=(const T& aValue) {
-    mArray->AppendElement(aValue);
-    return *this;
-  }
-
-  nsTArrayBackInserter& operator=(T&& aValue) {
-    mArray->AppendElement(std::move(aValue));
-    return *this;
-  }
-
-  nsTArrayBackInserter& operator*() { return *this; }
+  // Return a proxy so that nsTArrayBackInserter has the default special member
+  // functions, and the operator= template is defined in Proxy rather than this
+  // class (which otherwise breaks with recent MS STL versions).
+  // See also Bug 1331137, comment 11.
+  Proxy operator*() { return Proxy(*mArray); }
 
   nsTArrayBackInserter& operator++() { return *this; }
   nsTArrayBackInserter& operator++(int) { return *this; }
 };
 
-template <typename T>
-auto MakeBackInserter(nsTArray<T>& aArray) {
-  return nsTArrayBackInserter<T>{aArray};
+template <typename E>
+auto MakeBackInserter(nsTArray<E>& aArray) {
+  return nsTArrayBackInserter<E, nsTArray<E>>{aArray};
 }
 
 template <typename E, class Alloc>
@@ -3004,21 +3022,23 @@ Span(const nsTArray_Impl<E, Alloc>&) -> Span<const E>;
 // Provides a view on a nsTArray through which the existing array elements can
 // be accessed in a non-const way, but the array itself cannot be modified, so
 // that references to elements are guaranteed to be stable.
-template <typename T>
+template <typename E>
 class nsTArrayView {
  public:
-  using element_type = T;
+  using element_type = E;
   using pointer = element_type*;
   using reference = element_type&;
-  using index_type = typename Span<T>::index_type;
-  using size_type = typename Span<T>::index_type;
+  using index_type = typename Span<element_type>::index_type;
+  using size_type = typename Span<element_type>::index_type;
 
-  explicit nsTArrayView(nsTArray<T> aArray)
+  explicit nsTArrayView(nsTArray<element_type> aArray)
       : mArray(std::move(aArray)), mSpan(mArray) {}
 
-  T& operator[](index_type aIndex) { return mSpan[aIndex]; }
+  element_type& operator[](index_type aIndex) { return mSpan[aIndex]; }
 
-  const T& operator[](index_type aIndex) const { return mSpan[aIndex]; }
+  const element_type& operator[](index_type aIndex) const {
+    return mSpan[aIndex];
+  }
 
   size_type Length() const { return mSpan.Length(); }
 
@@ -3029,13 +3049,52 @@ class nsTArrayView {
   auto cbegin() const { return mSpan.cbegin(); }
   auto cend() const { return mSpan.cend(); }
 
-  Span<T> AsSpan() { return mSpan; }
-  Span<const T> AsSpan() const { return mSpan; }
+  Span<element_type> AsSpan() { return mSpan; }
+  Span<const element_type> AsSpan() const { return mSpan; }
 
  private:
-  nsTArray<T> mArray;
-  const Span<T> mSpan;
+  nsTArray<element_type> mArray;
+  const Span<element_type> mSpan;
 };
+
+template <typename Range, typename = std::enable_if_t<std::is_same_v<
+                              typename std::iterator_traits<
+                                  typename Range::iterator>::iterator_category,
+                              std::random_access_iterator_tag>>>
+auto RangeSize(const Range& aRange) {
+  // See https://en.cppreference.com/w/cpp/iterator/begin, section 'User-defined
+  // overloads'.
+  using std::begin;
+  using std::end;
+
+  return std::distance(begin(aRange), end(aRange));
+}
+
+/**
+ * Materialize a range as a nsTArray (or a compatible variant, like AutoTArray)
+ * of an explicitly specified type. The array value type must be implicitly
+ * convertible from the range's value type.
+ */
+template <typename Array, typename Range>
+auto ToTArray(const Range& aRange) {
+  using std::begin;
+  using std::end;
+
+  Array res;
+  res.SetCapacity(RangeSize(aRange));
+  std::copy(begin(aRange), end(aRange), MakeBackInserter(res));
+  return res;
+}
+
+/**
+ * Materialize a range as a nsTArray of its (decayed) value type.
+ */
+template <typename Range>
+auto ToArray(const Range& aRange) {
+  return ToTArray<nsTArray<std::decay_t<
+      typename std::iterator_traits<typename Range::iterator>::value_type>>>(
+      aRange);
+}
 
 }  // namespace mozilla
 

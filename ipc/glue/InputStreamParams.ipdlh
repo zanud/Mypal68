@@ -7,8 +7,7 @@ include ProtocolTypes;
 include protocol PChildToParentStream;
 include protocol PParentToChildStream;
 
-using struct mozilla::void_t
-  from "ipc/IPCMessageUtils.h";
+using struct mozilla::void_t from "mozilla/ipc/IPCCore.h";
 
 namespace mozilla {
 namespace ipc {
@@ -48,7 +47,7 @@ struct SlicedInputStreamParams
   bool closed;
 };
 
-struct IPCBlobInputStreamParams
+struct RemoteLazyInputStreamParams
 {
   nsID id;
   uint64_t start;
@@ -82,7 +81,7 @@ union InputStreamParams
   MIMEInputStreamParams;
   MultiplexInputStreamParams;
   SlicedInputStreamParams;
-  IPCBlobInputStreamParams;
+  RemoteLazyInputStreamParams;
   InputStreamLengthWrapperParams;
   IPCRemoteStreamParams;
 };

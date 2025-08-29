@@ -1337,18 +1337,14 @@ this.TimeInputImplWidget = class extends DateTimeInputBaseImplWidget {
       return {};
     }
 
-    let amString, pmString;
-    let keys = [
-      "dates/gregorian/dayperiods/am",
-      "dates/gregorian/dayperiods/pm",
-    ];
-
     let result = intlUtils.getDisplayNames(this.mLocales, {
+      type: "dayPeriod",
       style: "short",
-      keys,
+      calendar: "gregory",
+      keys: ["am", "pm"],
     });
 
-    [amString, pmString] = keys.map(key => result.values[key]);
+    let [amString, pmString] = result.values;
 
     return { amString, pmString };
   }

@@ -178,41 +178,41 @@ enum class BailoutKind : uint8_t {
 inline const char* BailoutKindString(BailoutKind kind) {
   switch (kind) {
     case BailoutKind::Unknown:
-      return "BailoutKind::Unknown";
+      return "Unknown";
     case BailoutKind::TranspiledCacheIR:
-      return "BailoutKind::TranspiledCacheIR";
+      return "TranspiledCacheIR";
     case BailoutKind::SpeculativePhi:
-      return "BailoutKind::SpeculativePhi";
+      return "SpeculativePhi";
     case BailoutKind::TypePolicy:
-      return "BailoutKind::TypePolicy";
+      return "TypePolicy";
     case BailoutKind::LICM:
-      return "BailoutKind::LICM";
+      return "LICM";
     case BailoutKind::InstructionReordering:
-      return "BailoutKind::InstructionReordering";
+      return "InstructionReordering";
     case BailoutKind::HoistBoundsCheck:
-      return "BailoutKind::HoistBoundsCheck";
+      return "HoistBoundsCheck";
     case BailoutKind::EagerTruncation:
-      return "BailoutKind::EagerTruncation";
+      return "EagerTruncation";
     case BailoutKind::UnboxFolding:
-      return "BailoutKind::UnboxFolding";
+      return "UnboxFolding";
     case BailoutKind::Inevitable:
-      return "BailoutKind::Inevitable";
+      return "Inevitable";
     case BailoutKind::DuringVMCall:
-      return "BailoutKind::DuringVMCall";
+      return "DuringVMCall";
     case BailoutKind::TooManyArguments:
-      return "BailoutKind::TooManyArguments";
+      return "TooManyArguments";
     case BailoutKind::Debugger:
-      return "BailoutKind::Debugger";
+      return "Debugger";
     case BailoutKind::FirstExecution:
-      return "BailoutKind::FirstExecution";
+      return "FirstExecution";
     case BailoutKind::UninitializedLexical:
-      return "BailoutKind::UninitializedLexical";
+      return "UninitializedLexical";
     case BailoutKind::IonExceptionDebugMode:
-      return "BailoutKind::IonExceptionDebugMode";
+      return "IonExceptionDebugMode";
     case BailoutKind::OnStackInvalidation:
-      return "BailoutKind::OnStackInvalidation";
+      return "OnStackInvalidation";
     case BailoutKind::Unreachable:
-      return "BailoutKind::Unreachable";
+      return "Unreachable";
 
     case BailoutKind::Limit:
       break;

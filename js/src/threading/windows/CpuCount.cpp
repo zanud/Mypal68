@@ -4,7 +4,7 @@
 
 #include "threading/CpuCount.h"
 
-#include "util/Windows.h"
+#include "util/WindowsWrapper.h"
 
 uint32_t js::GetCPUCount() {
   static uint32_t ncpus = 0;

@@ -9,6 +9,7 @@
 
 #include "mozilla/Types.h"
 
+#include <type_traits>
 #include <utility>
 
 /*
@@ -19,23 +20,6 @@
 
 namespace mozilla {
 
-/* 20.9.3 Helper classes [meta.help] */
-
-/**
- * Helper class used as a base for various type traits, exposed publicly
- * because <type_traits> exposes it as well.
- */
-template <typename T, T Value>
-struct IntegralConstant {
-  static constexpr T value = Value;
-  typedef T ValueType;
-  typedef IntegralConstant<T, Value> Type;
-};
-
-/** Convenient aliases. */
-typedef IntegralConstant<bool, true> TrueType;
-typedef IntegralConstant<bool, false> FalseType;
-
 /* 20.9.4 Unary type traits [meta.unary] */
 
 /* 20.9.4.3 Type properties [meta.unary.prop] */
@@ -43,56 +27,56 @@ typedef IntegralConstant<bool, false> FalseType;
 /**
  * Traits class for identifying POD types.  Until C++11 there's no automatic
  * way to detect PODs, so for the moment this is done manually.  Users may
- * define specializations of this class that inherit from mozilla::TrueType and
- * mozilla::FalseType (or equivalently mozilla::IntegralConstant<bool, true or
+ * define specializations of this class that inherit from std::true_type and
+ * std::false_type (or equivalently std::integral_constant<bool, true or
  * false>, or conveniently from mozilla::IsPod for composite types) as needed to
  * ensure correct IsPod behavior.
  */
 template <typename T>
-struct IsPod : public FalseType {};
+struct IsPod : public std::false_type {};
 
 template <>
-struct IsPod<char> : TrueType {};
+struct IsPod<char> : std::true_type {};
 template <>
-struct IsPod<signed char> : TrueType {};
+struct IsPod<signed char> : std::true_type {};
 template <>
-struct IsPod<unsigned char> : TrueType {};
+struct IsPod<unsigned char> : std::true_type {};
 template <>
-struct IsPod<short> : TrueType {};
+struct IsPod<short> : std::true_type {};
 template <>
-struct IsPod<unsigned short> : TrueType {};
+struct IsPod<unsigned short> : std::true_type {};
 template <>
-struct IsPod<int> : TrueType {};
+struct IsPod<int> : std::true_type {};
 template <>
-struct IsPod<unsigned int> : TrueType {};
+struct IsPod<unsigned int> : std::true_type {};
 template <>
-struct IsPod<long> : TrueType {};
+struct IsPod<long> : std::true_type {};
 template <>
-struct IsPod<unsigned long> : TrueType {};
+struct IsPod<unsigned long> : std::true_type {};
 template <>
-struct IsPod<long long> : TrueType {};
+struct IsPod<long long> : std::true_type {};
 template <>
-struct IsPod<unsigned long long> : TrueType {};
+struct IsPod<unsigned long long> : std::true_type {};
 template <>
-struct IsPod<bool> : TrueType {};
+struct IsPod<bool> : std::true_type {};
 template <>
-struct IsPod<float> : TrueType {};
+struct IsPod<float> : std::true_type {};
 template <>
-struct IsPod<double> : TrueType {};
+struct IsPod<double> : std::true_type {};
 template <>
-struct IsPod<wchar_t> : TrueType {};
+struct IsPod<wchar_t> : std::true_type {};
 template <>
-struct IsPod<char16_t> : TrueType {};
+struct IsPod<char16_t> : std::true_type {};
 template <typename T>
-struct IsPod<T*> : TrueType {};
+struct IsPod<T*> : std::true_type {};
 
 namespace detail {
 
 struct DoIsDestructibleImpl {
   template <typename T, typename = decltype(std::declval<T&>().~T())>
-  static TrueType test(int);
+  static std::true_type test(int);
   template <typename T>
-  static FalseType test(...);
+  static std::false_type test(...);
 };
 
 template <typename T>
@@ -115,26 +99,6 @@ struct IsDestructibleImpl : public DoIsDestructibleImpl {
  */
 template <typename T>
 struct IsDestructible : public detail::IsDestructibleImpl<T>::Type {};
-
-/* 20.9.5 Type property queries [meta.unary.prop.query] */
-
-/* 20.9.6 Relationships between types [meta.rel] */
-
-/**
- * IsSame tests whether two types are the same type.
- *
- * mozilla::IsSame<int, int>::value is true;
- * mozilla::IsSame<int*, int*>::value is true;
- * mozilla::IsSame<int, unsigned int>::value is false;
- * mozilla::IsSame<void, void>::value is true;
- * mozilla::IsSame<const int, int>::value is false;
- * mozilla::IsSame<struct S, struct S>::value is true.
- */
-template <typename T, typename U>
-struct IsSame : FalseType {};
-
-template <typename T>
-struct IsSame<T, T> : TrueType {};
 
 } /* namespace mozilla */
 

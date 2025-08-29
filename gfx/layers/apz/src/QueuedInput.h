@@ -15,6 +15,7 @@ class MultiTouchInput;
 class ScrollWheelInput;
 class MouseInput;
 class PanGestureInput;
+class PinchGestureInput;
 class KeyboardInput;
 
 namespace layers {
@@ -24,6 +25,7 @@ class TouchBlockState;
 class WheelBlockState;
 class DragBlockState;
 class PanGestureBlockState;
+class PinchGestureBlockState;
 class KeyboardBlockState;
 
 /**

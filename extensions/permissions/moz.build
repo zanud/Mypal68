@@ -13,7 +13,6 @@ EXPORTS += [
 ]
 
 UNIFIED_SOURCES += [
-    'nsContentBlocker.cpp',
     'nsPermission.cpp',
     'nsPermissionManager.cpp',
     'PermissionDelegateHandler.cpp',

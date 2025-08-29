@@ -83,6 +83,7 @@
 #include "mozilla/dom/PeerConnectionImplBinding.h"
 #include "mozilla/dom/RTCDataChannelBinding.h"
 #include "mozilla/dom/PluginCrashedEvent.h"
+#include "mozilla/dom/Promise.h" //MY
 #include "MediaStreamTrack.h"
 #include "AudioStreamTrack.h"
 #include "VideoStreamTrack.h"

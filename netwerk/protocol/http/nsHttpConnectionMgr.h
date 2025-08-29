@@ -409,8 +409,7 @@ class nsHttpConnectionMgr final : public nsIObserver, public AltSvcCache {
     NS_DECL_NSINAMED
 
     nsHalfOpenSocket(nsConnectionEntry* ent, nsAHttpTransaction* trans,
-                     uint32_t caps, bool speculative, bool isFromPredictor,
-                     bool urgentStart);
+                     uint32_t caps, bool speculative, bool urgentStart);
 
     MOZ_MUST_USE nsresult SetupStreams(nsISocketTransport**,
                                        nsIAsyncInputStream**,
@@ -427,8 +426,6 @@ class nsHttpConnectionMgr final : public nsIObserver, public AltSvcCache {
     nsAHttpTransaction* Transaction() { return mTransaction; }
 
     bool IsSpeculative() { return mSpeculative; }
-
-    bool IsFromPredictor() { return mIsFromPredictor; }
 
     bool Allow1918() { return mAllow1918; }
     void SetAllow1918(bool val) { mAllow1918 = val; }
@@ -479,11 +476,6 @@ class nsHttpConnectionMgr final : public nsIObserver, public AltSvcCache {
     // If created with a non-null urgent transaction, remember it, so we can
     // mark the connection as urgent rightaway it's created.
     bool mUrgentStart;
-
-    // mIsFromPredictor is set if the socket originated from the network
-    // Predictor. It is used to gather telemetry data on used speculative
-    // connections from the predictor.
-    bool mIsFromPredictor;
 
     bool mAllow1918;
 
@@ -615,10 +607,9 @@ class nsHttpConnectionMgr final : public nsIObserver, public AltSvcCache {
   MOZ_MUST_USE nsresult ProcessNewTransaction(nsHttpTransaction*);
   MOZ_MUST_USE nsresult EnsureSocketThreadTarget();
   void ClosePersistentConnections(nsConnectionEntry* ent);
-  void ReportProxyTelemetry(nsConnectionEntry* ent);
   MOZ_MUST_USE nsresult
   CreateTransport(nsConnectionEntry*, nsAHttpTransaction*, uint32_t, bool, bool,
-                  bool, bool, PendingTransactionInfo* pendingTransInfo);
+                  bool, PendingTransactionInfo* pendingTransInfo);
   void AddActiveConn(nsHttpConnection*, nsConnectionEntry*);
   void DecrementActiveConnCount(nsHttpConnection*);
   void StartedConnect();

@@ -47,7 +47,7 @@ class HttpBackgroundChannelParent final : public PHttpBackgroundChannelParent {
 
   // To send OnStopRequest message over background channel.
   bool OnStopRequest(const nsresult& aChannelStatus,
-                     const ResourceTimingStruct& aTiming,
+                     const ResourceTimingStructArgs& aTiming,
                      const nsHttpHeaderArray& aResponseTrailers);
 
   // To send FlushedForDiversion and DivertMessages messages

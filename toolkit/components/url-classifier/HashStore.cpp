@@ -951,14 +951,9 @@ nsresult HashStore::WriteFile() {
 
 template <class T>
 static void Erase(FallibleTArray<T>* array,
-                  typename nsTArray<T>::iterator& iterStart,
-                  typename nsTArray<T>::iterator& iterEnd) {
-  uint32_t start = iterStart - array->begin();
-  uint32_t count = iterEnd - iterStart;
-
-  if (count > 0) {
-    array->RemoveElementsAt(start, count);
-  }
+                  typename FallibleTArray<T>::iterator& iterStart,
+                  typename FallibleTArray<T>::iterator& iterEnd) {
+  array->RemoveElementsRange(iterStart, iterEnd);
 }
 
 // Find items matching between |subs| and |adds|, and remove them,

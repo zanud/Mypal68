@@ -204,7 +204,7 @@ BaseWebSocketChannel::InitLoadInfoNative(nsINode* aLoadingNode,
                                          nsIPrincipal* aTriggeringPrincipal,
                                          nsICookieSettings* aCookieSettings,
                                          uint32_t aSecurityFlags,
-                                         uint32_t aContentPolicyType) {
+                                         nsContentPolicyType aContentPolicyType) {
   mLoadInfo = new LoadInfo(aLoadingPrincipal, aTriggeringPrincipal,
                            aLoadingNode, aSecurityFlags, aContentPolicyType);
   if (aCookieSettings) {
@@ -218,7 +218,7 @@ BaseWebSocketChannel::InitLoadInfo(nsINode* aLoadingNode,
                                    nsIPrincipal* aLoadingPrincipal,
                                    nsIPrincipal* aTriggeringPrincipal,
                                    uint32_t aSecurityFlags,
-                                   uint32_t aContentPolicyType) {
+                                   nsContentPolicyType aContentPolicyType) {
   return InitLoadInfoNative(aLoadingNode, aLoadingPrincipal,
                             aTriggeringPrincipal, nullptr, aSecurityFlags,
                             aContentPolicyType);

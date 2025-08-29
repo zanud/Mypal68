@@ -540,10 +540,10 @@ nsresult nsTypeAheadFind::FindItNow(bool aIsLinksOnly,
           nsCOMPtr<nsIEditor> editor;
           if (RefPtr<HTMLInputElement> input =
                   HTMLInputElement::FromNode(node)) {
-            editor = input->GetEditor();
+            editor = input->GetTextEditor();
           } else if (RefPtr<HTMLTextAreaElement> textarea =
                          HTMLTextAreaElement::FromNode(node)) {
-            editor = textarea->GetEditor();
+            editor = textarea->GetTextEditor();
           } else {
             node = node->GetParentNode();
             continue;
@@ -1412,9 +1412,9 @@ bool nsTypeAheadFind::IsRangeRendered(nsRange* aRange) {
     // Append visible frames to frames array.
     nsLayoutUtils::GetFramesForArea(
         RelativeTo{rootFrame}, r, frames,
-        {FrameForPointOption::IgnorePaintSuppression,
-         FrameForPointOption::IgnoreRootScrollFrame,
-         FrameForPointOption::OnlyVisible});
+        {{FrameForPointOption::IgnorePaintSuppression,
+          FrameForPointOption::IgnoreRootScrollFrame,
+          FrameForPointOption::OnlyVisible}});
 
     // See if any of the frames contain the content. If they do, then the range
     // is visible. We search for the content rather than the original frame,

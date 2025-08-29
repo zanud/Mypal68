@@ -114,11 +114,11 @@ this.geckoProfiler = class extends ExtensionAPI {
         },
 
         async pause() {
-          Services.profiler.PauseSampling();
+          Services.profiler.Pause();
         },
 
         async resume() {
-          Services.profiler.ResumeSampling();
+          Services.profiler.Resume();
         },
 
         async dumpProfileToFile(fileName) {

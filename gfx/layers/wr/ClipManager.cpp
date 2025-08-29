@@ -10,6 +10,7 @@
 #include "mozilla/layers/StackingContextHelper.h"
 #include "mozilla/layers/WebRenderLayerManager.h"
 #include "mozilla/webrender/WebRenderAPI.h"
+#include "nsIScrollableFrame.h" //MY
 #include "nsDisplayList.h"
 #include "nsStyleStructInlines.h"
 #include "UnitTransforms.h"

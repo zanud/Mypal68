@@ -614,7 +614,8 @@ class AsyncFaviconDataReady final : public nsIFaviconDataCallback {
   NS_DECL_NSIFAVICONDATACALLBACK
 
   AsyncFaviconDataReady(nsIURI* aNewURI, nsCOMPtr<nsIThread>& aIOThread,
-                        const bool aURLShortcut);
+                        const bool aURLShortcut,
+                        already_AddRefed<nsIRunnable> aRunnable);
   nsresult OnFaviconDataNotAvailable(void);
 
  private:
@@ -622,6 +623,7 @@ class AsyncFaviconDataReady final : public nsIFaviconDataCallback {
 
   nsCOMPtr<nsIURI> mNewURI;
   nsCOMPtr<nsIThread> mIOThread;
+  nsCOMPtr<nsIRunnable> mRunnable;
   const bool mURLShortcut;
 };
 #endif
@@ -631,7 +633,6 @@ class AsyncFaviconDataReady final : public nsIFaviconDataCallback {
  */
 class AsyncEncodeAndWriteIcon : public nsIRunnable {
  public:
-  const bool mURLShortcut;
   NS_DECL_THREADSAFE_ISUPPORTS
   NS_DECL_NSIRUNNABLE
 
@@ -640,13 +641,14 @@ class AsyncEncodeAndWriteIcon : public nsIRunnable {
   AsyncEncodeAndWriteIcon(const nsAString& aIconPath,
                           UniquePtr<uint8_t[]> aData, uint32_t aStride,
                           uint32_t aWidth, uint32_t aHeight,
-                          const bool aURLShortcut);
+                          already_AddRefed<nsIRunnable> aRunnable);
 
  private:
   virtual ~AsyncEncodeAndWriteIcon();
 
   nsAutoString mIconPath;
   UniquePtr<uint8_t[]> mBuffer;
+  nsCOMPtr<nsIRunnable> mRunnable;
   uint32_t mStride;
   uint32_t mWidth;
   uint32_t mHeight;
@@ -671,10 +673,10 @@ class FaviconHelper {
  public:
   static const char kJumpListCacheDir[];
   static const char kShortcutCacheDir[];
-  static nsresult ObtainCachedIconFile(nsCOMPtr<nsIURI> aFaviconPageURI,
-                                       nsString& aICOFilePath,
-                                       nsCOMPtr<nsIThread>& aIOThread,
-                                       bool aURLShortcut);
+  static nsresult ObtainCachedIconFile(
+      nsCOMPtr<nsIURI> aFaviconPageURI, nsString& aICOFilePath,
+      nsCOMPtr<nsIThread>& aIOThread, bool aURLShortcut,
+      already_AddRefed<nsIRunnable> aRunnable = nullptr);
 
   static nsresult HashURI(nsCOMPtr<nsICryptoHash>& aCryptoHash, nsIURI* aUri,
                           nsACString& aUriHash);
@@ -685,7 +687,8 @@ class FaviconHelper {
 
   static nsresult CacheIconFileFromFaviconURIAsync(
       nsCOMPtr<nsIURI> aFaviconPageURI, nsCOMPtr<nsIFile> aICOFile,
-      nsCOMPtr<nsIThread>& aIOThread, bool aURLShortcut);
+      nsCOMPtr<nsIThread>& aIOThread, bool aURLShortcut,
+      already_AddRefed<nsIRunnable> aRunnable);
 
   static int32_t GetICOCacheSecondsTimeout();
 };

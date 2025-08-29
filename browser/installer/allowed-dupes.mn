@@ -16,10 +16,8 @@ browser/chrome/browser/content/branding/icon32.png
 browser/chrome/browser/content/branding/icon48.png
 browser/chrome/browser/content/branding/icon64.png
 browser/chrome/browser/content/browser/defaultthemes/5.header.png
-browser/chrome/browser/content/browser/extension.svg
-browser/chrome/browser/content/browser/places/bookmarkProperties.xul
-browser/chrome/browser/content/browser/places/bookmarkProperties2.xul
-browser/chrome/browser/skin/classic/browser/addons/addon-install-confirm.svg
+browser/chrome/browser/content/browser/places/bookmarkProperties.xhtml
+browser/chrome/browser/content/browser/places/bookmarkProperties2.xhtml
 browser/chrome/browser/skin/classic/browser/connection-secure.svg
 browser/chrome/browser/skin/classic/browser/controlcenter/warning-gray.svg
 # devtools reduction is bug 1311178
@@ -74,6 +72,7 @@ browser/chrome/pdfjs/content/web/images/findbarButton-previous-rtl@2x.png
 browser/chrome/pdfjs/content/web/images/findbarButton-previous.png
 browser/chrome/pdfjs/content/web/images/findbarButton-previous@2x.png
 chrome.manifest
+chrome/toolkit/skin/classic/global/arrowscrollbox.css
 chrome/toolkit/skin/classic/global/autocomplete.css
 chrome/toolkit/skin/classic/global/button.css
 chrome/toolkit/skin/classic/global/checkbox.css
@@ -89,10 +88,9 @@ chrome/toolkit/skin/classic/global/preferences.css
 chrome/toolkit/skin/classic/global/radio.css
 chrome/toolkit/skin/classic/global/richlistbox.css
 chrome/toolkit/skin/classic/global/scrollbars.css
-chrome/toolkit/skin/classic/global/scrollbox.css
+chrome/toolkit/skin/classic/global/search-textbox.css
 chrome/toolkit/skin/classic/global/splitter.css
 chrome/toolkit/skin/classic/global/tabbox.css
-chrome/toolkit/skin/classic/global/textbox.css
 chrome/toolkit/skin/classic/global/toolbar.css
 chrome/toolkit/skin/classic/global/toolbarbutton.css
 chrome/toolkit/skin/classic/global/tree.css

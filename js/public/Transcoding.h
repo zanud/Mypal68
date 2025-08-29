@@ -23,7 +23,7 @@ namespace JS {
 class ReadOnlyCompileOptions;
 
 using TranscodeBuffer = mozilla::Vector<uint8_t>;
-using TranscodeRange = mozilla::Range<uint8_t>;
+using TranscodeRange = mozilla::Range<const uint8_t>;
 
 struct TranscodeSource final {
   TranscodeSource(const TranscodeRange& range_, const char* file, uint32_t line)
@@ -79,7 +79,7 @@ inline bool IsTranscodingBytecodeOffsetAligned(size_t offset) {
   return offset % BytecodeOffsetAlignment == 0;
 }
 
-inline bool IsTranscodingBytecodeAligned(void* offset) {
+inline bool IsTranscodingBytecodeAligned(const void* offset) {
   return IsTranscodingBytecodeOffsetAligned(size_t(offset));
 }
 
@@ -185,7 +185,7 @@ extern JS_PUBLIC_API bool FinishIncrementalEncoding(JSContext* cx,
 //
 // JS::DecodeScript* and JS::DecodeOffThreadScript internally check this.
 //
-// JS::DecodeMultiOffThreadScripts checks some options shared across multiple
+// JS::DecodeMultiOffThreadStencils checks some options shared across multiple
 // scripts. Caller is responsible for checking each script with this API when
 // using the decoded script instead of compiling a new script wiht the given
 // options.

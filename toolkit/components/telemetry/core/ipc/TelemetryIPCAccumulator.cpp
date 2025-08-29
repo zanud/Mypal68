@@ -243,59 +243,6 @@ void TelemetryIPCAccumulator::RecordChildEvent(
 // Accumulate (which would deadlock)
 template <class TActor>
 static void SendAccumulatedData(TActor* ipcActor) {
-  // Get the accumulated data and free the storage buffers.
-  nsTArray<HistogramAccumulation> histogramsToSend;
-  nsTArray<KeyedHistogramAccumulation> keyedHistogramsToSend;
-  nsTArray<ScalarAction> scalarsToSend;
-  nsTArray<KeyedScalarAction> keyedScalarsToSend;
-  nsTArray<ChildEventData> eventsToSend;
-  DiscardedData discardedData;
-
-  {
-    StaticMutexAutoLock locker(gTelemetryIPCAccumulatorMutex);
-    if (gHistogramAccumulations) {
-      histogramsToSend = std::move(*gHistogramAccumulations);
-    }
-    if (gKeyedHistogramAccumulations) {
-      keyedHistogramsToSend = std::move(*gKeyedHistogramAccumulations);
-    }
-    if (gChildScalarsActions) {
-      scalarsToSend = std::move(*gChildScalarsActions);
-    }
-    if (gChildKeyedScalarsActions) {
-      keyedScalarsToSend = std::move(*gChildKeyedScalarsActions);
-    }
-    if (gChildEvents) {
-      eventsToSend = std::move(*gChildEvents);
-    }
-    discardedData = gDiscardedData;
-    gDiscardedData = {0};
-  }
-
-  // Send the accumulated data to the parent process.
-  MOZ_ASSERT(ipcActor);
-  if (histogramsToSend.Length()) {
-    mozilla::Unused << NS_WARN_IF(
-        !ipcActor->SendAccumulateChildHistograms(histogramsToSend));
-  }
-  if (keyedHistogramsToSend.Length()) {
-    mozilla::Unused << NS_WARN_IF(
-        !ipcActor->SendAccumulateChildKeyedHistograms(keyedHistogramsToSend));
-  }
-  if (scalarsToSend.Length()) {
-    mozilla::Unused << NS_WARN_IF(
-        !ipcActor->SendUpdateChildScalars(scalarsToSend));
-  }
-  if (keyedScalarsToSend.Length()) {
-    mozilla::Unused << NS_WARN_IF(
-        !ipcActor->SendUpdateChildKeyedScalars(keyedScalarsToSend));
-  }
-  if (eventsToSend.Length()) {
-    mozilla::Unused << NS_WARN_IF(
-        !ipcActor->SendRecordChildEvents(eventsToSend));
-  }
-  mozilla::Unused << NS_WARN_IF(
-      !ipcActor->SendRecordDiscardedData(discardedData));
 }
 
 // To ensure we don't loop IPCTimerFired->AccumulateChild->arm timer, we don't

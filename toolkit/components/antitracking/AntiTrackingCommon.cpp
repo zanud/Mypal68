@@ -2168,8 +2168,8 @@ void AntiTrackingCommon::RedirectHeuristic(nsIChannel* aOldChannel,
   nsCOMPtr<nsILoadInfo> newLoadInfo = aNewChannel->LoadInfo();
   MOZ_ASSERT(newLoadInfo);
 
-  nsContentPolicyType contentType = oldLoadInfo->GetExternalContentPolicyType();
-  if (contentType != nsIContentPolicy::TYPE_DOCUMENT ||
+  ExtContentPolicyType contentType = oldLoadInfo->GetExternalContentPolicyType();
+  if (contentType != ExtContentPolicyType::TYPE_DOCUMENT ||
       !aOldChannel->IsDocument()) {
     LOG_SPEC(("Ignoring redirect for %s because it's not a document", _spec),
              aOldURI);

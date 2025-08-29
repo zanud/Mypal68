@@ -255,7 +255,7 @@ nsresult nsBaseChannel::BeginPumpingData() {
 
   mPumpingData = true;
   mRequest = mPump;
-  rv = mPump->AsyncRead(this, nullptr);
+  rv = mPump->AsyncRead(this);
   if (NS_FAILED(rv)) {
     return rv;
   }

@@ -14,7 +14,6 @@
 #include "mozilla/Preferences.h"
 #include "mozilla/PublicSSL.h"
 #include "mozilla/Services.h"
-#include "mozilla/Telemetry.h"
 #include "nsASocketHandler.h"
 #include "nsError.h"
 #include "nsIFile.h"
@@ -314,16 +313,8 @@ nsSocketTransportService::AttachSocket(PRFileDesc* fd,
 // call CanAttachSocket and check the result before creating a socket.
 
 bool nsSocketTransportService::CanAttachSocket() {
-  static bool reported900FDLimit = false;
-
   uint32_t total = mActiveCount + mIdleCount;
   bool rv = total < gMaxCount;
-
-  if (Telemetry::CanRecordPrereleaseData() &&
-      (((total >= 900) || !rv) && !reported900FDLimit)) {
-    reported900FDLimit = true;
-    Telemetry::Accumulate(Telemetry::NETWORK_SESSION_AT_900FD, true);
-  }
 
   return rv;
 }
@@ -531,13 +522,11 @@ PRIntervalTime nsSocketTransportService::PollTimeout(PRIntervalTime now) {
   return minR;
 }
 
-int32_t nsSocketTransportService::Poll(TimeDuration* pollDuration,
-                                       PRIntervalTime ts) {
+int32_t nsSocketTransportService::Poll(PRIntervalTime ts) {
   MOZ_ASSERT(IsOnCurrentThread());
   PRPollDesc* pollList;
   uint32_t pollCount;
   PRIntervalTime pollTimeout;
-  *pollDuration = nullptr;
 
   // If there are pending events for this thread then
   // DoPollIteration() should service the network without blocking.
@@ -570,11 +559,6 @@ int32_t nsSocketTransportService::Poll(TimeDuration* pollDuration,
     }
   }
 
-  TimeStamp pollStart;
-  if (Telemetry::CanRecordPrereleaseData()) {
-    pollStart = TimeStamp::NowLoRes();
-  }
-
   SOCKET_LOG(("    timeout = %i milliseconds\n",
               PR_IntervalToMilliseconds(pollTimeout)));
 
@@ -588,10 +572,6 @@ int32_t nsSocketTransportService::Poll(TimeDuration* pollDuration,
     }
     return PR_Poll(pollList, pollCount, pollTimeout);
   }();
-
-  if (Telemetry::CanRecordPrereleaseData() && !pollStart.IsNull()) {
-    *pollDuration = TimeStamp::NowLoRes() - pollStart;
-  }
 
   SOCKET_LOG(("    ...returned after %i milliseconds\n",
               PR_IntervalToMilliseconds(PR_IntervalNow() - ts)));
@@ -986,32 +966,8 @@ nsSocketTransportService::Run() {
   // make sure the pseudo random number generator is seeded on this thread
   srand(static_cast<unsigned>(PR_Now()));
 
-  // For the calculation of the duration of the last cycle (i.e. the last
-  // for-loop iteration before shutdown).
-  TimeStamp startOfCycleForLastCycleCalc;
-
-  // For measuring of the poll iteration duration without time spent blocked
-  // in poll().
-  TimeStamp pollCycleStart;
-  // Time blocked in poll().
-  TimeDuration singlePollDuration;
-
-  // For calculating the time needed for a new element to run.
-  TimeStamp startOfIteration;
-  TimeStamp startOfNextIteration;
-
-  // If there is too many pending events queued, we will run some poll()
-  // between them and the following variable is cumulative time spent
-  // blocking in poll().
-  TimeDuration pollDuration;
-
   for (;;) {
     bool pendingEvents = false;
-    if (Telemetry::CanRecordPrereleaseData()) {
-      startOfCycleForLastCycleCalc = TimeStamp::NowLoRes();
-      startOfNextIteration = TimeStamp::NowLoRes();
-    }
-    pollDuration = nullptr;
     // We pop out to this loop when there are no pending events.
     // If we don't reset these, we may not re-enter ProcessNextEvent()
     // until we have events to process, and it may seem like we have
@@ -1019,20 +975,7 @@ nsSocketTransportService::Run() {
     mRawThread->SetRunningEventDelay(TimeDuration(), TimeStamp());
 
     do {
-      if (Telemetry::CanRecordPrereleaseData()) {
-        pollCycleStart = TimeStamp::NowLoRes();
-      }
-
-      DoPollIteration(&singlePollDuration);
-
-      if (Telemetry::CanRecordPrereleaseData() && !pollCycleStart.IsNull()) {
-        Telemetry::Accumulate(Telemetry::STS_POLL_BLOCK_TIME,
-                              singlePollDuration.ToMilliseconds());
-        Telemetry::AccumulateTimeDelta(Telemetry::STS_POLL_CYCLE,
-                                       pollCycleStart + singlePollDuration,
-                                       TimeStamp::NowLoRes());
-        pollDuration += singlePollDuration;
-      }
+      DoPollIteration();
 
       mRawThread->HasPendingEvents(&pendingEvents);
       if (pendingEvents) {
@@ -1051,15 +994,6 @@ nsSocketTransportService::Run() {
           } else {
             mServingPendingQueue = true;
           }
-
-          if (Telemetry::CanRecordPrereleaseData()) {
-            startOfIteration = startOfNextIteration;
-            // Everything that comes after this point will
-            // be served in the next iteration. If no even
-            // arrives, startOfNextIteration will be reset at the
-            // beginning of each for-loop.
-            startOfNextIteration = TimeStamp::NowLoRes();
-          }
         }
         TimeStamp eventQueueStart = TimeStamp::NowLoRes();
         do {
@@ -1069,26 +1003,12 @@ nsSocketTransportService::Run() {
         } while (pendingEvents && mServingPendingQueue &&
                  ((TimeStamp::NowLoRes() - eventQueueStart).ToMilliseconds() <
                   mMaxTimePerPollIter));
-
-        if (Telemetry::CanRecordPrereleaseData() && !mServingPendingQueue &&
-            !startOfIteration.IsNull()) {
-          Telemetry::AccumulateTimeDelta(Telemetry::STS_POLL_AND_EVENTS_CYCLE,
-                                         startOfIteration + pollDuration,
-                                         TimeStamp::NowLoRes());
-          pollDuration = nullptr;
-        }
       }
     } while (pendingEvents);
 
     bool goingOffline = false;
     // now that our event queue is empty, check to see if we should exit
     if (mShuttingDown) {
-      if (Telemetry::CanRecordPrereleaseData() &&
-          !startOfCycleForLastCycleCalc.IsNull()) {
-        Telemetry::AccumulateTimeDelta(
-            Telemetry::STS_POLL_AND_EVENT_THE_LAST_CYCLE,
-            startOfCycleForLastCycleCalc, TimeStamp::NowLoRes());
-      }
       break;
     }
     {
@@ -1144,7 +1064,7 @@ void nsSocketTransportService::Reset(bool aGuardLocals) {
   }
 }
 
-nsresult nsSocketTransportService::DoPollIteration(TimeDuration* pollDuration) {
+nsresult nsSocketTransportService::DoPollIteration() {
   SOCKET_LOG(("STS poll iter\n"));
 
   PRIntervalTime now = PR_IntervalNow();
@@ -1221,14 +1141,13 @@ nsresult nsSocketTransportService::DoPollIteration(TimeDuration* pollDuration) {
 
   // Measures seconds spent while blocked on PR_Poll
   int32_t n = 0;
-  *pollDuration = nullptr;
 
   if (!gIOService->IsNetTearingDown()) {
     // Let's not do polling during shutdown.
 #if defined(XP_WIN)
     StartPolling();
 #endif
-    n = Poll(pollDuration, now);
+    n = Poll(now);
 #if defined(XP_WIN)
     EndPolling();
 #endif
@@ -1577,7 +1496,6 @@ void nsSocketTransportService::ProbeMaxCount() {
   for (uint32_t index = 0; index < numAllocated; ++index)
     if (pfd[index].fd) PR_Close(pfd[index].fd);
 
-  Telemetry::Accumulate(Telemetry::NETWORK_PROBE_MAXCOUNT, gMaxCount);
   SOCKET_LOG(("Socket Limit Test max was confirmed at %d\n", gMaxCount));
 }
 #endif  // windows
@@ -1677,10 +1595,6 @@ void nsSocketTransportService::GetSocketConnections(
     AnalyzeConnection(data, &mActiveList[i], true);
   for (uint32_t i = 0; i < mIdleCount; i++)
     AnalyzeConnection(data, &mIdleList[i], false);
-}
-
-bool nsSocketTransportService::IsTelemetryEnabledAndNotSleepPhase() {
-  return Telemetry::CanRecordPrereleaseData() && !mSleepPhase;
 }
 
 #if defined(XP_WIN)

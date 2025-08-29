@@ -50,11 +50,7 @@ function isSupportedPlatform(state = null, action) {
 // Right now all recording setting the defaults are reset every time the panel
 // is opened. These should be persisted between sessions. See Bug 1453014.
 
-/**
- * The setting for the recording interval. Defaults to 1ms.
- * @param {number} state
- */
-function interval(state = 1000, action) {
+function interval(state = 1, action) {
   switch (action.type) {
     case "CHANGE_INTERVAL":
       return action.interval;
@@ -65,11 +61,7 @@ function interval(state = 1000, action) {
   }
 }
 
-/**
- * The number of entries in the profiler's circular buffer. Defaults to 90mb.
- * @param {number} state
- */
-function entries(state = 10000000, action) {
+function entries(state = 0, action) {
   switch (action.type) {
     case "CHANGE_ENTRIES":
       return action.entries;
@@ -80,11 +72,7 @@ function entries(state = 10000000, action) {
   }
 }
 
-/**
- * The features that are enabled for the profiler.
- * @param {array} state
- */
-function features(state = ["js", "stackwalk", "responsiveness"], action) {
+function features(state = [], action) {
   switch (action.type) {
     case "CHANGE_FEATURES":
       return action.features;
@@ -95,11 +83,7 @@ function features(state = ["js", "stackwalk", "responsiveness"], action) {
   }
 }
 
-/**
- * The current threads list.
- * @param {array of strings} state
- */
-function threads(state = ["GeckoMain", "Compositor"], action) {
+function threads(state = [], action) {
   switch (action.type) {
     case "CHANGE_THREADS":
       return action.threads;
@@ -148,7 +132,17 @@ function initializedValues(state = null, action) {
         setRecordingPreferences: action.setRecordingPreferences,
         isPopup: Boolean(action.isPopup),
         getSymbolTableGetter: action.getSymbolTableGetter,
+        supportedFeatures: action.supportedFeatures,
       };
+    default:
+      return state;
+  }
+}
+
+function promptEnvRestart(state = null, action) {
+  switch (action.type) {
+    case "CHANGE_FEATURES":
+      return action.promptEnvRestart;
     default:
       return state;
   }
@@ -164,4 +158,5 @@ module.exports = combineReducers({
   threads,
   objdirs,
   initializedValues,
+  promptEnvRestart,
 });

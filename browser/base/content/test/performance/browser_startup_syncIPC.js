@@ -224,7 +224,7 @@ const startupPhases = {
     },
     {
       name: "PCompositorBridge::Msg_FlushRendering",
-      condition: MAC,
+      condition: MAC || LINUX,
       ignoreIfUnused: true,
       maxCount: 1,
     },

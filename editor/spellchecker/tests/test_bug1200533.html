@@ -29,9 +29,10 @@ var tests = [
     // Result: Element language.
     [ "en-GB", "", "en-GB" ],
     [ "en-gb", "", "en-GB" ],
-    // Result: Random en-*.
+    // Result: Random en-* or en-US (if application locale is en-US).
     [ "en-ZA-not-avail", "", "*" ],
     [ "en-generic",      "", "*" ],
+    [ "en",              "", "*" ],
     // Result: Locale.
     [ "ko-not-avail",    "", "en-US" ],
 
@@ -102,6 +103,7 @@ function continueTest(evt) {
   var editor = SpecialPowers.wrap(elem).editor;
   editor.setSpellcheckUserOverride(true);
   var inlineSpellChecker = editor.getInlineSpellChecker(true);
+  const is_en_US = SpecialPowers.Services.locale.appLocaleAsBCP47 == "en-US";
 
   SpecialPowers.Cu.import(
     "resource://testing-common/AsyncSpellCheckTestHelper.jsm")

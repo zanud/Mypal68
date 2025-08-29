@@ -121,7 +121,9 @@ class nsRefreshDriver final : public mozilla::layers::TransactionIdAllocator,
    * refresh driver ticks.
    */
   void AddPostRefreshObserver(nsAPostRefreshObserver* aObserver);
+  void AddPostRefreshObserver(mozilla::ManagedPostRefreshObserver*) = delete;
   void RemovePostRefreshObserver(nsAPostRefreshObserver* aObserver);
+  void RemovePostRefreshObserver(mozilla::ManagedPostRefreshObserver*) = delete;
 
   /**
    * Add/Remove imgIRequest versions of observers.
@@ -405,7 +407,7 @@ class nsRefreshDriver final : public mozilla::layers::TransactionIdAllocator,
   void DispatchAnimationEvents();
   MOZ_CAN_RUN_SCRIPT
   void RunFrameRequestCallbacks(mozilla::TimeStamp aNowTime);
-  void UpdateIntersectionObservations();
+  void UpdateIntersectionObservations(mozilla::TimeStamp aNowTime);
   MOZ_CAN_RUN_SCRIPT_BOUNDARY
   void Tick(mozilla::VsyncId aId, mozilla::TimeStamp aNowTime);
 

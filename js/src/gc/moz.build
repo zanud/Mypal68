@@ -10,7 +10,6 @@ LOCAL_INCLUDES += ["!..", ".."]
 include("../js-config.mozbuild")
 include("../js-cxxflags.mozbuild")
 
-
 # Generate GC statistics phase data.
 GeneratedFile(
     "StatsPhasesGenerated.h",
@@ -27,9 +26,12 @@ UNIFIED_SOURCES += [
     "Allocator.cpp",
     "AtomMarking.cpp",
     "Barrier.cpp",
+    "Compacting.cpp",
     "FinalizationRegistry.cpp",
     "GC.cpp",
+    "GCAPI.cpp",
     "GCParallelTask.cpp",
+    "Heap.cpp",
     "Marking.cpp",
     "Memory.cpp",
     "Nursery.cpp",
@@ -38,6 +40,7 @@ UNIFIED_SOURCES += [
     "RootMarking.cpp",
     "Scheduling.cpp",
     "Statistics.cpp",
+    "Tenuring.cpp",
     "Tracer.cpp",
     "Verifier.cpp",
     "WeakMap.cpp",

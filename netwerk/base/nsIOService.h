@@ -81,9 +81,6 @@ class nsIOService final : public nsIIOService,
                                   nsAsyncRedirectVerifyHelper* helper);
 
   bool IsOffline() { return mOffline; }
-  PRIntervalTime LastOfflineStateChange() { return mLastOfflineStateChange; }
-  PRIntervalTime LastConnectivityChange() { return mLastConnectivityChange; }
-  PRIntervalTime LastNetworkLinkChange() { return mLastNetworkLinkChange; }
   bool IsNetTearingDown() {
     return mShutdown || mOfflineForProfileChange ||
            mHttpHandlerAlreadyShutingDown;
@@ -100,7 +97,6 @@ class nsIOService final : public nsIIOService,
   bool IsLinkUp();
 
   static bool IsDataURIUniqueOpaqueOrigin();
-  static bool BlockToplevelDataUriNavigations();
 
   // Converts an internal URI (e.g. one that has a username and password in
   // it) into one which we can expose to the user, for example on the URL bar.
@@ -174,7 +170,7 @@ class nsIOService final : public nsIIOService,
       nsIPrincipal* aTriggeringPrincipal,
       const mozilla::Maybe<mozilla::dom::ClientInfo>& aLoadingClientInfo,
       const mozilla::Maybe<mozilla::dom::ServiceWorkerDescriptor>& aController,
-      uint32_t aSecurityFlags, uint32_t aContentPolicyType,
+      uint32_t aSecurityFlags, nsContentPolicyType aContentPolicyType,
       nsIChannel** result);
 
   nsresult NewChannelFromURIWithProxyFlagsInternal(nsIURI* aURI,
@@ -195,9 +191,6 @@ class nsIOService final : public nsIIOService,
   mozilla::Atomic<bool, mozilla::Relaxed> mOfflineForProfileChange;
   bool mManageLinkStatus;
   bool mConnectivity;
-  // If true, the connectivity state will be mirrored by IOService.offline
-  // meaning if !mConnectivity, GetOffline() will return true
-  bool mOfflineMirrorsConnectivity;
 
   // Used to handle SetOffline() reentrancy.  See the comment in
   // SetOffline() for more details.
@@ -224,19 +217,9 @@ class nsIOService final : public nsIIOService,
 
   bool mNetworkNotifyChanged;
 
-  static bool sBlockToplevelDataUriNavigations;
-
   uint32_t mTotalRequests;
   uint32_t mCacheWon;
   uint32_t mNetWon;
-
-  // These timestamps are needed for collecting telemetry on PR_Connect,
-  // PR_ConnectContinue and PR_Close blocking time.  If we spend very long
-  // time in any of these functions we want to know if and what network
-  // change has happened shortly before.
-  mozilla::Atomic<PRIntervalTime> mLastOfflineStateChange;
-  mozilla::Atomic<PRIntervalTime> mLastConnectivityChange;
-  mozilla::Atomic<PRIntervalTime> mLastNetworkLinkChange;
 
   // Time a network tearing down started.
   mozilla::Atomic<PRIntervalTime> mNetTearingDownStarted;

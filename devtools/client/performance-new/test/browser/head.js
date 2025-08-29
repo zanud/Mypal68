@@ -4,6 +4,11 @@
 "use strict";
 
 /**
+ * Allow tests to use "require".
+ */
+const { require } = ChromeUtils.import("resource://devtools/shared/Loader.jsm");
+
+/**
  * Wait for a single requestAnimationFrame tick.
  */
 function tick() {
@@ -88,6 +93,7 @@ function getElementByXPath(document, path) {
  * is an async event.
  * @param {string} text
  * @param {number} maxTicks (optional)
+ * @returns {Promise<HTMLElement>}
  */
 async function getElementFromPopupByText(text) {
   const xpath = `//*[contains(text(), '${text}')]`;
@@ -98,6 +104,48 @@ async function getElementFromPopupByText(text) {
     }
     return null;
   }, `Trying to find the element with the text "${text}".`);
+}
+
+/**
+ * This function looks inside of a document for some element that contains
+ * the given text. It runs in a loop every requestAnimationFrame until it
+ * finds the element. If it doesn't find the element it throws an error.
+ *
+ * @param {HTMLDocument} document
+ * @param {string} text
+ * @returns {Promise<HTMLElement>}
+ */
+async function getElementFromDocumentByText(document, text) {
+  const xpath = `//*[contains(text(), '${text}')]`;
+  return waitUntil(
+    () => getElementByXPath(document, xpath),
+    `Trying to find the element with the text "${text}".`
+  );
+}
+/**
+ * This function is similar to getElementFromPopupByText, but it immediately
+ * returns and does not wait for an element to exist.
+ * @param {string} text
+ * @returns {HTMLElement?}
+ */
+function maybeGetElementFromPopupByText(text) {
+  info(`Immediately trying to find the element with the text "${text}".`);
+  const xpath = `//*[contains(text(), '${text}')]`;
+  return getElementByXPath(getIframeDocument(), xpath);
+}
+
+/**
+ * Returns the popup's document.
+ * @returns {Document}
+ */
+function getIframeDocument() {
+  const iframe = document.getElementById("PanelUI-profilerIframe");
+  if (!iframe) {
+    throw new Error(
+      "This function assumes the profiler iframe is already present."
+    );
+  }
+  return iframe.contentDocument;
 }
 
 /**
@@ -212,4 +260,124 @@ async function checkTabLoadedProfile({
         return false;
     }
   });
+}
+
+/**
+ * Close the popup, and wait for it to be destroyed.
+ */
+async function closePopup() {
+  const iframe = document.querySelector("#PanelUI-profilerIframe");
+
+  if (!iframe) {
+    throw new Error(
+      "Could not find the profiler iframe when attempting to close the popup. Was it " +
+        "already closed?"
+    );
+  }
+
+  const panel = iframe.closest("panel");
+  if (!panel) {
+    throw new Error(
+      "Could not find the closest panel to the profiler's iframe."
+    );
+  }
+
+  info("Hide the profiler popup.");
+  panel.hidePopup();
+
+  info("Wait for the profiler popup to be completely hidden.");
+  while (true) {
+    if (!iframe.ownerDocument.contains(iframe)) {
+      info("The iframe was removed.");
+      return;
+    }
+    await tick();
+  }
+}
+
+/**
+ * Open about:profiling in a new tab, and output helpful log messages.
+ *
+ * @template T
+ * @param {(Document) => T} callback
+ * @returns {Promise<T>}
+ */
+function openAboutProfiling(callback) {
+  info("Begin to open about:profiling in a new tab.");
+  return BrowserTestUtils.withNewTab(
+    "about:profiling",
+    async contentBrowser => {
+      info("about:profiling is now open in a tab.");
+      return callback(contentBrowser.contentDocument);
+    }
+  );
+}
+
+/**
+ * Start and stop the profiler to get the current active configuration. This is
+ * done programmtically through the nsIProfiler interface, rather than through click
+ * interactions, since the about:profiling page does not include buttons to control
+ * the recording.
+ *
+ * @returns {Object}
+ */
+function getActiveConfiguration() {
+  const { startProfiler, stopProfiler } = ChromeUtils.import(
+    "resource://devtools/client/performance-new/popup/background.jsm.js"
+  );
+
+  info("Start the profiler with the current about:profiling configuration.");
+  startProfiler();
+
+  // Immediately pause the sampling, to make sure the test runs fast. The profiler
+  // only needs to be started to initialize the configuration.
+  Services.profiler.Pause();
+
+  const { activeConfiguration } = Services.profiler;
+  if (!activeConfiguration) {
+    throw new Error(
+      "Expected to find an active configuration for the profile."
+    );
+  }
+
+  info("Stop the profiler after getting the active configuration.");
+  stopProfiler();
+
+  return activeConfiguration;
+}
+
+/**
+ * Start the profiler programmatically and check that the active configuration has
+ * a feature enabled
+ *
+ * @param {string} feature
+ * @return {boolean}
+ */
+function activeConfigurationHasFeature(feature) {
+  const { features } = getActiveConfiguration();
+  return features.includes(feature);
+}
+
+/**
+ * Start the profiler programmatically and check that the active configuration is
+ * tracking a thread.
+ *
+ * @param {string} thread
+ * @return {boolean}
+ */
+function activeConfigurationHasThread(thread) {
+  const { threads } = getActiveConfiguration();
+  return threads.includes(thread);
+}
+
+/**
+ * @param {HTMLElement} featureTextElement
+ * @param {HTMLInputElement}
+ */
+function getFeatureInputFromLabel(featureTextElement) {
+  const input = featureTextElement.parentElement.querySelector("input");
+  if (!input) {
+    throw new Error("Could not find the input near text element.");
+  }
+  return input;
 }

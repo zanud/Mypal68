@@ -35,6 +35,7 @@
 #include "frontend/SharedContext.h"
 #include "frontend/SourceNotes.h"  // SrcNote, SrcNoteType, SrcNoteIterator
 #include "frontend/StencilXdr.h"  // frontend::StencilXdr::SharedData, CanCopyDataToDisk
+#include "gc/AllocKind.h"  // gc::InitialHeap
 #include "gc/FreeOp.h"
 #include "jit/BaselineJIT.h"
 #include "jit/CacheIRHealth.h"
@@ -1077,65 +1078,6 @@ ImmutableScriptData::ImmutableScriptData(uint32_t codeLength,
 }
 
 template <XDRMode mode>
-XDRResult js::XDRImmutableScriptData(XDRState<mode>* xdr,
-                                     SharedImmutableScriptData& sisd) {
-  static_assert(frontend::CanCopyDataToDisk<ImmutableScriptData>::value,
-                "ImmutableScriptData cannot be bulk-copied to disk");
-  static_assert(frontend::CanCopyDataToDisk<jsbytecode>::value,
-                "jsbytecode cannot be bulk-copied to disk");
-  static_assert(frontend::CanCopyDataToDisk<SrcNote>::value,
-                "SrcNote cannot be bulk-copied to disk");
-  static_assert(frontend::CanCopyDataToDisk<ScopeNote>::value,
-                "ScopeNote cannot be bulk-copied to disk");
-  static_assert(frontend::CanCopyDataToDisk<TryNote>::value,
-                "TryNote cannot be bulk-copied to disk");
-
-  uint32_t size;
-  if (mode == XDR_ENCODE) {
-    size = sisd.immutableDataLength();
-  }
-  MOZ_TRY(xdr->codeUint32(&size));
-
-  MOZ_TRY(xdr->align32());
-  static_assert(alignof(ImmutableScriptData) <= alignof(uint32_t));
-
-  if (mode == XDR_ENCODE) {
-    uint8_t* data = const_cast<uint8_t*>(sisd.get()->immutableData().data());
-    MOZ_ASSERT(data == reinterpret_cast<const uint8_t*>(sisd.get()),
-               "Decode below relies on the data placement");
-    MOZ_TRY(xdr->codeBytes(data, size));
-  } else {
-    MOZ_ASSERT(!sisd.get());
-
-    if (xdr->hasOptions() && xdr->options().usePinnedBytecode) {
-      ImmutableScriptData* isd;
-      MOZ_TRY(xdr->borrowedData(&isd, size));
-      sisd.setExternal(isd);
-    } else {
-      auto isd = ImmutableScriptData::new_(xdr->cx(), size);
-      if (!isd) {
-        return xdr->fail(JS::TranscodeResult::Throw);
-      }
-      uint8_t* data = reinterpret_cast<uint8_t*>(isd.get());
-      MOZ_TRY(xdr->codeBytes(data, size));
-      sisd.setOwn(std::move(isd));
-    }
-
-    if (size != sisd.get()->computedSize()) {
-      MOZ_ASSERT(false, "Bad ImmutableScriptData");
-      return xdr->fail(JS::TranscodeResult::Failure_BadDecode);
-    }
-  }
-
-  return Ok();
-}
-
-template XDRResult js::XDRImmutableScriptData(XDRState<XDR_ENCODE>* xdr,
-                                              SharedImmutableScriptData& sisd);
-template XDRResult js::XDRImmutableScriptData(XDRState<XDR_DECODE>* xdr,
-                                              SharedImmutableScriptData& sisd);
-
-template <XDRMode mode>
 XDRResult js::XDRSourceExtent(XDRState<mode>* xdr, SourceExtent* extent) {
   MOZ_TRY(xdr->codeUint32(&extent->sourceStart));
   MOZ_TRY(xdr->codeUint32(&extent->sourceEnd));
@@ -1179,7 +1121,7 @@ void js::FillImmutableFlagsFromCompileOptionsForFunction(
 // FillImmutableFlagsFromCompileOptionsForTopLevel above.
 //
 // If isMultiDecode is true, this check minimal set of CompileOptions that is
-// shared across multiple scripts in JS::DecodeMultiOffThreadScripts.
+// shared across multiple scripts in JS::DecodeMultiOffThreadStencils.
 // Other options should be checked when getting the decoded script from the
 // cache.
 bool js::CheckCompileOptionsMatch(const ReadOnlyCompileOptions& options,
@@ -1264,7 +1206,7 @@ XDRResult js::XDRScript(XDRState<mode>* xdr, HandleScope scriptEnclosingScope,
     // should fail. This only applies to the top-level and not its inner
     // functions.
     //
-    // Also, JS::DecodeMultiOffThreadScripts uses single CompileOptions for
+    // Also, JS::DecodeMultiOffThreadStencils uses single CompileOptions for
     // multiple scripts with different CompileOptions.
     // We should check minimal set of common flags here, and let the consumer
     // check the full flags when getting from the cache.
@@ -3543,11 +3485,26 @@ js::UniquePtr<ImmutableScriptData> js::ImmutableScriptData::new_(
   return result;
 }
 
-uint32_t js::ImmutableScriptData::computedSize() {
+bool js::ImmutableScriptData::validateLayout(uint32_t expectedSize) {
+  constexpr size_t HeaderSize = sizeof(js::ImmutableScriptData);
+  constexpr size_t OptionalOffsetsMaxSize = 3 * sizeof(Offset);
+
+  // Check that the optional-offsets array lies within the allocation before we
+  // try to read from it while computing sizes. Remember that the array *ends*
+  // at the `optArrayOffset_`.
+  static_assert(OptionalOffsetsMaxSize <= HeaderSize);
+  if (HeaderSize > optArrayOffset_) {
+    return false;
+  }
+  if (optArrayOffset_ > expectedSize) {
+    return false;
+  }
+
+  // Round-trip the size computation using `CheckedInt` to detect overflow. This
+  // should indirectly validate most alignment, size, and ordering requirments.
   auto size = sizeFor(codeLength(), noteLength(), resumeOffsets().size(),
                       scopeNotes().size(), tryNotes().size());
-  MOZ_ASSERT(size.isValid());
-  return size.value();
+  return size.isValid() && (size.value() == expectedSize);
 }
 
 /* static */

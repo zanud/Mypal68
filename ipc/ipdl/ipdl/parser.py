@@ -137,6 +137,7 @@ reserved = set((
     'struct',
     'sync',
     'tainted',
+    'uncomparable',
     'union',
     'UniquePtr',
     'upto',
@@ -285,6 +286,12 @@ def p_UsingKind(p):
     p[0] = p[1] if 2 == len(p) else None
 
 
+def p_MaybeUncomparable(p):
+    """MaybeUncomparable : UNCOMPARABLE
+                           |"""
+    p[0] = 2 == len(p)
+
+
 def p_MaybeRefcounted(p):
     """MaybeRefcounted : REFCOUNTED
                        |"""
@@ -334,12 +341,12 @@ def p_NamespaceThing(p):
 
 
 def p_StructDecl(p):
-    """StructDecl : STRUCT ID '{' StructFields '}' ';'
-                  | STRUCT ID '{' '}' ';'"""
-    if 7 == len(p):
-        p[0] = StructDecl(locFromTok(p, 1), p[2], p[4])
+    """StructDecl : MaybeUncomparable STRUCT ID '{' StructFields '}' ';'
+                  | MaybeUncomparable STRUCT ID '{' '}' ';'"""
+    if 8 == len(p):
+        p[0] = StructDecl(locFromTok(p, 2), p[3], p[5], not p[1])
     else:
-        p[0] = StructDecl(locFromTok(p, 1), p[2], [])
+        p[0] = StructDecl(locFromTok(p, 2), p[3], [], not p[1])
 
 
 def p_StructFields(p):
@@ -358,8 +365,8 @@ def p_StructField(p):
 
 
 def p_UnionDecl(p):
-    """UnionDecl : UNION ID '{' ComponentTypes  '}' ';'"""
-    p[0] = UnionDecl(locFromTok(p, 1), p[2], p[4])
+    """UnionDecl : MaybeUncomparable UNION ID '{' ComponentTypes  '}' ';'"""
+    p[0] = UnionDecl(locFromTok(p, 2), p[3], p[5], not p[1])
 
 
 def p_ComponentTypes(p):

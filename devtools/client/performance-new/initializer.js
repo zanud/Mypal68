@@ -27,14 +27,30 @@ const {
   createMultiModalGetSymbolTableFn,
 } = require("devtools/client/performance-new/browser");
 
-/**
- * Initialize the panel by creating a redux store, and render the root component.
- *
- * @param perfFront - The Perf actor's front. Used to start and stop recordings.
- * @param preferenceFront - Used to get the recording preferences from the device.
- */
+const { getDefaultRecordingPreferences } = ChromeUtils.import(
+  "resource://devtools/client/performance-new/popup/background.jsm.js"
+);
+
 async function gInit(perfFront, preferenceFront) {
   const store = createStore(reducers);
+
+  // Send the initial requests in parallel.
+  const [recordingPreferences, supportedFeatures] = await Promise.all([
+    // Pull the default recording settings from the background.jsm module. Update them
+    // according to what's in the target's preferences. This way the preferences are
+    // stored on the target. This could be useful for something like Android where you
+    // might want to tweak the settings.
+    getRecordingPreferencesFromDebuggee(
+      preferenceFront,
+      getDefaultRecordingPreferences()
+    ),
+    // Get the supported features from the debuggee. If the debuggee is before
+    // Firefox 72, then return null, as the actor does not support that feature.
+    // We can't use `target.actorHasMethod`, because the target is not provided
+    // when remote debugging. Unfortunately, this approach means that if this
+    // function throws a real error, it will get swallowed here.
+    Promise.resolve(perfFront.getSupportedFeatures()).catch(() => null),
+  ]);
 
   // Do some initialization, especially with privileged things that are part of the
   // the browser.
@@ -42,21 +58,16 @@ async function gInit(perfFront, preferenceFront) {
     actions.initializeStore({
       perfFront,
       receiveProfile,
-      // Pull the default recording settings from the reducer, and update them according
-      // to what's in the target's preferences. This way the preferences are stored
-      // on the target. This could be useful for something like Android where you might
-      // want to tweak the settings.
-      recordingSettingsFromPreferences: await getRecordingPreferencesFromDebuggee(
-        preferenceFront,
-        selectors.getRecordingSettings(store.getState())
-      ),
+      recordingPreferences,
+      supportedFeatures,
+      isPopup: false,
 
       // Go ahead and hide the implementation details for the component on how the
       // preference information is stored
-      setRecordingPreferences: () =>
+      setRecordingPreferences: newRecordingPreferences =>
         setRecordingPreferencesOnDebuggee(
           preferenceFront,
-          selectors.getRecordingSettings(store.getState())
+          newRecordingPreferences
         ),
 
       // Configure the getSymbolTable function for the DevTools workflow.

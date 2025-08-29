@@ -19,7 +19,8 @@
 #include "js/Array.h"  // JS::GetArrayLength, JS::IsArrayObject
 #include "js/CharacterEncoding.h"
 #include "js/CompilationAndEvaluation.h"
-#include "js/CompileOptions.h"         // JS::CompileOptions
+#include "js/CompileOptions.h"  // JS::CompileOptions
+#include "js/experimental/JSStencil.h"
 #include "js/friend/JSMEnvironment.h"  // JS::ExecuteInJSMEnvironment, JS::GetJSMEnvironmentOfScriptedCaller, JS::NewJSMEnvironment
 #include "js/Object.h"                 // JS::GetCompartment
 #include "js/Printf.h"
@@ -29,7 +30,6 @@
 #include "nsCOMPtr.h"
 #include "nsDirectoryServiceDefs.h"
 #include "nsDirectoryServiceUtils.h"
-#include "nsExceptionHandler.h"
 #include "nsIComponentManager.h"
 #include "mozilla/Module.h"
 #include "nsIFile.h"
@@ -333,39 +333,6 @@ static JSObject* ResolveModuleObjectProperty(JSContext* aCx,
   return aModObj;
 }
 
-static mozilla::Result<nsCString, nsresult> ReadScript(
-    ComponentLoaderInfo& aInfo);
-
-static nsresult AnnotateScriptContents(CrashReporter::Annotation aName,
-                                       const nsACString& aURI) {
-  ComponentLoaderInfo info(aURI);
-
-  nsCString str;
-  MOZ_TRY_VAR(str, ReadScript(info));
-
-  // The crash reporter won't accept any strings with embedded nuls. We
-  // shouldn't have any here, but if we do because of data corruption, we
-  // still want the annotation. So replace any embedded nuls before
-  // annotating.
-  str.ReplaceSubstring("\0"_ns, "\\0"_ns);
-
-  CrashReporter::AnnotateCrashReport(aName, str);
-
-  return NS_OK;
-}
-
-nsresult mozJSComponentLoader::AnnotateCrashReport() {
-  Unused << AnnotateScriptContents(
-      CrashReporter::Annotation::nsAsyncShutdownComponent,
-      "resource://gre/components/nsAsyncShutdown.js"_ns);
-
-  Unused << AnnotateScriptContents(
-      CrashReporter::Annotation::AsyncShutdownModule,
-      "resource://gre/modules/AsyncShutdown.jsm"_ns);
-
-  return NS_OK;
-}
-
 const mozilla::Module* mozJSComponentLoader::LoadModule(FileLocation& aFile) {
   if (!NS_IsMainThread()) {
     MOZ_ASSERT(false, "Don't use JS components off the main thread");
@@ -382,8 +349,7 @@ const mozilla::Module* mozJSComponentLoader::LoadModule(FileLocation& aFile) {
 
   mInitialized = true;
 
-  AUTO_PROFILER_TEXT_MARKER_CAUSE("JS XPCOM", spec, JS,
-                                  profiler_get_backtrace());
+  AUTO_PROFILER_MARKER_TEXT("JS XPCOM", JS, MarkerStack::Capture(), spec);
   AUTO_PROFILER_LABEL_DYNAMIC_NSCSTRING("mozJSComponentLoader::LoadModule",
                                         OTHER, spec);
 
@@ -396,34 +362,12 @@ const mozilla::Module* mozJSComponentLoader::LoadModule(FileLocation& aFile) {
   jsapi.Init();
   JSContext* cx = jsapi.cx();
 
-  bool isCriticalModule = StringEndsWith(spec, "/nsAsyncShutdown.js"_ns);
-
   auto entry = MakeUnique<ModuleEntry>(RootingContext::get(cx));
   RootedValue exn(cx);
   rv = ObjectForLocation(info, file, &entry->obj, &entry->thisObjectKey,
-                         &entry->location, isCriticalModule, &exn);
-  if (NS_FAILED(rv)) {
-    // Temporary debugging assertion for bug 1403348:
-    if (isCriticalModule && !exn.isUndefined()) {
-      AnnotateCrashReport();
-
-      JSAutoRealm ar(cx, xpc::PrivilegedJunkScope());
-      JS_WrapValue(cx, &exn);
-
-      nsAutoCString file;
-      uint32_t line;
-      uint32_t column;
-      nsAutoString msg;
-      nsContentUtils::ExtractErrorValues(cx, exn, file, &line, &column, msg);
-
-      NS_ConvertUTF16toUTF8 cMsg(msg);
-      MOZ_CRASH_UNSAFE_PRINTF(
-          "Failed to load module \"%s\": "
-          "[\"%s\" {file: \"%s\", line: %u}]",
-          spec.get(), cMsg.get(), file.get(), line);
-    }
-    return nullptr;
-  }
+                         &entry->location, /* aPropagateExceptions */ false,
+                         &exn);
+  NS_ENSURE_SUCCESS(rv, nullptr);
 
   nsCOMPtr<nsIComponentManager> cm;
   rv = NS_GetComponentManager(getter_AddRefs(cm));
@@ -783,17 +727,16 @@ nsresult mozJSComponentLoader::ObjectForLocation(
 
   JSAutoRealm ar(cx, obj);
 
-  RootedScript script(cx);
-
   nsAutoCString nativePath;
   rv = aInfo.URI()->GetSpec(nativePath);
   NS_ENSURE_SUCCESS(rv, rv);
 
   // Before compiling the script, first check to see if we have it in
-  // the startupcache.  Note: as a rule, startupcache errors are not fatal
-  // to loading the script, since we can always slow-load.
+  // the preloader cache or the startupcache.  Note: as a rule, preloader cache
+  // errors and startupcache errors are not fatal to loading the script, since
+  // we can always slow-load.
 
-  bool writeToCache = false;
+  bool storeIntoStartupCache = false;
   StartupCache* cache = StartupCache::GetSingleton();
 
   aInfo.EnsureResolvedURI();
@@ -803,29 +746,26 @@ nsresult mozJSComponentLoader::ObjectForLocation(
   NS_ENSURE_SUCCESS(rv, rv);
 
   CompileOptions options(cx);
-  ScriptPreloader::FillCompileOptionsForCachedScript(options);
+  ScriptPreloader::FillCompileOptionsForCachedStencil(options);
   options.setFileAndLine(nativePath.get(), 1);
   options.setForceStrictMode();
   options.setNonSyntacticScope(true);
 
-  script =
-      ScriptPreloader::GetSingleton().GetCachedScript(cx, options, cachePath);
-  if (!script && cache) {
-    ReadCachedScript(cache, cachePath, cx, options, &script);
+  RefPtr<JS::Stencil> stencil =
+      ScriptPreloader::GetSingleton().GetCachedStencil(cx, options, cachePath);
+
+  if (!stencil && cache) {
+    ReadCachedStencil(cache, cachePath, cx, options, getter_AddRefs(stencil));
+    if (!stencil) {
+      JS_ClearPendingException(cx);
+
+      storeIntoStartupCache = true;
+    }
   }
 
-  if (script) {
-    LOG(("Successfully loaded %s from startupcache\n", nativePath.get()));
-  } else if (cache) {
-    // This is ok, it just means the script is not yet in the
-    // cache. Could mean that the cache was corrupted and got removed,
-    // but either way we're going to write this out.
-    writeToCache = true;
-    // ReadCachedScript may have set a pending exception.
-    JS_ClearPendingException(cx);
-  }
-
-  if (!script) {
+  if (stencil) {
+    LOG(("Successfully loaded %s from cache\n", nativePath.get()));
+  } else {
     // The script wasn't in the cache , so compile it now.
     LOG(("Slow loading %s\n", nativePath.get()));
 
@@ -833,7 +773,7 @@ nsresult mozJSComponentLoader::ObjectForLocation(
     // and instead let normal syntax parsing occur. This can occur in content
     // processes after the ScriptPreloader is flushed where we can read but no
     // longer write.
-    if (!cache && !ScriptPreloader::GetSingleton().Active()) {
+    if (!storeIntoStartupCache && !ScriptPreloader::GetSingleton().Active()) {
       options.setSourceIsLazy(false);
     }
 
@@ -848,9 +788,7 @@ nsresult mozJSComponentLoader::ObjectForLocation(
       JS::SourceText<mozilla::Utf8Unit> srcBuf;
       if (srcBuf.init(cx, buf.get(), map.size(),
                       JS::SourceOwnership::Borrowed)) {
-        script = Compile(cx, options, srcBuf);
-      } else {
-        MOZ_ASSERT(!script);
+        stencil = CompileGlobalScriptToStencil(cx, options, srcBuf);
       }
     } else {
       nsCString str;
@@ -859,32 +797,47 @@ nsresult mozJSComponentLoader::ObjectForLocation(
       JS::SourceText<mozilla::Utf8Unit> srcBuf;
       if (srcBuf.init(cx, str.get(), str.Length(),
                       JS::SourceOwnership::Borrowed)) {
-        script = Compile(cx, options, srcBuf);
-      } else {
-        MOZ_ASSERT(!script);
+        stencil = CompileGlobalScriptToStencil(cx, options, srcBuf);
       }
     }
+
+    if (!stencil) {
+      // Propagate the exception, if one exists. Also, don't leave the stale
+      // exception on this context.
+      if (aPropagateExceptions && jsapi.HasException()) {
+        if (!jsapi.StealException(aException)) {
+          return NS_ERROR_OUT_OF_MEMORY;
+        }
+      }
+      return NS_ERROR_FAILURE;
+    }
+  }
+
+  RootedScript script(cx, JS::InstantiateGlobalStencil(cx, options, stencil));
+  if (!script) {
     // Propagate the exception, if one exists. Also, don't leave the stale
     // exception on this context.
-    if (!script && aPropagateExceptions && jsapi.HasException()) {
+    if (aPropagateExceptions && jsapi.HasException()) {
       if (!jsapi.StealException(aException)) {
         return NS_ERROR_OUT_OF_MEMORY;
       }
     }
-  }
-
-  if (!script) {
     return NS_ERROR_FAILURE;
   }
 
+  // ScriptPreloader::NoteScript needs to be called unconditionally, to
+  // reflect the usage into the next session's cache.
   MOZ_ASSERT_IF(ScriptPreloader::GetSingleton().Active(), options.sourceIsLazy);
-  ScriptPreloader::GetSingleton().NoteScript(nativePath, cachePath, script);
+  ScriptPreloader::GetSingleton().NoteStencil(nativePath, cachePath, stencil);
 
-  if (writeToCache) {
+  // Write to startup cache only when we didn't have any cache for the script
+  // and compiled it.
+  if (storeIntoStartupCache) {
     MOZ_ASSERT(options.sourceIsLazy);
+    MOZ_ASSERT(stencil);
 
     // We successfully compiled the script, so cache it.
-    rv = WriteCachedScript(cache, cachePath, cx, script);
+    rv = WriteCachedStencil(cache, cachePath, cx, options, stencil);
 
     // Don't treat failure to write as fatal, since we might be working
     // with a read-only cache.
@@ -1260,8 +1213,8 @@ nsresult mozJSComponentLoader::Import(JSContext* aCx,
                                       bool aIgnoreExports) {
   mInitialized = true;
 
-  AUTO_PROFILER_TEXT_MARKER_CAUSE("ChromeUtils.import", aLocation, JS,
-                                  profiler_get_backtrace());
+  AUTO_PROFILER_MARKER_TEXT("ChromeUtils.import", JS, MarkerStack::Capture(),
+                            aLocation);
 
   ComponentLoaderInfo info(aLocation);
 

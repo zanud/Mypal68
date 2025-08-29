@@ -31,34 +31,14 @@ const { EventEmitter } = ChromeUtils.import(
 );
 const { OS } = ChromeUtils.import("resource://gre/modules/osfile.jsm");
 
-ChromeUtils.defineModuleGetter(
-  this,
-  "ExtensionTestCommon",
-  "resource://testing-common/ExtensionTestCommon.jsm"
-);
-XPCOMUtils.defineLazyGetter(this, "Management", () => {
-  let { Management } = ChromeUtils.import(
-    "resource://gre/modules/Extension.jsm",
-    null
-  );
-  return Management;
+XPCOMUtils.defineLazyModuleGetters(this, {
+  ExtensionTestCommon: "resource://testing-common/ExtensionTestCommon.jsm",
+  Management: "resource://gre/modules/Extension.jsm",
+  ExtensionAddonObserver: "resource://gre/modules/Extension.jsm",
+  FileTestUtils: "resource://testing-common/FileTestUtils.jsm",
+  HttpServer: "resource://testing-common/httpd.js",
+  MockRegistrar: "resource://testing-common/MockRegistrar.jsm",
 });
-
-ChromeUtils.defineModuleGetter(
-  this,
-  "FileTestUtils",
-  "resource://testing-common/FileTestUtils.jsm"
-);
-ChromeUtils.defineModuleGetter(
-  this,
-  "HttpServer",
-  "resource://testing-common/httpd.js"
-);
-ChromeUtils.defineModuleGetter(
-  this,
-  "MockRegistrar",
-  "resource://testing-common/MockRegistrar.jsm"
-);
 
 XPCOMUtils.defineLazyServiceGetters(this, {
   aomStartup: [
@@ -840,6 +820,10 @@ var AddonTestUtils = {
         });
       }
     }
+    // AddonListeners are removed when the addonManager is shutdown,
+    // ensure the Extension observer is added.  We call uninit in
+    // promiseShutdown to allow re-initialization.
+    ExtensionAddonObserver.init();
 
     let XPIScope = ChromeUtils.import(
       "resource://gre/modules/addons/XPIProvider.jsm",
@@ -916,6 +900,9 @@ var AddonTestUtils = {
       Services.obs.notifyObservers(file, "flush-cache-entry");
     }
 
+    // Clear L10nRegistry entries so restaring the AOM will work correctly with locales.
+    L10nRegistry.getInstance().clearSources();
+
     // Clear any crash report annotations
     this.appInfo.annotations = {};
 
@@ -938,6 +925,7 @@ var AddonTestUtils = {
       "resource://gre/modules/Extension.jsm",
       null
     );
+    ExtensionAddonObserver.uninit();
     ChromeUtils.defineModuleGetter(
       ExtensionScope,
       "XPIProvider",

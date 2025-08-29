@@ -718,11 +718,6 @@ TRRService::Notify(nsITimer* aTimer) {
 
 void TRRService::TRRIsOkay(enum TrrOkay aReason) {
   MOZ_ASSERT(NS_IsMainThread());
-  Telemetry::AccumulateCategorical(
-      aReason == OKAY_NORMAL ? Telemetry::LABELS_DNS_TRR_SUCCESS::Fine
-                             : (aReason == OKAY_TIMEOUT
-                                    ? Telemetry::LABELS_DNS_TRR_SUCCESS::Timeout
-                                    : Telemetry::LABELS_DNS_TRR_SUCCESS::Bad));
   if (aReason == OKAY_NORMAL) {
     mTRRFailures = 0;
   } else if ((mMode == MODE_TRRFIRST) && (mConfirmationState == CONFIRM_OK)) {
@@ -774,13 +769,6 @@ AHostResolver::LookupStatus TRRService::CompleteLookup(
         mRetryConfirmInterval *= 2;
       }
     } else {
-      if (mMode != MODE_TRRONLY) {
-        // don't accumulate trronly data here since trronly failures are
-        // handled above by trying again, so counting the successes here would
-        // skew the numbers
-        Telemetry::Accumulate(Telemetry::DNS_TRR_NS_VERFIFIED,
-                              (mConfirmationState == CONFIRM_OK));
-      }
       mRetryConfirmInterval = 1000;
     }
     return LOOKUP_OK;

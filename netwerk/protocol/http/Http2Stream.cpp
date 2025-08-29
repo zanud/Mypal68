@@ -20,7 +20,6 @@
 #include "TunnelUtils.h"
 
 #include "mozilla/BasePrincipal.h"
-#include "mozilla/Telemetry.h"
 #include "nsAlgorithm.h"
 #include "nsHttp.h"
 #include "nsHttpHandler.h"
@@ -691,15 +690,7 @@ nsresult Http2Stream::GenerateOpen() {
     outputOffset += frameLen;
   }
 
-  Telemetry::Accumulate(Telemetry::SPDY_SYN_SIZE, compressedData.Length());
-
-  // The size of the input headers is approximate
-  uint32_t ratio =
-      compressedData.Length() * 100 /
-      (11 + requestURI.Length() + mFlatHttpRequestHeaders.Length());
-
   mFlatHttpRequestHeaders.Truncate();
-  Telemetry::Accumulate(Telemetry::SPDY_SYN_RATIO, ratio);
   return NS_OK;
 }
 
@@ -992,7 +983,7 @@ void Http2Stream::GenerateDataFrameHeader(uint32_t dataLength, bool lastFrame) {
 }
 
 // ConvertResponseHeaders is used to convert the response headers
-// into HTTP/1 format and report some telemetry
+// into HTTP/1 format
 nsresult Http2Stream::ConvertResponseHeaders(Http2Decompressor* decompressor,
                                              nsACString& aHeadersIn,
                                              nsACString& aHeadersOut,
@@ -1055,12 +1046,6 @@ nsresult Http2Stream::ConvertResponseHeaders(Http2Decompressor* decompressor,
     mSession->Received421(mTransaction->ConnectionInfo());
   }
 
-  if (aHeadersIn.Length() && aHeadersOut.Length()) {
-    Telemetry::Accumulate(Telemetry::SPDY_SYN_REPLY_SIZE, aHeadersIn.Length());
-    uint32_t ratio = aHeadersIn.Length() * 100 / aHeadersOut.Length();
-    Telemetry::Accumulate(Telemetry::SPDY_SYN_REPLY_RATIO, ratio);
-  }
-
   // The decoding went ok. Now we can customize and clean up.
 
   aHeadersIn.Truncate();
@@ -1076,7 +1061,7 @@ nsresult Http2Stream::ConvertResponseHeaders(Http2Decompressor* decompressor,
 }
 
 // ConvertPushHeaders is used to convert the pushed request headers
-// into HTTP/1 format and report some telemetry
+// into HTTP/1 format
 nsresult Http2Stream::ConvertPushHeaders(Http2Decompressor* decompressor,
                                          nsACString& aHeadersIn,
                                          nsACString& aHeadersOut) {

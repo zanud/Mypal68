@@ -39,7 +39,6 @@
 #include "mozilla/LoadInfo.h"
 #include "mozilla/net/NeckoCommon.h"
 #include "mozilla/Services.h"
-#include "mozilla/Telemetry.h"
 #include "mozilla/net/DNS.h"
 #include "mozilla/ipc/URIUtils.h"
 #include "mozilla/net/NeckoChild.h"
@@ -55,6 +54,8 @@
 #include "nsContentSecurityManager.h"
 #include "nsContentUtils.h"
 #include "nsExceptionHandler.h"
+#include "mozilla/StaticPrefs_network.h"
+#include "mozilla/StaticPrefs_security.h"
 
 #ifdef MOZ_WIDGET_GTK
 #  include "nsGIOProtocolHandler.h"
@@ -70,7 +71,6 @@ using mozilla::dom::ServiceWorkerDescriptor;
 #define PORT_PREF_PREFIX "network.security.ports."
 #define PORT_PREF(x) PORT_PREF_PREFIX x
 #define MANAGE_OFFLINE_STATUS_PREF "network.manage-offline-status"
-#define OFFLINE_MIRRORS_CONNECTIVITY "network.offline-mirrors-connectivity"
 
 // Nb: these have been misnomers since bug 715770 removed the buffer cache.
 // "network.segment.count" and "network.segment.size" would be better names,
@@ -178,8 +178,6 @@ static const char kProfileDoChange[] = "profile-do-change";
 uint32_t nsIOService::gDefaultSegmentSize = 4096;
 uint32_t nsIOService::gDefaultSegmentCount = 24;
 
-bool nsIOService::sBlockToplevelDataUriNavigations = false;
-
 ////////////////////////////////////////////////////////////////////////////////
 
 nsIOService::nsIOService()
@@ -187,7 +185,6 @@ nsIOService::nsIOService()
       mOfflineForProfileChange(false),
       mManageLinkStatus(false),
       mConnectivity(true),
-      mOfflineMirrorsConnectivity(true),
       mSettingOffline(false),
       mSetOfflineValue(false),
       mSocketProcessLaunchComplete(false),
@@ -199,9 +196,6 @@ nsIOService::nsIOService()
       mTotalRequests(0),
       mCacheWon(0),
       mNetWon(0),
-      mLastOfflineStateChange(PR_IntervalNow()),
-      mLastConnectivityChange(PR_IntervalNow()),
-      mLastNetworkLinkChange(PR_IntervalNow()),
       mNetTearingDownStarted(0),
       mSocketProcess(nullptr) {}
 
@@ -253,12 +247,6 @@ nsresult nsIOService::Init() {
     observerService->AddObserver(this, NS_PREFSERVICE_READ_TOPIC_ID, true);
   } else
     NS_WARNING("failed to get observer service");
-
-  Preferences::AddBoolVarCache(
-      &sBlockToplevelDataUriNavigations,
-      "security.data_uri.block_toplevel_data_uri_navigations", false);
-  Preferences::AddBoolVarCache(&mOfflineMirrorsConnectivity,
-                               OFFLINE_MIRRORS_CONNECTIVITY, true);
 
   gIOService = this;
 
@@ -515,15 +503,6 @@ RefPtr<MemoryReportingProcess> nsIOService::GetSocketProcessMemoryReporter() {
   }
 
   return new SocketProcessMemoryReporter();
-}
-
-NS_IMETHODIMP
-nsIOService::SocketProcessTelemetryPing() {
-  CallOrWaitForSocketProcess([]() {
-    Unused << gIOService->mSocketProcess->GetActor()
-                  ->SendSocketProcessTelemetryPing();
-  });
-  return NS_OK;
 }
 
 NS_IMPL_ISUPPORTS(nsIOService, nsIIOService, nsINetUtil, nsISpeculativeConnect,
@@ -835,7 +814,7 @@ nsIOService::NewChannelFromURI(nsIURI* aURI, nsINode* aLoadingNode,
                                nsIPrincipal* aLoadingPrincipal,
                                nsIPrincipal* aTriggeringPrincipal,
                                uint32_t aSecurityFlags,
-                               uint32_t aContentPolicyType,
+                               nsContentPolicyType aContentPolicyType,
                                nsIChannel** result) {
   return NewChannelFromURIWithProxyFlags(aURI,
                                          nullptr,  // aProxyURI
@@ -849,7 +828,7 @@ nsresult nsIOService::NewChannelFromURIWithClientAndController(
     nsIPrincipal* aTriggeringPrincipal,
     const Maybe<ClientInfo>& aLoadingClientInfo,
     const Maybe<ServiceWorkerDescriptor>& aController, uint32_t aSecurityFlags,
-    uint32_t aContentPolicyType, nsIChannel** aResult) {
+    nsContentPolicyType aContentPolicyType, nsIChannel** aResult) {
   return NewChannelFromURIWithProxyFlagsInternal(
       aURI,
       nullptr,  // aProxyURI
@@ -873,7 +852,7 @@ nsresult nsIOService::NewChannelFromURIWithProxyFlagsInternal(
     nsIPrincipal* aTriggeringPrincipal,
     const Maybe<ClientInfo>& aLoadingClientInfo,
     const Maybe<ServiceWorkerDescriptor>& aController, uint32_t aSecurityFlags,
-    uint32_t aContentPolicyType, nsIChannel** result) {
+    nsContentPolicyType aContentPolicyType, nsIChannel** result) {
   // Ideally all callers of NewChannelFromURIWithProxyFlagsInternal provide
   // the necessary arguments to create a loadinfo.
   //
@@ -991,7 +970,7 @@ nsIOService::NewChannelFromURIWithProxyFlags(
     nsIURI* aURI, nsIURI* aProxyURI, uint32_t aProxyFlags,
     nsINode* aLoadingNode, nsIPrincipal* aLoadingPrincipal,
     nsIPrincipal* aTriggeringPrincipal, uint32_t aSecurityFlags,
-    uint32_t aContentPolicyType, nsIChannel** result) {
+    nsContentPolicyType aContentPolicyType, nsIChannel** result) {
   return NewChannelFromURIWithProxyFlagsInternal(
       aURI, aProxyURI, aProxyFlags, aLoadingNode, aLoadingPrincipal,
       aTriggeringPrincipal, Maybe<ClientInfo>(),
@@ -1004,7 +983,8 @@ nsIOService::NewChannel(const nsACString& aSpec, const char* aCharset,
                         nsIURI* aBaseURI, nsINode* aLoadingNode,
                         nsIPrincipal* aLoadingPrincipal,
                         nsIPrincipal* aTriggeringPrincipal,
-                        uint32_t aSecurityFlags, uint32_t aContentPolicyType,
+                        uint32_t aSecurityFlags,
+                        nsContentPolicyType aContentPolicyType,
                         nsIChannel** result) {
   nsresult rv;
   nsCOMPtr<nsIURI> uri;
@@ -1036,7 +1016,7 @@ bool nsIOService::IsLinkUp() {
 
 NS_IMETHODIMP
 nsIOService::GetOffline(bool* offline) {
-  if (mOfflineMirrorsConnectivity) {
+  if (StaticPrefs::network_offline_mirrors_connectivity()) {
     *offline = mOffline || !mConnectivity;
   } else {
     *offline = mOffline;
@@ -1090,7 +1070,6 @@ nsIOService::SetOffline(bool offline) {
 
       if (mSocketTransportService) mSocketTransportService->SetOffline(true);
 
-      mLastOfflineStateChange = PR_IntervalNow();
       if (observerService)
         observerService->NotifyObservers(subject,
                                          NS_IOSERVICE_OFFLINE_STATUS_TOPIC,
@@ -1101,7 +1080,6 @@ nsIOService::SetOffline(bool offline) {
       mOffline = false;  // indicate success only AFTER we've
                          // brought up the services
 
-      mLastOfflineStateChange = PR_IntervalNow();
       // don't care if notification fails
       // Only send the ONLINE notification if there is connectivity
       if (observerService && mConnectivity) {
@@ -1151,10 +1129,6 @@ nsresult nsIOService::SetConnectivityInternal(bool aConnectivity) {
     return NS_OK;
   }
   mConnectivity = aConnectivity;
-
-  // This is used for PR_Connect PR_Close telemetry so it is important that
-  // we have statistic about network change event even if we are offline.
-  mLastConnectivityChange = PR_IntervalNow();
 
   if (mCaptivePortalService) {
     if (aConnectivity && gCaptivePortalEnabled) {
@@ -1586,7 +1560,6 @@ nsresult nsIOService::OnNetworkLinkEvent(const char* data) {
 
   bool isUp = true;
   if (!strcmp(data, NS_NETWORK_LINK_DATA_CHANGED)) {
-    mLastNetworkLinkChange = PR_IntervalNow();
     // CHANGED means UP/DOWN didn't change
     // but the status of the captive portal may have changed.
     RecheckCaptivePortal();
@@ -1795,11 +1768,6 @@ NS_IMETHODIMP
 nsIOService::SpeculativeAnonymousConnect(nsIURI* aURI, nsIPrincipal* aPrincipal,
                                          nsIInterfaceRequestor* aCallbacks) {
   return SpeculativeConnectInternal(aURI, aPrincipal, aCallbacks, true);
-}
-
-/*static*/
-bool nsIOService::BlockToplevelDataUriNavigations() {
-  return sBlockToplevelDataUriNavigations;
 }
 
 NS_IMETHODIMP

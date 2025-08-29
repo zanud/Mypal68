@@ -84,7 +84,7 @@ class imgMemoryReporter final : public nsIMemoryReporter {
     MOZ_ASSERT(NS_IsMainThread());
 
     layers::CompositorManagerChild* manager =
-        CompositorManagerChild::GetInstance();
+        mozilla::layers::CompositorManagerChild::GetInstance();
     if (!manager || !StaticPrefs::image_mem_debug_reporting()) {
       layers::SharedSurfacesMemoryReport sharedSurfaces;
       FinishCollectReports(aHandleReport, aData, aAnonymize, sharedSurfaces);
@@ -2745,6 +2745,13 @@ NS_IMETHODIMP
 imgLoader::GetMIMETypeFromContent(nsIRequest* aRequest,
                                   const uint8_t* aContents, uint32_t aLength,
                                   nsACString& aContentType) {
+  nsCOMPtr<nsIChannel> channel(do_QueryInterface(aRequest));
+  if (channel) {
+    nsCOMPtr<nsILoadInfo> loadInfo = channel->LoadInfo();
+    if (loadInfo->GetSkipContentSniffing()) {
+      return NS_ERROR_NOT_AVAILABLE;
+    }
+  }
   return GetMimeTypeFromContent((const char*)aContents, aLength, aContentType);
 }
 

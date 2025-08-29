@@ -41,8 +41,8 @@ class InterceptedChannelBase : public nsIInterceptedChannel {
   void EnsureSynthesizedResponse();
   void DoNotifyController();
   void DoSynthesizeStatus(uint16_t aStatus, const nsACString& aReason);
-  MOZ_MUST_USE nsresult DoSynthesizeHeader(const nsACString& aName,
-                                           const nsACString& aValue);
+  [[nodiscard]] nsresult DoSynthesizeHeader(const nsACString& aName,
+                                            const nsACString& aValue);
 
   TimeStamp mLaunchServiceWorkerStart;
   TimeStamp mLaunchServiceWorkerEnd;
@@ -77,22 +77,8 @@ class InterceptedChannelBase : public nsIInterceptedChannel {
   }
 
   NS_IMETHODIMP
-  GetLaunchServiceWorkerStart(TimeStamp* aTimeStamp) override {
-    MOZ_DIAGNOSTIC_ASSERT(aTimeStamp);
-    *aTimeStamp = mLaunchServiceWorkerStart;
-    return NS_OK;
-  }
-
-  NS_IMETHODIMP
   SetLaunchServiceWorkerEnd(TimeStamp aTimeStamp) override {
     mLaunchServiceWorkerEnd = aTimeStamp;
-    return NS_OK;
-  }
-
-  NS_IMETHODIMP
-  GetLaunchServiceWorkerEnd(TimeStamp* aTimeStamp) override {
-    MOZ_DIAGNOSTIC_ASSERT(aTimeStamp);
-    *aTimeStamp = mLaunchServiceWorkerEnd;
     return NS_OK;
   }
 

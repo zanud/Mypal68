@@ -12,6 +12,7 @@
 #include "mozilla/Attributes.h"
 #include "mozilla/DebugOnly.h"
 #include "mozilla/dom/ipc/StructuredCloneData.h"
+#include "mozilla/ipc/IPCCore.h"
 #include "mozilla/BitSet.h"
 #include "mozilla/EnumSet.h"
 #include "mozilla/EnumTypeTraits.h"
@@ -30,6 +31,7 @@
 
 #include "nsExceptionHandler.h"
 #include "nsHashKeys.h"
+#include "nsIContentPolicy.h"
 #include "nsID.h"
 #include "nsILoadInfo.h"
 #include "nsIWidget.h"
@@ -66,19 +68,6 @@ struct VariantTag;
 }  // namespace mozilla
 
 namespace mozilla {
-
-// This is a cross-platform approximation to HANDLE, which we expect
-// to be typedef'd to void* or thereabouts.
-typedef uintptr_t WindowsHandle;
-
-// XXX there are out of place and might be generally useful.  Could
-// move to nscore.h or something.
-struct void_t {
-  bool operator==(const void_t&) const { return true; }
-};
-struct null_t {
-  bool operator==(const null_t&) const { return true; }
-};
 
 struct SerializedStructuredCloneBuffer final {
   SerializedStructuredCloneBuffer() = default;
@@ -732,6 +721,12 @@ struct ParamTraits<nsID> {
     aLog->append(L"}");
   }
 };
+
+template <>
+struct ParamTraits<nsContentPolicyType>
+    : public ContiguousEnumSerializerInclusive<
+          nsContentPolicyType, nsIContentPolicy::TYPE_INVALID,
+          nsIContentPolicy::TYPE_INTERNAL_FETCH_PRELOAD> {};
 
 template <>
 struct ParamTraits<mozilla::TimeDuration> {

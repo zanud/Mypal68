@@ -34,7 +34,6 @@
 
 #include "mozilla/Preferences.h"
 #include "mozilla/StaticPrefs_network.h"
-#include "mozilla/Telemetry.h"
 
 #include "mozilla/net/NeckoCommon.h"
 #include "mozilla/net/NeckoParent.h"
@@ -207,25 +206,9 @@ Predictor::Action::OnCacheEntryAvailable(nsICacheEntry* entry, bool isNew,
          this, static_cast<uint32_t>(result)));
     return NS_OK;
   }
-  Telemetry::AccumulateTimeDelta(Telemetry::PREDICTOR_WAIT_TIME, mStartTime);
-  if (mPredict) {
-    bool predicted =
-        mPredictor->PredictInternal(mPredictReason, entry, isNew, mFullUri,
-                                    mTargetURI, mVerifier, mStackCount);
-    Telemetry::AccumulateTimeDelta(Telemetry::PREDICTOR_PREDICT_WORK_TIME,
-                                   mStartTime);
-    if (predicted) {
-      Telemetry::AccumulateTimeDelta(
-          Telemetry::PREDICTOR_PREDICT_TIME_TO_ACTION, mStartTime);
-    } else {
-      Telemetry::AccumulateTimeDelta(
-          Telemetry::PREDICTOR_PREDICT_TIME_TO_INACTION, mStartTime);
-    }
-  } else {
+  if (!mPredict) {
     mPredictor->LearnInternal(mLearnReason, entry, isNew, mFullUri, mTargetURI,
                               mSourceURI);
-    Telemetry::AccumulateTimeDelta(Telemetry::PREDICTOR_LEARN_WORK_TIME,
-                                   mStartTime);
   }
 
   return NS_OK;
@@ -302,12 +285,6 @@ NS_IMETHODIMP
 Predictor::GetParallelSpeculativeConnectLimit(
     uint32_t* parallelSpeculativeConnectLimit) {
   *parallelSpeculativeConnectLimit = 6;
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-Predictor::GetIsFromPredictor(bool* isFromPredictor) {
-  *isFromPredictor = true;
   return NS_OK;
 }
 
@@ -805,8 +782,6 @@ int32_t Predictor::CalculateGlobalDegradation(uint32_t lastLoad) {
     globalDegradation = StaticPrefs::network_predictor_page_degradation_max();
   }
 
-  Telemetry::Accumulate(Telemetry::PREDICTOR_GLOBAL_DEGRADATION,
-                        globalDegradation);
   return globalDegradation;
 }
 
@@ -826,10 +801,6 @@ int32_t Predictor::CalculateConfidence(uint32_t hitCount, uint32_t hitsPossible,
                                        uint32_t lastHit, uint32_t lastPossible,
                                        int32_t globalDegradation) {
   MOZ_ASSERT(NS_IsMainThread());
-
-  Telemetry::AutoCounter<Telemetry::PREDICTOR_PREDICTIONS_CALCULATED>
-      predictionsCalculated;
-  ++predictionsCalculated;
 
   if (!hitsPossible) {
     return 0;
@@ -877,10 +848,6 @@ int32_t Predictor::CalculateConfidence(uint32_t hitCount, uint32_t hitsPossible,
   confidence = std::max(confidence, 0);
   confidence = std::min(confidence, maxConfidence);
 
-  Telemetry::Accumulate(Telemetry::PREDICTOR_BASE_CONFIDENCE, baseConfidence);
-  Telemetry::Accumulate(Telemetry::PREDICTOR_SUBRESOURCE_DEGRADATION,
-                        confidenceDegradation);
-  Telemetry::Accumulate(Telemetry::PREDICTOR_CONFIDENCE, confidence);
   return confidence;
 }
 
@@ -1036,15 +1003,6 @@ void Predictor::SetupPrediction(int32_t confidence, uint32_t flags,
     }
   }
 
-  // prefetchOk == false and reason == PREFETCH_OK indicates that the reason
-  // we aren't prefetching this item is because it was marked un-prefetchable in
-  // our metadata. We already have separate telemetry on that decision, so we
-  // aren't going to accumulate more here. Right now we only care about why
-  // something we had marked prefetchable isn't being prefetched.
-  if (!prefetchOk && reason != PREFETCH_OK) {
-    Telemetry::Accumulate(Telemetry::PREDICTOR_PREFETCH_IGNORE_REASON, reason);
-  }
-
   if (prefetchOk) {
     nsCOMPtr<nsIURI> prefetchURI;
     rv = NS_NewURI(getter_AddRefs(prefetchURI), uri);
@@ -1147,21 +1105,11 @@ bool Predictor::RunPredictions(nsIURI* referrer,
                              preconnects = std::move(mPreconnects),
                              preresolves = std::move(mPreresolves);
 
-  Telemetry::AutoCounter<Telemetry::PREDICTOR_TOTAL_PREDICTIONS>
-      totalPredictions;
-  Telemetry::AutoCounter<Telemetry::PREDICTOR_TOTAL_PREFETCHES> totalPrefetches;
-  Telemetry::AutoCounter<Telemetry::PREDICTOR_TOTAL_PRECONNECTS>
-      totalPreconnects;
-  Telemetry::AutoCounter<Telemetry::PREDICTOR_TOTAL_PRERESOLVES>
-      totalPreresolves;
-
   len = prefetches.Length();
   for (i = 0; i < len; ++i) {
     PREDICTOR_LOG(("    doing prefetch"));
     nsCOMPtr<nsIURI> uri = prefetches[i];
     if (NS_SUCCEEDED(Prefetch(uri, referrer, originAttributes, verifier))) {
-      ++totalPredictions;
-      ++totalPrefetches;
       predicted = true;
     }
   }
@@ -1170,8 +1118,6 @@ bool Predictor::RunPredictions(nsIURI* referrer,
   for (i = 0; i < len; ++i) {
     PREDICTOR_LOG(("    doing preconnect"));
     nsCOMPtr<nsIURI> uri = preconnects[i];
-    ++totalPredictions;
-    ++totalPreconnects;
     nsCOMPtr<nsIPrincipal> principal =
         BasePrincipal::CreateCodebasePrincipal(uri, originAttributes);
     mSpeculativeService->SpeculativeConnect(uri, principal, this);
@@ -1185,8 +1131,6 @@ bool Predictor::RunPredictions(nsIURI* referrer,
   len = preresolves.Length();
   for (i = 0; i < len; ++i) {
     nsCOMPtr<nsIURI> uri = preresolves[i];
-    ++totalPredictions;
-    ++totalPreresolves;
     nsAutoCString hostname;
     uri->GetAsciiHost(hostname);
     PREDICTOR_LOG(("    doing preresolve %s", hostname.get()));
@@ -1333,9 +1277,6 @@ Predictor::LearnNative(nsIURI* targetURI, nsIURI* sourceURI,
       PREDICTOR_LOG(("    invalid reason"));
       return NS_ERROR_INVALID_ARG;
   }
-
-  Telemetry::AutoCounter<Telemetry::PREDICTOR_LEARN_ATTEMPTS> learnAttempts;
-  ++learnAttempts;
 
   Predictor::Reason argReason;
   argReason.mLearn = reason;
@@ -2169,8 +2110,6 @@ Predictor::PrefetchListener::OnStopRequest(nsIRequest* aRequest,
   if (NS_FAILED(aStatusCode)) {
     return aStatusCode;
   }
-  Telemetry::AccumulateTimeDelta(Telemetry::PREDICTOR_PREFETCH_TIME,
-                                 mStartTime);
 
   nsCOMPtr<nsIHttpChannel> httpChannel = do_QueryInterface(aRequest);
   if (!httpChannel) {
@@ -2409,9 +2348,6 @@ Predictor::CacheabilityAction::OnCacheEntryAvailable(
         // what kind of effect this would have on prefetching.
         reason = RESOURCE_IS_NO_STORE;
       }
-
-      Telemetry::Accumulate(Telemetry::PREDICTOR_PREFETCH_DECISION_REASON,
-                            reason);
 
       if (prefetchable) {
         PREDICTOR_LOG(("    marking %s cacheable", key));

@@ -11,7 +11,7 @@ description = "Cubeb Backend for talking to remote cubeb server."
 audioipc = { path="../audioipc" }
 cubeb-backend = "0.5.4"
 foreign-types = "0.3"
-futures = { version="0.1.18", default-features=false, features=["use_std"] }
+futures = { version="0.3.15", default-features=false, features=["std"] }
 futures-cpupool = { version="0.1.8", default-features=false }
 libc = "0.2"
 log = "0.4"

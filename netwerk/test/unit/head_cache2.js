@@ -65,26 +65,23 @@ function pumpReadStream(inputStream, goon) {
     );
     pump.init(inputStream, 0, 0, true);
     var data = "";
-    pump.asyncRead(
-      {
-        onStartRequest: function(aRequest) {},
-        onDataAvailable: function(aRequest, aInputStream, aOffset, aCount) {
-          var wrapper = Cc[
-            "@mozilla.org/scriptableinputstream;1"
-          ].createInstance(Ci.nsIScriptableInputStream);
-          wrapper.init(aInputStream);
-          var str = wrapper.read(wrapper.available());
-          LOG_C2("reading data '" + str.substring(0, 5) + "'");
-          data += str;
-        },
-        onStopRequest: function(aRequest, aStatusCode) {
-          LOG_C2("done reading data: " + aStatusCode);
-          Assert.equal(aStatusCode, Cr.NS_OK);
-          goon(data);
-        },
+    pump.asyncRead({
+      onStartRequest(aRequest) {},
+      onDataAvailable(aRequest, aInputStream, aOffset, aCount) {
+        var wrapper = Cc["@mozilla.org/scriptableinputstream;1"].createInstance(
+          Ci.nsIScriptableInputStream
+        );
+        wrapper.init(aInputStream);
+        var str = wrapper.read(wrapper.available());
+        LOG_C2("reading data '" + str.substring(0, 5) + "'");
+        data += str;
       },
-      null
-    );
+      onStopRequest(aRequest, aStatusCode) {
+        LOG_C2("done reading data: " + aStatusCode);
+        Assert.equal(aStatusCode, Cr.NS_OK);
+        goon(data);
+      },
+    });
   } else {
     // blocking stream
     var data = read_stream(inputStream, inputStream.available());
@@ -93,16 +90,8 @@ function pumpReadStream(inputStream, goon) {
 }
 
 OpenCallback.prototype = {
-  QueryInterface: function listener_qi(iid) {
-    if (
-      iid.equals(Ci.nsISupports) ||
-      iid.equals(Ci.nsICacheEntryOpenCallback)
-    ) {
-      return this;
-    }
-    throw Cr.NS_ERROR_NO_INTERFACE;
-  },
-  onCacheEntryCheck: function(entry, appCache) {
+  QueryInterface: ChromeUtils.generateQI(["nsICacheEntryOpenCallback"]),
+  onCacheEntryCheck(entry, appCache) {
     LOG_C2(this, "onCacheEntryCheck");
     Assert.ok(!this.onCheckPassed);
     this.onCheckPassed = true;

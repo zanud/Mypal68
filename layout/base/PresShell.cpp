@@ -167,7 +167,6 @@
 #include "mozilla/dom/ScriptSettings.h"
 #include "mozilla/ErrorResult.h"
 #include "mozilla/Preferences.h"
-#include "mozilla/Telemetry.h"
 #include "nsCanvasFrame.h"
 #include "nsImageFrame.h"
 #include "nsIScreen.h"
@@ -1189,13 +1188,8 @@ void PresShell::Destroy() {
       uint32_t fontCount;
       uint64_t fontSize;
       fs->GetLoadStatistics(fontCount, fontSize);
-      Telemetry::Accumulate(Telemetry::WEBFONT_PER_PAGE, fontCount);
-      Telemetry::Accumulate(Telemetry::WEBFONT_SIZE_PER_PAGE,
-                            uint32_t(fontSize / 1024));
-    } else {
-      Telemetry::Accumulate(Telemetry::WEBFONT_PER_PAGE, 0);
-      Telemetry::Accumulate(Telemetry::WEBFONT_SIZE_PER_PAGE, 0);
     }
+    mPresContext->CancelManagedPostRefreshObservers();
   }
 
 #ifdef MOZ_REFLOW_PERF
@@ -3974,8 +3968,9 @@ void PresShell::DoFlushPendingNotifications(mozilla::ChangesToFlush aFlush) {
     "Display"
   };
   // clang-format on
-  AUTO_PROFILER_LABEL_DYNAMIC_CSTR("PresShell::DoFlushPendingNotifications",
-                                   LAYOUT, flushTypeNames[flushType]);
+  AUTO_PROFILER_LABEL_DYNAMIC_CSTR_NONSENSITIVE(
+      "PresShell::DoFlushPendingNotifications", LAYOUT,
+      flushTypeNames[flushType]);
 #endif
 
 #ifdef ACCESSIBILITY
@@ -4080,10 +4075,12 @@ void PresShell::DoFlushPendingNotifications(mozilla::ChangesToFlush aFlush) {
     if (MOZ_LIKELY(!mIsDestroying)) {
       nsAutoScriptBlocker scriptBlocker;
 #ifdef MOZ_GECKO_PROFILER
-      nsCOMPtr<nsIDocShell> docShell = mPresContext->GetDocShell();
-      DECLARE_DOCSHELL_AND_HISTORY_ID(docShell);
+      Maybe<uint64_t> innerWindowID;
+      if (auto* window = mDocument->GetInnerWindow()) {
+        innerWindowID = Some(window->WindowID());
+      }
       AutoProfilerStyleMarker tracingStyleFlush(std::move(mStyleCause),
-                                                docShellId, docShellHistoryId);
+                                                innerWindowID);
 #endif
 
       mPresContext->RestyleManager()->ProcessPendingRestyles();
@@ -4099,10 +4096,12 @@ void PresShell::DoFlushPendingNotifications(mozilla::ChangesToFlush aFlush) {
     if (MOZ_LIKELY(!mIsDestroying)) {
       nsAutoScriptBlocker scriptBlocker;
 #ifdef MOZ_GECKO_PROFILER
-      nsCOMPtr<nsIDocShell> docShell = mPresContext->GetDocShell();
-      DECLARE_DOCSHELL_AND_HISTORY_ID(docShell);
+      Maybe<uint64_t> innerWindowID;
+      if (auto* window = mDocument->GetInnerWindow()) {
+        innerWindowID = Some(window->WindowID());
+      }
       AutoProfilerStyleMarker tracingStyleFlush(std::move(mStyleCause),
-                                                docShellId, docShellHistoryId);
+                                                innerWindowID);
 #endif
 
       mPresContext->RestyleManager()->ProcessPendingRestyles();
@@ -7842,7 +7841,6 @@ nsresult PresShell::EventHandler::HandleEventWithCurrentEventInfo(
   //     of nothing to do.  So, it may make average and median better.
   if (NS_EVENT_NEEDS_FRAME(aEvent) && !mPresShell->GetCurrentEventFrame() &&
       !mPresShell->GetCurrentEventContent()) {
-    RecordEventHandlingResponsePerformance(aEvent);
     return NS_OK;
   }
 
@@ -7859,10 +7857,6 @@ nsresult PresShell::EventHandler::HandleEventWithCurrentEventInfo(
     return NS_OK;
   }
 
-  // We finished preparing to dispatch the event.  So, let's record the
-  // performance.
-  RecordEventPreparationPerformance(aEvent);
-
   AutoHandlingUserInputStatePusher userInpStatePusher(
       UserActivation::IsUserInteractionEvent(aEvent), aEvent);
   AutoEventHandler eventHandler(aEvent, GetDocument());
@@ -7872,8 +7866,6 @@ nsresult PresShell::EventHandler::HandleEventWithCurrentEventInfo(
   // FIXME. If the event was reused, we need to clear the old target,
   // bug 329430
   aEvent->mTarget = nullptr;
-
-  HandlingTimeAccumulator handlingTimeAccumulator(*this, aEvent);
 
   nsresult rv = DispatchEvent(manager, aEvent, touchIsNew, aEventStatus,
                               aOverrideClickTarget);
@@ -7887,8 +7879,6 @@ nsresult PresShell::EventHandler::HandleEventWithCurrentEventInfo(
   }
 
   FinalizeHandlingEvent(aEvent);
-
-  RecordEventHandlingResponsePerformance(aEvent);
 
   return rv;  // Result of DispatchEvent()
 }
@@ -8147,124 +8137,6 @@ void PresShell::EventHandler::MaybeHandleKeyboardEventBeforeDispatch(
       Document::UnlockPointer();
     }
   }
-}
-
-void PresShell::EventHandler::RecordEventPreparationPerformance(
-    const WidgetEvent* aEvent) {
-  MOZ_ASSERT(aEvent);
-
-  switch (aEvent->mMessage) {
-    case eKeyPress:
-    case eKeyDown:
-    case eKeyUp:
-      if (aEvent->AsKeyboardEvent()->ShouldInteractionTimeRecorded()) {
-        GetPresContext()->RecordInteractionTime(
-            nsPresContext::InteractionType::KeyInteraction, aEvent->mTimeStamp);
-      }
-      Telemetry::AccumulateTimeDelta(Telemetry::INPUT_EVENT_QUEUED_KEYBOARD_MS,
-                                     aEvent->mTimeStamp);
-      return;
-
-    case eMouseDown:
-    case eMouseUp:
-      Telemetry::AccumulateTimeDelta(Telemetry::INPUT_EVENT_QUEUED_CLICK_MS,
-                                     aEvent->mTimeStamp);
-      [[fallthrough]];
-    case ePointerDown:
-    case ePointerUp:
-      GetPresContext()->RecordInteractionTime(
-          nsPresContext::InteractionType::ClickInteraction, aEvent->mTimeStamp);
-      return;
-
-    case eMouseMove:
-      if (aEvent->mFlags.mHandledByAPZ) {
-        Telemetry::AccumulateTimeDelta(
-            Telemetry::INPUT_EVENT_QUEUED_APZ_MOUSE_MOVE_MS,
-            aEvent->mTimeStamp);
-      }
-      GetPresContext()->RecordInteractionTime(
-          nsPresContext::InteractionType::MouseMoveInteraction,
-          aEvent->mTimeStamp);
-      return;
-
-    case eWheel:
-      if (aEvent->mFlags.mHandledByAPZ) {
-        Telemetry::AccumulateTimeDelta(
-            Telemetry::INPUT_EVENT_QUEUED_APZ_WHEEL_MS, aEvent->mTimeStamp);
-      }
-      return;
-
-    case eTouchMove:
-      if (aEvent->mFlags.mHandledByAPZ) {
-        Telemetry::AccumulateTimeDelta(
-            Telemetry::INPUT_EVENT_QUEUED_APZ_TOUCH_MOVE_MS,
-            aEvent->mTimeStamp);
-      }
-      return;
-
-    default:
-      return;
-  }
-}
-
-void PresShell::EventHandler::RecordEventHandlingResponsePerformance(
-    const WidgetEvent* aEvent) {
-  if (!Telemetry::CanRecordBase() || aEvent->mTimeStamp.IsNull() ||
-      aEvent->mTimeStamp <= mPresShell->mLastOSWake ||
-      !aEvent->AsInputEvent()) {
-    return;
-  }
-
-  TimeStamp now = TimeStamp::Now();
-  double millis = (now - aEvent->mTimeStamp).ToMilliseconds();
-  Telemetry::Accumulate(Telemetry::INPUT_EVENT_RESPONSE_MS, millis);
-  if (GetDocument() &&
-      GetDocument()->GetReadyStateEnum() != Document::READYSTATE_COMPLETE) {
-    Telemetry::Accumulate(Telemetry::LOAD_INPUT_EVENT_RESPONSE_MS, millis);
-  }
-
-  if (!sLastInputProcessed || sLastInputProcessed < aEvent->mTimeStamp) {
-    if (sLastInputProcessed) {
-      // This input event was created after we handled the last one.
-      // Accumulate the previous events' coalesced duration.
-      double lastMillis =
-          (sLastInputProcessed - sLastInputCreated).ToMilliseconds();
-      Telemetry::Accumulate(Telemetry::INPUT_EVENT_RESPONSE_COALESCED_MS,
-                            lastMillis);
-
-      if (MOZ_UNLIKELY(!PresShell::sProcessInteractable)) {
-        // For content process, we use the ready state of
-        // top-level-content-document to know if the process has finished the
-        // start-up.
-        // For parent process, see the topic
-        // 'sessionstore-one-or-no-tab-restored' in PresShell::Observe.
-        if (XRE_IsContentProcess() && GetDocument() &&
-            GetDocument()->IsTopLevelContentDocument()) {
-          switch (GetDocument()->GetReadyStateEnum()) {
-            case Document::READYSTATE_INTERACTIVE:
-            case Document::READYSTATE_COMPLETE:
-              PresShell::sProcessInteractable = true;
-              break;
-            default:
-              break;
-          }
-        }
-      }
-      if (MOZ_LIKELY(PresShell::sProcessInteractable)) {
-        Telemetry::Accumulate(Telemetry::INPUT_EVENT_RESPONSE_POST_STARTUP_MS,
-                              lastMillis);
-      } else {
-        Telemetry::Accumulate(Telemetry::INPUT_EVENT_RESPONSE_STARTUP_MS,
-                              lastMillis);
-      }
-    }
-    sLastInputCreated = aEvent->mTimeStamp;
-  } else if (aEvent->mTimeStamp < sLastInputCreated) {
-    // This event was created before the last input. May be processing out
-    // of order, so coalesce backwards, too.
-    sLastInputCreated = aEvent->mTimeStamp;
-  }
-  sLastInputProcessed = now;
 }
 
 // static
@@ -9244,10 +9116,13 @@ bool PresShell::DoReflow(nsIFrame* target, bool aInterruptible,
   }
 
 #ifdef MOZ_GECKO_PROFILER
-  DECLARE_DOCSHELL_AND_HISTORY_ID(docShell);
+  Maybe<uint64_t> innerWindowID;
+  if (auto* window = mDocument->GetInnerWindow()) {
+    innerWindowID = Some(window->WindowID());
+  }
   AutoProfilerTracing tracingLayoutFlush(
       "Paint", "Reflow", JS::ProfilingCategoryPair::LAYOUT,
-      std::move(mReflowCause), docShellId, docShellHistoryId);
+      std::move(mReflowCause), innerWindowID);
   mReflowCause = nullptr;
 #endif
 
@@ -9473,16 +9348,12 @@ void PresShell::DoVerifyReflow() {
 }
 #endif
 
-// used with Telemetry metrics
-#define NS_LONG_REFLOW_TIME_MS 5000
-
 bool PresShell::ProcessReflowCommands(bool aInterruptible) {
   if (mDirtyRoots.IsEmpty() && !mShouldUnsuppressPainting) {
     // Nothing to do; bail out
     return true;
   }
 
-  mozilla::TimeStamp timerStart = mozilla::TimeStamp::Now();
   bool interrupted = false;
   if (!mDirtyRoots.IsEmpty()) {
 #ifdef DEBUG
@@ -9570,16 +9441,6 @@ bool PresShell::ProcessReflowCommands(bool aInterruptible) {
     // waiting we avoid an overeager "jitter" effect.
     mShouldUnsuppressPainting = false;
     UnsuppressAndInvalidate();
-  }
-
-  if (mDocument->GetRootElement()) {
-    TimeDuration elapsed = TimeStamp::Now() - timerStart;
-    int32_t intElapsed = int32_t(elapsed.ToMilliseconds());
-
-    if (intElapsed > NS_LONG_REFLOW_TIME_MS) {
-      Telemetry::Accumulate(Telemetry::LONG_REFLOW_INTERRUPTIBLE,
-                            aInterruptible ? 1 : 0);
-    }
   }
 
   return !interrupted;
@@ -11276,64 +11137,6 @@ void PresShell::EventHandler::EventTargetData::UpdateTouchEventTarget(
   // Touch events (except touchstart) are dispatching to the captured
   // element. Get correct shell from it.
   mPresShell = newPresShell;
-}
-
-/******************************************************************************
- * PresShell::EventHandler::HandlingTimeAccumulator
- ******************************************************************************/
-
-PresShell::EventHandler::HandlingTimeAccumulator::HandlingTimeAccumulator(
-    const PresShell::EventHandler& aEventHandler, const WidgetEvent* aEvent)
-    : mEventHandler(aEventHandler),
-      mEvent(aEvent),
-      mHandlingStartTime(TimeStamp::Now()) {
-  MOZ_ASSERT(mEvent);
-  MOZ_ASSERT(mEvent->IsTrusted());
-}
-
-PresShell::EventHandler::HandlingTimeAccumulator::~HandlingTimeAccumulator() {
-  if (mEvent->mTimeStamp <= mEventHandler.mPresShell->mLastOSWake) {
-    return;
-  }
-
-  switch (mEvent->mMessage) {
-    case eKeyPress:
-    case eKeyDown:
-    case eKeyUp:
-      Telemetry::AccumulateTimeDelta(Telemetry::INPUT_EVENT_HANDLED_KEYBOARD_MS,
-                                     mHandlingStartTime);
-      return;
-    case eMouseDown:
-      Telemetry::AccumulateTimeDelta(
-          Telemetry::INPUT_EVENT_HANDLED_MOUSE_DOWN_MS, mHandlingStartTime);
-      return;
-    case eMouseUp:
-      Telemetry::AccumulateTimeDelta(Telemetry::INPUT_EVENT_HANDLED_MOUSE_UP_MS,
-                                     mHandlingStartTime);
-      return;
-    case eMouseMove:
-      if (mEvent->mFlags.mHandledByAPZ) {
-        Telemetry::AccumulateTimeDelta(
-            Telemetry::INPUT_EVENT_HANDLED_APZ_MOUSE_MOVE_MS,
-            mHandlingStartTime);
-      }
-      return;
-    case eWheel:
-      if (mEvent->mFlags.mHandledByAPZ) {
-        Telemetry::AccumulateTimeDelta(
-            Telemetry::INPUT_EVENT_HANDLED_APZ_WHEEL_MS, mHandlingStartTime);
-      }
-      return;
-    case eTouchMove:
-      if (mEvent->mFlags.mHandledByAPZ) {
-        Telemetry::AccumulateTimeDelta(
-            Telemetry::INPUT_EVENT_HANDLED_APZ_TOUCH_MOVE_MS,
-            mHandlingStartTime);
-      }
-      return;
-    default:
-      return;
-  }
 }
 
 void PresShell::EndPaint() {

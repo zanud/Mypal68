@@ -2362,7 +2362,6 @@ static const JSFunctionSpec intrinsic_functions[] = {
     JS_FN("intl_Collator", intl_Collator, 2, 0),
     JS_FN("intl_CompareStrings", intl_CompareStrings, 3, 0),
     JS_FN("intl_ComputeDisplayName", intl_ComputeDisplayName, 6, 0),
-    JS_FN("intl_ComputeDisplayNames", intl_ComputeDisplayNames, 3, 0),
     JS_FN("intl_DateTimeFormat", intl_DateTimeFormat, 2, 0),
     JS_FN("intl_FormatDateTime", intl_FormatDateTime, 2, 0),
     JS_FN("intl_FormatDateTimeRange", intl_FormatDateTimeRange, 4, 0),
@@ -2371,7 +2370,6 @@ static const JSFunctionSpec intrinsic_functions[] = {
     JS_FN("intl_FormatNumberRange", intl_FormatNumberRange, 4, 0),
     JS_FN("intl_FormatRelativeTime", intl_FormatRelativeTime, 4, 0),
     JS_FN("intl_GetCalendarInfo", intl_GetCalendarInfo, 1, 0),
-    JS_FN("intl_GetLocaleInfo", intl_GetLocaleInfo, 1, 0),
     JS_FN("intl_GetPluralCategories", intl_GetPluralCategories, 1, 0),
     JS_INLINABLE_FN("intl_GuardToCollator",
                     intrinsic_GuardToBuiltin<CollatorObject>, 1, 0,
@@ -2425,9 +2423,8 @@ static const JSFunctionSpec intrinsic_functions[] = {
     JS_FN("intl_isDefaultTimeZone", intl_isDefaultTimeZone, 1, 0),
     JS_FN("intl_isUpperCaseFirst", intl_isUpperCaseFirst, 1, 0),
     JS_FN("intl_numberingSystem", intl_numberingSystem, 1, 0),
-    JS_FN("intl_patternForSkeleton", intl_patternForSkeleton, 3, 0),
-    JS_FN("intl_patternForStyle", intl_patternForStyle, 6, 0),
-    JS_FN("intl_skeletonForPattern", intl_skeletonForPattern, 1, 0),
+    JS_FN("intl_resolveDateTimeFormatComponents",
+          intl_resolveDateTimeFormatComponents, 3, 0),
     JS_FN("intl_supportedLocaleOrFallback", intl_supportedLocaleOrFallback, 1,
           0),
     JS_FN("intl_toLocaleLowerCase", intl_toLocaleLowerCase, 2, 0),
@@ -2673,6 +2670,7 @@ bool JSRuntime::initSelfHosting(JSContext* cx, JS::SelfHostedCache xdrCache,
   if (xdrCache.Length() > 0) {
     // Allow the VM to directly use bytecode from the XDR buffer without
     // copying it. The buffer must outlive all runtimes (including workers).
+    options.borrowBuffer = true;
     options.usePinnedBytecode = true;
 
     Rooted<UniquePtr<frontend::CompilationInput>> input(

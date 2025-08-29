@@ -4,12 +4,14 @@
 "use strict";
 
 const selectors = require("devtools/client/performance-new/store/selectors");
+const {
+  translatePreferencesToState,
+  translatePreferencesFromState,
+} = require("devtools/client/performance-new/preference-management");
+const {
+  getEnvironmentVariable,
+} = require("devtools/client/performance-new/browser");
 
-/**
- * The recording state manages the current state of the recording panel.
- * @param {string} state - A valid state in `recordingState`.
- * @param {object} options
- */
 const changeRecordingState = (exports.changeRecordingState = (
   state,
   options = { didRecordingUnexpectedlyStopped: false }
@@ -48,14 +50,10 @@ function _dispatchAndUpdatePreferences(action) {
       getState()
     );
     const recordingSettings = selectors.getRecordingSettings(getState());
-    setRecordingPreferences(recordingSettings);
+    setRecordingPreferences(translatePreferencesFromState(recordingSettings));
   };
 }
 
-/**
- * Updates the recording settings for the interval.
- * @param {number} interval
- */
 exports.changeInterval = interval =>
   _dispatchAndUpdatePreferences({
     type: "CHANGE_INTERVAL",
@@ -76,11 +74,29 @@ exports.changeEntries = entries =>
  * Updates the recording settings for the features.
  * @param {object} features
  */
-exports.changeFeatures = features =>
-  _dispatchAndUpdatePreferences({
-    type: "CHANGE_FEATURES",
-    features,
-  });
+exports.changeFeatures = features => {
+  return (dispatch, getState) => {
+    let promptEnvRestart = null;
+    if (selectors.getIsPopup(getState())) {
+      // The popup supports checks to restart the browser for environment
+      // variables.
+      if (
+        !getEnvironmentVariable("JS_TRACE_LOGGING") &&
+        features.includes("jstracer")
+      ) {
+        promptEnvRestart = "JS_TRACE_LOGGING";
+      }
+    }
+
+    dispatch(
+      _dispatchAndUpdatePreferences({
+        type: "CHANGE_FEATURES",
+        features,
+        promptEnvRestart,
+      })
+    );
+  };
+};
 
 /**
  * Updates the recording settings for the threads.
@@ -102,19 +118,17 @@ exports.changeObjdirs = objdirs =>
     objdirs,
   });
 
-/**
- * Receive the values to intialize the store. See the reducer for what values
- * are expected.
- * @param {object} threads
- */
-exports.initializeStore = values => ({
-  type: "INITIALIZE_STORE",
-  ...values,
-});
+exports.initializeStore = values => {
+  const { recordingPreferences, ...initValues } = values;
+  return {
+    ...initValues,
+    type: "INITIALIZE_STORE",
+    recordingSettingsFromPreferences: translatePreferencesToState(
+      recordingPreferences
+    ),
+  };
+};
 
-/**
- * Start a new recording with the perfFront and update the internal recording state.
- */
 exports.startRecording = () => {
   return (dispatch, getState) => {
     const recordingSettings = selectors.getRecordingSettings(getState());

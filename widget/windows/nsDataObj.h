@@ -8,6 +8,7 @@
 #include <oleidl.h>
 #include <shldisp.h>
 
+#include "base/lock.h"
 #include "nsCOMPtr.h"
 #include "nsString.h"
 #include "nsIFile.h"
@@ -175,28 +176,7 @@ class nsDataObj : public IDataObject, public IDataObjectAsyncCapability {
   // CStream class implementation
   // this class is used in Drag and drop with download sample
   // called from IDataObject::GetData
-  class CStream final : public IStream, public nsIStreamListener {
-    nsCOMPtr<nsIChannel> mChannel;
-    FallibleTArray<uint8_t> mChannelData;
-    bool mChannelRead;
-    nsresult mChannelResult;
-    uint32_t mStreamRead;
-
-    virtual ~CStream();
-    nsresult WaitForCompletion();
-
-   public:
-    CStream();
-    nsresult Init(nsIURI* pSourceURI, uint32_t aContentPolicyType,
-                  nsIPrincipal* aRequestingPrincipal);
-
-    NS_DECL_ISUPPORTS
-    NS_DECL_NSIREQUESTOBSERVER
-    NS_DECL_NSISTREAMLISTENER
-
-    // IUnknown
-    STDMETHOD(QueryInterface)(REFIID refiid, void** ppvResult) override;
-
+  class CStreamBase : public IStream {
     // IStream
     STDMETHODIMP Clone(IStream** ppStream) final;
     STDMETHODIMP Commit(DWORD dwFrags) final;
@@ -205,20 +185,106 @@ class nsDataObj : public IDataObject, public IDataObjectAsyncCapability {
                         ULARGE_INTEGER* nBytesWritten) final;
     STDMETHODIMP LockRegion(ULARGE_INTEGER nStart, ULARGE_INTEGER nBytes,
                             DWORD dwFlags) final;
-    STDMETHODIMP Read(void* pvBuffer, ULONG nBytesToRead,
-                      ULONG* nBytesRead) final;
     STDMETHODIMP Revert(void) final;
     STDMETHODIMP Seek(LARGE_INTEGER nMove, DWORD dwOrigin,
                       ULARGE_INTEGER* nNewPos) final;
     STDMETHODIMP SetSize(ULARGE_INTEGER nNewSize) final;
-    STDMETHODIMP Stat(STATSTG* statstg, DWORD dwFlags) final;
     STDMETHODIMP UnlockRegion(ULARGE_INTEGER nStart, ULARGE_INTEGER nBytes,
                               DWORD dwFlags) final;
     STDMETHODIMP Write(const void* pvBuffer, ULONG nBytesToRead,
                        ULONG* nBytesRead) final;
+
+   protected:
+    uint32_t mStreamRead;
+
+    CStreamBase();
+    virtual ~CStreamBase();
+  };
+
+  class CStream final : public CStreamBase, public nsIStreamListener {
+    nsCOMPtr<nsIChannel> mChannel;
+    FallibleTArray<uint8_t> mChannelData;
+    nsresult mChannelResult;
+    bool mChannelRead;
+
+    virtual ~CStream();
+    nsresult WaitForCompletion();
+
+    // IUnknown
+    STDMETHOD(QueryInterface)(REFIID refiid, void** ppvResult) final;
+
+    // IStream
+    STDMETHODIMP Read(void* pvBuffer, ULONG nBytesToRead,
+                      ULONG* nBytesRead) final;
+    STDMETHODIMP Stat(STATSTG* statstg, DWORD dwFlags) final;
+
+   public:
+    CStream();
+    nsresult Init(nsIURI* pSourceURI, nsContentPolicyType aContentPolicyType,
+                  nsIPrincipal* aRequestingPrincipal);
+
+    NS_DECL_ISUPPORTS
+    NS_DECL_NSIREQUESTOBSERVER
+    NS_DECL_NSISTREAMLISTENER
   };
 
   HRESULT CreateStream(IStream** outStream);
+
+  // This class must be thread-safe.
+  class AutoCloseEvent final {
+    const nsAutoHandle mEvent;
+
+    AutoCloseEvent(const AutoCloseEvent&) = delete;
+    void operator=(const AutoCloseEvent&) = delete;
+    ~AutoCloseEvent() = default;
+
+   public:
+    AutoCloseEvent();
+    bool IsInited() const;
+    void Signal() const;
+    DWORD Wait(DWORD aMillisec) const;
+    NS_INLINE_DECL_THREADSAFE_REFCOUNTING(AutoCloseEvent)
+  };
+
+  // This class must be thread-safe.
+  class AutoSetEvent final {
+    const RefPtr<AutoCloseEvent> mEvent;
+
+    AutoSetEvent(const AutoSetEvent&) = delete;
+    void operator=(const AutoSetEvent&) = delete;
+    ~AutoSetEvent();
+
+   public:
+    explicit AutoSetEvent(mozilla::NotNull<AutoCloseEvent*> aEvent);
+    void Signal() const;
+    bool IsWaiting() const;
+    NS_INLINE_DECL_THREADSAFE_REFCOUNTING(AutoSetEvent)
+  };
+
+  // This class must be thread-safe.
+  class CMemStream final : public CStreamBase {
+    static Lock mLock;
+    const nsAutoGlobalMem mGlobalMem;
+    const RefPtr<AutoCloseEvent> mEvent;
+    const uint32_t mTotalLength;
+    RefPtr<IUnknown> mMarshaler;
+
+    virtual ~CMemStream();
+    void WaitForCompletion();
+
+    // IStream
+    STDMETHODIMP Read(void* pvBuffer, ULONG nBytesToRead,
+                      ULONG* nBytesRead) final;
+    STDMETHODIMP Stat(STATSTG* statstg, DWORD dwFlags) final;
+
+   public:
+    CMemStream(nsHGLOBAL aGlobalMem, uint32_t mTotalLength,
+               already_AddRefed<AutoCloseEvent> aEvent);
+
+    // IUnknown
+    STDMETHOD(QueryInterface)(REFIID refiid, void** ppvResult) final;
+    NS_INLINE_DECL_THREADSAFE_VIRTUAL_REFCOUNTING(CMemStream, final)
+  };
 
  private:
   // Drag and drop helper data for implementing drag and drop image support

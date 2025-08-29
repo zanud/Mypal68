@@ -33,7 +33,6 @@
 #include "nsServiceManagerUtils.h"
 #include "nsIURL.h"
 #include "mozilla/StaticPrefs_network.h"
-#include "mozilla/Telemetry.h"
 #include "nsIProxiedChannel.h"
 #include "nsIProxyInfo.h"
 
@@ -799,30 +798,6 @@ nsresult nsHttpChannelAuthProvider::GetCredentialsForChallenge(
       else if (authFlags & nsIHttpAuthenticator::IDENTITY_ENCRYPTED)
         level = nsIAuthPrompt2::LEVEL_PW_ENCRYPTED;
 
-      // Collect statistics on how frequently the various types of HTTP
-      // authentication are used over SSL and non-SSL connections.
-      if (Telemetry::CanRecordPrereleaseData()) {
-        if (NS_LITERAL_CSTRING("basic").LowerCaseEqualsASCII(authType)) {
-          Telemetry::Accumulate(
-              Telemetry::HTTP_AUTH_TYPE_STATS,
-              UsingSSL() ? HTTP_AUTH_BASIC_SECURE : HTTP_AUTH_BASIC_INSECURE);
-        } else if (NS_LITERAL_CSTRING("digest").LowerCaseEqualsASCII(
-                       authType)) {
-          Telemetry::Accumulate(
-              Telemetry::HTTP_AUTH_TYPE_STATS,
-              UsingSSL() ? HTTP_AUTH_DIGEST_SECURE : HTTP_AUTH_DIGEST_INSECURE);
-        } else if (NS_LITERAL_CSTRING("ntlm").LowerCaseEqualsASCII(authType)) {
-          Telemetry::Accumulate(
-              Telemetry::HTTP_AUTH_TYPE_STATS,
-              UsingSSL() ? HTTP_AUTH_NTLM_SECURE : HTTP_AUTH_NTLM_INSECURE);
-        } else if (NS_LITERAL_CSTRING("negotiate")
-                       .LowerCaseEqualsASCII(authType)) {
-          Telemetry::Accumulate(Telemetry::HTTP_AUTH_TYPE_STATS,
-                                UsingSSL() ? HTTP_AUTH_NEGOTIATE_SECURE
-                                           : HTTP_AUTH_NEGOTIATE_INSECURE);
-        }
-      }
-
       // Depending on the pref setting, the authentication dialog may be
       // blocked for all sub-resources, blocked for cross-origin
       // sub-resources, or always allowed for sub-resources.
@@ -914,7 +889,7 @@ bool nsHttpChannelAuthProvider::BlockPrompt(bool proxyAuth) {
   bool nonWebContent = false;
 
   if (loadInfo->GetExternalContentPolicyType() !=
-      nsIContentPolicy::TYPE_DOCUMENT) {
+      ExtContentPolicy::TYPE_DOCUMENT) {
     topDoc = false;
   }
 
@@ -926,7 +901,7 @@ bool nsHttpChannelAuthProvider::BlockPrompt(bool proxyAuth) {
   }
 
   if (loadInfo->GetExternalContentPolicyType() ==
-      nsIContentPolicy::TYPE_XMLHTTPREQUEST) {
+      ExtContentPolicy::TYPE_XMLHTTPREQUEST) {
     xhr = true;
   }
 
@@ -941,27 +916,6 @@ bool nsHttpChannelAuthProvider::BlockPrompt(bool proxyAuth) {
       bool sameOrigin = false;
       loadingPrinc->IsSameOrigin(mURI, false, &sameOrigin);
       mCrossOrigin = !sameOrigin;
-    }
-  }
-
-  if (Telemetry::CanRecordPrereleaseData()) {
-    if (topDoc) {
-      Telemetry::Accumulate(Telemetry::HTTP_AUTH_DIALOG_STATS_3,
-                            HTTP_AUTH_DIALOG_TOP_LEVEL_DOC);
-    } else if (nonWebContent) {
-      Telemetry::Accumulate(Telemetry::HTTP_AUTH_DIALOG_STATS_3,
-                            HTTP_AUTH_DIALOG_NON_WEB_CONTENT);
-    } else if (!mCrossOrigin) {
-      if (xhr) {
-        Telemetry::Accumulate(Telemetry::HTTP_AUTH_DIALOG_STATS_3,
-                              HTTP_AUTH_DIALOG_SAME_ORIGIN_XHR);
-      } else {
-        Telemetry::Accumulate(Telemetry::HTTP_AUTH_DIALOG_STATS_3,
-                              HTTP_AUTH_DIALOG_SAME_ORIGIN_SUBRESOURCE);
-      }
-    } else {
-      Telemetry::Accumulate(Telemetry::HTTP_AUTH_DIALOG_STATS_3,
-                            loadInfo->GetExternalContentPolicyType());
     }
   }
 
@@ -991,9 +945,9 @@ bool nsHttpChannelAuthProvider::BlockPrompt(bool proxyAuth) {
               network_auth_subresource_img_cross_origin_http_auth_allow() &&
           loadInfo &&
           ((loadInfo->GetExternalContentPolicyType() ==
-            nsIContentPolicy::TYPE_IMAGE) ||
+            ExtContentPolicy::TYPE_IMAGE) ||
            (loadInfo->GetExternalContentPolicyType() ==
-            nsIContentPolicy::TYPE_IMAGESET))) {
+            ExtContentPolicy::TYPE_IMAGESET))) {
         return true;
       }
       return false;

@@ -1707,10 +1707,6 @@ XDRResult XDRLazyScript(XDRState<mode>* xdr, HandleScope enclosingScope,
 template <XDRMode mode>
 XDRResult XDRSourceExtent(XDRState<mode>* xdr, SourceExtent* extent);
 
-template <XDRMode mode>
-XDRResult XDRImmutableScriptData(XDRState<mode>* xdr,
-                                 SharedImmutableScriptData& sisd);
-
 /*
  * Code any constant value.
  */
@@ -2083,6 +2079,16 @@ class JSScript : public js::BaseScript {
   js::SrcNote* notes() const {
     MOZ_ASSERT(sharedData_);
     return immutableScriptData()->notes();
+  }
+
+  JSString* getString(js::GCThingIndex index) const {
+    return &gcthings()[index].as<JSString>();
+  }
+
+  JSString* getString(jsbytecode* pc) const {
+    MOZ_ASSERT(containsPC<js::GCThingIndex>(pc));
+    MOZ_ASSERT(js::JOF_OPTYPE((JSOp)*pc) == JOF_STRING);
+    return getString(GET_GCTHING_INDEX(pc));
   }
 
   JSAtom* getAtom(js::GCThingIndex index) const {

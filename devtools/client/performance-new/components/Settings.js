@@ -14,6 +14,7 @@ const {
   input,
   span,
   h2,
+  h3,
   section,
   p,
 } = require("devtools/client/shared/vendor/react-dom-factories");
@@ -120,6 +121,7 @@ const featureCheckboxes = [
     title:
       "Record native stacks (C++ and Rust). This is not available on all platforms.",
     recommended: true,
+    disabledReason: "Native stack walking is not supported on this platform.",
   },
   {
     name: "JavaScript",
@@ -137,7 +139,8 @@ const featureCheckboxes = [
   {
     name: "Java",
     value: "java",
-    title: "Profile Java code (Android only).",
+    title: "Profile Java code",
+    disabledReason: "This feature is only available on Android.",
   },
   {
     name: "Native Leaf Stack",
@@ -164,7 +167,9 @@ const featureCheckboxes = [
   {
     name: "TaskTracer",
     value: "tasktracer",
-    title: "Enable TaskTracer (Experimental, requires custom build.)",
+    title: "Enable TaskTracer (Experimental.)",
+    disabledReason:
+      "TaskTracer requires a custom build with the environment variable MOZ_TASK_TRACER set.",
   },
   {
     name: "Screenshots",
@@ -174,7 +179,9 @@ const featureCheckboxes = [
   {
     name: "JSTracer",
     value: "jstracer",
-    title: "Trace JS engine (Experimental, requires custom build.)",
+    title: "Trace JS engine (Experimental.)",
+    disabledReason:
+      "JS Tracer is currently disabled due to crashes. See Bug 1565788.",
   },
   {
     name: "IPC Messages",
@@ -404,6 +411,57 @@ class Settings extends PureComponent {
     );
   }
 
+  _renderFeatureCheckbox(featureCheckbox, showUnsupportedFeatures) {
+    const { supportedFeatures } = this.props;
+    const { name, value, title, recommended, disabledReason } = featureCheckbox;
+    let isSupported = true;
+    if (supportedFeatures !== null && !supportedFeatures.includes(value)) {
+      isSupported = false;
+    }
+    if (showUnsupportedFeatures === isSupported) {
+      // This method gets called twice, once for supported featured, and once for
+      // unsupported features. Only render the appropriate features for each section.
+      return null;
+    }
+
+    const extraClassName = isSupported
+      ? ""
+      : "perf-settings-checkbox-label-disabled";
+
+    return label(
+      {
+        className: `perf-settings-checkbox-label perf-settings-feature-label ${extraClassName}`,
+        key: value,
+      },
+      input({
+        className: "perf-settings-checkbox",
+        id: `perf-settings-feature-checkbox-${value}`,
+        type: "checkbox",
+        value,
+        checked: isSupported && this.props.features.includes(value),
+        onChange: this._handleFeaturesCheckboxChange,
+        disabled: !isSupported,
+      }),
+      div({ className: "perf-settings-feature-name" }, name),
+      div(
+        { className: "perf-settings-feature-title" },
+        title,
+        !isSupported && disabledReason
+          ? div(
+              { className: "perf-settings-feature-disabled-reason" },
+              disabledReason
+            )
+          : null,
+        recommended
+          ? span(
+              { className: "perf-settings-subtext" },
+              " (Recommended on by default.)"
+            )
+          : null
+      )
+    );
+  }
+
   _renderFeatures() {
     return details(
       { className: "perf-settings-details", onToggle: _handleToggle },
@@ -418,33 +476,17 @@ class Settings extends PureComponent {
         { className: "perf-settings-details-contents" },
         div(
           { className: "perf-settings-details-contents-slider" },
-          featureCheckboxes.map(({ name, value, title, recommended }) =>
-            label(
-              {
-                className:
-                  "perf-settings-checkbox-label perf-settings-feature-label",
-                key: value,
-              },
-              input({
-                className: "perf-settings-checkbox",
-                id: `perf-settings-feature-checkbox-${value}`,
-                type: "checkbox",
-                value,
-                checked: this.props.features.includes(value),
-                onChange: this._handleFeaturesCheckboxChange,
-              }),
-              div({ className: "perf-settings-feature-name" }, name),
-              div(
-                { className: "perf-settings-feature-title" },
-                title,
-                recommended
-                  ? span(
-                      { className: "perf-settings-subtext" },
-                      " (Recommended on by default.)"
-                    )
-                  : null
-              )
-            )
+          // Render the supported features first.
+          featureCheckboxes.map(featureCheckbox =>
+            this._renderFeatureCheckbox(featureCheckbox, false)
+          ),
+          h3(
+            { className: "perf-settings-features-disabled-title" },
+            "The following features are currently unavailable:"
+          ),
+          // Render the unsupported features second.
+          featureCheckboxes.map(featureCheckbox =>
+            this._renderFeatureCheckbox(featureCheckbox, true)
           )
         )
       )
@@ -569,6 +611,7 @@ function mapStateToProps(state) {
     threads: selectors.getThreads(state),
     threadsString: selectors.getThreadsString(state),
     objdirs: selectors.getObjdirs(state),
+    supportedFeatures: selectors.getSupportedFeatures(state),
   };
 }
 

@@ -97,7 +97,6 @@ PhaseKindGraphRoots = [
                     addPhaseKind("MARK_STACK", "Mark C and JS stacks", 51),
                     addPhaseKind("MARK_RUNTIME_DATA", "Mark Runtime-wide Data", 52),
                     addPhaseKind("MARK_EMBEDDING", "Mark Embedding", 53),
-                    addPhaseKind("MARK_COMPARTMENTS", "Mark Compartments", 54),
                 ],
             )
         ],
@@ -136,9 +135,6 @@ PhaseKindGraphRoots = [
                 10,
                 [
                     getPhaseKind("MARK_DELAYED"),
-                    addPhaseKind(
-                        "SWEEP_MARK_INCOMING_BLACK", "Mark Incoming Black Pointers", 12
-                    ),
                     addPhaseKind(
                         "SWEEP_MARK_WEAK",
                         "Mark Weak",
@@ -207,6 +203,7 @@ PhaseKindGraphRoots = [
             addPhaseKind("FINALIZE_END", "Finalize End Callback", 38),
             addPhaseKind("DESTROY", "Deallocate", 39),
             getPhaseKind("JOIN_PARALLEL_TASKS"),
+            addPhaseKind("FIND_DEAD_COMPARTMENTS", "Find Dead Compartments", 54),
         ],
     ),
     addPhaseKind(
@@ -252,9 +249,6 @@ PhaseKindGraphRoots = [
         [
             getPhaseKind("MARK_ROOTS"),
         ],
-    ),
-    addPhaseKind(
-        "BARRIER", "Barriers", 55, [addPhaseKind("UNMARK_GRAY", "Unmark gray", 56)]
     ),
 ]
 

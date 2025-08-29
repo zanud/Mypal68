@@ -117,7 +117,6 @@ class nsSocketTransportService final : public nsPISocketTransportService,
   // Returns true if keepalives are enabled in prefs.
   bool IsKeepaliveEnabled() { return mKeepaliveEnabledPref; }
 
-  bool IsTelemetryEnabledAndNotSleepPhase();
   PRIntervalTime MaxTimeForPrClosePref() { return mMaxTimeForPrClosePref; }
 
   bool IsEsniEnabled() {
@@ -242,14 +241,12 @@ class nsSocketTransportService final : public nsPISocketTransportService,
 
   PRIntervalTime PollTimeout(
       PRIntervalTime now);  // computes ideal poll timeout
-  nsresult DoPollIteration(TimeDuration* pollDuration);
+  nsresult DoPollIteration();
   // perfoms a single poll iteration
-  int32_t Poll(TimeDuration* pollDuration, PRIntervalTime now);
+  int32_t Poll(PRIntervalTime now);
   // calls PR_Poll.  the out param
   // interval indicates the poll
   // duration in seconds.
-  // pollDuration is used only for
-  // telemetry
 
   //-------------------------------------------------------------------------
   // pending socket queue - see NotifyWhenCanAttachSocket

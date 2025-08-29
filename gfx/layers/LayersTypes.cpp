@@ -7,6 +7,13 @@
 namespace mozilla {
 namespace layers {
 
+const char* kCompositionPayloadTypeNames[kCompositionPayloadTypeCount] = {
+    "KeyPress",
+    "APZScroll",
+    "APZPinchZoom",
+    "ContentPaint",
+};
+
 EventRegions::EventRegions(const nsIntRegion& aHitRegion,
                            const nsIntRegion& aMaybeHitRegion,
                            const nsIntRegion& aDispatchToContentRegion,

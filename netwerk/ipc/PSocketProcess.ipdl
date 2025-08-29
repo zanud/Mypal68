@@ -12,12 +12,6 @@ include PBrowserOrId;
 include PrefsTypes;
 
 using mozilla::dom::NativeThreadId from "mozilla/dom/TabMessageUtils.h";
-using mozilla::Telemetry::HistogramAccumulation from "mozilla/TelemetryComms.h";
-using mozilla::Telemetry::KeyedHistogramAccumulation from "mozilla/TelemetryComms.h";
-using mozilla::Telemetry::ScalarAction from "mozilla/TelemetryComms.h";
-using mozilla::Telemetry::KeyedScalarAction from "mozilla/TelemetryComms.h";
-using mozilla::Telemetry::ChildEventData from "mozilla/TelemetryComms.h";
-using mozilla::Telemetry::DiscardedData from "mozilla/TelemetryComms.h";
 using base::ProcessId from "base/process.h";
 using mozilla::OriginAttributes from "mozilla/ipc/BackgroundUtils.h";
 
@@ -33,13 +27,6 @@ parent:
   async InitCrashReporter(Shmem shmem, NativeThreadId threadId);
   async AddMemoryReport(MemoryReport aReport);
   async FinishMemoryReport(uint32_t aGeneration);
-  // Messages for sending telemetry to parent process.
-  async AccumulateChildHistograms(HistogramAccumulation[] accumulations);
-  async AccumulateChildKeyedHistograms(KeyedHistogramAccumulation[] accumulations);
-  async UpdateChildScalars(ScalarAction[] actions);
-  async UpdateChildKeyedScalars(KeyedScalarAction[] actions);
-  async RecordChildEvents(ChildEventData[] events);
-  async RecordDiscardedData(DiscardedData data);
 
   /* tabId is only required for web-proxy support, which isn't always needed */
   async PWebrtcTCPSocket(TabId? tabId);
@@ -55,8 +42,6 @@ child:
   async SetOffline(bool offline);
   async InitSocketProcessBridgeParent(ProcessId processId, Endpoint<PSocketProcessBridgeParent> endpoint);
   async InitProfiler(Endpoint<PProfilerChild> aEndpoint);
-  // test-only
-  async SocketProcessTelemetryPing();
 };
 
 } // namespace net

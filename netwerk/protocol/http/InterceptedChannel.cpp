@@ -84,7 +84,7 @@ nsresult InterceptedChannelBase::DoSynthesizeHeader(const nsACString& aName,
                                                     const nsACString& aValue) {
   EnsureSynthesizedResponse();
 
-  nsAutoCString header = aName + NS_LITERAL_CSTRING(": ") + aValue;
+  nsAutoCString header = aName + ": "_ns + aValue;
   // Overwrite any existing header.
   return (*mSynthesizedResponseHead)->ParseHeaderLine(header);
 }
@@ -152,63 +152,11 @@ InterceptedChannelBase::SaveTimeStamps() {
 
   bool isNonSubresourceRequest =
       nsContentUtils::IsNonSubresourceRequest(channel);
-  nsCString navigationOrSubresource = isNonSubresourceRequest
-                                          ? NS_LITERAL_CSTRING("navigation")
-                                          : NS_LITERAL_CSTRING("subresource");
+  nsCString navigationOrSubresource =
+      isNonSubresourceRequest ? "navigation"_ns : "subresource"_ns;
 
   nsAutoCString subresourceKey(EmptyCString());
   GetSubresourceTimeStampKey(channel, subresourceKey);
-
-  // We may have null timestamps if the fetch dispatch runnable was cancelled
-  // and we defaulted to resuming the request.
-  if (!mFinishResponseStart.IsNull() && !mFinishResponseEnd.IsNull()) {
-    MOZ_ASSERT(mSynthesizedOrReset != Invalid);
-
-    Telemetry::HistogramID id =
-        (mSynthesizedOrReset == Synthesized)
-            ? Telemetry::
-                  SERVICE_WORKER_FETCH_EVENT_FINISH_SYNTHESIZED_RESPONSE_MS
-            : Telemetry::SERVICE_WORKER_FETCH_EVENT_CHANNEL_RESET_MS;
-    Telemetry::Accumulate(
-        id, navigationOrSubresource,
-        static_cast<uint32_t>(
-            (mFinishResponseEnd - mFinishResponseStart).ToMilliseconds()));
-    if (!isNonSubresourceRequest && !subresourceKey.IsEmpty()) {
-      Telemetry::Accumulate(
-          id, subresourceKey,
-          static_cast<uint32_t>(
-              (mFinishResponseEnd - mFinishResponseStart).ToMilliseconds()));
-    }
-  }
-
-  Telemetry::Accumulate(
-      Telemetry::SERVICE_WORKER_FETCH_EVENT_DISPATCH_MS,
-      navigationOrSubresource,
-      static_cast<uint32_t>((mHandleFetchEventStart - mDispatchFetchEventStart)
-                                .ToMilliseconds()));
-
-  if (!isNonSubresourceRequest && !subresourceKey.IsEmpty()) {
-    Telemetry::Accumulate(Telemetry::SERVICE_WORKER_FETCH_EVENT_DISPATCH_MS,
-                          subresourceKey,
-                          static_cast<uint32_t>((mHandleFetchEventStart -
-                                                 mDispatchFetchEventStart)
-                                                    .ToMilliseconds()));
-  }
-
-  if (!mFinishResponseEnd.IsNull()) {
-    Telemetry::Accumulate(
-        Telemetry::SERVICE_WORKER_FETCH_INTERCEPTION_DURATION_MS,
-        navigationOrSubresource,
-        static_cast<uint32_t>(
-            (mFinishResponseEnd - mDispatchFetchEventStart).ToMilliseconds()));
-    if (!isNonSubresourceRequest && !subresourceKey.IsEmpty()) {
-      Telemetry::Accumulate(
-          Telemetry::SERVICE_WORKER_FETCH_INTERCEPTION_DURATION_MS,
-          subresourceKey,
-          static_cast<uint32_t>((mFinishResponseEnd - mDispatchFetchEventStart)
-                                    .ToMilliseconds()));
-    }
-  }
 
   return rv;
 }

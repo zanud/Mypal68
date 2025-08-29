@@ -117,6 +117,7 @@ UNIFIED_SOURCES += [
     'nsPresArena.cpp',
     'nsPresContext.cpp',
     'nsQuoteList.cpp',
+    'nsRefreshObservers.cpp',
     'nsStyleChangeList.cpp',
     'nsStyleSheetService.cpp',
     'PositionedEventTargeting.cpp',

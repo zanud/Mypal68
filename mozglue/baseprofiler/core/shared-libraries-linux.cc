@@ -21,7 +21,9 @@
 #include <dlfcn.h>
 #include <elf.h>
 #include <fcntl.h>
-#include <features.h>
+#if defined(GP_OS_linux) || defined(GP_OS_android)
+#  include <features.h>
+#endif
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -29,9 +31,9 @@
 
 #if defined(MOZ_LINKER)
 #  include "AutoObjectMapper.h"
-#  include "Linker.h"  // dl_phdr_info
-#elif defined(GP_OS_linux) || defined(GP_OS_android)
-#  include <link.h>  // dl_phdr_info
+#endif
+#if defined(GP_OS_linux) || defined(GP_OS_android) || defined(GP_OS_freebsd)
+#  include <link.h>  // dl_phdr_info, ElfW()
 #else
 #  error "Unexpected configuration"
 #endif
@@ -40,6 +42,10 @@
 extern "C" MOZ_EXPORT __attribute__((weak)) int dl_iterate_phdr(
     int (*callback)(struct dl_phdr_info* info, size_t size, void* data),
     void* data);
+#endif
+
+#if defined(GP_OS_freebsd) && !defined(ElfW)
+#  define ElfW(type) Elf_##type
 #endif
 
 // ----------------------------------------------------------------------------
@@ -177,7 +183,8 @@ class MemoryMappedFile {
     }
 
 #if defined(__x86_64__) || defined(__aarch64__) || \
-    (defined(__mips__) && _MIPS_SIM == _ABI64)
+    (defined(__mips__) && _MIPS_SIM == _ABI64) ||  \
+    !(defined(GP_OS_linux) || defined(GP_OS_android))
 
     struct stat st;
     if (fstat(fd, &st) == -1 || st.st_size < 0) {
@@ -663,7 +670,7 @@ static std::string getId(const char* bin_name) {
   identifier.reserve(kDefaultBuildIdSize);
 
 #if defined(MOZ_LINKER)
-  if (nsDependentCString(bin_name).Find("!/") != kNotFound) {
+  if (std::string(bin_name).find(std::string("!/")) != std::string::npos) {
     AutoObjectMapperFaultyLib mapper(outputMapperLog);
     void* image = nullptr;
     size_t size = 0;
@@ -762,6 +769,7 @@ SharedLibraryInfo SharedLibraryInfo::GetInfoForSelf() {
   }
 #endif
 
+#if defined(GP_OS_linux) || defined(GP_OS_android)
   // Read info from /proc/self/maps. We ignore most of it.
   pid_t pid = mozilla::baseprofiler::profiler_current_process_id();
   char path[PATH_MAX];
@@ -788,12 +796,12 @@ SharedLibraryInfo SharedLibraryInfo::GetInfoForSelf() {
       continue;
     }
 
-#if defined(GP_OS_linux)
+#  if defined(GP_OS_linux)
     // Try to establish the main executable's load address.
     if (exeNameLen > 0 && strcmp(modulePath, exeName) == 0) {
       exeExeAddr = start;
     }
-#elif defined(GP_OS_android)
+#  elif defined(GP_OS_android)
     // Use /proc/pid/maps to get the dalvik-jit section since it has no
     // associated phdrs.
     if (0 == strcmp(modulePath, "/dev/ashmem/dalvik-jit-code-cache")) {
@@ -805,8 +813,9 @@ SharedLibraryInfo SharedLibraryInfo::GetInfoForSelf() {
         break;
       }
     }
-#endif
+#  endif
   }
+#endif
 
   std::vector<LoadedLibraryInfo> libInfoList;
 

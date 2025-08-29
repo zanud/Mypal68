@@ -110,8 +110,7 @@ ProfilerMarkerPayload::CommonPropsTagAndSerializationBytes() const {
   return sizeof(DeserializerTag) +
          ProfileBufferEntryWriter::SumBytes(
              mCommonProps.mStartTime, mCommonProps.mEndTime,
-             mCommonProps.mStack, mCommonProps.mDocShellId,
-             mCommonProps.mDocShellHistoryId);
+             mCommonProps.mStack, mCommonProps.mInnerWindowID);
 }
 
 void ProfilerMarkerPayload::SerializeTagAndCommonProps(
@@ -121,8 +120,7 @@ void ProfilerMarkerPayload::SerializeTagAndCommonProps(
   aEntryWriter.WriteObject(mCommonProps.mStartTime);
   aEntryWriter.WriteObject(mCommonProps.mEndTime);
   aEntryWriter.WriteObject(mCommonProps.mStack);
-  aEntryWriter.WriteObject(mCommonProps.mDocShellId);
-  aEntryWriter.WriteObject(mCommonProps.mDocShellHistoryId);
+  aEntryWriter.WriteObject(mCommonProps.mInnerWindowID);
 }
 
 // static
@@ -133,16 +131,15 @@ ProfilerMarkerPayload::DeserializeCommonProps(
   aEntryReader.ReadIntoObject(props.mStartTime);
   aEntryReader.ReadIntoObject(props.mEndTime);
   aEntryReader.ReadIntoObject(props.mStack);
-  aEntryReader.ReadIntoObject(props.mDocShellId);
-  aEntryReader.ReadIntoObject(props.mDocShellHistoryId);
+  aEntryReader.ReadIntoObject(props.mInnerWindowID);
   return props;
 }
 
 // Deprecated: This function is providing a way for a few payloads to use the
 // start time and end time in their payloads, which is currently deprecated.
 // The startTime and endTime were removed from most payloads, in favor of
-// the MarkerPhase idea. However, IPC and Network markers still have them as
-// it was harder to upgrade the front-end without them.
+// the MarkerTiming::Phase idea. However, IPC and Network markers still have
+// them as it was harder to upgrade the front-end without them.
 void ProfilerMarkerPayload::StreamStartEndTime(
     SpliceableJSONWriter& aWriter, const TimeStamp& aProcessStartTime) const {
   WriteTime(aWriter, aProcessStartTime, mCommonProps.mStartTime, "startTime");
@@ -153,14 +150,13 @@ void ProfilerMarkerPayload::StreamCommonProps(
     const char* aMarkerType, SpliceableJSONWriter& aWriter,
     const TimeStamp& aProcessStartTime, UniqueStacks& aUniqueStacks) const {
   StreamType(aMarkerType, aWriter);
-  if (mCommonProps.mDocShellId) {
-    aWriter.StringProperty(
-        "docShellId",
-        MakeStringSpan(nsIDToCString(mCommonProps.mDocShellId.ref()).get()));
-  }
-  if (mCommonProps.mDocShellHistoryId) {
-    aWriter.DoubleProperty("docshellHistoryId",
-                           mCommonProps.mDocShellHistoryId.ref());
+  if (mCommonProps.mInnerWindowID) {
+    // Here, we are converting uint64_t to double. Both Browsing Context and
+    // Inner Window IDs are creating using
+    // `nsContentUtils::GenerateProcessSpecificId`, which is specifically
+    // designed to only use 53 of the 64 bits to be lossless when passed into
+    // and out of JS as a double.
+    aWriter.DoubleProperty("innerWindowID", mCommonProps.mInnerWindowID.ref());
   }
   if (mCommonProps.mStack) {
     aWriter.StartObjectProperty("stack");
@@ -318,6 +314,32 @@ void UserTimingMarkerPayload::StreamPayload(SpliceableJSONWriter& aWriter,
   }
 }
 
+ProfileBufferEntryWriter::Length TimingMarkerPayload::TagAndSerializationBytes()
+    const {
+  return CommonPropsTagAndSerializationBytes();
+}
+
+void TimingMarkerPayload::SerializeTagAndPayload(
+    ProfileBufferEntryWriter& aEntryWriter) const {
+  static const DeserializerTag tag = TagForDeserializer(Deserialize);
+  SerializeTagAndCommonProps(tag, aEntryWriter);
+}
+
+// static
+UniquePtr<ProfilerMarkerPayload> TimingMarkerPayload::Deserialize(
+    ProfileBufferEntryReader& aEntryReader) {
+  ProfilerMarkerPayload::CommonProps props =
+      DeserializeCommonProps(aEntryReader);
+  return UniquePtr<ProfilerMarkerPayload>(
+      new TimingMarkerPayload(std::move(props)));
+}
+
+void TimingMarkerPayload::StreamPayload(SpliceableJSONWriter& aWriter,
+                                        const TimeStamp& aProcessStartTime,
+                                        UniqueStacks& aUniqueStacks) const {
+  StreamCommonProps("Timing", aWriter, aProcessStartTime, aUniqueStacks);
+}
+
 ProfileBufferEntryWriter::Length TextMarkerPayload::TagAndSerializationBytes()
     const {
   return CommonPropsTagAndSerializationBytes() +
@@ -379,45 +401,6 @@ void LogMarkerPayload::StreamPayload(SpliceableJSONWriter& aWriter,
   StreamCommonProps("Log", aWriter, aProcessStartTime, aUniqueStacks);
   aWriter.StringProperty("name", mText);
   aWriter.StringProperty("module", mModule);
-}
-
-ProfileBufferEntryWriter::Length
-DOMEventMarkerPayload::TagAndSerializationBytes() const {
-  return TracingMarkerPayload::TagAndSerializationBytes() +
-         ProfileBufferEntryWriter::SumBytes(mTimeStamp, mEventType);
-}
-
-void DOMEventMarkerPayload::SerializeTagAndPayload(
-    ProfileBufferEntryWriter& aEntryWriter) const {
-  static const DeserializerTag tag = TagForDeserializer(Deserialize);
-  // Let our parent class serialize our tag with its payload.
-  TracingMarkerPayload::SerializeTagAndPayload(tag, aEntryWriter);
-  // Then write our extra data.
-  aEntryWriter.WriteObject(mTimeStamp);
-  aEntryWriter.WriteObject(mEventType);
-}
-
-// static
-UniquePtr<ProfilerMarkerPayload> DOMEventMarkerPayload::Deserialize(
-    ProfileBufferEntryReader& aEntryReader) {
-  ProfilerMarkerPayload::CommonProps props =
-      DeserializeCommonProps(aEntryReader);
-  const char* category = aEntryReader.ReadObject<const char*>();
-  TracingKind kind = aEntryReader.ReadObject<TracingKind>();
-  auto timeStamp = aEntryReader.ReadObject<TimeStamp>();
-  auto eventType = aEntryReader.ReadObject<nsString>();
-  return UniquePtr<ProfilerMarkerPayload>(new DOMEventMarkerPayload(
-      std::move(props), category, kind, timeStamp, std::move(eventType)));
-}
-
-void DOMEventMarkerPayload::StreamPayload(SpliceableJSONWriter& aWriter,
-                                          const TimeStamp& aProcessStartTime,
-                                          UniqueStacks& aUniqueStacks) const {
-  TracingMarkerPayload::StreamPayload(aWriter, aProcessStartTime,
-                                      aUniqueStacks);
-
-  WriteTime(aWriter, aProcessStartTime, mTimeStamp, "timeStamp");
-  aWriter.StringProperty("eventType", NS_ConvertUTF16toUTF8(mEventType));
 }
 
 ProfileBufferEntryWriter::Length

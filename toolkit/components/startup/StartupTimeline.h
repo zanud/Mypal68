@@ -37,7 +37,7 @@
 #    include "nscore.h"
 
 #    ifdef MOZILLA_INTERNAL_API
-#      include "GeckoProfiler.h"
+#      include "mozilla/ProfilerMarkers.h"
 #    endif
 
 namespace mozilla {
@@ -60,7 +60,8 @@ class StartupTimeline {
 
 #    ifdef MOZILLA_INTERNAL_API
   static void Record(Event ev) {
-    PROFILER_ADD_MARKER(Describe(ev), OTHER);
+    PROFILER_MARKER_UNTYPED(
+        ProfilerString8View::WrapNullTerminatedString(Describe(ev)), OTHER);
     Record(ev, TimeStamp::Now());
   }
 

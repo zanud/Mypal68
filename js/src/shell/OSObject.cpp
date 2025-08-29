@@ -45,7 +45,7 @@
 #include "util/GetPidProvider.h"  // getpid()
 #include "util/StringBuffer.h"
 #include "util/Text.h"
-#include "util/Windows.h"
+#include "util/WindowsWrapper.h"
 #include "vm/JSObject.h"
 #include "vm/TypedArrayObject.h"
 

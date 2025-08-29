@@ -976,7 +976,7 @@ ScopedXPCOMStartup::~ScopedXPCOMStartup() {
     if (appStartup) appStartup->DestroyHiddenWindow();
 
     gDirServiceProvider->DoShutdown();
-    PROFILER_ADD_MARKER("Shutdown early", OTHER);
+    PROFILER_MARKER_UNTYPED("Shutdown early", OTHER);
 
     WriteConsoleLog();
 
@@ -3708,12 +3708,6 @@ nsresult XREMain::XRE_mainRun() {
     }
   }
   // Needs to be set after xpcom initialization.
-  CrashReporter::AnnotateCrashReport(
-      CrashReporter::Annotation::FramePoisonBase,
-      nsPrintfCString("%.16" PRIu64, uint64_t(gMozillaPoisonBase)));
-  CrashReporter::AnnotateCrashReport(CrashReporter::Annotation::FramePoisonSize,
-                                     uint32_t(gMozillaPoisonSize));
-
   bool includeContextHeap =
       Preferences::GetBool("toolkit.crashreporter.include_context_heap", false);
   CrashReporter::SetIncludeContextHeap(includeContextHeap);

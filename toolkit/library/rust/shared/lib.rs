@@ -23,7 +23,6 @@ extern crate env_logger;
 extern crate gkrust_utils;
 extern crate jsrust_shared;
 extern crate kvstore;
-extern crate l10nregistry_ffi;
 extern crate log;
 extern crate mapped_hyph;
 extern crate mozurl;
@@ -54,6 +53,10 @@ extern crate fluent_langneg_ffi;
 
 extern crate fluent;
 extern crate fluent_ffi;
+
+extern crate fluent_fallback;
+extern crate l10nregistry_ffi;
+extern crate localization_ffi;
 
 #[cfg(target_os = "android")]
 use log::Level;

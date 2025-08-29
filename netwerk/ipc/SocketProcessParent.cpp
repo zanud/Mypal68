@@ -6,8 +6,6 @@
 
 #include "SocketProcessHost.h"
 #include "mozilla/net/DNSRequestParent.h"
-#include "mozilla/Telemetry.h"
-#include "mozilla/TelemetryIPC.h"
 #ifdef MOZ_WEBRTC
 #  include "mozilla/dom/ContentProcessManager.h"
 #  include "mozilla/dom/BrowserParent.h"
@@ -76,47 +74,6 @@ mozilla::ipc::IPCResult SocketProcessParent::RecvFinishMemoryReport(
     mMemoryReportRequest->Finish(aGeneration);
     mMemoryReportRequest = nullptr;
   }
-  return IPC_OK();
-}
-
-mozilla::ipc::IPCResult SocketProcessParent::RecvAccumulateChildHistograms(
-    nsTArray<HistogramAccumulation>&& aAccumulations) {
-  TelemetryIPC::AccumulateChildHistograms(Telemetry::ProcessID::Socket,
-                                          aAccumulations);
-  return IPC_OK();
-}
-
-mozilla::ipc::IPCResult SocketProcessParent::RecvAccumulateChildKeyedHistograms(
-    nsTArray<KeyedHistogramAccumulation>&& aAccumulations) {
-  TelemetryIPC::AccumulateChildKeyedHistograms(Telemetry::ProcessID::Socket,
-                                               aAccumulations);
-  return IPC_OK();
-}
-
-mozilla::ipc::IPCResult SocketProcessParent::RecvUpdateChildScalars(
-    nsTArray<ScalarAction>&& aScalarActions) {
-  TelemetryIPC::UpdateChildScalars(Telemetry::ProcessID::Socket,
-                                   aScalarActions);
-  return IPC_OK();
-}
-
-mozilla::ipc::IPCResult SocketProcessParent::RecvUpdateChildKeyedScalars(
-    nsTArray<KeyedScalarAction>&& aScalarActions) {
-  TelemetryIPC::UpdateChildKeyedScalars(Telemetry::ProcessID::Socket,
-                                        aScalarActions);
-  return IPC_OK();
-}
-
-mozilla::ipc::IPCResult SocketProcessParent::RecvRecordChildEvents(
-    nsTArray<mozilla::Telemetry::ChildEventData>&& aEvents) {
-  TelemetryIPC::RecordChildEvents(Telemetry::ProcessID::Socket, aEvents);
-  return IPC_OK();
-}
-
-mozilla::ipc::IPCResult SocketProcessParent::RecvRecordDiscardedData(
-    const mozilla::Telemetry::DiscardedData& aDiscardedData) {
-  TelemetryIPC::RecordDiscardedData(Telemetry::ProcessID::Socket,
-                                    aDiscardedData);
   return IPC_OK();
 }
 

@@ -1131,8 +1131,10 @@ class PresShell final : public nsStubDocumentObserver,
   bool RemoveRefreshObserver(nsARefreshObserver* aObserver,
                              FlushType aFlushType);
 
-  bool AddPostRefreshObserver(nsAPostRefreshObserver* aObserver);
-  bool RemovePostRefreshObserver(nsAPostRefreshObserver* aObserver);
+  bool AddPostRefreshObserver(nsAPostRefreshObserver*);
+  bool AddPostRefreshObserver(mozilla::ManagedPostRefreshObserver*) = delete;
+  bool RemovePostRefreshObserver(nsAPostRefreshObserver*);
+  bool RemovePostRefreshObserver(mozilla::ManagedPostRefreshObserver*) = delete;
 
   // Represents an update to the visual scroll offset that will be sent to APZ.
   // The update type is used to determine priority compared to other scroll
@@ -2468,41 +2470,6 @@ class PresShell final : public nsStubDocumentObserver,
                                              nsEventStatus* aEventStatus,
                                              bool aIsHandlingNativeEvent,
                                              nsIContent* aOverrideClickTarget);
-
-    /**
-     * HandlingTimeAccumulator() may accumulate handling time of telemetry
-     * for each type of events.
-     */
-    class MOZ_STACK_CLASS HandlingTimeAccumulator final {
-     public:
-      HandlingTimeAccumulator() = delete;
-      HandlingTimeAccumulator(const HandlingTimeAccumulator& aOther) = delete;
-      HandlingTimeAccumulator(const EventHandler& aEventHandler,
-                              const WidgetEvent* aEvent);
-      ~HandlingTimeAccumulator();
-
-     private:
-      const EventHandler& mEventHandler;
-      const WidgetEvent* mEvent;
-      TimeStamp mHandlingStartTime;
-    };
-
-    /**
-     * RecordEventPreparationPerformance() records event preparation performance
-     * with telemetry only when aEvent is a trusted event.
-     *
-     * @param aEvent            The handling event which we've finished
-     *                          preparing something to dispatch.
-     */
-    void RecordEventPreparationPerformance(const WidgetEvent* aEvent);
-
-    /**
-     * RecordEventHandlingResponsePerformance() records event handling response
-     * performance with telemetry.
-     *
-     * @param aEvent            The handled event.
-     */
-    void RecordEventHandlingResponsePerformance(const WidgetEvent* aEvent);
 
     /**
      * PrepareToDispatchEvent() prepares to dispatch aEvent.

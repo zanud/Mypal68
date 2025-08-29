@@ -39,18 +39,6 @@ class SocketProcessParent final
 
   mozilla::ipc::IPCResult RecvAddMemoryReport(const MemoryReport& aReport);
   mozilla::ipc::IPCResult RecvFinishMemoryReport(const uint32_t& aGeneration);
-  mozilla::ipc::IPCResult RecvAccumulateChildHistograms(
-      nsTArray<HistogramAccumulation>&& aAccumulations);
-  mozilla::ipc::IPCResult RecvAccumulateChildKeyedHistograms(
-      nsTArray<KeyedHistogramAccumulation>&& aAccumulations);
-  mozilla::ipc::IPCResult RecvUpdateChildScalars(
-      nsTArray<ScalarAction>&& aScalarActions);
-  mozilla::ipc::IPCResult RecvUpdateChildKeyedScalars(
-      nsTArray<KeyedScalarAction>&& aScalarActions);
-  mozilla::ipc::IPCResult RecvRecordChildEvents(
-      nsTArray<ChildEventData>&& events);
-  mozilla::ipc::IPCResult RecvRecordDiscardedData(
-      const DiscardedData& aDiscardedData);
 
   PWebrtcTCPSocketParent* AllocPWebrtcTCPSocketParent(
       const Maybe<TabId>& aTabId);

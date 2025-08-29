@@ -17,12 +17,12 @@
 namespace mozilla {
 namespace scache {
 
-nsresult NewObjectInputStreamFromBuffer(UniquePtr<char[]> buffer, uint32_t len,
+nsresult NewObjectInputStreamFromBuffer(const char* buffer, uint32_t len,
                                         nsIObjectInputStream** stream) {
   nsCOMPtr<nsIInputStream> stringStream;
-  nsresult rv = NS_NewByteInputStream(getter_AddRefs(stringStream),
-                                      Span(buffer.release(), len),
-                                      NS_ASSIGNMENT_ADOPT);
+  nsresult rv =
+      NS_NewByteInputStream(getter_AddRefs(stringStream), Span(buffer, len),
+                            NS_ASSIGNMENT_DEPEND);
   MOZ_ALWAYS_SUCCEEDS(rv);
 
   nsCOMPtr<nsIObjectInputStream> objectInput =

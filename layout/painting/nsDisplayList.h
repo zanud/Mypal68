@@ -1731,10 +1731,15 @@ class nsDisplayListBuilder {
   AnimatedGeometryRoot* AnimatedGeometryRootForASR(
       const ActiveScrolledRoot* aASR);
 
-  bool HitTestIsForVisibility() const { return mHitTestIsForVisibility; }
+  bool HitTestIsForVisibility() const { return mVisibleThreshold.isSome(); }
 
-  void SetHitTestIsForVisibility(bool aHitTestIsForVisibility) {
-    mHitTestIsForVisibility = aHitTestIsForVisibility;
+  float VisibilityThreshold() const {
+    MOZ_DIAGNOSTIC_ASSERT(HitTestIsForVisibility());
+    return mVisibleThreshold.valueOr(1.0f);
+  }
+
+  void SetHitTestIsForVisibility(float aVisibleThreshold) {
+    mVisibleThreshold = mozilla::Some(aVisibleThreshold);
   }
 
   bool ShouldBuildAsyncZoomContainer() const {
@@ -2012,7 +2017,6 @@ class nsDisplayListBuilder {
   bool mForceLayerForScrollParent;
   bool mAsyncPanZoomEnabled;
   bool mBuildingInvisibleItems;
-  bool mHitTestIsForVisibility;
   bool mIsBuilding;
   bool mInInvalidSubtree;
   bool mBuildCompositorHitTestInfo;
@@ -2025,6 +2029,7 @@ class nsDisplayListBuilder {
 #endif
   bool mIsRelativeToLayoutViewport;
 
+  mozilla::Maybe<float> mVisibleThreshold;
   nsRect mHitTestArea;
   CompositorHitTestInfo mHitTestInfo;
 };
@@ -2530,10 +2535,13 @@ class nsDisplayItem : public nsDisplayItemBase {
 
     // Handling transform items for preserve 3D frames.
     bool mInPreserves3D = false;
-    // When hit-testing for visibility, we may hit a fully opaque item in a
+    // When hit-testing for visibility, we may hit an fully opaque item in a
     // nested display list. We want to stop at that point, without looking
     // further on other items.
-    bool mHitFullyOpaqueItem = false;
+    bool mHitOccludingItem = false;
+
+    float mCurrentOpacity = 1.0f;
+
     AutoTArray<nsDisplayItem*, 100> mItemBuffer;
   };
 
@@ -4889,6 +4897,8 @@ class nsDisplayBackgroundColor : public nsPaintedDisplayItem {
                     const DisplayItemClipChain* aClip) override;
 
   bool CanApplyOpacity() const override;
+
+  float GetOpacity() const { return mColor.a; }
 
   nsRect GetBounds(nsDisplayListBuilder* aBuilder, bool* aSnap) const override {
     *aSnap = true;

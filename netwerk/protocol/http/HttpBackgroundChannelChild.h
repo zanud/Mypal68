@@ -38,6 +38,10 @@ class HttpBackgroundChannelChild final : public PHttpBackgroundChannelChild {
   // Enqueued messages in background channel will be flushed.
   void OnStartRequestReceived();
 
+#ifdef MOZ_DIAGNOSTIC_ASSERT_ENABLED
+  bool IsQueueEmpty() const { return mQueuedRunnables.IsEmpty(); }
+#endif
+
  protected:
   IPCResult RecvOnTransportAndData(const nsresult& aChannelStatus,
                                    const nsresult& aTransportStatus,
@@ -46,7 +50,7 @@ class HttpBackgroundChannelChild final : public PHttpBackgroundChannelChild {
                                    const nsCString& aData);
 
   IPCResult RecvOnStopRequest(const nsresult& aChannelStatus,
-                              const ResourceTimingStruct& aTiming,
+                              const ResourceTimingStructArgs& aTiming,
                               const TimeStamp& aLastActiveTabOptHit,
                               const nsHttpHeaderArray& aResponseTrailers);
 

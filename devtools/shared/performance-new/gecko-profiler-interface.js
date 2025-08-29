@@ -122,6 +122,11 @@ class ActorReadyGeckoProfilerInterface {
     Services.profiler.StopProfiler();
   }
 
+  /**
+   * @type {string} debugPath
+   * @type {string} breakpadId
+   * @returns {Promise<[number[], number[], number[]]>}
+   */
   async getSymbolTable(debugPath, breakpadId) {
     const [addr, index, buffer] = await Services.profiler.getSymbolTable(
       debugPath,
@@ -137,6 +142,10 @@ class ActorReadyGeckoProfilerInterface {
     if (!IS_SUPPORTED_PLATFORM) {
       return null;
     }
+
+    // Pause profiler before we collect the profile, so that we don't capture
+    // more samples while the parent process or android threads wait for subprocess profiles.
+    Services.profiler.Pause();
 
     let profile;
     try {
@@ -218,6 +227,13 @@ class ActorReadyGeckoProfilerInterface {
         this.emit(topic);
         break;
     }
+  }
+
+  getSupportedFeatures() {
+    if (!IS_SUPPORTED_PLATFORM) {
+      return [];
+    }
+    return Services.profiler.GetFeatures();
   }
 }
 

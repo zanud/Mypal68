@@ -23,7 +23,8 @@ class DataChannelParent : public nsIParentChannel, public PDataChannelParent {
   NS_DECL_NSIREQUESTOBSERVER
   NS_DECL_NSISTREAMLISTENER
 
-  MOZ_MUST_USE bool Init(const uint32_t& aArgs);
+      [[nodiscard]] bool
+      Init(const uint32_t& aArgs);
 
  private:
   ~DataChannelParent() = default;

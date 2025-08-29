@@ -21,7 +21,7 @@ class nsFileProtocolHandler : public nsIFileProtocolHandler,
 
   nsFileProtocolHandler() = default;
 
-  MOZ_MUST_USE nsresult Init();
+  [[nodiscard]] nsresult Init();
 };
 
 #endif  // !nsFileProtocolHandler_h__

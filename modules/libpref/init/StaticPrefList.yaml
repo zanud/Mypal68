@@ -706,6 +706,12 @@
   value: true
   mirror: always
 
+# Enable/Disable Origin based cache isolation
+- name: browser.cache.cache_isolation
+  type: RelaxedAtomicBool
+  value: false
+  mirror: always
+
 # -1 = determine dynamically, 0 = none, n = memory capacity in kilobytes.
 - name: browser.cache.memory.capacity
   type: RelaxedAtomicInt32
@@ -1470,6 +1476,12 @@
   value: true
   mirror: always
 
+# Whether event timing will be gathered and returned by performance observer*
+- name: dom.enable_event_timing
+  type: RelaxedAtomicBool
+  value: @IS_NIGHTLY_BUILD@
+  mirror: always
+
 # Whether performance.GetEntries* will contain an entry for the active document
 - name: dom.enable_performance_navigation_timing
   type: bool
@@ -2212,16 +2224,23 @@
   value: @IS_NIGHTLY_BUILD@
   mirror: always
 
+# This pref enables Sec-Fetch-* logic and causes corresponding
+# request headers to be set.
+- name: dom.security.secFetch.enabled
+  type: RelaxedAtomicBool
+  value: true
+  mirror: always
+
 # This pref enables the featurePolicy header support.
 - name: dom.security.featurePolicy.header.enabled
   type: bool
-  value: @IS_NIGHTLY_BUILD@
+  value: false
   mirror: always
 
-# Expose the 'policy' attribute in document and HTMLIFrameElement
+# Expose the 'featurePolicy' attribute in document and HTMLIFrameElement
 - name: dom.security.featurePolicy.webidl.enabled
   type: bool
-  value: @IS_NIGHTLY_BUILD@
+  value: false
   mirror: always
 
 # Is support for selection event APIs enabled?
@@ -6934,6 +6953,39 @@
   value: false
   mirror: always
 
+# If we should attempt to race the cache and network.
+- name: network.http.rcwn.enabled
+  type: bool
+  value: true
+  mirror: always
+
+- name: network.http.rcwn.cache_queue_normal_threshold
+  type: uint32_t
+  value: 8
+  mirror: always
+
+- name: network.http.rcwn.cache_queue_priority_threshold
+  type: uint32_t
+  value: 2
+  mirror: always
+
+# We might attempt to race the cache with the network only if a resource
+# is smaller than this size.
+- name: network.http.rcwn.small_resource_size_kb
+  type: uint32_t
+  value: 256
+  mirror: always
+
+- name: network.http.rcwn.min_wait_before_racing_ms
+  type: uint32_t
+  value: 0
+  mirror: always
+
+- name: network.http.rcwn.max_wait_before_racing_ms
+  type: uint32_t
+  value: 500
+  mirror: always
+
 # false=real referer, true=spoof referer (use target URI as referer).
 - name: network.http.referer.spoofSource
   type: bool
@@ -7028,6 +7080,12 @@
 - name: network.http.referer.defaultPolicy.trackers.pbmode
   type: uint32_t
   value: 2
+  mirror: always
+
+# If set to true, IOService.offline depends on IOService.connectivity.
+- name: network.offline-mirrors-connectivity
+  type: RelaxedAtomicBool
+  value: false
   mirror: always
 
 # Enables the predictive service.
@@ -7142,11 +7200,6 @@
   value: true
   mirror: always
 
-- name: network.delay.tracking.load
-  type: uint32_t
-  value: 0
-  mirror: always
-
 - name: network.dns.disablePrefetchFromHTTPS
   type: bool
   value: true
@@ -7248,9 +7301,25 @@
 # Prefs starting with "permissions."
 #---------------------------------------------------------------------------
 
+# 1-Accept, 2-Deny, Any other value: Accept
+- name: permissions.default.image
+  type: RelaxedAtomicUint32
+  value: 1
+  mirror: always
+
 - name: permissions.delegation.enable
   type: bool
   value: @IS_NIGHTLY_BUILD@
+  mirror: always
+
+- name: permissions.isolateBy.userContext
+  type: bool
+  value: false
+  mirror: always
+
+- name: permissions.isolateBy.privateBrowsing
+  type: bool
+  value: @IS_EARLY_BETA_OR_EARLIER@
   mirror: always
 
 #---------------------------------------------------------------------------
@@ -7627,6 +7696,14 @@
   value: true
   mirror: always
 
+# If true, all toplevel data: URI navigations will be blocked.
+# Please note that manually entering a data: URI in the
+# URL-Bar will not be blocked when flipping this pref.
+- name: security.data_uri.block_toplevel_data_uri_navigations
+  type: bool
+  value: true
+  mirror: always
+
 # Allowed by default so it doesn't affect Thunderbird/SeaMonkey, but
 # not allowed for Firefox Desktop in firefox.js
 - name: security.allow_eval_with_system_principal
@@ -7709,18 +7786,6 @@
 #else
   value: true
 #endif
-  mirror: always
-
-# Block scripts with _some_ wrong MIME types such as image/, video/ or text/csv
-- name: security.block_script_with_wrong_mime
-  type: bool
-  value: true
-  mirror: always
-
-# Block scripts with wrong MIME type when loading via importScripts().
-- name: security.block_importScripts_with_wrong_mime
-  type: bool
-  value: true
   mirror: always
 
 # Block Worker/SharedWorker scripts with wrong MIME type.

@@ -42,7 +42,6 @@ class SocketProcessChild final : public PSocketProcessChild {
       Endpoint<mozilla::net::PSocketProcessBridgeParent>&& aEndpoint);
   mozilla::ipc::IPCResult RecvInitProfiler(
       Endpoint<mozilla::PProfilerChild>&& aEndpoint);
-  mozilla::ipc::IPCResult RecvSocketProcessTelemetryPing();
 
   PWebrtcTCPSocketChild* AllocPWebrtcTCPSocketChild(const Maybe<TabId>& tabId);
   bool DeallocPWebrtcTCPSocketChild(PWebrtcTCPSocketChild* aActor);

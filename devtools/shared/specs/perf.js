@@ -79,6 +79,11 @@ const perfDescription = {
       request: {},
       response: { value: RetVal("boolean") },
     },
+
+    getSupportedFeatures: {
+      request: {},
+      response: { value: RetVal("array:string") },
+    },
   },
 };
 

@@ -32,6 +32,7 @@
 #include "nsIClientAuthDialogs.h"
 #include "nsISocketProvider.h"
 #include "nsIWebProgressListener.h"
+#include "nsIX509CertDB.h" //MY
 #include "nsNSSCertHelper.h"
 #include "nsNSSComponent.h"
 #include "nsNSSHelper.h"

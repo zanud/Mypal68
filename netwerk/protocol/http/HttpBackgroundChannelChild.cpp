@@ -36,6 +36,9 @@ nsresult HttpBackgroundChannelChild::Init(HttpChannelChild* aChannelChild) {
   mChannelChild = aChannelChild;
 
   if (NS_WARN_IF(!CreateBackgroundChannel())) {
+#ifdef MOZ_DIAGNOSTIC_ASSERT_ENABLED
+    mChannelChild->mCreateBackgroundChannelFailed = true;
+#endif
     mChannelChild = nullptr;
     return NS_ERROR_FAILURE;
   }
@@ -46,6 +49,14 @@ nsresult HttpBackgroundChannelChild::Init(HttpChannelChild* aChannelChild) {
 void HttpBackgroundChannelChild::OnChannelClosed() {
   LOG(("HttpBackgroundChannelChild::OnChannelClosed [this=%p]\n", this));
   MOZ_ASSERT(OnSocketThread());
+
+#ifdef MOZ_DIAGNOSTIC_ASSERT_ENABLED
+  if (mChannelChild) {
+    mChannelChild->mBackgroundChildQueueFinalState =
+        mQueuedRunnables.IsEmpty() ? HttpChannelChild::BCKCHILD_EMPTY
+                                   : HttpChannelChild::BCKCHILD_NON_EMPTY;
+  }
+#endif
 
   // HttpChannelChild is not going to handle any incoming message.
   mChannelChild = nullptr;
@@ -144,7 +155,7 @@ IPCResult HttpBackgroundChannelChild::RecvOnTransportAndData(
 }
 
 IPCResult HttpBackgroundChannelChild::RecvOnStopRequest(
-    const nsresult& aChannelStatus, const ResourceTimingStruct& aTiming,
+    const nsresult& aChannelStatus, const ResourceTimingStructArgs& aTiming,
     const TimeStamp& aLastActiveTabOptHit,
     const nsHttpHeaderArray& aResponseTrailers) {
   LOG(("HttpBackgroundChannelChild::RecvOnStopRequest [this=%p]\n", this));
@@ -166,7 +177,7 @@ IPCResult HttpBackgroundChannelChild::RecvOnStopRequest(
          static_cast<uint32_t>(aChannelStatus)));
 
     mQueuedRunnables.AppendElement(
-        NewRunnableMethod<const nsresult, const ResourceTimingStruct,
+        NewRunnableMethod<const nsresult, const ResourceTimingStructArgs,
                           const TimeStamp, const nsHttpHeaderArray>(
             "HttpBackgroundChannelChild::RecvOnStopRequest", this,
             &HttpBackgroundChannelChild::RecvOnStopRequest, aChannelStatus,

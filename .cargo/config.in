@@ -12,6 +12,11 @@ git = "https://github.com/mozilla/mp4parse-rust"
 replace-with = "vendored-sources"
 rev = "f7c35a30ff25521bebe64c19d3f306569ecb5385"
 
+[source."https://github.com/mozilla/l10nregistry-rs"]
+git = "https://github.com/mozilla/l10nregistry-rs"
+replace-with = "vendored-sources"
+rev = "fd02134161505f978e132114cbabdac057ce3b71"
+
 [source."https://github.com/hsivonen/packed_simd"]
 branch = "rust_1_32"
 git = "https://github.com/hsivonen/packed_simd"

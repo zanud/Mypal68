@@ -23,11 +23,6 @@ ChromeUtils.defineModuleGetter(
   "CustomizableWidgets",
   "resource:///modules/CustomizableWidgets.jsm"
 );
-
-// The profiler's menu button and its popup can be enabled/disabled by the user.
-// This is the pref to control whether the user has turned it on or not.
-// This pref is repeated across many files in order to avoid loading this file if
-// it's not needed. Make sure and search the rest of the codebase for other uses.
 const BUTTON_ENABLED_PREF = "devtools.performance.popup.enabled";
 const WIDGET_ID = "profiler-button";
 

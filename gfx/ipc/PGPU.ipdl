@@ -19,6 +19,8 @@ include protocol PVsyncBridge;
 include protocol PUiCompositorController;
 include protocol PRemoteDecoderManager;
 
+include "mozilla/layers/LayersMessageUtils.h";
+
 using base::ProcessId from "base/process.h";
 using mozilla::dom::NativeThreadId from "mozilla/dom/TabMessageUtils.h";
 using mozilla::Telemetry::HistogramAccumulation from "mozilla/TelemetryComms.h";

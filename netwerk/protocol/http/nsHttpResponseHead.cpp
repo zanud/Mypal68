@@ -228,9 +228,8 @@ void nsHttpResponseHead::Flatten(nsACString& buf, bool pruneTransients) {
   else
     buf.AppendLiteral("1.0 ");
 
-  buf.Append(nsPrintfCString("%u", unsigned(mStatus)) +
-             NS_LITERAL_CSTRING(" ") + mStatusText +
-             NS_LITERAL_CSTRING("\r\n"));
+  buf.Append(nsPrintfCString("%u", unsigned(mStatus)) + " "_ns + mStatusText +
+             "\r\n"_ns);
 
   mHeaders.Flatten(buf, false, pruneTransients);
 }

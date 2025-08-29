@@ -56,7 +56,6 @@
 #include "mozilla/net/NeckoParent.h"
 #include "mozilla/net/RequestContextService.h"
 #include "mozilla/ipc/URIUtils.h"
-#include "mozilla/Telemetry.h"
 #include "mozilla/Unused.h"
 #include "mozilla/AntiTrackingCommon.h"
 #include "mozilla/BasePrincipal.h"
@@ -101,7 +100,7 @@
 #define H2MANDATORY_SUITE "security.ssl3.ecdhe_rsa_aes_128_gcm_sha256"
 #define SAFE_HINT_HEADER_VALUE "safeHint.enabled"
 #define SECURITY_PREFIX "security."
-
+#define DOM_SECURITY_PREFIX "dom.security"
 #define TCP_FAST_OPEN_ENABLE "network.tcp.tcp_fastopen_enable"
 #define TCP_FAST_OPEN_FAILURE_LIMIT \
   "network.tcp.tcp_fastopen_consecutive_failure_limit"
@@ -142,8 +141,7 @@ static nsCString GetDeviceModelId() {
       do_GetService("@mozilla.org/system-info;1");
   MOZ_ASSERT(infoService, "Could not find a system info service");
   nsAutoString androidDevice;
-  nsresult rv = infoService->GetPropertyAsAString(NS_LITERAL_STRING("device"),
-                                                  androidDevice);
+  nsresult rv = infoService->GetPropertyAsAString(u"device"_ns, androidDevice);
   if (NS_SUCCEEDED(rv)) {
     deviceModelId = NS_LossyConvertUTF16toASCII(androidDevice);
   }
@@ -151,8 +149,7 @@ static nsCString GetDeviceModelId() {
   rv = Preferences::GetCString(UA_PREF("device_string"), deviceString);
   if (NS_SUCCEEDED(rv)) {
     deviceString.Trim(" ", true, true);
-    deviceString.ReplaceSubstring(NS_LITERAL_CSTRING("%DEVICEID%"),
-                                  deviceModelId);
+    deviceString.ReplaceSubstring("%DEVICEID%"_ns, deviceModelId);
     return std::move(deviceString);
   }
   return std::move(deviceModelId);
@@ -324,8 +321,7 @@ void nsHttpHandler::SetFastOpenOSSupport() {
   nsCOMPtr<nsIPropertyBag2> infoService =
       do_GetService("@mozilla.org/system-info;1");
   MOZ_ASSERT(infoService, "Could not find a system info service");
-  rv = infoService->GetPropertyAsACString(NS_LITERAL_STRING("sdk_version"),
-                                          version);
+  rv = infoService->GetPropertyAsACString(u"sdk_version"_ns, version);
 #  else
   char buf[SYS_INFO_BUFFER_LENGTH];
   if (PR_GetSystemInfo(PR_SI_RELEASE, buf, sizeof(buf)) == PR_SUCCESS) {
@@ -425,6 +421,7 @@ static const char* gCallbackPrefs[] = {
     HTTP_PREF("tcp_keepalive.long_lived_connections"),
     SAFE_HINT_HEADER_VALUE,
     SECURITY_PREFIX,
+    DOM_SECURITY_PREFIX,
     TCP_FAST_OPEN_ENABLE,
     TCP_FAST_OPEN_FAILURE_LIMIT,
     TCP_FAST_OPEN_STALLS_LIMIT,
@@ -611,7 +608,7 @@ nsresult nsHttpHandler::InitConnectionMgr() {
 
 nsresult nsHttpHandler::AddStandardRequestHeaders(
     nsHttpRequestHead* request, bool isSecure,
-    nsContentPolicyType aContentPolicyType, nsCString& host) {
+    ExtContentPolicyType aContentPolicyType, nsCString& host) {
   nsresult rv;
   nsAutoCString ua;
 
@@ -639,13 +636,13 @@ nsresult nsHttpHandler::AddStandardRequestHeaders(
   // service worker expects to see it.  The other "default" headers are
   // hidden from service worker interception.
   nsAutoCString accept;
-  if (aContentPolicyType == nsIContentPolicy::TYPE_DOCUMENT ||
-      aContentPolicyType == nsIContentPolicy::TYPE_SUBDOCUMENT) {
+  if (aContentPolicyType == ExtContentPolicy::TYPE_DOCUMENT ||
+      aContentPolicyType == ExtContentPolicy::TYPE_SUBDOCUMENT) {
     accept.Assign(ACCEPT_HEADER_NAVIGATION);
-  } else if (aContentPolicyType == nsIContentPolicy::TYPE_IMAGE ||
-             aContentPolicyType == nsIContentPolicy::TYPE_IMAGESET) {
+  } else if (aContentPolicyType == ExtContentPolicy::TYPE_IMAGE ||
+             aContentPolicyType == ExtContentPolicy::TYPE_IMAGESET) {
     accept.Assign(mImageAcceptHeader);
-  } else if (aContentPolicyType == nsIContentPolicy::TYPE_STYLESHEET) {
+  } else if (aContentPolicyType == ExtContentPolicy::TYPE_STYLESHEET) {
     accept.Assign(ACCEPT_HEADER_STYLE);
   } else {
     accept.Assign(ACCEPT_HEADER_ALL);
@@ -681,7 +678,7 @@ nsresult nsHttpHandler::AddStandardRequestHeaders(
 
   // add the "Send Hint" header
   if (mSafeHintEnabled || mParentalControlEnabled) {
-    rv = request->SetHeader(nsHttp::Prefer, NS_LITERAL_CSTRING("safe"), false,
+    rv = request->SetHeader(nsHttp::Prefer, "safe"_ns, false,
                             nsHttpHeaderArray::eVarietyRequestDefault);
     if (NS_FAILED(rv)) return rv;
   }
@@ -695,8 +692,8 @@ nsresult nsHttpHandler::AddConnectionHeader(nsHttpRequestHead* request,
   // user-agents.  But this is not a problem in practice, and the
   // alternative proxy-connection is worse. see 570283
 
-  NS_NAMED_LITERAL_CSTRING(close, "close");
-  NS_NAMED_LITERAL_CSTRING(keepAlive, "keep-alive");
+  constexpr auto close = "close"_ns;
+  constexpr auto keepAlive = "keep-alive"_ns;
 
   const nsLiteralCString* connectionType = &close;
   if (caps & NS_HTTP_ALLOW_KEEPALIVE) {
@@ -982,8 +979,7 @@ void nsHttpHandler::InitUserAgentComponents() {
 #    ifndef MOZ_UA_OS_AGNOSTIC  // Don't add anything to mPlatform since it's
                                 // empty.
   nsAutoString androidVersion;
-  rv = infoService->GetPropertyAsAString(NS_LITERAL_STRING("release_version"),
-                                         androidVersion);
+  rv = infoService->GetPropertyAsAString(u"release_version"_ns, androidVersion);
   if (NS_SUCCEEDED(rv)) {
     mPlatform += " ";
     // If the 2nd character is a ".", we know the major version is a single
@@ -999,12 +995,12 @@ void nsHttpHandler::InitUserAgentComponents() {
 #  endif
   // Add the `Mobile` or `Tablet` or `TV` token when running on device.
   bool isTablet;
-  rv = infoService->GetPropertyAsBool(NS_LITERAL_STRING("tablet"), &isTablet);
+  rv = infoService->GetPropertyAsBool(u"tablet"_ns, &isTablet);
   if (NS_SUCCEEDED(rv) && isTablet) {
     mCompatDevice.AssignLiteral("Tablet");
   } else {
     bool isTV;
-    rv = infoService->GetPropertyAsBool(NS_LITERAL_STRING("tv"), &isTV);
+    rv = infoService->GetPropertyAsBool(u"tv"_ns, &isTV);
     if (NS_SUCCEEDED(rv) && isTV) {
       mCompatDevice.AssignLiteral("TV");
     } else {
@@ -2172,25 +2168,6 @@ nsHttpHandler::Observe(nsISupports* subject, const char* topic,
     // need to reset the session start time since cache validation may
     // depend on this value.
     mSessionStartTime = NowInSeconds();
-
-    if (!StaticPrefs::privacy_donottrackheader_enabled()) {
-      Telemetry::Accumulate(Telemetry::DNT_USAGE, 2);
-    } else {
-      Telemetry::Accumulate(Telemetry::DNT_USAGE, 1);
-    }
-
-    if (UseFastOpen()) {
-      Telemetry::Accumulate(Telemetry::TCP_FAST_OPEN_STATUS, 0);
-    } else if (!mFastOpenSupported) {
-      Telemetry::Accumulate(Telemetry::TCP_FAST_OPEN_STATUS, 1);
-    } else if (!mUseFastOpen) {
-      Telemetry::Accumulate(Telemetry::TCP_FAST_OPEN_STATUS, 2);
-    } else if (mFastOpenConsecutiveFailureCounter >=
-               mFastOpenConsecutiveFailureLimit) {
-      Telemetry::Accumulate(Telemetry::TCP_FAST_OPEN_STATUS, 3);
-    } else {
-      Telemetry::Accumulate(Telemetry::TCP_FAST_OPEN_STATUS, 4);
-    }
   } else if (!strcmp(topic, "profile-change-net-restore")) {
     // initialize connection manager
     rv = InitConnectionMgr();

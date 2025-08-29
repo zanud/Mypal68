@@ -98,12 +98,11 @@ class nsHttpHandler final : public nsIHttpProtocolHandler,
 
   static already_AddRefed<nsHttpHandler> GetInstance();
 
-  MOZ_MUST_USE nsresult
-  AddStandardRequestHeaders(nsHttpRequestHead*, bool isSecure,
-                            nsContentPolicyType aContentPolicyType,
-                            nsCString& host);
-  MOZ_MUST_USE nsresult AddConnectionHeader(nsHttpRequestHead*,
-                                            uint32_t capabilities);
+  [[nodiscard]] nsresult AddStandardRequestHeaders(
+      nsHttpRequestHead*, bool isSecure,
+      ExtContentPolicyType aContentPolicyType, nsCString& host);
+  [[nodiscard]] nsresult AddConnectionHeader(nsHttpRequestHead*,
+                                             uint32_t capabilities);
   bool IsAcceptableEncoding(const char* encoding, bool isSecure);
 
   const nsCString& UserAgent();
@@ -156,6 +155,7 @@ class nsHttpHandler final : public nsIHttpProtocolHandler,
   bool CriticalRequestPrioritization() {
     return mCriticalRequestPrioritization;
   }
+
   bool UseH2Deps() { return mUseH2Deps; }
   bool IsH2WebsocketsEnabled() { return mEnableH2Websockets; }
 

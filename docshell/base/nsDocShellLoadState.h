@@ -189,6 +189,10 @@ class nsDocShellLoadState final {
     return mPendingRedirectedChannel;
   }
 
+  void SetIsMetaRefresh(bool aMetaRefresh) { mIsMetaRefresh = aMetaRefresh; }
+
+  bool IsMetaRefresh() const { return mIsMetaRefresh; }
+
   // When loading a document through nsDocShell::LoadURI(), a special set of
   // flags needs to be set based on other values in nsDocShellLoadState. This
   // function calculates those flags, before the LoadState is passed to
@@ -335,6 +339,9 @@ class nsDocShellLoadState final {
   // If set, a pending cross-process redirected channel should be used to
   // perform the load. The channel will be stored in this value.
   nsCOMPtr<nsIChildChannel> mPendingRedirectedChannel;
+
+  // True if the load was triggered by a meta refresh.
+  bool mIsMetaRefresh;
 };
 
 #endif /* nsDocShellLoadState_h__ */

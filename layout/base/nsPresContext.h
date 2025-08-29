@@ -75,8 +75,10 @@ class EffectCompositor;
 class Encoding;
 class EventStateManager;
 class CounterStyleManager;
+class ManagedPostRefreshObserver;
 class PresShell;
 class RestyleManager;
+class ServoStyleSet;
 class StaticPresData;
 namespace layers {
 class ContainerLayer;
@@ -472,6 +474,11 @@ class nsPresContext : public nsISupports, public mozilla::SupportsWeakPtr {
     mTextZoom = aZoom;
     UpdateEffectiveTextZoom();
   }
+
+  void RegisterManagedPostRefreshObserver(mozilla::ManagedPostRefreshObserver*);
+  void UnregisterManagedPostRefreshObserver(
+      mozilla::ManagedPostRefreshObserver*);
+  void CancelManagedPostRefreshObservers();
 
  protected:
   void UpdateEffectiveTextZoom();
@@ -1172,6 +1179,9 @@ class nsPresContext : public nsISupports, public mozilla::SupportsWeakPtr {
 
   // During page load we use slower frame rate.
   uint32_t mNextFrameRateMultiplier;
+
+  nsTArray<RefPtr<mozilla::ManagedPostRefreshObserver>>
+      mManagedPostRefreshObservers;
 
   ScrollStyles mViewportScrollStyles;
 

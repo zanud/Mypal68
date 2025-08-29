@@ -9,6 +9,7 @@
 #include "nsNetCID.h"
 #include "nsNetUtil.h"
 #include "mozilla/BasePrincipal.h"
+#include "mozilla/StaticPrefs_permissions.h"
 
 // nsPermission Implementation
 
@@ -30,8 +31,9 @@ already_AddRefed<nsIPrincipal> nsPermission::ClonePrincipalForPermission(
   MOZ_ASSERT(aPrincipal);
 
   mozilla::OriginAttributes attrs = aPrincipal->OriginAttributesRef();
-  attrs.StripAttributes(mozilla::OriginAttributes::STRIP_USER_CONTEXT_ID |
-                        mozilla::OriginAttributes::STRIP_FIRST_PARTY_DOMAIN);
+  if (!StaticPrefs::permissions_isolateBy_userContext()) {
+    attrs.StripAttributes(mozilla::OriginAttributes::STRIP_USER_CONTEXT_ID);
+  }
 
   nsAutoCString originNoSuffix;
   nsresult rv = aPrincipal->GetOriginNoSuffix(originNoSuffix);

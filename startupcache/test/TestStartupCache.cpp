@@ -78,7 +78,7 @@ TEST_F(TestStartupCache, StartupWriteRead) {
 
   const char* buf = "Market opportunities for BeardBook";
   const char* id = "id";
-  UniquePtr<char[]> outbuf;
+  const char* outbuf;
   uint32_t len;
 
   rv = sc->PutBuffer(id, UniquePtr<char[]>(strdup(buf)), strlen(buf) + 1);
@@ -86,7 +86,7 @@ TEST_F(TestStartupCache, StartupWriteRead) {
 
   rv = sc->GetBuffer(id, &outbuf, &len);
   EXPECT_TRUE(NS_SUCCEEDED(rv));
-  EXPECT_STREQ(buf, outbuf.get());
+  EXPECT_STREQ(buf, outbuf);
 
   rv = sc->ResetStartupWriteTimer();
   EXPECT_TRUE(NS_SUCCEEDED(rv));
@@ -94,14 +94,14 @@ TEST_F(TestStartupCache, StartupWriteRead) {
 
   rv = sc->GetBuffer(id, &outbuf, &len);
   EXPECT_TRUE(NS_SUCCEEDED(rv));
-  EXPECT_STREQ(buf, outbuf.get());
+  EXPECT_STREQ(buf, outbuf);
 }
 
 TEST_F(TestStartupCache, WriteInvalidateRead) {
   nsresult rv;
   const char* buf = "BeardBook competitive analysis";
   const char* id = "id";
-  UniquePtr<char[]> outbuf;
+  const char* outbuf;
   uint32_t len;
   StartupCache* sc = StartupCache::GetSingleton();
   ASSERT_TRUE(sc);
@@ -160,14 +160,13 @@ TEST_F(TestStartupCache, WriteObject) {
   rv = sc->PutBuffer(id, std::move(buf), len);
   EXPECT_TRUE(NS_SUCCEEDED(rv));
 
-  UniquePtr<char[]> buf2;
+  const char* buf2;
   uint32_t len2;
   nsCOMPtr<nsIObjectInputStream> objectInput;
   rv = sc->GetBuffer(id, &buf2, &len2);
   EXPECT_TRUE(NS_SUCCEEDED(rv));
 
-  rv = NewObjectInputStreamFromBuffer(std::move(buf2), len2,
-                                      getter_AddRefs(objectInput));
+  rv = NewObjectInputStreamFromBuffer(buf2, len2, getter_AddRefs(objectInput));
   EXPECT_TRUE(NS_SUCCEEDED(rv));
 
   nsCOMPtr<nsISupports> deserialized;

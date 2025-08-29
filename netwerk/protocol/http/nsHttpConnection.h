@@ -416,7 +416,6 @@ class nsHttpConnection final : public nsAHttpSegmentReader,
                                  // for the end of
                                  // the handsake.
   int64_t mContentBytesWritten0RTT;
-  bool mEarlyDataNegotiated;  // Only used for telemetry
   nsCString mEarlyNegotiatedALPN;
   bool mDid0RTTSpdy;
 

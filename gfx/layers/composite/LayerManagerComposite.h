@@ -34,7 +34,7 @@
 #include "nsRegion.h"         // for nsIntRegion
 #include "nscore.h"           // for nsAString, etc
 #include "LayerTreeInvalidation.h"
-#include "mozilla/layers/CompositorScreenshotGrabber.h"
+#include "mozilla/layers/ScreenshotGrabber.h"
 
 class gfxContext;
 
@@ -487,7 +487,7 @@ class LayerManagerComposite final : public HostLayerManager {
   bool mIsCompositorReady;
 
   RefPtr<CompositingRenderTarget> mTwoPassTmpTarget;
-  CompositorScreenshotGrabber mProfilerScreenshotGrabber;
+  ScreenshotGrabber mProfilerScreenshotGrabber;
   RefPtr<TextRenderer> mTextRenderer;
 #ifdef XP_MACOSX
   RefPtr<NativeLayerRoot> mNativeLayerRoot;

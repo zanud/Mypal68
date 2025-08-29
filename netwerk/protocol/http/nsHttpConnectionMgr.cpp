@@ -17,7 +17,6 @@
 #include "NullHttpTransaction.h"
 #include "mozilla/ChaosMode.h"
 #include "mozilla/Services.h"
-#include "mozilla/Telemetry.h"
 #include "mozilla/Unused.h"
 #include "mozilla/net/DNS.h"
 #include "mozilla/net/DashboardTypes.h"
@@ -461,7 +460,6 @@ class SpeculativeConnectArgs : public ARefBase {
   SpeculativeConnectArgs()
       : mParallelSpeculativeConnectLimit(0),
         mIgnoreIdle(false),
-        mIsFromPredictor(false),
         mAllow1918(false) {
     mOverridesOK = false;
   }
@@ -473,7 +471,6 @@ class SpeculativeConnectArgs : public ARefBase {
   bool mOverridesOK;
   uint32_t mParallelSpeculativeConnectLimit;
   bool mIgnoreIdle;
-  bool mIsFromPredictor;
   bool mAllow1918;
 
  private:
@@ -529,7 +526,6 @@ nsresult nsHttpConnectionMgr::SpeculativeConnect(
     args->mParallelSpeculativeConnectLimit =
         overrider->GetParallelSpeculativeConnectLimit();
     args->mIgnoreIdle = overrider->GetIgnoreIdle();
-    args->mIsFromPredictor = overrider->GetIsFromPredictor();
     args->mAllow1918 = overrider->GetAllow1918();
   }
 
@@ -1463,7 +1459,7 @@ nsresult nsHttpConnectionMgr::MakeNewConnection(
     return NS_ERROR_NOT_AVAILABLE;
 
   nsresult rv =
-      CreateTransport(ent, trans, trans->Caps(), false, false,
+      CreateTransport(ent, trans, trans->Caps(), false,
                       trans->ClassOfService() & nsIClassOfService::UrgentStart,
                       true, pendingTransInfo);
   if (NS_FAILED(rv)) {
@@ -1762,8 +1758,6 @@ nsresult nsHttpConnectionMgr::DispatchTransaction(nsConnectionEntry* ent,
     rv = conn->Activate(trans, caps, priority);
     MOZ_ASSERT(NS_SUCCEEDED(rv), "SPDY Cannot Fail Dispatch");
     if (NS_SUCCEEDED(rv) && !trans->GetPendingTime().IsNull()) {
-      AccumulateTimeDelta(Telemetry::TRANSACTION_WAIT_TIME_SPDY,
-                          trans->GetPendingTime(), TimeStamp::Now());
       trans->SetPendingTime(false);
     }
     return rv;
@@ -1775,8 +1769,6 @@ nsresult nsHttpConnectionMgr::DispatchTransaction(nsConnectionEntry* ent,
   rv = DispatchAbstractTransaction(ent, trans, caps, conn, priority);
 
   if (NS_SUCCEEDED(rv) && !trans->GetPendingTime().IsNull()) {
-    AccumulateTimeDelta(Telemetry::TRANSACTION_WAIT_TIME_HTTP,
-                        trans->GetPendingTime(), TimeStamp::Now());
     trans->SetPendingTime(false);
   }
   return rv;
@@ -1863,19 +1855,6 @@ nsresult nsHttpConnectionMgr::DispatchAbstractTransaction(
   return rv;
 }
 
-void nsHttpConnectionMgr::ReportProxyTelemetry(nsConnectionEntry* ent) {
-  enum { PROXY_NONE = 1, PROXY_HTTP = 2, PROXY_SOCKS = 3, PROXY_HTTPS = 4 };
-
-  if (!ent->mConnInfo->UsingProxy())
-    Telemetry::Accumulate(Telemetry::HTTP_PROXY_TYPE, PROXY_NONE);
-  else if (ent->mConnInfo->UsingHttpsProxy())
-    Telemetry::Accumulate(Telemetry::HTTP_PROXY_TYPE, PROXY_HTTPS);
-  else if (ent->mConnInfo->UsingHttpProxy())
-    Telemetry::Accumulate(Telemetry::HTTP_PROXY_TYPE, PROXY_HTTP);
-  else
-    Telemetry::Accumulate(Telemetry::HTTP_PROXY_TYPE, PROXY_SOCKS);
-}
-
 nsresult nsHttpConnectionMgr::ProcessNewTransaction(nsHttpTransaction* trans) {
   MOZ_ASSERT(OnSocketThread(), "not on socket thread");
 
@@ -1911,8 +1890,6 @@ nsresult nsHttpConnectionMgr::ProcessNewTransaction(nsHttpTransaction* trans) {
   nsConnectionEntry* ent =
       GetOrCreateConnectionEntry(ci, !!trans->TunnelProvider());
   MOZ_ASSERT(ent);
-
-  ReportProxyTelemetry(ent);
 
   // Check if the transaction already has a sticky reference to a connection.
   // If so, then we can just use it directly by transferring its reference
@@ -2038,14 +2015,14 @@ void nsHttpConnectionMgr::ReleaseClaimedSockets(
 
 nsresult nsHttpConnectionMgr::CreateTransport(
     nsConnectionEntry* ent, nsAHttpTransaction* trans, uint32_t caps,
-    bool speculative, bool isFromPredictor, bool urgentStart, bool allow1918,
+    bool speculative, bool urgentStart, bool allow1918,
     PendingTransactionInfo* pendingTransInfo) {
   MOZ_ASSERT(OnSocketThread(), "not on socket thread");
   MOZ_ASSERT((speculative && !pendingTransInfo) ||
              (!speculative && pendingTransInfo));
 
   RefPtr<nsHalfOpenSocket> sock = new nsHalfOpenSocket(
-      ent, trans, caps, speculative, isFromPredictor, urgentStart);
+      ent, trans, caps, speculative, urgentStart);
 
   if (speculative) {
     sock->SetAllow1918(allow1918);
@@ -3876,13 +3853,11 @@ void nsHttpConnectionMgr::OnMsgSpeculativeConnect(int32_t, ARefBase* param) {
   uint32_t parallelSpeculativeConnectLimit =
       gHttpHandler->ParallelSpeculativeConnectLimit();
   bool ignoreIdle = false;
-  bool isFromPredictor = false;
   bool allow1918 = false;
 
   if (args->mOverridesOK) {
     parallelSpeculativeConnectLimit = args->mParallelSpeculativeConnectLimit;
     ignoreIdle = args->mIgnoreIdle;
-    isFromPredictor = args->mIsFromPredictor;
     allow1918 = args->mAllow1918;
   }
 
@@ -3895,7 +3870,7 @@ void nsHttpConnectionMgr::OnMsgSpeculativeConnect(int32_t, ARefBase* param) {
       !AtActiveConnectionLimit(ent, args->mTrans->Caps())) {
     DebugOnly<nsresult> rv =
         CreateTransport(ent, args->mTrans, args->mTrans->Caps(), true,
-                        isFromPredictor, false, allow1918, nullptr);
+                        false, allow1918, nullptr);
     MOZ_ASSERT(NS_SUCCEEDED(rv));
   } else {
     LOG(
@@ -3944,13 +3919,12 @@ NS_INTERFACE_MAP_END
 
 nsHttpConnectionMgr::nsHalfOpenSocket::nsHalfOpenSocket(
     nsConnectionEntry* ent, nsAHttpTransaction* trans, uint32_t caps,
-    bool speculative, bool isFromPredictor, bool urgentStart)
+    bool speculative, bool urgentStart)
     : mTransaction(trans),
       mDispatchedMTransaction(false),
       mCaps(caps),
       mSpeculative(speculative),
       mUrgentStart(urgentStart),
-      mIsFromPredictor(isFromPredictor),
       mAllow1918(true),
       mHasConnected(false),
       mPrimaryConnectedOK(false),
@@ -3963,18 +3937,6 @@ nsHttpConnectionMgr::nsHalfOpenSocket::nsHalfOpenSocket(
   MOZ_ASSERT(ent && trans, "constructor with null arguments");
   LOG(("Creating nsHalfOpenSocket [this=%p trans=%p ent=%s key=%s]\n", this,
        trans, ent->mConnInfo->Origin(), ent->mConnInfo->HashKey().get()));
-
-  if (speculative) {
-    Telemetry::AutoCounter<Telemetry::HTTPCONNMGR_TOTAL_SPECULATIVE_CONN>
-        totalSpeculativeConn;
-    ++totalSpeculativeConn;
-
-    if (isFromPredictor) {
-      Telemetry::AutoCounter<Telemetry::PREDICTOR_TOTAL_PRECONNECTS_CREATED>
-          totalPreconnectsCreated;
-      ++totalPreconnectsCreated;
-    }
-  }
 
   if (mEnt->mConnInfo->FirstHopSSL()) {
     mFastOpenStatus = TFO_UNKNOWN;
@@ -4152,8 +4114,6 @@ nsresult nsHttpConnectionMgr::nsHalfOpenSocket::SetupStreams(
   rv = socketTransport->SetSecurityCallbacks(this);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  Telemetry::Accumulate(Telemetry::HTTP_CONNECTION_ENTRY_CACHE_HIT_1,
-                        mEnt->mUsedForConnection);
   mEnt->mUsedForConnection = true;
 
   nsCOMPtr<nsIOutputStream> sout;
@@ -4446,12 +4406,7 @@ nsHttpConnectionMgr::nsHalfOpenSocket::OnOutputStreamReady(
 
   if (((mFastOpenStatus == TFO_DISABLED) || (mFastOpenStatus == TFO_HTTP)) &&
       !mBackupConnStatsSet) {
-    // Collect telemetry for backup connection being faster than primary
-    // connection. We want to collect this telemetry only for cases where
-    // TFO is not used.
     mBackupConnStatsSet = true;
-    Telemetry::Accumulate(Telemetry::NETWORK_HTTP_BACKUP_CONN_WON_1,
-                          (out == mBackupStreamOut));
   }
 
   if (mFastOpenStatus == TFO_UNKNOWN) {
@@ -5164,16 +5119,6 @@ bool nsHttpConnectionMgr::nsHalfOpenSocket::Claim() {
       mSocketTransport->SetConnectionFlags(flags);
     }
 
-    Telemetry::AutoCounter<Telemetry::HTTPCONNMGR_USED_SPECULATIVE_CONN>
-        usedSpeculativeConn;
-    ++usedSpeculativeConn;
-
-    if (mIsFromPredictor) {
-      Telemetry::AutoCounter<Telemetry::PREDICTOR_TOTAL_PRECONNECTS_USED>
-          totalPreconnectsUsed;
-      ++totalPreconnectsUsed;
-    }
-
     if ((mPrimaryStreamStatus == NS_NET_STATUS_CONNECTING_TO) && mEnt &&
         !mBackupTransport && !mSynTimer) {
       SetupBackupTimer();
@@ -5308,18 +5253,6 @@ void nsHttpConnectionMgr::nsConnectionEntry::RemoveHalfOpen(
   // A failure to create the transport object at all
   // will result in it not being present in the halfopen table. That's expected.
   if (mHalfOpens.RemoveElement(halfOpen)) {
-    if (halfOpen->IsSpeculative()) {
-      Telemetry::AutoCounter<Telemetry::HTTPCONNMGR_UNUSED_SPECULATIVE_CONN>
-          unusedSpeculativeConn;
-      ++unusedSpeculativeConn;
-
-      if (halfOpen->IsFromPredictor()) {
-        Telemetry::AutoCounter<Telemetry::PREDICTOR_TOTAL_PRECONNECTS_UNUSED>
-            totalPreconnectsUnused;
-        ++totalPreconnectsUnused;
-      }
-    }
-
     MOZ_ASSERT(gHttpHandler->ConnMgr()->mNumHalfOpenConns);
     if (gHttpHandler->ConnMgr()->mNumHalfOpenConns) {  // just in case
       gHttpHandler->ConnMgr()->mNumHalfOpenConns--;

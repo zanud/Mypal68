@@ -22,7 +22,6 @@
 
 #include "ASpdySession.h"
 #include "mozilla/ChaosMode.h"
-#include "mozilla/Telemetry.h"
 #include "nsHttpConnection.h"
 #include "nsHttpHandler.h"
 #include "nsHttpRequestHead.h"
@@ -101,7 +100,6 @@ nsHttpConnection::nsHttpConnection()
       m0RTTChecked(false),
       mWaitingFor0RTTResponse(false),
       mContentBytesWritten0RTT(0),
-      mEarlyDataNegotiated(false),
       mDid0RTTSpdy(false),
       mFastOpen(false),
       mFastOpenStatus(TFO_NOT_SET),
@@ -128,8 +126,6 @@ nsHttpConnection::~nsHttpConnection() {
   if (!mEverUsedSpdy) {
     LOG(("nsHttpConnection %p performed %d HTTP/1.x transactions\n", this,
          mHttp1xTransactionCount));
-    Telemetry::Accumulate(Telemetry::HTTP_REQUEST_PER_CONN,
-                          mHttp1xTransactionCount);
     nsHttpConnectionInfo* ci = nullptr;
     if (mTransaction) {
       ci = mTransaction->ConnectionInfo();
@@ -137,30 +133,12 @@ nsHttpConnection::~nsHttpConnection() {
     if (!ci) {
       ci = mConnInfo;
     }
-
-    MOZ_ASSERT(ci);
-    if (ci->GetIsTrrServiceChannel()) {
-      Telemetry::Accumulate(Telemetry::DNS_TRR_REQUEST_PER_CONN,
-                            mHttp1xTransactionCount);
-    }
   }
 
   if (mTotalBytesRead) {
     uint32_t totalKBRead = static_cast<uint32_t>(mTotalBytesRead >> 10);
     LOG(("nsHttpConnection %p read %dkb on connection spdy=%d\n", this,
          totalKBRead, mEverUsedSpdy));
-    Telemetry::Accumulate(mEverUsedSpdy ? Telemetry::SPDY_KBREAD_PER_CONN2
-                                        : Telemetry::HTTP_KBREAD_PER_CONN2,
-                          totalKBRead);
-  }
-
-  if (mThroughCaptivePortal) {
-    if (mTotalBytesRead || mTotalBytesWritten) {
-      auto total =
-          Clamp<uint32_t>((mTotalBytesRead >> 10) + (mTotalBytesWritten >> 10),
-                          0, std::numeric_limits<uint32_t>::max());
-    }
-
   }
 
   if (mForceSendTimer) {
@@ -172,12 +150,6 @@ nsHttpConnection::~nsHttpConnection() {
       (((mFastOpenStatus > TFO_DISABLED_CONNECT) &&
         (mFastOpenStatus < TFO_BACKUP_CONN)) ||
        gHttpHandler->UseFastOpen())) {
-    // TFO_FAILED will be reported in the replacement connection with more
-    // details.
-    // Otherwise report only if TFO is enabled and supported.
-    // If TFO is disabled, report only connections ha cause it to be disabled,
-    // e.g. TFO_FAILED_NET_TIMEOUT, etc.
-    Telemetry::Accumulate(Telemetry::TCP_FAST_OPEN_3, mFastOpenStatus);
   }
 }
 
@@ -439,8 +411,6 @@ bool nsHttpConnection::EnsureNPNComplete(nsresult& aOut0RTTWriteHandshakeValue,
   nsCOMPtr<nsISupports> securityInfo;
   nsCOMPtr<nsISSLSocketControl> ssl;
   nsAutoCString negotiatedNPN;
-  // This is neede for telemetry
-  bool handshakeSucceeded = false;
 
   GetSecurityInfo(getter_AddRefs(securityInfo));
   if (!securityInfo) {
@@ -491,7 +461,6 @@ bool nsHttpConnection::EnsureNPNComplete(nsresult& aOut0RTTWriteHandshakeValue,
           ("nsHttpConnection::EnsureNPNComplete %p - "
            "early selected alpn not available",
            this));
-      mEarlyDataNegotiated = false;
     } else {
       LOG1(
           ("nsHttpConnection::EnsureNPNComplete %p -"
@@ -519,7 +488,6 @@ bool nsHttpConnection::EnsureNPNComplete(nsresult& aOut0RTTWriteHandshakeValue,
         mWaitingFor0RTTResponse = true;
         Start0RTTSpdy(info->Version[infoIndex]);
       }
-      mEarlyDataNegotiated = true;
     }
   }
 
@@ -554,8 +522,6 @@ bool nsHttpConnection::EnsureNPNComplete(nsresult& aOut0RTTWriteHandshakeValue,
           this, mConnInfo->HashKey().get(), negotiatedNPN.get(),
           mTLSFilter ? " [Double Tunnel]" : ""));
 
-    handshakeSucceeded = true;
-
     int16_t tlsVersion;
     ssl->GetSSLVersionUsed(&tlsVersion);
     mConnInfo->SetLessThanTls13(
@@ -584,24 +550,6 @@ bool nsHttpConnection::EnsureNPNComplete(nsresult& aOut0RTTWriteHandshakeValue,
       }
     }
 
-    // Send the 0RTT telemetry only for tls1.3
-    if (tlsVersion > nsISSLSocketControl::TLS_VERSION_1_2) {
-      Telemetry::Accumulate(
-          Telemetry::TLS_EARLY_DATA_NEGOTIATED,
-          (!mEarlyDataNegotiated)
-              ? TLS_EARLY_DATA_NOT_AVAILABLE
-              : ((mWaitingFor0RTTResponse)
-                     ? TLS_EARLY_DATA_AVAILABLE_AND_USED
-                     : TLS_EARLY_DATA_AVAILABLE_BUT_NOT_USED));
-      if (mWaitingFor0RTTResponse) {
-        Telemetry::Accumulate(Telemetry::TLS_EARLY_DATA_ACCEPTED,
-                              earlyDataAccepted);
-      }
-      if (earlyDataAccepted) {
-        Telemetry::Accumulate(Telemetry::TLS_EARLY_DATA_BYTES_WRITTEN,
-                              mContentBytesWritten0RTT);
-      }
-    }
     mWaitingFor0RTTResponse = false;
 
     if (!earlyDataAccepted) {
@@ -640,8 +588,6 @@ bool nsHttpConnection::EnsureNPNComplete(nsresult& aOut0RTTWriteHandshakeValue,
         StartSpdy(ssl, mSpdySession->SpdyVersion());
       }
     }
-
-    Telemetry::Accumulate(Telemetry::SPDY_NPN_CONNECT, UsingSpdy());
   }
 
 npnComplete:
@@ -698,13 +644,6 @@ npnComplete:
     // Telemetry for tls failure rate with and without esni;
     bool esni = false;
     rv = mSocketTransport->GetEsniUsed(&esni);
-    if (NS_SUCCEEDED(rv)) {
-      Telemetry::Accumulate(
-          Telemetry::ESNI_NOESNI_TLS_SUCCESS_RATE,
-          (esni)
-              ? ((handshakeSucceeded) ? ESNI_SUCCESSFUL : ESNI_FAILED)
-              : ((handshakeSucceeded) ? NO_ESNI_SUCCESSFUL : NO_ESNI_FAILED));
-    }
   }
 
   if (rv == psm::GetXPCOMFromNSSError(
@@ -907,7 +846,7 @@ nsresult nsHttpConnection::SetupNPNList(nsISSLSocketControl* ssl,
     // For NPN, In the case of overlap, matching priority is driven by
     // the order of the server's advertisement - with index 0 used when
     // there is no match.
-    protocolArray.AppendElement(NS_LITERAL_CSTRING("http/1.1"));
+    protocolArray.AppendElement("http/1.1"_ns);
 
     if (gHttpHandler->IsSpdyEnabled() && !(caps & NS_HTTP_DISALLOW_SPDY)) {
       LOG(("nsHttpConnection::SetupSSL Allow SPDY NPN selection"));
@@ -1206,8 +1145,8 @@ nsresult nsHttpConnection::OnHeadersAvailable(nsAHttpTransaction* trans,
   MOZ_ASSERT(responseHead, "No response head?");
 
   if (mInSpdyTunnel) {
-    DebugOnly<nsresult> rv = responseHead->SetHeader(
-        nsHttp::X_Firefox_Spdy_Proxy, NS_LITERAL_CSTRING("true"));
+    DebugOnly<nsresult> rv =
+        responseHead->SetHeader(nsHttp::X_Firefox_Spdy_Proxy, "true"_ns);
     MOZ_ASSERT(NS_SUCCEEDED(rv));
   }
 
@@ -2203,7 +2142,7 @@ nsresult nsHttpConnection::MakeConnectString(nsAHttpTransaction* trans,
   MOZ_ASSERT(NS_SUCCEEDED(rv));
 
   // CONNECT host:port HTTP/1.1
-  request->SetMethod(NS_LITERAL_CSTRING("CONNECT"));
+  request->SetMethod("CONNECT"_ns);
   request->SetVersion(gHttpHandler->HttpVersion());
   if (h2ws) {
     // HTTP/2 websocket CONNECT forms need the full request URI
@@ -2219,10 +2158,9 @@ nsresult nsHttpConnection::MakeConnectString(nsAHttpTransaction* trans,
   MOZ_ASSERT(NS_SUCCEEDED(rv));
 
   // a CONNECT is always persistent
-  rv = request->SetHeader(nsHttp::Proxy_Connection,
-                          NS_LITERAL_CSTRING("keep-alive"));
+  rv = request->SetHeader(nsHttp::Proxy_Connection, "keep-alive"_ns);
   MOZ_ASSERT(NS_SUCCEEDED(rv));
-  rv = request->SetHeader(nsHttp::Connection, NS_LITERAL_CSTRING("keep-alive"));
+  rv = request->SetHeader(nsHttp::Connection, "keep-alive"_ns);
   MOZ_ASSERT(NS_SUCCEEDED(rv));
 
   // all HTTP/1.1 requests must include a Host header (even though it
@@ -2245,7 +2183,7 @@ nsresult nsHttpConnection::MakeConnectString(nsAHttpTransaction* trans,
     // in CONNECT when not used for TLS. The protocol is stored in Upgrade.
     // We have to copy this header here since a new HEAD request is created
     // for the CONNECT.
-    rv = request->SetHeader(NS_LITERAL_CSTRING("ALPN"), val);
+    rv = request->SetHeader("ALPN"_ns, val);
     MOZ_ASSERT(NS_SUCCEEDED(rv));
   }
 

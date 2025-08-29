@@ -7,7 +7,6 @@
 #ifndef BaseProfilerDetail_h
 #define BaseProfilerDetail_h
 
-#include "BaseProfiler.h"
 #include "mozilla/Atomics.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/PlatformMutex.h"
@@ -18,6 +17,10 @@
 
 namespace mozilla {
 namespace baseprofiler {
+
+// Implemented in platform.cpp
+MFBT_API int profiler_current_thread_id();
+
 namespace detail {
 
 // Thin shell around mozglue PlatformMutex, for Base Profiler internal use.

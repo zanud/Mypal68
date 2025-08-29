@@ -151,7 +151,8 @@ class LoadInfo final : public nsILoadInfo {
            bool aServiceWorkerTaintingSynthesized,
            bool aDocumentHasUserInteracted, bool aDocumentHasLoaded,
            bool aAllowListFutureDocumentsCreatedFromThisRedirectChain,
-           const nsAString& aCspNonce, uint32_t aRequestBlockingReason);
+           const nsAString& aCspNonce, bool aSkipContentSniffing,
+           uint32_t aRequestBlockingReason, bool aIsMetaRefresh);
   LoadInfo(const LoadInfo& rhs);
 
   NS_IMETHOD GetRedirects(JSContext* aCx,
@@ -197,47 +198,50 @@ class LoadInfo final : public nsILoadInfo {
   nsWeakPtr mContextForTopLevelLoad;
   nsSecurityFlags mSecurityFlags;
   nsContentPolicyType mInternalContentPolicyType;
-  LoadTainting mTainting;
-  bool mUpgradeInsecureRequests;
-  bool mBrowserUpgradeInsecureRequests;
-  bool mBrowserWouldUpgradeInsecureRequests;
-  bool mForceAllowDataURI;
-  bool mAllowInsecureRedirectToDataURI;
-  bool mBypassCORSChecks;
-  bool mSkipContentPolicyCheckForWebRequest;
-  bool mOriginalFrameSrcLoad;
-  bool mForceInheritPrincipalDropped;
-  uint64_t mInnerWindowID;
-  uint64_t mOuterWindowID;
-  uint64_t mParentOuterWindowID;
-  uint64_t mTopOuterWindowID;
-  uint64_t mFrameOuterWindowID;
-  uint64_t mBrowsingContextID;
-  uint64_t mFrameBrowsingContextID;
-  bool mInitialSecurityCheckDone;
-  bool mIsThirdPartyContext;
-  bool mIsFormSubmission;
-  bool mSendCSPViolationEvents;
+  LoadTainting mTainting = LoadTainting::Basic;
+  bool mUpgradeInsecureRequests = false;
+  bool mBrowserUpgradeInsecureRequests = false;
+  bool mBrowserWouldUpgradeInsecureRequests = false;
+  bool mForceAllowDataURI = false;
+  bool mAllowInsecureRedirectToDataURI = false;
+  bool mBypassCORSChecks = false;
+  bool mSkipContentPolicyCheckForWebRequest = false;
+  bool mOriginalFrameSrcLoad = false;
+  bool mForceInheritPrincipalDropped = false;
+  uint64_t mInnerWindowID = 0;
+  uint64_t mOuterWindowID = 0;
+  uint64_t mParentOuterWindowID = 0;
+  uint64_t mTopOuterWindowID = 0;
+  uint64_t mFrameOuterWindowID = 0;
+  uint64_t mBrowsingContextID = 0;
+  uint64_t mFrameBrowsingContextID = 0;
+  bool mInitialSecurityCheckDone = false;
+  // NB: TYPE_DOCUMENT implies !third-party.
+  bool mIsThirdPartyContext = false;
+  bool mIsFormSubmission = false;
+  bool mSendCSPViolationEvents = true;
   OriginAttributes mOriginAttributes;
   RedirectHistoryArray mRedirectChainIncludingInternalRedirects;
   RedirectHistoryArray mRedirectChain;
   nsTArray<nsCOMPtr<nsIPrincipal>> mAncestorPrincipals;
   nsTArray<uint64_t> mAncestorOuterWindowIDs;
   nsTArray<nsCString> mCorsUnsafeHeaders;
-  uint32_t mRequestBlockingReason;
-  bool mForcePreflight;
-  bool mIsPreflight;
-  bool mLoadTriggeredFromExternal;
-  bool mServiceWorkerTaintingSynthesized;
-  bool mDocumentHasUserInteracted;
-  bool mDocumentHasLoaded;
-  bool mAllowListFutureDocumentsCreatedFromThisRedirectChain;
+  uint32_t mRequestBlockingReason = BLOCKING_REASON_NONE;
+  bool mForcePreflight = false;
+  bool mIsPreflight = false;
+  bool mLoadTriggeredFromExternal = false;
+  bool mServiceWorkerTaintingSynthesized = false;
+  bool mDocumentHasUserInteracted = false;
+  bool mDocumentHasLoaded = false;
+  bool mAllowListFutureDocumentsCreatedFromThisRedirectChain = false;
   nsString mCspNonce;
+  bool mSkipContentSniffing = false;
+  bool mIsMetaRefresh = false;
 
   // Is true if this load was triggered by processing the attributes of the
   // browsing context container.
   // See nsILoadInfo.isFromProcessingFrameAttributes
-  bool mIsFromProcessingFrameAttributes;
+  bool mIsFromProcessingFrameAttributes = false;
 };
 
 }  // namespace net

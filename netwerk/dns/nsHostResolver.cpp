@@ -39,7 +39,6 @@
 #include "mozilla/Atomics.h"
 #include "mozilla/HashFunctions.h"
 #include "mozilla/TimeStamp.h"
-#include "mozilla/Telemetry.h"
 #include "mozilla/DebugOnly.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/StaticPrefs_network.h"
@@ -295,7 +294,6 @@ AddrHostRecord::AddrHostRecord(const nsHostKey& key)
 
 AddrHostRecord::~AddrHostRecord() {
   mCallbacks.clear();
-  Telemetry::Accumulate(Telemetry::DNS_BLACKLIST_COUNT, mBlacklistedCount);
 }
 
 bool AddrHostRecord::Blacklisted(NetAddr* aQuery) {
@@ -406,70 +404,12 @@ bool AddrHostRecord::RemoveOrRefresh(bool aTrrToo) {
 }
 
 void AddrHostRecord::ResolveComplete() {
-  if (mNativeUsed) {
-    if (mNativeSuccess) {
-      uint32_t millis = static_cast<uint32_t>(mNativeDuration.ToMilliseconds());
-      Telemetry::Accumulate(Telemetry::DNS_NATIVE_LOOKUP_TIME, millis);
-    }
-    AccumulateCategorical(
-        mNativeSuccess ? Telemetry::LABELS_DNS_LOOKUP_DISPOSITION::osOK
-                       : Telemetry::LABELS_DNS_LOOKUP_DISPOSITION::osFail);
-  }
-
-  if (mTRRUsed) {
-    if (mTRRSuccess) {
-      uint32_t millis = static_cast<uint32_t>(mTrrDuration.ToMilliseconds());
-      Telemetry::Accumulate(Telemetry::DNS_TRR_LOOKUP_TIME, millis);
-    }
-    AccumulateCategorical(
-        mTRRSuccess ? Telemetry::LABELS_DNS_LOOKUP_DISPOSITION::trrOK
-                    : Telemetry::LABELS_DNS_LOOKUP_DISPOSITION::trrFail);
-
-    if (mTrrAUsed == OK) {
-      AccumulateCategorical(Telemetry::LABELS_DNS_LOOKUP_DISPOSITION::trrAOK);
-    } else if (mTrrAUsed == FAILED) {
-      AccumulateCategorical(Telemetry::LABELS_DNS_LOOKUP_DISPOSITION::trrAFail);
-    }
-
-    if (mTrrAAAAUsed == OK) {
-      AccumulateCategorical(
-          Telemetry::LABELS_DNS_LOOKUP_DISPOSITION::trrAAAAOK);
-    } else if (mTrrAAAAUsed == FAILED) {
-      AccumulateCategorical(
-          Telemetry::LABELS_DNS_LOOKUP_DISPOSITION::trrAAAAFail);
-    }
-  }
-
-  if (mResolverMode == MODE_TRRFIRST) {
-    if (flags & nsIDNSService::RESOLVE_DISABLE_TRR) {
-      // TRR is disabled on request, which is a next-level back-off method.
-      Telemetry::Accumulate(Telemetry::DNS_TRR_DISABLED, mNativeSuccess);
-    } else {
-      if (mTRRSuccess) {
-        AccumulateCategorical(Telemetry::LABELS_DNS_TRR_FIRST2::TRR);
-      } else if (mNativeSuccess) {
-        if (mTRRUsed) {
-          AccumulateCategorical(
-              Telemetry::LABELS_DNS_TRR_FIRST2::NativeAfterTRR);
-        } else {
-          AccumulateCategorical(Telemetry::LABELS_DNS_TRR_FIRST2::Native);
-        }
-      } else {
-        AccumulateCategorical(Telemetry::LABELS_DNS_TRR_FIRST2::BothFailed);
-      }
-    }
-  }
 
   switch (mResolverMode) {
     case MODE_NATIVEONLY:
     case MODE_TRROFF:
-      AccumulateCategorical(Telemetry::LABELS_DNS_LOOKUP_ALGORITHM::nativeOnly);
-      break;
     case MODE_TRRFIRST:
-      AccumulateCategorical(Telemetry::LABELS_DNS_LOOKUP_ALGORITHM::trrFirst);
-      break;
     case MODE_TRRONLY:
-      AccumulateCategorical(Telemetry::LABELS_DNS_LOOKUP_ALGORITHM::trrOnly);
       break;
     case MODE_RESERVED1:
       MOZ_DIAGNOSTIC_ASSERT(false, "MODE_RESERVED1 should not be used");
@@ -883,9 +823,6 @@ nsresult nsHostResolver::ResolveHost(const nsACString& aHost, uint16_t type,
         LOG(("  Using cached record for host [%s].\n", host.get()));
         // put reference to host record on stack...
         result = rec;
-        if (IS_ADDR_TYPE(type)) {
-          Telemetry::Accumulate(Telemetry::DNS_LOOKUP_METHOD2, METHOD_HIT);
-        }
 
         // For entries that are in the grace period
         // or all cached negative entries, use the cache but start a new
@@ -894,10 +831,6 @@ nsresult nsHostResolver::ResolveHost(const nsACString& aHost, uint16_t type,
 
         if (rec->negative) {
           LOG(("  Negative cache entry for host [%s].\n", host.get()));
-          if (IS_ADDR_TYPE(type)) {
-            Telemetry::Accumulate(Telemetry::DNS_LOOKUP_METHOD2,
-                                  METHOD_NEGATIVE_HIT);
-          }
           status = NS_ERROR_UNKNOWN_HOST;
         }
 
@@ -908,7 +841,6 @@ nsresult nsHostResolver::ResolveHost(const nsACString& aHost, uint16_t type,
         // if the host name is an IP address literal and has been
         // parsed, go ahead and use it.
         LOG(("  Using cached address for IP Literal [%s].\n", host.get()));
-        Telemetry::Accumulate(Telemetry::DNS_LOOKUP_METHOD2, METHOD_LITERAL);
         result = rec;
       } else if (addrRec &&
                  PR_StringToNetAddr(host.get(), &tempAddr) == PR_SUCCESS) {
@@ -922,7 +854,6 @@ nsresult nsHostResolver::ResolveHost(const nsACString& aHost, uint16_t type,
         addrRec->addr = MakeUnique<NetAddr>();
         PRNetAddrToNetAddr(&tempAddr, addrRec->addr.get());
         // put reference to host record on stack...
-        Telemetry::Accumulate(Telemetry::DNS_LOOKUP_METHOD2, METHOD_LITERAL);
         result = rec;
 
         // Check if we have received too many requests.
@@ -932,9 +863,6 @@ nsresult nsHostResolver::ResolveHost(const nsACString& aHost, uint16_t type,
             ("  Lookup queue full: dropping %s priority request for "
              "host [%s].\n",
              IsMediumPriority(flags) ? "medium" : "low", host.get()));
-        if (IS_ADDR_TYPE(type)) {
-          Telemetry::Accumulate(Telemetry::DNS_LOOKUP_METHOD2, METHOD_OVERFLOW);
-        }
         // This is a lower priority request and we are swamped, so refuse it.
         rv = NS_ERROR_DNS_LOOKUP_QUEUE_FULL;
 
@@ -1007,7 +935,6 @@ nsresult nsHostResolver::ResolveHost(const nsACString& aHost, uint16_t type,
               if (rec->negative) {
                 status = NS_ERROR_UNKNOWN_HOST;
               }
-              Telemetry::Accumulate(Telemetry::DNS_LOOKUP_METHOD2, METHOD_HIT);
               ConditionallyRefreshRecord(rec, host);
             } else if (af == PR_AF_INET6) {
               // For AF_INET6, a new lookup means another AF_UNSPEC
@@ -1021,8 +948,6 @@ nsresult nsHostResolver::ResolveHost(const nsACString& aHost, uint16_t type,
               result = rec;
               rec->negative = true;
               status = NS_ERROR_UNKNOWN_HOST;
-              Telemetry::Accumulate(Telemetry::DNS_LOOKUP_METHOD2,
-                                    METHOD_NEGATIVE_HIT);
             }
           }
         }
@@ -1042,10 +967,6 @@ nsresult nsHostResolver::ResolveHost(const nsACString& aHost, uint16_t type,
           rec->mCallbacks.insertBack(callback);
           rec->flags = flags;
           rv = NameLookup(rec);
-          if (IS_ADDR_TYPE(type)) {
-            Telemetry::Accumulate(Telemetry::DNS_LOOKUP_METHOD2,
-                                  METHOD_NETWORK_FIRST);
-          }
           if (NS_FAILED(rv) && callback->isInList()) {
             callback->remove();
           } else {
@@ -1062,8 +983,6 @@ nsresult nsHostResolver::ResolveHost(const nsACString& aHost, uint16_t type,
         // record is still pending more (TRR) data; make the callback
         // at once
         result = rec;
-        // make it count as a hit
-        Telemetry::Accumulate(Telemetry::DNS_LOOKUP_METHOD2, METHOD_HIT);
 
         LOG(("  Host [%s] re-using early TRR resolve data\n", host.get()));
       } else {
@@ -1078,8 +997,6 @@ nsresult nsHostResolver::ResolveHost(const nsACString& aHost, uint16_t type,
         // the native resolver, therefore by-type request are never put
         // into a queue.
         if (addrRec && addrRec->onQueue) {
-          Telemetry::Accumulate(Telemetry::DNS_LOOKUP_METHOD2,
-                                METHOD_NETWORK_SHARED);
 
           // Consider the case where we are on a pending queue of
           // lower priority than the request is being made at.
@@ -1275,7 +1192,6 @@ nsresult nsHostResolver::TrrLookup(nsHostRecord* aRec, TRR* pushedTRR) {
       }
     } while (sendAgain);
   } else {
-    typeRec->mStart = TimeStamp::Now();
     enum TrrType rectype = TRRTYPE_TXT;
 
     if (pushedTRR) {
@@ -1433,12 +1349,6 @@ nsresult nsHostResolver::ConditionallyRefreshRecord(nsHostRecord* rec,
     LOG(("  Using %s cache entry for host [%s] but starting async renewal.",
          rec->negative ? "negative" : "positive", host.BeginReading()));
     NameLookup(rec);
-
-    if (rec->IsAddrRecord() && !rec->negative) {
-      // negative entries are constantly being refreshed, only
-      // track positive grace period induced renewals
-      Telemetry::Accumulate(Telemetry::DNS_LOOKUP_METHOD2, METHOD_RENEWAL);
-    }
   }
   return NS_OK;
 }
@@ -1626,28 +1536,6 @@ void nsHostResolver::AddToEvictionQ(nsHostRecord* rec) {
     // remove first element on mEvictionQ
     RefPtr<nsHostRecord> head = mEvictionQ.popFirst();
     mRecordDB.Remove(*static_cast<nsHostKey*>(head.get()));
-
-    if (!head->negative) {
-      // record the age of the entry upon eviction.
-      TimeDuration age = TimeStamp::NowLoRes() - head->mValidStart;
-      if (rec->IsAddrRecord()) {
-        Telemetry::Accumulate(Telemetry::DNS_CLEANUP_AGE,
-                              static_cast<uint32_t>(age.ToSeconds() / 60));
-      } else {
-        Telemetry::Accumulate(Telemetry::DNS_BY_TYPE_CLEANUP_AGE,
-                              static_cast<uint32_t>(age.ToSeconds() / 60));
-      }
-      if (head->CheckExpiration(TimeStamp::Now()) !=
-          nsHostRecord::EXP_EXPIRED) {
-        if (rec->IsAddrRecord()) {
-          Telemetry::Accumulate(Telemetry::DNS_PREMATURE_EVICTION,
-                                static_cast<uint32_t>(age.ToSeconds() / 60));
-        } else {
-          Telemetry::Accumulate(Telemetry::DNS_BY_TYPE_PREMATURE_EVICTION,
-                                static_cast<uint32_t>(age.ToSeconds() / 60));
-        }
-      }
-    }
   }
 }
 
@@ -1904,9 +1792,6 @@ nsHostResolver::LookupStatus nsHostResolver::CompleteLookupByType(
   AutoLock trrlock(typeRec->mTrrLock);
   typeRec->mTrr = nullptr;
 
-  uint32_t duration = static_cast<uint32_t>(
-      (TimeStamp::Now() - typeRec->mStart).ToMilliseconds());
-
   if (NS_FAILED(status)) {
     LOG(("nsHostResolver::CompleteLookupByType record %p [%s] status %x\n",
          typeRec.get(), typeRec->host.get(), (unsigned int)status));
@@ -1914,7 +1799,6 @@ nsHostResolver::LookupStatus nsHostResolver::CompleteLookupByType(
     MOZ_ASSERT(!aResult);
     status = NS_ERROR_UNKNOWN_HOST;
     typeRec->negative = true;
-    Telemetry::Accumulate(Telemetry::DNS_BY_TYPE_FAILED_LOOKUP_TIME, duration);
   } else {
     MOZ_ASSERT(aResult);
     LOG(
@@ -1925,8 +1809,6 @@ nsHostResolver::LookupStatus nsHostResolver::CompleteLookupByType(
     typeRec->mResults = *aResult;
     typeRec->SetExpiration(TimeStamp::NowLoRes(), aTtl, mDefaultGracePeriod);
     typeRec->negative = false;
-    Telemetry::Accumulate(Telemetry::DNS_BY_TYPE_SUCCEEDED_LOOKUP_TIME,
-                          duration);
   }
 
   mozilla::LinkedList<RefPtr<nsResolveHostCallback>> cbs =
@@ -2031,7 +1913,6 @@ void nsHostResolver::ThreadFunc() {
     bool getTtl = rec->mGetTtl;
     TimeDuration inQueue = startTime - rec->mNativeStart;
     uint32_t ms = static_cast<uint32_t>(inQueue.ToMilliseconds());
-    Telemetry::Accumulate(Telemetry::DNS_NATIVE_QUEUING, ms);
     nsresult status =
         GetAddrInfo(rec->host, rec->af, rec->flags, getter_AddRefs(ai), getTtl);
 #if defined(RES_RETRY_ON_FAILURE)
@@ -2040,32 +1921,6 @@ void nsHostResolver::ThreadFunc() {
                            getTtl);
     }
 #endif
-
-    {  // obtain lock to check shutdown and manage inter-module telemetry
-      AutoLock lock(mLock);
-
-      if (!mShutdown) {
-        TimeDuration elapsed = TimeStamp::Now() - startTime;
-        uint32_t millis = static_cast<uint32_t>(elapsed.ToMilliseconds());
-
-        if (NS_SUCCEEDED(status)) {
-          Telemetry::HistogramID histogramID;
-          if (!rec->addr_info_gencnt) {
-            // Time for initial lookup.
-            histogramID = Telemetry::DNS_LOOKUP_TIME;
-          } else if (!getTtl) {
-            // Time for renewal; categorized by expiration strategy.
-            histogramID = Telemetry::DNS_RENEWAL_TIME;
-          } else {
-            // Time to get TTL; categorized by expiration strategy.
-            histogramID = Telemetry::DNS_RENEWAL_TIME_FOR_TTL;
-          }
-          Telemetry::Accumulate(histogramID, millis);
-        } else {
-          Telemetry::Accumulate(Telemetry::DNS_FAILED_LOOKUP_TIME, millis);
-        }
-      }
-    }
 
     LOG1(("DNS lookup thread - lookup completed for host [%s]: %s.\n",
           rec->host.get(), ai ? "success" : "failure: unknown host"));

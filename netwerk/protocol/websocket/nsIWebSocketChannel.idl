@@ -15,9 +15,10 @@ interface nsITransportProvider;
 webidl Node;
 
 #include "nsISupports.idl"
+#include "nsIContentPolicy.idl"
 
 /**
- * Low-level websocket API: handles network protocol.  
+ * Low-level websocket API: handles network protocol.
  *
  * This is primarly intended for use by the higher-level nsIWebSocket.idl.
  * We are also making it scriptable for now, but this may change once we have
@@ -100,7 +101,7 @@ interface nsIWebSocketChannel : nsISupports
                                             in nsIPrincipal aTriggeringPrincipal,
                                             in nsICookieSettings aCookieSettings,
                                             in unsigned long aSecurityFlags,
-                                            in unsigned long aContentPolicyType);
+                                            in nsContentPolicyType aContentPolicyType);
 
      /**
       * Similar to the previous one but without nsICookieSettings.
@@ -110,7 +111,7 @@ interface nsIWebSocketChannel : nsISupports
                                   in nsIPrincipal aLoadingPrincipal,
                                   in nsIPrincipal aTriggeringPrincipal,
                                   in unsigned long aSecurityFlags,
-                                  in unsigned long aContentPolicyType);
+                                  in nsContentPolicyType aContentPolicyType);
 
     /**
      * Asynchronously open the websocket connection.  Received messages are fed

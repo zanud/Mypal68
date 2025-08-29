@@ -101,7 +101,15 @@ const { Services } = ChromeUtils.import("resource://gre/modules/Services.jsm");
 
 const { DefaultMap } = ExtensionUtils;
 
-let ACTORS = {};
+let ACTORS = {
+  SidebarSearch: {
+    parent: {
+      moduleURI: "resource://gre/actors/SidebarSearchParent.jsm",
+    },
+
+    allFrames: true,
+  },
+};
 
 let LEGACY_ACTORS = {
   AudioPlayback: {

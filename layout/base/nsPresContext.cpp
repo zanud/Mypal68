@@ -276,6 +276,7 @@ void nsPresContext::Destroy() {
                                    gExactCallbackPrefs, this);
 
   mRefreshDriver = nullptr;
+  MOZ_ASSERT(mManagedPostRefreshObservers.IsEmpty());
 }
 
 nsPresContext::~nsPresContext() {
@@ -1425,18 +1426,39 @@ void nsPresContext::ContentLanguageChanged() {
                                RestyleHint::RecascadeSubtree());
 }
 
-void nsPresContext::MediaFeatureValuesChanged(
-    const MediaFeatureChange& aChange) {
-  if (mPresShell) {
-    mPresShell->EnsureStyleFlush();
-  }
-
-  if (!mPendingMediaFeatureValuesChange) {
-    mPendingMediaFeatureValuesChange = MakeUnique<MediaFeatureChange>(aChange);
+void nsPresContext::RegisterManagedPostRefreshObserver(
+    ManagedPostRefreshObserver* aObserver) {
+  if (MOZ_UNLIKELY(!mPresShell)) {
+    // If we're detached from our pres shell already, refuse to keep observer
+    // around, as that'd create a cycle.
+    RefPtr<ManagedPostRefreshObserver> obs = aObserver;
+    obs->Cancel();
     return;
   }
 
-  *mPendingMediaFeatureValuesChange |= aChange;
+  RefreshDriver()->AddPostRefreshObserver(
+      static_cast<nsAPostRefreshObserver*>(aObserver));
+  mManagedPostRefreshObservers.AppendElement(aObserver);
+}
+
+void nsPresContext::UnregisterManagedPostRefreshObserver(
+    ManagedPostRefreshObserver* aObserver) {
+  RefreshDriver()->RemovePostRefreshObserver(
+      static_cast<nsAPostRefreshObserver*>(aObserver));
+  DebugOnly<bool> removed =
+      mManagedPostRefreshObservers.RemoveElement(aObserver);
+  MOZ_ASSERT(removed,
+             "ManagedPostRefreshObserver should be owned by PresContext");
+}
+
+void nsPresContext::CancelManagedPostRefreshObservers() {
+  auto observers = std::move(mManagedPostRefreshObservers);
+  nsRefreshDriver* driver = RefreshDriver();
+  for (const auto& observer : observers) {
+    observer->Cancel();
+    driver->RemovePostRefreshObserver(
+        static_cast<nsAPostRefreshObserver*>(observer));
+  }
 }
 
 void nsPresContext::RebuildAllStyleData(nsChangeHint aExtraHint,
@@ -1456,6 +1478,20 @@ void nsPresContext::RebuildAllStyleData(nsChangeHint aExtraHint,
   MarkCounterStylesDirty();
   MarkFontFeatureValuesDirty();
   PostRebuildAllStyleDataEvent(aExtraHint, aRestyleHint);
+}
+
+void nsPresContext::MediaFeatureValuesChanged(
+    const MediaFeatureChange& aChange) {
+  if (mPresShell) {
+    mPresShell->EnsureStyleFlush();
+  }
+
+  if (!mPendingMediaFeatureValuesChange) {
+    mPendingMediaFeatureValuesChange = MakeUnique<MediaFeatureChange>(aChange);
+    return;
+  }
+
+  *mPendingMediaFeatureValuesChange |= aChange;
 }
 
 void nsPresContext::PostRebuildAllStyleDataEvent(

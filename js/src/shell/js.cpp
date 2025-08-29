@@ -162,7 +162,7 @@
 #include "util/DifferentialTesting.h"
 #include "util/StringBuffer.h"
 #include "util/Text.h"
-#include "util/Windows.h"
+#include "util/WindowsWrapper.h"
 #include "vm/ArgumentsObject.h"
 #include "vm/Compression.h"
 #include "vm/ErrorObject.h"
@@ -1411,8 +1411,6 @@ static bool AddIntlExtras(JSContext* cx, unsigned argc, Value* vp) {
 
   static const JSFunctionSpec funcs[] = {
       JS_SELF_HOSTED_FN("getCalendarInfo", "Intl_getCalendarInfo", 1, 0),
-      JS_SELF_HOSTED_FN("getLocaleInfo", "Intl_getLocaleInfo", 1, 0),
-      JS_SELF_HOSTED_FN("getDisplayNames", "Intl_getDisplayNames", 2, 0),
       JS_FS_END};
 
   if (!JS_DefineFunctions(cx, intl, funcs)) {
@@ -2245,6 +2243,8 @@ static bool Evaluate(JSContext* cx, unsigned argc, Value* vp) {
   options.setIntroductionType("js shell evaluate")
       .setFileAndLine("@evaluate", 1)
       .setdeferDebugMetadata();
+
+  options.borrowBuffer = true;
 
   global = JS::CurrentGlobalOrNull(cx);
   MOZ_ASSERT(global);
@@ -3520,11 +3520,17 @@ static const char* TryNoteName(TryNoteKind kind) {
         }
       }
     } else if (gcThing.is<JSString>()) {
-      if (!sp->put("Atom       ")) {
-        return false;
+      RootedString str(cx, &gcThing.as<JSString>());
+      if (str->isAtom()) {
+        if (!sp->put("Atom       ")) {
+          return false;
+        }
+      } else {
+        if (!sp->put("String     ")) {
+          return false;
+        }
       }
-      RootedAtom atom(cx, &gcThing.as<JSString>().asAtom());
-      UniqueChars chars = QuoteString(cx, atom, '"');
+      UniqueChars chars = QuoteString(cx, str, '"');
       if (!chars) {
         return false;
       }
@@ -6516,6 +6522,8 @@ static bool OffThreadDecodeScript(JSContext* cx, unsigned argc, Value* vp) {
   options.useStencilXDR =
       CacheEntry_getKind(cx, cacheEntry) == BytecodeCacheKind::Stencil;
 
+  options.borrowBuffer = true;
+
   // In browser, we always use off-thread parse global for decode task, for
   // performance reason.
   // (see ScriptLoader::AttemptAsyncScriptCompile)
@@ -7517,8 +7525,8 @@ static bool WithSourceHook(JSContext* cx, unsigned argc, Value* vp) {
   return result;
 }
 
-static void PrintProfilerEvents_Callback(const char* msg) {
-  fprintf(stderr, "PROFILER EVENT: %s\n", msg);
+static void PrintProfilerEvents_Callback(const char* msg, const char* details) {
+  fprintf(stderr, "PROFILER EVENT: %s %s\n", msg, details);
 }
 
 static bool PrintProfilerEvents(JSContext* cx, unsigned argc, Value* vp) {
@@ -10294,7 +10302,19 @@ js::shell::AutoReportException::~AutoReportException() {
     JS::PrintError(fp, report, reportWarnings);
     JS_ClearPendingException(cx);
 
-    if (!PrintStackTrace(cx, exnStack.stack())) {
+    // If possible, use the original error stack as the source of truth, because
+    // finally block handlers may have overwritten the exception stack. See
+    // the |cx->setPendingExceptionAndCaptureStack()| call when executing
+    // |JSOp::RetSub|.
+    RootedObject stack(cx, exnStack.stack());
+    if (exnStack.exception().isObject()) {
+      RootedObject exception(cx, &exnStack.exception().toObject());
+      if (JSObject* exceptionStack = JS::ExceptionStackOrNull(exception)) {
+        stack.set(exceptionStack);
+      }
+    }
+
+    if (!PrintStackTrace(cx, stack)) {
       fputs("(Unable to print stack trace)\n", fp);
       JS_ClearPendingException(cx);
     }

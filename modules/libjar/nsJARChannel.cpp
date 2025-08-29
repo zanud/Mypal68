@@ -360,7 +360,7 @@ nsresult CreateLocalJarInput(nsIZipReaderCache* aJarCache, nsIFile* aFile,
   RefPtr<nsJARInputThunk> input =
       new nsJARInputThunk(reader, aJarURI, aJarEntry, aJarCache != nullptr);
   rv = input->Init();
-  if (NS_WARN_IF(NS_FAILED(rv))) {
+  if (NS_FAILED(rv)) {
     return rv;
   }
 
@@ -454,7 +454,7 @@ nsresult nsJARChannel::ContinueOpenLocalFile(nsJARInputThunk* aInput,
   // Create input stream pump and call AsyncRead as a block.
   rv = NS_NewInputStreamPump(getter_AddRefs(mPump), input.forget());
   if (NS_SUCCEEDED(rv)) {
-    rv = mPump->AsyncRead(this, nullptr);
+    rv = mPump->AsyncRead(this);
   }
 
   if (NS_SUCCEEDED(rv)) {
@@ -984,22 +984,24 @@ nsJARChannel::OnStartRequest(nsIRequest* req) {
   mRequest = req;
   nsresult rv = mListener->OnStartRequest(this);
   mRequest = nullptr;
-  NS_ENSURE_SUCCESS(rv, rv);
+  if (NS_FAILED(rv)) {
+    return rv;
+  }
 
   // Restrict loadable content types.
   nsAutoCString contentType;
   GetContentType(contentType);
   auto contentPolicyType = mLoadInfo->GetExternalContentPolicyType();
   if (contentType.Equals(APPLICATION_HTTP_INDEX_FORMAT) &&
-      contentPolicyType != nsIContentPolicy::TYPE_DOCUMENT &&
-      contentPolicyType != nsIContentPolicy::TYPE_FETCH) {
+      contentPolicyType != ExtContentPolicy::TYPE_DOCUMENT &&
+      contentPolicyType != ExtContentPolicy::TYPE_FETCH) {
     return NS_ERROR_CORRUPTED_CONTENT;
   }
-  if (contentPolicyType == nsIContentPolicy::TYPE_STYLESHEET &&
+  if (contentPolicyType == ExtContentPolicy::TYPE_STYLESHEET &&
       !contentType.EqualsLiteral(TEXT_CSS)) {
     return NS_ERROR_CORRUPTED_CONTENT;
   }
-  if (contentPolicyType == nsIContentPolicy::TYPE_SCRIPT &&
+  if (contentPolicyType == ExtContentPolicy::TYPE_SCRIPT &&
       !nsContentUtils::IsJavascriptMIMEType(
           NS_ConvertUTF8toUTF16(contentType))) {
     return NS_ERROR_CORRUPTED_CONTENT;

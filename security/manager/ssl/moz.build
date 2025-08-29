@@ -79,7 +79,6 @@ EXPORTS.mozilla += [
 ]
 
 EXPORTS.mozilla.psm += [
-    'PSMContentListener.h',
     'TransportSecurityInfo.h',
 ]
 
@@ -123,7 +122,6 @@ UNIFIED_SOURCES += [
     'nsTLSSocketProvider.cpp',
     'OSKeyStore.cpp',
     'PKCS11ModuleDB.cpp',
-    'PSMContentListener.cpp',
     'PSMRunnable.cpp',
     'PublicKeyPinningService.cpp',
     'RootCertificateTelemetryUtils.cpp',
@@ -170,10 +168,6 @@ if CONFIG['OS_ARCH'] == 'WINNT':
     UNIFIED_SOURCES += [
         'CredentialManagerSecret.cpp',
     ]
-
-IPDL_SOURCES += [
-    'PPSMContentDownloader.ipdl',
-]
 
 if CONFIG['MOZ_XUL']:
     UNIFIED_SOURCES += [

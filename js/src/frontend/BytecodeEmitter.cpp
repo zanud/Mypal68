@@ -48,7 +48,7 @@
 #include "frontend/OptionalEmitter.h"  // OptionalEmitter
 #include "frontend/ParseNode.h"   // ParseNodeKind, ParseNode and subclasses
 #include "frontend/Parser.h"      // Parser
-#include "frontend/ParserAtom.h"  // ParserAtomsTable
+#include "frontend/ParserAtom.h"  // ParserAtomsTable, ParserAtom
 #include "frontend/PrivateOpEmitter.h"  // PrivateOpEmitter
 #include "frontend/PropOpEmitter.h"     // PropOpEmitter
 #include "frontend/SourceNotes.h"       // SrcNote, SrcNoteType, SrcNoteWriter
@@ -935,7 +935,7 @@ bool BytecodeEmitter::emitAtomOp(JSOp op, TaggedParserAtomIndex atom) {
                 atom != TaggedParserAtomIndex::WellKnown::dotGenerator());
 
   GCThingIndex index;
-  if (!makeAtomIndex(atom, &index)) {
+  if (!makeAtomIndex(atom, ParserAtom::Atomize::Yes, &index)) {
     return false;
   }
 
@@ -944,6 +944,25 @@ bool BytecodeEmitter::emitAtomOp(JSOp op, TaggedParserAtomIndex atom) {
 
 bool BytecodeEmitter::emitAtomOp(JSOp op, GCThingIndex atomIndex) {
   MOZ_ASSERT(JOF_OPTYPE(op) == JOF_ATOM);
+#ifdef DEBUG
+  auto atom = perScriptData().gcThingList().getAtom(atomIndex);
+  MOZ_ASSERT(compilationState.parserAtoms.isInstantiatedAsJSAtom(atom));
+#endif
+  return emitGCIndexOp(op, atomIndex);
+}
+
+bool BytecodeEmitter::emitStringOp(JSOp op, TaggedParserAtomIndex atom) {
+  MOZ_ASSERT(atom);
+  GCThingIndex index;
+  if (!makeAtomIndex(atom, ParserAtom::Atomize::No, &index)) {
+    return false;
+  }
+
+  return emitStringOp(op, index);
+}
+
+bool BytecodeEmitter::emitStringOp(JSOp op, GCThingIndex atomIndex) {
+  MOZ_ASSERT(JOF_OPTYPE(op) == JOF_STRING);
   return emitGCIndexOp(op, atomIndex);
 }
 
@@ -4144,7 +4163,8 @@ bool BytecodeEmitter::emitTemplateString(ListNode* templateString) {
   if (!pushedString) {
     // All strings were empty, this can happen for something like `${""}`.
     // Just push an empty string.
-    if (!emitAtomOp(JSOp::String, TaggedParserAtomIndex::WellKnown::empty())) {
+    if (!emitStringOp(JSOp::String,
+                      TaggedParserAtomIndex::WellKnown::empty())) {
       return false;
     }
   }
@@ -7720,7 +7740,9 @@ bool BytecodeEmitter::emitSelfHostedSetCanonicalName(BinaryNode* callNode) {
   ParseNode* nameNode = argsList->last();
   MOZ_ASSERT(nameNode->isKind(ParseNodeKind::StringExpr));
   TaggedParserAtomIndex specName = nameNode->as<NameNode>().atom();
-  compilationState.parserAtoms.markUsedByStencil(specName);
+  // Canonical name must be atomized.
+  compilationState.parserAtoms.markUsedByStencil(specName,
+                                                 ParserAtom::Atomize::Yes);
 
   // Store the canonical name for instantiation.
   prevSelfHostedTopLevelFunction->functionStencil().setSelfHostedCanonicalName(
@@ -11495,7 +11517,7 @@ bool BytecodeEmitter::emitTree(
 
     case ParseNodeKind::TemplateStringExpr:
     case ParseNodeKind::StringExpr:
-      if (!emitAtomOp(JSOp::String, pn->as<NameNode>().atom())) {
+      if (!emitStringOp(JSOp::String, pn->as<NameNode>().atom())) {
         return false;
       }
       break;

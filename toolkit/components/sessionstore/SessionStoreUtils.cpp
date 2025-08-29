@@ -13,6 +13,7 @@
 #include "mozilla/dom/HTMLSelectElement.h"
 #include "mozilla/dom/HTMLTextAreaElement.h"
 #include "mozilla/dom/RootedDictionary.h"
+#include "mozilla/dom/SessionStorageManager.h"
 #include "mozilla/dom/SessionStoreUtils.h"
 #include "mozilla/dom/txIXPathContext.h"
 #include "mozilla/dom/WindowProxyHolder.h"
@@ -528,7 +529,7 @@ static void AppendValueToCollectedData(nsINode* aNode, const nsAString& aId,
   if (aValueType.EqualsLiteral("file")) {
     CollectedFileListValue val;
     val.mType = aValueType;
-    val.mFileList.SwapElements(aValue);
+    val.mFileList = std::move(aValue);
     if (!ToJSValue(aCx, val, &jsval)) {
       JS_ClearPendingException(aCx);
       return;
@@ -1299,7 +1300,7 @@ static void CollectFrameTreeData(JSContext* aCx,
 
   if (trailingNullCounter != childrenData.Length()) {
     childrenData.TruncateLength(childrenData.Length() - trailingNullCounter);
-    aRetVal.SetValue().mChildren.Construct().SwapElements(childrenData);
+    aRetVal.SetValue().mChildren.Construct() = std::move(childrenData);
   }
 }
 
@@ -1353,24 +1354,24 @@ static void CollectFrameTreeData(JSContext* aCx,
   }
 
   if (selectedIndex.Length() != 0) {
-    ret.mSelectedIndex.Construct().Assign(std::move(selectedIndex));
+    ret.mSelectedIndex.Construct(std::move(selectedIndex));
   }
   if (valueIdx.Length() != 0) {
-    ret.mValueIdx.Construct().Assign(std::move(valueIdx));
+    ret.mValueIdx.Construct(std::move(valueIdx));
   }
   if (id.Length() != 0) {
-    ret.mId.Construct().Assign(std::move(id));
+    ret.mId.Construct(std::move(id));
   }
   if (selectVal.Length() != 0) {
-    ret.mSelectVal.Construct().Assign(std::move(selectVal));
+    ret.mSelectVal.Construct(std::move(selectVal));
   }
   if (strVal.Length() != 0) {
-    ret.mStrVal.Construct().Assign(std::move(strVal));
+    ret.mStrVal.Construct(std::move(strVal));
   }
   if (type.Length() != 0) {
-    ret.mType.Construct().Assign(std::move(type));
+    ret.mType.Construct(std::move(type));
   }
   if (boolVal.Length() != 0) {
-    ret.mBoolVal.Construct().Assign(std::move(boolVal));
+    ret.mBoolVal.Construct(std::move(boolVal));
   }
 }

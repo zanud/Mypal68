@@ -26,6 +26,7 @@ new_xulstore = ["gkrust-shared/new_xulstore"]
 new_cert_storage = ["gkrust-shared/new_cert_storage"]
 fuzzing_interfaces = ["gkrust-shared/fuzzing_interfaces"]
 webrtc = ["gkrust-shared/webrtc"]
+thread_sanitizer = ["gkrust-shared/thread_sanitizer"]
 
 [dependencies]
 gkrust-shared = { path = "shared" }

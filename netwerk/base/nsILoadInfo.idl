@@ -421,6 +421,15 @@ interface nsILoadInfo : nsISupports
    */
   [infallible] readonly attribute unsigned long securityMode;
 
+
+  /**
+   * This flag is used for any browsing context where we should not sniff
+   * the content type. E.g if an iframe has the XCTO nosniff header, then
+   * that flag is set to true so we skip content sniffing for that browsing
+   * context.
+   */
+  [infallible] attribute boolean skipContentSniffing;
+
   /**
    * True if this request is embedded in a context that can't be third-party
    * (i.e. an iframe embedded in a cross-origin parent window). If this is
@@ -442,6 +451,11 @@ interface nsILoadInfo : nsISupports
    * It cannot be null.
    */
   attribute nsICookieSettings cookieSettings;
+
+  /**
+   * True if the load was triggered by a meta refresh.
+   */
+  [infallible] attribute boolean isMetaRefresh;
 
   /**
    * If forceInheritPrincipal is true, the data coming from the channel should
@@ -538,12 +552,12 @@ interface nsILoadInfo : nsISupports
   [infallible] attribute boolean sendCSPViolationEvents;
 
 %{ C++
-  inline nsContentPolicyType GetExternalContentPolicyType()
+  inline ExtContentPolicyType GetExternalContentPolicyType()
   {
     nsContentPolicyType result;
     mozilla::DebugOnly<nsresult> rv = GetExternalContentPolicyType(&result);
     MOZ_ASSERT(NS_SUCCEEDED(rv));
-    return result;
+    return static_cast<ExtContentPolicyType>(result);
   }
 %}
 

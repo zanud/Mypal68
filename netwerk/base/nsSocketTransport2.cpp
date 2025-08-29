@@ -5,7 +5,6 @@
 #include "nsSocketTransport2.h"
 
 #include "mozilla/Attributes.h"
-#include "mozilla/Telemetry.h"
 #include "nsIOService.h"
 #include "nsStreamUtils.h"
 #include "nsNetSegmentUtils.h"
@@ -1215,8 +1214,7 @@ nsresult nsSocketTransport::BuildSocket(PRFileDesc*& fd, bool& proxyTransparent,
       SOCKET_LOG(("  error pushing io layer [%u:%s rv=%" PRIx32 "]\n", i,
                   mTypes[i].get(), static_cast<uint32_t>(rv)));
       if (fd) {
-        CloseSocket(
-            fd, mSocketTransportService->IsTelemetryEnabledAndNotSleepPhase());
+        CloseSocket(fd);
       }
     }
   }
@@ -1453,8 +1451,7 @@ nsresult nsSocketTransport::InitiateSocket() {
   // inform socket transport about this newly created socket...
   rv = mSocketTransportService->AttachSocket(fd, this);
   if (NS_FAILED(rv)) {
-    CloseSocket(fd,
-                mSocketTransportService->IsTelemetryEnabledAndNotSleepPhase());
+    CloseSocket(fd);
     return rv;
   }
   mAttached = true;
@@ -1523,14 +1520,6 @@ nsresult nsSocketTransport::InitiateSocket() {
     }
   }
 
-  // We use PRIntervalTime here because we need
-  // nsIOService::LastOfflineStateChange time and
-  // nsIOService::LastConectivityChange time to be atomic.
-  PRIntervalTime connectStarted = 0;
-  if (gSocketTransportService->IsTelemetryEnabledAndNotSleepPhase()) {
-    connectStarted = PR_IntervalNow();
-  }
-
   bool tfo = false;
   if (!mProxyTransparent && mFastOpenCallback &&
       mFastOpenCallback->FastOpenEnabled()) {
@@ -1567,7 +1556,6 @@ nsresult nsSocketTransport::InitiateSocket() {
     mSSLCallbackSet = true;
   }
 
-  bool connectCalled = true;  // This is only needed for telemetry.
   status = PR_Connect(fd, &prAddr, NS_SOCKET_CONNECT_TIMEOUT);
   PRErrorCode code = PR_GetError();
   if (status == PR_SUCCESS) {
@@ -1590,7 +1578,6 @@ nsresult nsSocketTransport::InitiateSocket() {
       return rv;
     }
     status = PR_FAILURE;
-    connectCalled = false;
     bool fastOpenNotSupported = false;
     TCPFastOpenFinish(fd, code, fastOpenNotSupported, mFastOpenStatus);
 
@@ -1629,20 +1616,9 @@ nsresult nsSocketTransport::InitiateSocket() {
       // For this connection we will pretend that we still use fast open,
       // because of the fallback mechanism in case we need to restart the
       // attached transaction.
-      connectCalled = true;
     }
   } else {
     mFastOpenCallback = nullptr;
-  }
-
-  if (gSocketTransportService->IsTelemetryEnabledAndNotSleepPhase() &&
-      connectStarted && connectCalled) {
-    SendPRBlockingTelemetry(
-        connectStarted, Telemetry::PRCONNECT_BLOCKING_TIME_NORMAL,
-        Telemetry::PRCONNECT_BLOCKING_TIME_SHUTDOWN,
-        Telemetry::PRCONNECT_BLOCKING_TIME_CONNECTIVITY_CHANGE,
-        Telemetry::PRCONNECT_BLOCKING_TIME_LINK_CHANGE,
-        Telemetry::PRCONNECT_BLOCKING_TIME_OFFLINE);
   }
 
   if (status == PR_SUCCESS) {
@@ -1699,16 +1675,6 @@ nsresult nsSocketTransport::InitiateSocket() {
     // The connection was refused...
     //
     else {
-      if (gSocketTransportService->IsTelemetryEnabledAndNotSleepPhase() &&
-          connectStarted && connectCalled) {
-        SendPRBlockingTelemetry(
-            connectStarted, Telemetry::PRCONNECT_FAIL_BLOCKING_TIME_NORMAL,
-            Telemetry::PRCONNECT_FAIL_BLOCKING_TIME_SHUTDOWN,
-            Telemetry::PRCONNECT_FAIL_BLOCKING_TIME_CONNECTIVITY_CHANGE,
-            Telemetry::PRCONNECT_FAIL_BLOCKING_TIME_LINK_CHANGE,
-            Telemetry::PRCONNECT_FAIL_BLOCKING_TIME_OFFLINE);
-      }
-
       rv = ErrorAccordingToNSPR(code);
       if ((rv == NS_ERROR_CONNECTION_REFUSED) && !mProxyHost.IsEmpty())
         rv = NS_ERROR_PROXY_CONNECTION_REFUSED;
@@ -1808,22 +1774,8 @@ bool nsSocketTransport::RecoverFromError() {
     mFastOpenCallback = nullptr;
 
   } else {
-    // This is only needed for telemetry.
     if (NS_SUCCEEDED(mFirstRetryError)) {
       mFirstRetryError = mCondition;
-    }
-    if ((mState == STATE_CONNECTING) && mDNSRecord) {
-      if (mNetAddr.raw.family == AF_INET) {
-        if (mSocketTransportService->IsTelemetryEnabledAndNotSleepPhase()) {
-          Telemetry::Accumulate(Telemetry::IPV4_AND_IPV6_ADDRESS_CONNECTIVITY,
-                                UNSUCCESSFUL_CONNECTING_TO_IPV4_ADDRESS);
-        }
-      } else if (mNetAddr.raw.family == AF_INET6) {
-        if (mSocketTransportService->IsTelemetryEnabledAndNotSleepPhase()) {
-          Telemetry::Accumulate(Telemetry::IPV4_AND_IPV6_ADDRESS_CONNECTIVITY,
-                                UNSUCCESSFUL_CONNECTING_TO_IPV6_ADDRESS);
-        }
-      }
     }
 
     if (mConnectionFlags & RETRY_WITH_DIFFERENT_IP_FAMILY &&
@@ -2027,8 +1979,7 @@ class ThunkPRClose : public Runnable {
       : Runnable("net::ThunkPRClose"), mFD(fd) {}
 
   NS_IMETHOD Run() override {
-    nsSocketTransport::CloseSocket(
-        mFD, gSocketTransportService->IsTelemetryEnabledAndNotSleepPhase());
+    nsSocketTransport::CloseSocket(mFD);
     return NS_OK;
   }
 
@@ -2073,8 +2024,7 @@ void nsSocketTransport::ReleaseFD_Locked(PRFileDesc* fd) {
       }
       if (OnSocketThread()) {
         SOCKET_LOG(("nsSocketTransport: calling PR_Close [this=%p]\n", this));
-        CloseSocket(
-            mFD, mSocketTransportService->IsTelemetryEnabledAndNotSleepPhase());
+        CloseSocket(mFD);
       } else {
         // Can't PR_Close() a socket off STS thread. Thunk it to STS to die
         STS_PRCloseOnSocketTransport(mFD, mLingerPolarity, mLingerTimeout);
@@ -2252,14 +2202,6 @@ void nsSocketTransport::OnSocketReady(PRFileDesc* fd, int16_t outFlags) {
     // We do not need to do PR_ConnectContinue when we are already
     // shutting down.
 
-    // We use PRIntervalTime here because we need
-    // nsIOService::LastOfflineStateChange time and
-    // nsIOService::LastConectivityChange time to be atomic.
-    PRIntervalTime connectStarted = 0;
-    if (gSocketTransportService->IsTelemetryEnabledAndNotSleepPhase()) {
-      connectStarted = PR_IntervalNow();
-    }
-
     PRStatus status = PR_ConnectContinue(fd, outFlags);
 
 #if defined(_WIN64) && defined(WIN95)
@@ -2281,33 +2223,11 @@ void nsSocketTransport::OnSocketReady(PRFileDesc* fd, int16_t outFlags) {
     }
 #endif
 
-    if (gSocketTransportService->IsTelemetryEnabledAndNotSleepPhase() &&
-        connectStarted) {
-      SendPRBlockingTelemetry(
-          connectStarted, Telemetry::PRCONNECTCONTINUE_BLOCKING_TIME_NORMAL,
-          Telemetry::PRCONNECTCONTINUE_BLOCKING_TIME_SHUTDOWN,
-          Telemetry::PRCONNECTCONTINUE_BLOCKING_TIME_CONNECTIVITY_CHANGE,
-          Telemetry::PRCONNECTCONTINUE_BLOCKING_TIME_LINK_CHANGE,
-          Telemetry::PRCONNECTCONTINUE_BLOCKING_TIME_OFFLINE);
-    }
-
     if (status == PR_SUCCESS) {
       //
       // we are connected!
       //
       OnSocketConnected();
-
-      if (mNetAddr.raw.family == AF_INET) {
-        if (mSocketTransportService->IsTelemetryEnabledAndNotSleepPhase()) {
-          Telemetry::Accumulate(Telemetry::IPV4_AND_IPV6_ADDRESS_CONNECTIVITY,
-                                SUCCESSFUL_CONNECTING_TO_IPV4_ADDRESS);
-        }
-      } else if (mNetAddr.raw.family == AF_INET6) {
-        if (mSocketTransportService->IsTelemetryEnabledAndNotSleepPhase()) {
-          Telemetry::Accumulate(Telemetry::IPV4_AND_IPV6_ADDRESS_CONNECTIVITY,
-                                SUCCESSFUL_CONNECTING_TO_IPV6_ADDRESS);
-        }
-      }
     } else {
       PRErrorCode code = PR_GetError();
 #if defined(TEST_CONNECT_ERRORS)
@@ -2933,9 +2853,6 @@ nsSocketTransport::OnLookupComplete(nsICancelable* request, nsIDNSRecord* rec,
 
   // flag host lookup complete for the benefit of the ResolveHost method.
   if (!mDNSTxtRequest) {
-    if (mEsniQueried) {
-      Telemetry::Accumulate(Telemetry::ESNI_KEYS_RECORD_FETCH_DELAYS, 0);
-    }
     mResolving = false;
     nsresult rv = PostEvent(MSG_DNS_LOOKUP_COMPLETE, status, nullptr);
 
@@ -2970,15 +2887,10 @@ nsSocketTransport::OnLookupByTypeComplete(nsICancelable* request,
     txtResponse->GetRecordsAsOneString(mDNSRecordTxt);
     mDNSRecordTxt.Trim(" ");
   }
-  Telemetry::Accumulate(Telemetry::ESNI_KEYS_RECORDS_FOUND,
-                        NS_SUCCEEDED(status));
   // flag host lookup complete for the benefit of the ResolveHost method.
   if (!mDNSRequest) {
     mResolving = false;
     MOZ_ASSERT(mDNSARequestFinished);
-    Telemetry::Accumulate(
-        Telemetry::ESNI_KEYS_RECORD_FETCH_DELAYS,
-        PR_IntervalToMilliseconds(PR_IntervalNow() - mDNSARequestFinished));
 
     nsresult rv = PostEvent(MSG_DNS_LOOKUP_COMPLETE, mDNSLookupStatus, nullptr);
 
@@ -3494,55 +3406,12 @@ nsresult nsSocketTransport::PRFileDescAutoLock::SetKeepaliveVals(
 #endif
 }
 
-void nsSocketTransport::CloseSocket(PRFileDesc* aFd, bool aTelemetryEnabled) {
+void nsSocketTransport::CloseSocket(PRFileDesc* aFd) {
 #if defined(XP_WIN)
   AttachShutdownLayer(aFd);
 #endif
 
-  // We use PRIntervalTime here because we need
-  // nsIOService::LastOfflineStateChange time and
-  // nsIOService::LastConectivityChange time to be atomic.
-  PRIntervalTime closeStarted;
-  if (aTelemetryEnabled) {
-    closeStarted = PR_IntervalNow();
-  }
-
   PR_Close(aFd);
-
-  if (aTelemetryEnabled) {
-    SendPRBlockingTelemetry(
-        closeStarted, Telemetry::PRCLOSE_TCP_BLOCKING_TIME_NORMAL,
-        Telemetry::PRCLOSE_TCP_BLOCKING_TIME_SHUTDOWN,
-        Telemetry::PRCLOSE_TCP_BLOCKING_TIME_CONNECTIVITY_CHANGE,
-        Telemetry::PRCLOSE_TCP_BLOCKING_TIME_LINK_CHANGE,
-        Telemetry::PRCLOSE_TCP_BLOCKING_TIME_OFFLINE);
-  }
-}
-
-void nsSocketTransport::SendPRBlockingTelemetry(
-    PRIntervalTime aStart, Telemetry::HistogramID aIDNormal,
-    Telemetry::HistogramID aIDShutdown,
-    Telemetry::HistogramID aIDConnectivityChange,
-    Telemetry::HistogramID aIDLinkChange, Telemetry::HistogramID aIDOffline) {
-  PRIntervalTime now = PR_IntervalNow();
-  if (gIOService->IsNetTearingDown()) {
-    Telemetry::Accumulate(aIDShutdown, PR_IntervalToMilliseconds(now - aStart));
-
-  } else if (PR_IntervalToSeconds(now - gIOService->LastConnectivityChange()) <
-             60) {
-    Telemetry::Accumulate(aIDConnectivityChange,
-                          PR_IntervalToMilliseconds(now - aStart));
-  } else if (PR_IntervalToSeconds(now - gIOService->LastNetworkLinkChange()) <
-             60) {
-    Telemetry::Accumulate(aIDLinkChange,
-                          PR_IntervalToMilliseconds(now - aStart));
-
-  } else if (PR_IntervalToSeconds(now - gIOService->LastOfflineStateChange()) <
-             60) {
-    Telemetry::Accumulate(aIDOffline, PR_IntervalToMilliseconds(now - aStart));
-  } else {
-    Telemetry::Accumulate(aIDNormal, PR_IntervalToMilliseconds(now - aStart));
-  }
 }
 
 NS_IMETHODIMP

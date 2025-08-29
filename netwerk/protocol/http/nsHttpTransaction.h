@@ -462,8 +462,8 @@ class nsHttpTransaction final : public nsAHttpTransaction,
   RefPtr<TransactionObserver> mTransactionObserver;
 
  public:
-  void GetNetworkAddresses(NetAddr& self, NetAddr& peer);
-  bool ResolvedByTRR() { return mResolvedByTRR; }
+  void GetNetworkAddresses(NetAddr& self, NetAddr& peer,
+                           bool& aResolvedByTRR);
 
  private:
   NetAddr mSelfAddr;

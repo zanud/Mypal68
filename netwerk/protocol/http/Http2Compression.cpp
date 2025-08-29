@@ -246,12 +246,6 @@ Http2BaseCompressor::Http2BaseCompressor()
 }
 
 Http2BaseCompressor::~Http2BaseCompressor() {
-  if (mPeakSize) {
-    Telemetry::Accumulate(mPeakSizeID, mPeakSize);
-  }
-  if (mPeakCount) {
-    Telemetry::Accumulate(mPeakCountID, mPeakCount);
-  }
   UnregisterStrongMemoryReporter(mDynamicReporter);
   mDynamicReporter->mCompressor = nullptr;
   mDynamicReporter = nullptr;
@@ -284,24 +278,6 @@ void Http2BaseCompressor::MakeRoom(uint32_t amount, const char* direction) {
     ++countEvicted;
     bytesEvicted += mHeaderTable[index]->Size();
     mHeaderTable.RemoveElement();
-  }
-
-  if (!strcmp(direction, "decompressor")) {
-    Telemetry::Accumulate(Telemetry::HPACK_ELEMENTS_EVICTED_DECOMPRESSOR,
-                          countEvicted);
-    Telemetry::Accumulate(Telemetry::HPACK_BYTES_EVICTED_DECOMPRESSOR,
-                          bytesEvicted);
-    Telemetry::Accumulate(
-        Telemetry::HPACK_BYTES_EVICTED_RATIO_DECOMPRESSOR,
-        (uint32_t)((100.0 * (double)bytesEvicted) / (double)amount));
-  } else {
-    Telemetry::Accumulate(Telemetry::HPACK_ELEMENTS_EVICTED_COMPRESSOR,
-                          countEvicted);
-    Telemetry::Accumulate(Telemetry::HPACK_BYTES_EVICTED_COMPRESSOR,
-                          bytesEvicted);
-    Telemetry::Accumulate(
-        Telemetry::HPACK_BYTES_EVICTED_RATIO_COMPRESSOR,
-        (uint32_t)((100.0 * (double)bytesEvicted) / (double)amount));
   }
 }
 

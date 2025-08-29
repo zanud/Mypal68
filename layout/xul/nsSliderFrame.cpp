@@ -886,42 +886,6 @@ nsresult nsSliderMediator::HandleEvent(dom::Event* aEvent) {
   return NS_OK;
 }
 
-class AsyncScrollbarDragStarter final : public nsAPostRefreshObserver {
- public:
-  AsyncScrollbarDragStarter(mozilla::PresShell* aPresShell, nsIWidget* aWidget,
-                            const AsyncDragMetrics& aDragMetrics)
-      : mPresShell(aPresShell), mWidget(aWidget), mDragMetrics(aDragMetrics) {}
-  virtual ~AsyncScrollbarDragStarter() = default;
-
-  void DidRefresh() override {
-    if (!mPresShell) {
-      MOZ_ASSERT_UNREACHABLE(
-          "Post-refresh observer fired again after failed attempt at "
-          "unregistering it");
-      return;
-    }
-
-    mWidget->StartAsyncScrollbarDrag(mDragMetrics);
-
-    if (!mPresShell->RemovePostRefreshObserver(this)) {
-      MOZ_ASSERT_UNREACHABLE(
-          "Unable to unregister post-refresh observer! Leaking it instead of "
-          "leaving garbage registered");
-      // Graceful handling, just in case...
-      mPresShell = nullptr;
-      mWidget = nullptr;
-      return;
-    }
-
-    delete this;
-  }
-
- private:
-  RefPtr<mozilla::PresShell> mPresShell;
-  RefPtr<nsIWidget> mWidget;
-  AsyncDragMetrics mDragMetrics;
-};
-
 static bool ScrollFrameWillBuildScrollInfoLayer(nsIFrame* aScrollFrame) {
   /*
    * Note: if changing the conditions in this function, make a corresponding
@@ -1018,8 +982,19 @@ void nsSliderFrame::StartAPZDrag(WidgetGUIEvent* aEvent) {
   bool waitForRefresh = InputAPZContext::HavePendingLayerization();
   nsIWidget* widget = this->GetNearestWidget();
   if (waitForRefresh) {
-    waitForRefresh = presShell->AddPostRefreshObserver(
-        new AsyncScrollbarDragStarter(presShell, widget, dragMetrics));
+    waitForRefresh = false;
+    if (nsPresContext* presContext = presShell->GetPresContext()) {
+      presContext->RegisterManagedPostRefreshObserver(
+          new ManagedPostRefreshObserver(
+              presContext, [widget = RefPtr<nsIWidget>(widget),
+                            dragMetrics](bool aWasCanceled) {
+                if (!aWasCanceled) {
+                  widget->StartAsyncScrollbarDrag(dragMetrics);
+                }
+                return ManagedPostRefreshObserver::Unregister::Yes;
+              }));
+      waitForRefresh = true;
+    }
   }
   if (!waitForRefresh) {
     widget->StartAsyncScrollbarDrag(dragMetrics);

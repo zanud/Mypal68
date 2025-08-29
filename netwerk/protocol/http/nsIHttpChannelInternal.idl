@@ -399,4 +399,7 @@ interface nsIHttpChannelInternal : nsISupports
 
     [noscript]
     nsILoadInfo_CrossOriginOpenerPolicy getCrossOriginOpenerPolicy();
+
+    [noscript, notxpcom, nostdcall]
+    void DoDiagnosticAssertWhenOnStopNotCalledOnDestroy();
 };

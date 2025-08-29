@@ -19,6 +19,7 @@
 #include "gc/GCLock.h"
 #include "gc/Memory.h"
 #include "gc/PublicIterators.h"
+#include "gc/Tenuring.h"
 #include "jit/JitFrames.h"
 #include "jit/JitRealm.h"
 #include "util/DifferentialTesting.h"
@@ -765,17 +766,6 @@ void js::Nursery::forwardBufferPointer(uintptr_t* pSlotsElems) {
   *pSlotsElems = reinterpret_cast<uintptr_t>(buffer);
 }
 
-js::TenuringTracer::TenuringTracer(JSRuntime* rt, Nursery* nursery)
-    : GenericTracer(rt, JS::TracerKind::Tenuring,
-                    JS::WeakMapTraceAction::TraceKeysAndValues),
-      nursery_(*nursery),
-      tenuredSize(0),
-      tenuredCells(0),
-      objHead(nullptr),
-      objTail(&objHead),
-      stringHead(nullptr),
-      stringTail(&stringHead) {}
-
 inline double js::Nursery::calcPromotionRate(bool* validForTenuring) const {
   MOZ_ASSERT(validForTenuring);
 
@@ -949,12 +939,16 @@ inline TimeStamp js::Nursery::lastCollectionEndTime() const {
 }
 
 bool js::Nursery::shouldCollect() const {
-  if (minorGCRequested()) {
-    return true;
+  if (!isEnabled()) {
+    return false;
   }
 
   if (isEmpty() && capacity() == tunables().gcMinNurseryBytes()) {
     return false;
+  }
+
+  if (minorGCRequested()) {
+    return true;
   }
 
   // Eagerly collect the nursery in idle time if it's nearly full.

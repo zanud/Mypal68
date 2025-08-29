@@ -45,8 +45,8 @@ class CallOnServerClose;
 class CallAcknowledge;
 class WebSocketEventService;
 
-extern MOZ_MUST_USE nsresult
-CalculateWebSocketHashedSecret(const nsACString& aKey, nsACString& aHash);
+[[nodiscard]] extern nsresult CalculateWebSocketHashedSecret(
+    const nsACString& aKey, nsACString& aHash);
 extern void ProcessServerWebSocketExtensions(const nsACString& aExtensions,
                                              nsACString& aNegotiatedExtensions);
 
@@ -158,7 +158,6 @@ class WebSocketChannel : public BaseWebSocketChannel,
   MOZ_MUST_USE nsresult CallStartWebsocketData();
   MOZ_MUST_USE nsresult StartWebsocketData();
   uint16_t ResultToCloseCode(nsresult resultCode);
-  void ReportConnectionTelemetry(nsresult aStatusCode);
 
   void StopSession(nsresult reason);
   void DoStopSession(nsresult reason);

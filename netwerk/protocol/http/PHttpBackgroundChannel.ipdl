@@ -4,12 +4,11 @@
 
 include protocol PBackground;
 include NeckoChannelParams;
+include HttpChannelParams;
 include PURLClassifierInfo;
 
 include "mozilla/net/NeckoMessageUtils.h";
 
-using class nsHttpHeaderArray from "nsHttpHeaderArray.h";
-using struct mozilla::net::ResourceTimingStruct from "mozilla/net/TimingStruct.h";
 using nsIHttpChannel::FlashPluginState from "mozilla/net/NeckoMessageUtils.h";
 
 namespace mozilla {
@@ -36,7 +35,7 @@ child:
                            nsCString data);
 
   async OnStopRequest(nsresult channelStatus,
-                      ResourceTimingStruct timing,
+                      ResourceTimingStructArgs timing,
                       TimeStamp lastActiveTabOptimization,
                       nsHttpHeaderArray responseTrailers);
 

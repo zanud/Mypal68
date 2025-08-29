@@ -13,14 +13,23 @@ loader.lazyRequireGetter(
   true
 );
 
+const lazyChrome = requireLazy(() => require("chrome"));
+
 const TRANSFER_EVENT = "devtools:perf-html-transfer-profile";
 const SYMBOL_TABLE_REQUEST_EVENT = "devtools:perf-html-request-symbol-table";
 const SYMBOL_TABLE_RESPONSE_EVENT = "devtools:perf-html-reply-symbol-table";
+
+const ENTRIES_PREF = "devtools.performance.recording.entries";
+const INTERVAL_PREF = "devtools.performance.recording.interval";
+const FEATURES_PREF = "devtools.performance.recording.features";
+const THREADS_PREF = "devtools.performance.recording.threads";
+
+const OBJDIRS_PREF = "devtools.performance.recording.objdirs";
 const UI_BASE_URL_PREF = "devtools.performance.recording.ui-base-url";
 const UI_BASE_URL_PATH_PREF = "devtools.performance.recording.ui-base-url-path";
+
 const UI_BASE_URL_DEFAULT = "https://profiler.firefox.com";
 const UI_BASE_URL_PATH_DEFAULT = "/from-addon";
-const OBJDIRS_PREF = "devtools.performance.recording.objdirs";
 
 /**
  * This file contains all of the privileged browser-specific functionality. This helps
@@ -171,78 +180,44 @@ async function _getIntPref(preferenceFront, prefName, defaultValue) {
   }
 }
 
-/**
- * Get the recording settings from the preferences. These settings are stored once
- * for local debug targets, and another set of settings for remote targets. This
- * is helpful for configuring for remote targets like Android phones that may require
- * different features or configurations.
- *
- * @param {PreferenceFront} preferenceFront
- * @param {object} defaultSettings See the getRecordingSettings selector for the shape
- *                                 of the object and how it gets defined.
- */
 async function getRecordingPreferencesFromDebuggee(
   preferenceFront,
-  defaultSettings = {}
+  defaultPrefs
 ) {
   const [entries, interval, features, threads, objdirs] = await Promise.all([
     _getIntPref(
       preferenceFront,
       `devtools.performance.recording.entries`,
-      defaultSettings.entries
+      defaultPrefs.entries
     ),
     _getIntPref(
       preferenceFront,
       `devtools.performance.recording.interval`,
-      defaultSettings.interval
+      defaultPrefs.interval
     ),
     _getArrayOfStringsPref(
       preferenceFront,
       `devtools.performance.recording.features`,
-      defaultSettings.features
+      defaultPrefs.features
     ),
     _getArrayOfStringsPref(
       preferenceFront,
       `devtools.performance.recording.threads`,
-      defaultSettings.threads
+      defaultPrefs.threads
     ),
-    _getArrayOfStringsHostPref(OBJDIRS_PREF, defaultSettings.objdirs),
+    _getArrayOfStringsHostPref(OBJDIRS_PREF, defaultPrefs.objdirs),
   ]);
 
-  // The pref stores the value in usec.
-  const newInterval = interval / 1000;
-  return { entries, interval: newInterval, features, threads, objdirs };
+  return { entries, interval, features, threads, objdirs };
 }
 
-/**
- * Take the recording settings, as defined by the getRecordingSettings selector, and
- * persist them to preferences. Some of these prefs get persisted on the debuggee,
- * and some of them on the host browser instance.
- *
- * @param {PreferenceFront} preferenceFront
- * @param {object} defaultSettings See the getRecordingSettings selector for the shape
- *                                 of the object and how it gets defined.
- */
-async function setRecordingPreferencesOnDebuggee(preferenceFront, settings) {
+async function setRecordingPreferencesOnDebuggee(preferenceFront, prefs) {
   await Promise.all([
-    preferenceFront.setIntPref(
-      `devtools.performance.recording.entries`,
-      settings.entries
-    ),
-    preferenceFront.setIntPref(
-      `devtools.performance.recording.interval`,
-      // The pref stores the value in usec.
-      settings.interval * 1000
-    ),
-    preferenceFront.setCharPref(
-      `devtools.performance.recording.features`,
-      JSON.stringify(settings.features)
-    ),
-    preferenceFront.setCharPref(
-      `devtools.performance.recording.threads`,
-      JSON.stringify(settings.threads)
-    ),
-    Services.prefs.setCharPref(OBJDIRS_PREF, JSON.stringify(settings.objdirs)),
+    preferenceFront.setIntPref(ENTRIES_PREF, prefs.entries),
+    preferenceFront.setIntPref(INTERVAL_PREF, prefs.interval),
+    preferenceFront.setCharPref(FEATURES_PREF, JSON.stringify(prefs.features)),
+    preferenceFront.setCharPref(THREADS_PREF, JSON.stringify(prefs.threads)),
+    Services.prefs.setCharPref(OBJDIRS_PREF, JSON.stringify(prefs.objdirs)),
   ]);
 }
 
@@ -426,9 +401,32 @@ function createMultiModalGetSymbolTableFn(profile, objdirs, perfFront) {
   };
 }
 
+function restartBrowserWithEnvironmentVariable(envName, value) {
+  const { Services } = lazyServices();
+  const { Cc, Ci } = lazyChrome();
+  const env = Cc["@mozilla.org/process/environment;1"].getService(
+    Ci.nsIEnvironment
+  );
+  env.set(envName, value);
+
+  Services.startup.quit(
+    Services.startup.eForceQuit | Services.startup.eRestart
+  );
+}
+
+function getEnvironmentVariable(envName) {
+  const { Cc, Ci } = lazyChrome();
+  const env = Cc["@mozilla.org/process/environment;1"].getService(
+    Ci.nsIEnvironment
+  );
+  return env.get(envName);
+}
+
 module.exports = {
   receiveProfile,
   getRecordingPreferencesFromDebuggee,
   setRecordingPreferencesOnDebuggee,
   createMultiModalGetSymbolTableFn,
+  restartBrowserWithEnvironmentVariable,
+  getEnvironmentVariable,
 };

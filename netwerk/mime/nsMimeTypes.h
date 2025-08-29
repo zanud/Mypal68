@@ -149,7 +149,6 @@
 #define TEXT_XML "text/xml"
 #define TEXT_RDF "text/rdf"
 #define TEXT_VTT "text/vtt"
-#define TEXT_XUL "application/vnd.mozilla.xul+xml"
 #define TEXT_ECMASCRIPT "text/ecmascript"
 #define TEXT_JAVASCRIPT "text/javascript"
 #define TEXT_XSL "text/xsl"
@@ -229,6 +228,5 @@
 
 #define APPLICATION_DIRECTORY \
   "application/directory" /* text/x-vcard is synonym */
-#define APPLICATION_CACHED_XUL "mozilla.application/cached-xul"
 
 #endif /* nsMimeTypes_h_ */

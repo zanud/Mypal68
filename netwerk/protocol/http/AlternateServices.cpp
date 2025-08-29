@@ -166,11 +166,6 @@ void AltSvcMapping::ProcessHeader(
                                             originAttributes);
     }
   }
-
-  if (numEntriesInHeader) {  // Ignore headers that were just "alt-svc: clear"
-    Telemetry::Accumulate(Telemetry::HTTP_ALTSVC_ENTRIES_PER_HEADER,
-                          numEntriesInHeader);
-  }
 }
 
 AltSvcMapping::AltSvcMapping(
@@ -699,7 +694,7 @@ class WellKnownChecker {
     uint64_t channelId;
     nsLoadFlags flags;
 
-    nsContentPolicyType contentPolicyType =
+    ExtContentPolicyType contentPolicyType =
         loadInfo->GetExternalContentPolicyType();
 
     if (NS_FAILED(gHttpHandler->NewChannelId(channelId)) ||
@@ -911,8 +906,6 @@ void AltSvcCache::UpdateAltServiceMapping(
                this, map, existing.get()));
         }
       }
-      Telemetry::Accumulate(Telemetry::HTTP_ALTSVC_MAPPING_CHANGED_TARGET,
-                            false);
       return;
     }
 
@@ -927,7 +920,6 @@ void AltSvcCache::UpdateAltServiceMapping(
     // new alternate. start new validation
     LOG(("AltSvcCache::UpdateAltServiceMapping %p map %p may overwrite %p\n",
          this, map, existing.get()));
-    Telemetry::Accumulate(Telemetry::HTTP_ALTSVC_MAPPING_CHANGED_TARGET, true);
   }
 
   if (existing && !existing->Validated()) {
@@ -1094,8 +1086,8 @@ void AltSvcCache::ClearHostMapping(const nsACString& host, int32_t port,
   }
   nsAutoCString key;
   for (int secure = 0; secure < 2; ++secure) {
-    NS_NAMED_LITERAL_CSTRING(http, "http");
-    NS_NAMED_LITERAL_CSTRING(https, "https");
+    constexpr auto http = "http"_ns;
+    constexpr auto https = "https"_ns;
     const nsLiteralCString& scheme = secure ? https : http;
     for (int pb = 1; pb >= 0; --pb) {
       for (int isolate = 0; isolate < 2; ++isolate) {
@@ -1156,12 +1148,6 @@ NS_IMETHODIMP
 AltSvcOverride::GetParallelSpeculativeConnectLimit(
     uint32_t* parallelSpeculativeConnectLimit) {
   *parallelSpeculativeConnectLimit = 32;
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-AltSvcOverride::GetIsFromPredictor(bool* isFromPredictor) {
-  *isFromPredictor = false;
   return NS_OK;
 }
 

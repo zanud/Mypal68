@@ -649,9 +649,9 @@ nsresult mozInlineSpellChecker::RegisterEventListeners() {
   if (NS_WARN_IF(!doc)) {
     return NS_ERROR_FAILURE;
   }
-  doc->AddEventListener(NS_LITERAL_STRING("blur"), this, true, false);
-  doc->AddEventListener(NS_LITERAL_STRING("click"), this, false, false);
-  doc->AddEventListener(NS_LITERAL_STRING("keypress"), this, false, false);
+  doc->AddEventListener(u"blur"_ns, this, true, false);
+  doc->AddEventListener(u"click"_ns, this, false, false);
+  doc->AddEventListener(u"keypress"_ns, this, false, false);
   return NS_OK;
 }
 
@@ -668,9 +668,9 @@ nsresult mozInlineSpellChecker::UnregisterEventListeners() {
   if (NS_WARN_IF(!doc)) {
     return NS_ERROR_FAILURE;
   }
-  doc->RemoveEventListener(NS_LITERAL_STRING("blur"), this, true);
-  doc->RemoveEventListener(NS_LITERAL_STRING("click"), this, false);
-  doc->RemoveEventListener(NS_LITERAL_STRING("keypress"), this, false);
+  doc->RemoveEventListener(u"blur"_ns, this, true);
+  doc->RemoveEventListener(u"click"_ns, this, false);
+  doc->RemoveEventListener(u"keypress"_ns, this, false);
   return NS_OK;
 }
 
@@ -1504,7 +1504,7 @@ nsresult mozInlineSpellChecker::ResumeCheck(
     return NS_ERROR_FAILURE;
   }
 
-  nsAutoString currentDictionary;
+  nsAutoCString currentDictionary;
   rv = mSpellCheck->GetCurrentDictionary(currentDictionary);
   if (NS_FAILED(rv)) {
     // no active dictionary

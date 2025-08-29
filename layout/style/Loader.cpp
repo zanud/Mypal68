@@ -1670,6 +1670,12 @@ nsresult Loader::LoadSheet(SheetLoadData& aLoadData, SheetState aSheetState) {
     return rv;
   }
 
+#ifdef MOZ_DIAGNOSTIC_ASSERT_ENABLED
+  if (nsCOMPtr<nsIHttpChannelInternal> hci = do_QueryInterface(channel)) {
+    hci->DoDiagnosticAssertWhenOnStopNotCalledOnDestroy();
+  }
+#endif
+
   mSheets->mLoadingDatas.Put(&key, &aLoadData);
   aLoadData.mIsLoading = true;
 
@@ -1762,11 +1768,7 @@ void Loader::SheetComplete(SheetLoadData& aLoadData, nsresult aStatus) {
                                         aStatus);
     }
 
-    nsTObserverArray<nsCOMPtr<nsICSSLoaderObserver>>::ForwardIterator iter(
-        mObservers);
-    nsCOMPtr<nsICSSLoaderObserver> obs;
-    while (iter.HasMore()) {
-      obs = iter.GetNext();
+    for (nsCOMPtr<nsICSSLoaderObserver> obs : mObservers.ForwardRange()) {
       LOG(("  Notifying global observer %p for data %p.  deferred: %d",
            obs.get(), data.get(), data->ShouldDefer()));
       obs->StyleSheetLoaded(data->mSheet, data->ShouldDefer(), aStatus);
@@ -2518,11 +2520,8 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(Loader)
       cb.NoteXPCOMChild(iter.UserData());
     }
   }
-  nsTObserverArray<nsCOMPtr<nsICSSLoaderObserver>>::ForwardIterator it(
-      tmp->mObservers);
-  while (it.HasMore()) {
-    ImplCycleCollectionTraverse(cb, it.GetNext(),
-                                "mozilla::css::Loader.mObservers");
+  for (nsCOMPtr<nsICSSLoaderObserver>& obs : tmp->mObservers.ForwardRange()) {
+    ImplCycleCollectionTraverse(cb, obs, "mozilla::css::Loader.mObservers");
   }
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 

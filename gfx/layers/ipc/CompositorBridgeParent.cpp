@@ -318,15 +318,15 @@ CompositorBridgeParent::CompositorBridgeParent(
     const TimeDuration& aVsyncRate, const CompositorOptions& aOptions,
     bool aUseExternalSurfaceSize, const gfx::IntSize& aSurfaceSize)
     : CompositorBridgeParentBase(aManager),
+#ifdef MOZ_BUILD_WEBRENDER
+      mIsForcedFirstPaint(false),
+#endif
       mWidget(nullptr),
       mScale(aScale),
       mVsyncRate(aVsyncRate),
       mPendingTransaction{0},
       mPaused(false),
       mHaveCompositionRecorder(false),
-#ifdef MOZ_BUILD_WEBRENDER
-      mIsForcedFirstPaint(false),
-#endif
       mUseExternalSurfaceSize(aUseExternalSurfaceSize),
       mEGLSurfaceSize(aSurfaceSize),
       mOptions(aOptions),

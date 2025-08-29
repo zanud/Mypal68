@@ -32,7 +32,8 @@ nsDocShellLoadState::nsDocShellLoadState(nsIURI* aURI)
       mFirstParty(false),
       mTypeHint(VoidCString()),
       mFileName(VoidString()),
-      mIsFromProcessingFrameAttributes(false) {
+      mIsFromProcessingFrameAttributes(false),
+      mIsMetaRefresh(false) {
   MOZ_ASSERT(aURI, "Cannot create a LoadState with a null URI!");
 }
 
@@ -61,6 +62,7 @@ nsDocShellLoadState::nsDocShellLoadState(DocShellLoadStateInit& aLoadState) {
   mTriggeringPrincipal = aLoadState.TriggeringPrincipal();
   mPrincipalToInherit = aLoadState.PrincipalToInherit();
   mCsp = aLoadState.Csp();
+  mIsMetaRefresh = aLoadState.IsMetaRefresh();
 }
 
 nsDocShellLoadState::~nsDocShellLoadState() {}
@@ -476,5 +478,6 @@ DocShellLoadStateInit nsDocShellLoadState::Serialize() {
   loadState.PrincipalToInherit() = mPrincipalToInherit;
   loadState.Csp() = mCsp;
   loadState.ReferrerInfo() = mReferrerInfo;
+  loadState.IsMetaRefresh() = mIsMetaRefresh;
   return loadState;
 }

@@ -107,7 +107,6 @@
 #include "mozilla/StaticPresData.h"
 #include "mozilla/dom/AbstractRange.h"
 #include "mozilla/dom/Document.h"
-#include "mozilla/dom/IPCBlobInputStreamStorage.h"
 #include "mozilla/dom/WebIDLGlobalNameHash.h"
 #include "mozilla/dom/U2FTokenManager.h"
 #ifdef OS_WIN
@@ -123,6 +122,7 @@
 #include "mozilla/dom/quota/ActorsParent.h"
 #include "mozilla/dom/localstorage/ActorsParent.h"
 #include "mozilla/net/UrlClassifierFeatureFactory.h"
+#include "mozilla/RemoteLazyInputStreamStorage.h"
 #include "nsLayoutUtils.h"
 #include "nsThreadManager.h"
 #include "mozilla/css/ImageLoader.h"
@@ -266,7 +266,7 @@ nsresult nsLayoutStatics::Initialize() {
   }
 
   // This must be initialized on the main-thread.
-  mozilla::dom::IPCBlobInputStreamStorage::Initialize();
+  mozilla::RemoteLazyInputStreamStorage::Initialize();
 
   mozilla::dom::U2FTokenManager::Initialize();
 

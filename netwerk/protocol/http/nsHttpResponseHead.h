@@ -74,11 +74,11 @@ class nsHttpResponseHead {
    */
   int64_t TotalEntitySize();
 
-  MOZ_MUST_USE nsresult SetHeader(const nsACString& h, const nsACString& v,
-                                  bool m = false);
-  MOZ_MUST_USE nsresult SetHeader(nsHttpAtom h, const nsACString& v,
-                                  bool m = false);
-  MOZ_MUST_USE nsresult GetHeader(nsHttpAtom h, nsACString& v);
+  [[nodiscard]] nsresult SetHeader(const nsACString& h, const nsACString& v,
+                                   bool m = false);
+  [[nodiscard]] nsresult SetHeader(nsHttpAtom h, const nsACString& v,
+                                   bool m = false);
+  [[nodiscard]] nsresult GetHeader(nsHttpAtom h, nsACString& v);
   void ClearHeader(nsHttpAtom h);
   void ClearHeaders();
   bool HasHeaderValue(nsHttpAtom h, const char* v);
@@ -102,19 +102,19 @@ class nsHttpResponseHead {
   // ParseCachedOriginalHeaders FIRST and then ParseCachedHead.
   //
   // block must be null terminated.
-  MOZ_MUST_USE nsresult ParseCachedHead(const char* block);
-  MOZ_MUST_USE nsresult ParseCachedOriginalHeaders(char* block);
+  [[nodiscard]] nsresult ParseCachedHead(const char* block);
+  [[nodiscard]] nsresult ParseCachedOriginalHeaders(char* block);
 
   // parse the status line.
   void ParseStatusLine(const nsACString& line);
 
   // parse a header line.
-  MOZ_MUST_USE nsresult ParseHeaderLine(const nsACString& line);
+  [[nodiscard]] nsresult ParseHeaderLine(const nsACString& line);
 
   // cache validation support methods
-  MOZ_MUST_USE nsresult ComputeFreshnessLifetime(uint32_t*);
-  MOZ_MUST_USE nsresult ComputeCurrentAge(uint32_t now, uint32_t requestTime,
-                                          uint32_t* result);
+  [[nodiscard]] nsresult ComputeFreshnessLifetime(uint32_t*);
+  [[nodiscard]] nsresult ComputeCurrentAge(uint32_t now, uint32_t requestTime,
+                                           uint32_t* result);
   bool MustValidate();
   bool MustValidateIfExpired();
 

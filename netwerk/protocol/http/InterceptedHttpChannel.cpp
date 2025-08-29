@@ -243,7 +243,7 @@ nsresult InterceptedHttpChannel::RedirectForResponseURL(
   nsCOMPtr<nsILoadInfo> redirectLoadInfo =
       CloneLoadInfoForRedirect(aResponseURI, flags);
 
-  nsContentPolicyType contentPolicyType =
+  ExtContentPolicyType contentPolicyType =
       redirectLoadInfo->GetExternalContentPolicyType();
 
   rv = newChannel->Init(
@@ -314,7 +314,7 @@ nsresult InterceptedHttpChannel::StartPump() {
       nsInputStreamPump::Create(getter_AddRefs(mPump), mBodyReader, 0, 0, true);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  rv = mPump->AsyncRead(this, nullptr);
+  rv = mPump->AsyncRead(this);
   NS_ENSURE_SUCCESS(rv, rv);
 
   uint32_t suspendCount = mSuspendCount;
@@ -686,7 +686,7 @@ InterceptedHttpChannel::SynthesizeHeader(const nsACString& aName,
     mSynthesizedResponseHead.reset(new nsHttpResponseHead());
   }
 
-  nsAutoCString header = aName + NS_LITERAL_CSTRING(": ") + aValue;
+  nsAutoCString header = aName + ": "_ns + aValue;
   // Overwrite any existing header.
   nsresult rv = mSynthesizedResponseHead->ParseHeaderLine(header);
   NS_ENSURE_SUCCESS(rv, rv);
@@ -834,21 +834,9 @@ InterceptedHttpChannel::GetConsoleReportCollector(
 }
 
 NS_IMETHODIMP
-InterceptedHttpChannel::GetLaunchServiceWorkerStart(
-    mozilla::TimeStamp* aTimeStamp) {
-  return HttpBaseChannel::GetLaunchServiceWorkerStart(aTimeStamp);
-}
-
-NS_IMETHODIMP
 InterceptedHttpChannel::SetLaunchServiceWorkerStart(
     mozilla::TimeStamp aTimeStamp) {
   return HttpBaseChannel::SetLaunchServiceWorkerStart(aTimeStamp);
-}
-
-NS_IMETHODIMP
-InterceptedHttpChannel::GetLaunchServiceWorkerEnd(
-    mozilla::TimeStamp* aTimeStamp) {
-  return HttpBaseChannel::GetLaunchServiceWorkerEnd(aTimeStamp);
 }
 
 NS_IMETHODIMP
@@ -912,61 +900,11 @@ InterceptedHttpChannel::SaveTimeStamps(void) {
   }
 
   bool isNonSubresourceRequest = nsContentUtils::IsNonSubresourceRequest(this);
-  nsCString navigationOrSubresource = isNonSubresourceRequest
-                                          ? NS_LITERAL_CSTRING("navigation")
-                                          : NS_LITERAL_CSTRING("subresource");
+  nsCString navigationOrSubresource =
+      isNonSubresourceRequest ? "navigation"_ns : "subresource"_ns;
 
   nsAutoCString subresourceKey(EmptyCString());
   GetSubresourceTimeStampKey(this, subresourceKey);
-
-  // We may have null timestamps if the fetch dispatch runnable was cancelled
-  // and we defaulted to resuming the request.
-  if (!mFinishResponseStart.IsNull() && !mFinishResponseEnd.IsNull()) {
-    Telemetry::HistogramID id =
-        (mSynthesizedOrReset == Synthesized)
-            ? Telemetry::
-                  SERVICE_WORKER_FETCH_EVENT_FINISH_SYNTHESIZED_RESPONSE_MS
-            : Telemetry::SERVICE_WORKER_FETCH_EVENT_CHANNEL_RESET_MS;
-    Telemetry::Accumulate(
-        id, navigationOrSubresource,
-        static_cast<uint32_t>(
-            (mFinishResponseEnd - mFinishResponseStart).ToMilliseconds()));
-    if (!isNonSubresourceRequest && !subresourceKey.IsEmpty()) {
-      Telemetry::Accumulate(
-          id, subresourceKey,
-          static_cast<uint32_t>(
-              (mFinishResponseEnd - mFinishResponseStart).ToMilliseconds()));
-    }
-  }
-
-  Telemetry::Accumulate(
-      Telemetry::SERVICE_WORKER_FETCH_EVENT_DISPATCH_MS,
-      navigationOrSubresource,
-      static_cast<uint32_t>((mHandleFetchEventStart - mDispatchFetchEventStart)
-                                .ToMilliseconds()));
-
-  if (!isNonSubresourceRequest && !subresourceKey.IsEmpty()) {
-    Telemetry::Accumulate(Telemetry::SERVICE_WORKER_FETCH_EVENT_DISPATCH_MS,
-                          subresourceKey,
-                          static_cast<uint32_t>((mHandleFetchEventStart -
-                                                 mDispatchFetchEventStart)
-                                                    .ToMilliseconds()));
-  }
-
-  if (!mFinishResponseEnd.IsNull()) {
-    Telemetry::Accumulate(
-        Telemetry::SERVICE_WORKER_FETCH_INTERCEPTION_DURATION_MS,
-        navigationOrSubresource,
-        static_cast<uint32_t>(
-            (mFinishResponseEnd - mDispatchFetchEventStart).ToMilliseconds()));
-    if (!isNonSubresourceRequest && !subresourceKey.IsEmpty()) {
-      Telemetry::Accumulate(
-          Telemetry::SERVICE_WORKER_FETCH_INTERCEPTION_DURATION_MS,
-          subresourceKey,
-          static_cast<uint32_t>((mFinishResponseEnd - mDispatchFetchEventStart)
-                                    .ToMilliseconds()));
-    }
-  }
 
   return NS_OK;
 }
@@ -1013,6 +951,12 @@ InterceptedHttpChannel::OnStartRequest(nsIRequest* aRequest) {
 
   if (mPump && mLoadFlags & LOAD_CALL_CONTENT_SNIFFERS) {
     mPump->PeekStream(CallTypeSniffers, static_cast<nsIChannel*>(this));
+  }
+
+  nsresult rv = ValidateMIMEType();
+  if (NS_FAILED(rv)) {
+    mStatus = rv;
+    Cancel(mStatus);
   }
 
   if (mListener) {

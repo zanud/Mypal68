@@ -153,17 +153,8 @@ nsresult mozSpellChecker::CheckWord(const nsAString& aWord, bool* aIsMisspelled,
   NS_ENSURE_SUCCESS(result, result);
   if (!correct) {
     if (aSuggestions) {
-      uint32_t count, i;
-      char16_t** words;
-
-      result = mSpellCheckingEngine->Suggest(aWord, &words, &count);
+      result = mSpellCheckingEngine->Suggest(aWord, *aSuggestions);
       NS_ENSURE_SUCCESS(result, result);
-      nsString* suggestions = aSuggestions->AppendElements(count);
-      for (i = 0; i < count; i++) {
-        suggestions[i].Assign(words[i]);
-      }
-
-      if (count) NS_FREE_XPCOM_ALLOCATED_POINTER_ARRAY(count, words);
     }
     *aIsMisspelled = true;
   }
@@ -310,7 +301,8 @@ nsresult mozSpellChecker::GetPersonalDictionary(nsTArray<nsString>* aWordList) {
 }
 
 nsresult mozSpellChecker::GetDictionaryList(
-    nsTArray<nsString>* aDictionaryList) {
+    nsTArray<nsCString>* aDictionaryList) {
+  MOZ_ASSERT(aDictionaryList->IsEmpty());
   if (XRE_IsContentProcess()) {
     ContentChild* child = ContentChild::GetSingleton();
     child->GetAvailableDictionaries(*aDictionaryList);
@@ -320,7 +312,7 @@ nsresult mozSpellChecker::GetDictionaryList(
   nsresult rv;
 
   // For catching duplicates
-  nsTHashtable<nsStringHashKey> dictionaries;
+  nsTHashtable<nsCStringHashKey> dictionaries;
 
   nsCOMArray<mozISpellCheckingEngine> spellCheckingEngines;
   rv = GetEngineList(&spellCheckingEngines);
@@ -329,33 +321,22 @@ nsresult mozSpellChecker::GetDictionaryList(
   for (int32_t i = 0; i < spellCheckingEngines.Count(); i++) {
     nsCOMPtr<mozISpellCheckingEngine> engine = spellCheckingEngines[i];
 
-    uint32_t count = 0;
-    char16_t** words = nullptr;
-    engine->GetDictionaryList(&words, &count);
-    for (uint32_t k = 0; k < count; k++) {
-      nsAutoString dictName;
-
-      dictName.Assign(words[k]);
-
+    nsTArray<nsCString> dictNames;
+    engine->GetDictionaryList(dictNames);
+    for (auto& dictName : dictNames) {
       // Skip duplicate dictionaries. Only take the first one
       // for each name.
       if (dictionaries.Contains(dictName)) continue;
 
       dictionaries.PutEntry(dictName);
-
-      if (!aDictionaryList->AppendElement(dictName, fallible)) {
-        NS_FREE_XPCOM_ALLOCATED_POINTER_ARRAY(count, words);
-        return NS_ERROR_OUT_OF_MEMORY;
-      }
+      aDictionaryList->AppendElement(dictName);
     }
-
-    NS_FREE_XPCOM_ALLOCATED_POINTER_ARRAY(count, words);
   }
 
   return NS_OK;
 }
 
-nsresult mozSpellChecker::GetCurrentDictionary(nsAString& aDictionary) {
+nsresult mozSpellChecker::GetCurrentDictionary(nsACString& aDictionary) {
   if (XRE_IsContentProcess()) {
     aDictionary = mCurrentDictionary;
     return NS_OK;
@@ -369,9 +350,9 @@ nsresult mozSpellChecker::GetCurrentDictionary(nsAString& aDictionary) {
   return mSpellCheckingEngine->GetDictionary(aDictionary);
 }
 
-nsresult mozSpellChecker::SetCurrentDictionary(const nsAString& aDictionary) {
+nsresult mozSpellChecker::SetCurrentDictionary(const nsACString& aDictionary) {
   if (XRE_IsContentProcess()) {
-    nsString wrappedDict = nsString(aDictionary);
+    nsCString wrappedDict = nsCString(aDictionary);
     bool isSuccess;
     mEngine->SendSetDictionary(wrappedDict, &isSuccess);
     if (!isSuccess) {
@@ -422,7 +403,7 @@ nsresult mozSpellChecker::SetCurrentDictionary(const nsAString& aDictionary) {
 }
 
 RefPtr<GenericPromise> mozSpellChecker::SetCurrentDictionaryFromList(
-    const nsTArray<nsString>& aList) {
+    const nsTArray<nsCString>& aList) {
   if (aList.IsEmpty()) {
     return GenericPromise::CreateAndReject(NS_ERROR_INVALID_ARG, __func__);
   }

@@ -4,11 +4,13 @@
 
 #include "nsPingListener.h"
 
+#include "mozilla/Encoding.h"
 #include "mozilla/Preferences.h"
 
 #include "mozilla/dom/DocGroup.h"
 #include "mozilla/dom/Document.h"
 
+#include "nsIHttpChannel.h"
 #include "nsIHttpChannelInternal.h"
 #include "nsIInputStream.h"
 #include "nsIProtocolHandler.h"

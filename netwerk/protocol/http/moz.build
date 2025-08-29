@@ -113,6 +113,7 @@ SOURCES += [
 ]
 
 IPDL_SOURCES += [
+    'HttpChannelParams.ipdlh',
     'PAltDataOutputStream.ipdl',
     'PClassifierDummyChannel.ipdl',
     'PHttpBackgroundChannel.ipdl',

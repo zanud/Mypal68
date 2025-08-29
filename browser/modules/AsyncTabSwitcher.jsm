@@ -1086,17 +1086,6 @@ class AsyncTabSwitcher {
   }
 
   /*
-   * Profiler related helpers for recording tab switch
-   * timing.
-   */
-
-  addMarker(marker) {
-    if (Services.profiler) {
-      Services.profiler.AddMarker(marker);
-    }
-  }
-
-  /*
    * Debug related logging for switcher.
    */
   logging() {

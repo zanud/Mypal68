@@ -945,8 +945,7 @@ class nsDocShell final : public nsDocLoader,
   nsresult EnsureFind();
   nsresult EnsureCommandHandler();
   nsresult RefreshURIFromQueue();
-  nsresult Embed(nsIContentViewer* aContentViewer, const char* aCommand,
-                 nsISupports* aExtraInfo);
+  nsresult Embed(nsIContentViewer* aContentViewer);
   nsPresContext* GetEldestPresContext();
   nsresult CheckLoadingPermissions();
   nsresult PersistLayoutHistoryState();
@@ -979,7 +978,7 @@ class nsDocShell final : public nsDocLoader,
   // nsIContentPolicy::TYPE_INTERNAL_IFRAME, or
   // nsIContentPolicy::TYPE_INTERNAL_FRAME depending on who is responsible for
   // this docshell.
-  uint32_t DetermineContentType();
+  nsContentPolicyType DetermineContentType();
 
   // In cases where we have a LoadURIDelegate (loading external links via
   // GeckoView), a load may need to be handled through the delegate. aWindowType

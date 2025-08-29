@@ -8,6 +8,7 @@
 // profiler internals.
 
 #include "GeckoProfiler.h"
+#include "mozilla/ProfilerMarkerTypes.h"
 #include "platform.h"
 #include "ProfileBuffer.h"
 #include "ProfilerMarkerPayload.h"
@@ -26,6 +27,7 @@
 #include "gtest/gtest.h"
 
 #include <cstring>
+#include <set>
 #include <thread>
 
 // Note: profiler_init() has already been called in XRE_main(), so we can't
@@ -78,6 +80,25 @@ static void ActiveParamsCheck(int aEntries, double aInterval,
   for (size_t i = 0; i < aFiltersLen; i++) {
     ASSERT_TRUE(strcmp(filters[i], aFilters[i]) == 0);
   }
+}
+
+TEST(GeckoProfiler, Utilities)
+{
+  // We'll assume that this test runs in the main thread (which should be true
+  // when called from the `main` function).
+  const int mainThreadId = profiler_current_thread_id();
+
+  MOZ_RELEASE_ASSERT(profiler_main_thread_id() == mainThreadId);
+  MOZ_RELEASE_ASSERT(profiler_is_main_thread());
+
+  std::thread testThread([&]() {
+    const int testThreadId = profiler_current_thread_id();
+    MOZ_RELEASE_ASSERT(testThreadId != mainThreadId);
+
+    MOZ_RELEASE_ASSERT(profiler_main_thread_id() != testThreadId);
+    MOZ_RELEASE_ASSERT(!profiler_is_main_thread());
+  });
+  testThread.join();
 }
 
 TEST(GeckoProfiler, FeaturesAndParams)
@@ -468,7 +489,7 @@ TEST(GeckoProfiler, Pause)
 
   // Check that we are writing markers while not paused.
   info1 = profiler_get_buffer_info();
-  PROFILER_ADD_MARKER("Not paused", OTHER);
+  PROFILER_MARKER_UNTYPED("Not paused", OTHER, {});
   info2 = profiler_get_buffer_info();
   ASSERT_TRUE(info1->mRangeEnd != info2->mRangeEnd);
 
@@ -485,9 +506,12 @@ TEST(GeckoProfiler, Pause)
 
   // Check that we are now writing markers while paused.
   info1 = profiler_get_buffer_info();
-  PROFILER_ADD_MARKER("Paused", OTHER);
+  PROFILER_MARKER_UNTYPED("Paused", OTHER, {});
   info2 = profiler_get_buffer_info();
   ASSERT_TRUE(info1->mRangeEnd == info2->mRangeEnd);
+  PROFILER_MARKER_UNTYPED("Paused v2", OTHER, {});
+  Maybe<ProfilerBufferInfo> info3 = profiler_get_buffer_info();
+  ASSERT_TRUE(info2->mRangeEnd == info3->mRangeEnd);
 
   profiler_resume();
 
@@ -592,14 +616,13 @@ TEST(GeckoProfiler, Markers)
 
   { AUTO_PROFILER_TRACING_MARKER("C", "auto tracing", OTHER); }
 
-  PROFILER_ADD_MARKER("M1", OTHER);
+  PROFILER_MARKER_UNTYPED("M1", OTHER, {});
   PROFILER_ADD_MARKER_WITH_PAYLOAD("M2", OTHER, TracingMarkerPayload,
                                    ("C", TRACING_EVENT, ts0));
-  PROFILER_ADD_MARKER("M3", OTHER);
+  PROFILER_MARKER_UNTYPED("M3", OTHER, {});
   PROFILER_ADD_MARKER_WITH_PAYLOAD(
       "M4", OTHER, TracingMarkerPayload,
-      ("C", TRACING_EVENT, ts0, mozilla::Nothing(), mozilla::Nothing(),
-       profiler_get_backtrace()));
+      ("C", TRACING_EVENT, ts0, mozilla::Nothing(), profiler_get_backtrace()));
 
   for (int i = 0; i < 10; i++) {
     PROFILER_ADD_MARKER_WITH_PAYLOAD("M5", OTHER, GTestMarkerPayload, (i));
@@ -645,6 +668,23 @@ TEST(GeckoProfiler, Markers)
   ASSERT_EQ(longstrCut[kMax - 1], 'c');
   longstrCut[kMax - 1] = '\0';
 
+  // Test basic markers 2.0.
+  MOZ_RELEASE_ASSERT(
+      profiler_add_marker("default-templated markers 2.0 with empty options",
+                          geckoprofiler::category::OTHER, {}));
+
+  PROFILER_MARKER_UNTYPED(
+      "default-templated markers 2.0 with option", OTHER,
+      MarkerStack::TakeBacktrace(profiler_capture_backtrace()));
+
+  PROFILER_MARKER("explicitly-default-templated markers 2.0 with empty options",
+                  OTHER, {}, NoPayload);
+
+  MOZ_RELEASE_ASSERT(profiler_add_marker(
+      "explicitly-default-templated markers 2.0 with option",
+      geckoprofiler::category::OTHER, {},
+      ::geckoprofiler::markers::NoPayload{}));
+
   // Used in markers below.
   TimeStamp ts1 = TimeStamp::NowUnfuzzed();
 
@@ -665,16 +705,21 @@ TEST(GeckoProfiler, Markers)
       "FileIOMarkerPayload marker", OTHER, FileIOMarkerPayload,
       ("operation", "source", "filename", ts1, ts2, nullptr));
 
+  MOZ_RELEASE_ASSERT(profiler_add_marker(
+      "FileIOMarkerPayload marker 2.0", geckoprofiler::category::OTHER,
+      MarkerTiming::Interval(ts1, ts2), geckoprofiler::markers::FileIO{},
+      "operation", "source", "filename", MarkerThreadId{}));
+
   PROFILER_ADD_MARKER_WITH_PAYLOAD(
       "FileIOMarkerPayload marker off-MT", OTHER, FileIOMarkerPayload,
       ("operation2", "source2", "filename2", ts1, ts2, nullptr, Some(123)));
 
-  // Other markers in alphabetical order of payload class names.
+  MOZ_RELEASE_ASSERT(profiler_add_marker(
+      "FileIOMarkerPayload marker 2.0 off-MT", geckoprofiler::category::OTHER,
+      MarkerTiming::Interval(ts1, ts2), geckoprofiler::markers::FileIO{},
+      "operation2", "source2", "filename2", MarkerThreadId{123}));
 
-  PROFILER_ADD_MARKER_WITH_PAYLOAD(
-      "DOMEventMarkerPayload marker", OTHER, DOMEventMarkerPayload,
-      (u"dom event"_ns, ts1, "category", TRACING_EVENT, mozilla::Nothing(),
-       mozilla::Nothing()));
+  // Other markers in alphabetical order of payload class names.
 
   {
     const char gcMajorJSON[] = "42";
@@ -744,16 +789,58 @@ TEST(GeckoProfiler, Markers)
 
   PROFILER_ADD_MARKER_WITH_PAYLOAD("UserTimingMarkerPayload marker mark", OTHER,
                                    UserTimingMarkerPayload,
-                                   (u"mark name"_ns, ts1, mozilla::Nothing(),
-                                    mozilla::Nothing()));
+                                   (u"mark name"_ns, ts1, mozilla::Nothing()));
 
   PROFILER_ADD_MARKER_WITH_PAYLOAD(
       "UserTimingMarkerPayload marker measure", OTHER, UserTimingMarkerPayload,
       (u"measure name"_ns, Some(u"start mark"_ns), Some(u"end mark"_ns), ts1,
-       ts2, mozilla::Nothing(), mozilla::Nothing()));
+       ts2, mozilla::Nothing()));
 
   PROFILER_ADD_MARKER_WITH_PAYLOAD("VsyncMarkerPayload marker", OTHER,
                                    VsyncMarkerPayload, (ts1));
+
+  PROFILER_ADD_MARKER_WITH_PAYLOAD(
+      "IPCMarkerPayload marker", IPC, IPCMarkerPayload,
+      (1111, 1, 3 /* PAPZ::Msg_LayerTransforms */, mozilla::ipc::ParentSide,
+       mozilla::ipc::MessageDirection::eSending,
+       mozilla::ipc::MessagePhase::Endpoint, false, ts1));
+
+  MOZ_RELEASE_ASSERT(
+      profiler_add_marker("Tracing", geckoprofiler::category::OTHER, {},
+                          geckoprofiler::markers::Tracing{}, "category"));
+
+  MOZ_RELEASE_ASSERT(profiler_add_marker(
+      "UserTimingMark", geckoprofiler::category::OTHER, {},
+      geckoprofiler::markers::UserTimingMark{}, "mark name"));
+
+  MOZ_RELEASE_ASSERT(profiler_add_marker(
+      "UserTimingMeasure", geckoprofiler::category::OTHER, {},
+      geckoprofiler::markers::UserTimingMeasure{}, "measure name",
+      Some(mozilla::ProfilerString8View("start")),
+      Some(mozilla::ProfilerString8View("end"))));
+
+  MOZ_RELEASE_ASSERT(profiler_add_marker("Hang", geckoprofiler::category::OTHER,
+                                         {}, geckoprofiler::markers::Hang{}));
+
+  MOZ_RELEASE_ASSERT(profiler_add_marker("LongTask",
+                                         geckoprofiler::category::OTHER, {},
+                                         geckoprofiler::markers::LongTask{}));
+
+  MOZ_RELEASE_ASSERT(profiler_add_marker("Text", geckoprofiler::category::OTHER,
+                                         {}, geckoprofiler::markers::Text{},
+                                         "Text text"));
+
+  MOZ_RELEASE_ASSERT(profiler_add_marker("Log", geckoprofiler::category::OTHER,
+                                         {}, geckoprofiler::markers::Log{},
+                                         "module", "log text"));
+
+  MOZ_RELEASE_ASSERT(
+      profiler_add_marker("MediaSample", geckoprofiler::category::OTHER, {},
+                          geckoprofiler::markers::MediaSample{}, 123, 456));
+
+  MOZ_RELEASE_ASSERT(profiler_add_marker("Budget",
+                                         geckoprofiler::category::OTHER, {},
+                                         geckoprofiler::markers::Budget{}));
 
   SpliceableChunkedJSONWriter w;
   w.Start();
@@ -793,9 +880,14 @@ TEST(GeckoProfiler, Markers)
     S_M5_gtest7,
     S_M5_gtest8,
     S_M5_gtest9,
+    S_Markers2DefaultEmptyOptions,
+    S_Markers2DefaultWithOptions,
+    S_Markers2ExplicitDefaultEmptyOptions,
+    S_Markers2ExplicitDefaultWithOptions,
     S_FileIOMarkerPayload,
+    S_FileIOMarker2,
     S_FileIOMarkerPayloadOffMT,
-    S_DOMEventMarkerPayload,
+    S_FileIOMarker2OffMT,
     S_GCMajorMarkerPayload,
     S_GCMinorMarkerPayload,
     S_GCSliceMarkerPayload,
@@ -810,6 +902,7 @@ TEST(GeckoProfiler, Markers)
     S_UserTimingMarkerPayload_mark,
     S_UserTimingMarkerPayload_measure,
     S_VsyncMarkerPayload,
+    S_IPCMarkerPayload,
 
     S_LAST,
   } state = State(0);
@@ -996,6 +1089,27 @@ TEST(GeckoProfiler, Markers)
               } else if (nameString == "M3") {
                 ASSERT_EQ(state, S_M3);
                 state = State(state + 1);
+              } else if (nameString ==
+                         "default-templated markers 2.0 with empty options") {
+                EXPECT_EQ(state, S_Markers2DefaultEmptyOptions);
+                state = State(S_Markers2DefaultEmptyOptions + 1);
+// TODO: Re-enable this when bug 1646714 lands, and check for stack.
+#if 0
+              } else if (nameString ==
+                         "default-templated markers 2.0 with option") {
+                EXPECT_EQ(state, S_Markers2DefaultWithOptions);
+                state = State(S_Markers2DefaultWithOptions + 1);
+#endif
+              } else if (nameString ==
+                         "explicitly-default-templated markers 2.0 with empty "
+                         "options") {
+                EXPECT_EQ(state, S_Markers2ExplicitDefaultEmptyOptions);
+                state = State(S_Markers2ExplicitDefaultEmptyOptions + 1);
+              } else if (nameString ==
+                         "explicitly-default-templated markers 2.0 with "
+                         "option") {
+                EXPECT_EQ(state, S_Markers2ExplicitDefaultWithOptions);
+                state = State(S_Markers2ExplicitDefaultWithOptions + 1);
               }
             } else {
               // root.threads[0].markers.data[i] is an array with 6 elements,
@@ -1108,6 +1222,14 @@ TEST(GeckoProfiler, Markers)
                   }
                 }
 
+              } else if (nameString ==
+                         "default-templated markers 2.0 with option") {
+                // TODO: Remove this when bug 1646714 lands.
+                EXPECT_EQ(state, S_Markers2DefaultWithOptions);
+                state = State(S_Markers2DefaultWithOptions + 1);
+                EXPECT_EQ(typeString, "NoPayloadUserData");
+                EXPECT_FALSE(payload["stack"].isNull());
+
               } else if (nameString == "FileIOMarkerPayload marker") {
                 EXPECT_EQ(state, S_FileIOMarkerPayload);
                 state = State(S_FileIOMarkerPayload + 1);
@@ -1129,6 +1251,17 @@ TEST(GeckoProfiler, Markers)
                 EXPECT_EQ_JSON(payload["filename"], String, "filename");
                 EXPECT_FALSE(payload.isMember("threadId"));
 
+              } else if (nameString == "FileIOMarkerPayload marker 2.0") {
+                EXPECT_EQ(state, S_FileIOMarker2);
+                state = State(S_FileIOMarker2 + 1);
+                EXPECT_EQ(typeString, "FileIO");
+                EXPECT_TIMING_INTERVAL_AT(ts1Double, ts2Double);
+                EXPECT_TRUE(payload["stack"].isNull());
+                EXPECT_EQ_JSON(payload["operation"], String, "operation");
+                EXPECT_EQ_JSON(payload["source"], String, "source");
+                EXPECT_EQ_JSON(payload["filename"], String, "filename");
+                EXPECT_FALSE(payload.isMember("threadId"));
+
               } else if (nameString == "FileIOMarkerPayload marker off-MT") {
                 EXPECT_EQ(state, S_FileIOMarkerPayloadOffMT);
                 state = State(S_FileIOMarkerPayloadOffMT + 1);
@@ -1140,15 +1273,17 @@ TEST(GeckoProfiler, Markers)
                 EXPECT_EQ_JSON(payload["filename"], String, "filename2");
                 EXPECT_EQ_JSON(payload["threadId"], Int, 123);
 
-              } else if (nameString == "DOMEventMarkerPayload marker") {
-                EXPECT_EQ(state, S_DOMEventMarkerPayload);
-                state = State(S_DOMEventMarkerPayload + 1);
-                EXPECT_EQ(typeString, "tracing");
+              } else if (nameString ==
+                         "FileIOMarkerPayload marker 2.0 off-MT") {
+                EXPECT_EQ(state, S_FileIOMarker2OffMT);
+                state = State(S_FileIOMarker2OffMT + 1);
+                EXPECT_EQ(typeString, "FileIO");
+                EXPECT_TIMING_INTERVAL_AT(ts1Double, ts2Double);
                 EXPECT_TRUE(payload["stack"].isNull());
-                EXPECT_EQ_JSON(payload["category"], String, "category");
-                EXPECT_TRUE(payload["interval"].isNull());
-                EXPECT_EQ_JSON(payload["timeStamp"], Double, ts1Double);
-                EXPECT_EQ_JSON(payload["eventType"], String, "dom event");
+                EXPECT_EQ_JSON(payload["operation"], String, "operation2");
+                EXPECT_EQ_JSON(payload["source"], String, "source2");
+                EXPECT_EQ_JSON(payload["filename"], String, "filename2");
+                EXPECT_EQ_JSON(payload["threadId"], Int, 123);
 
               } else if (nameString == "GCMajorMarkerPayload marker") {
                 EXPECT_EQ(state, S_GCMajorMarkerPayload);
@@ -1275,6 +1410,27 @@ TEST(GeckoProfiler, Markers)
                 // Timestamp is stored in marker outside of payload.
                 EXPECT_TIMING_INSTANT_AT(ts1Double);
                 EXPECT_TRUE(payload["stack"].isNull());
+
+              } else if (nameString == "IPCMarkerPayload marker") {
+                EXPECT_EQ(state, S_IPCMarkerPayload);
+                state = State(S_IPCMarkerPayload + 1);
+                EXPECT_EQ(typeString, "IPC");
+                EXPECT_TIMING_INSTANT_AT(ts1Double);
+
+                // The startTime and endTime are currently duplicated in the
+                // payload.
+                EXPECT_EQ_JSON(payload["startTime"], Double, ts1Double);
+                EXPECT_EQ_JSON(payload["endTime"], Double, ts1Double);
+
+                EXPECT_TRUE(payload["stack"].isNull());
+                EXPECT_EQ_JSON(payload["otherPid"], Int, 1111);
+                EXPECT_EQ_JSON(payload["messageSeqno"], Int, 1);
+                EXPECT_EQ_JSON(payload["messageType"], String,
+                               "PAPZ::Msg_LayerTransforms");
+                EXPECT_EQ_JSON(payload["side"], String, "parent");
+                EXPECT_EQ_JSON(payload["direction"], String, "sending");
+                EXPECT_EQ_JSON(payload["phase"], String, "endpoint");
+                EXPECT_EQ_JSON(payload["sync"], Bool, false);
               }
             }  // marker with payload
           }    // for (marker:data)
@@ -1285,6 +1441,246 @@ TEST(GeckoProfiler, Markers)
 
   // We should have read all expected markers.
   EXPECT_EQ(state, S_LAST);
+
+  {
+    const Json::Value& meta = root["meta"];
+    ASSERT_TRUE(!meta.isNull());
+    ASSERT_TRUE(meta.isObject());
+
+    // root.meta is an object.
+    {
+      const Json::Value& markerSchema = meta["markerSchema"];
+      ASSERT_TRUE(!markerSchema.isNull());
+      ASSERT_TRUE(markerSchema.isArray());
+
+      // root.meta.markerSchema is an array.
+
+      std::set<std::string> testedSchemaNames;
+
+      for (const Json::Value& schema : markerSchema) {
+        const Json::Value& name = schema["name"];
+        ASSERT_TRUE(name.isString());
+        const std::string nameString = name.asString();
+
+        const Json::Value& display = schema["display"];
+        ASSERT_TRUE(display.isArray());
+
+        const Json::Value& data = schema["data"];
+        ASSERT_TRUE(data.isArray());
+
+        EXPECT_TRUE(
+            testedSchemaNames
+                .insert(std::string(nameString.data(), nameString.size()))
+                .second)
+            << "Each schema name should be unique (inserted once in the set)";
+
+        if (nameString == "Text") {
+          EXPECT_EQ(display.size(), 2u);
+          EXPECT_EQ(display[0u].asString(), "marker-chart");
+          EXPECT_EQ(display[1u].asString(), "marker-table");
+
+          ASSERT_EQ(data.size(), 1u);
+
+          ASSERT_TRUE(data[0u].isObject());
+          EXPECT_EQ_JSON(data[0u]["key"], String, "name");
+          EXPECT_EQ_JSON(data[0u]["label"], String, "Details");
+          EXPECT_EQ_JSON(data[0u]["format"], String, "string");
+
+        } else if (nameString == "NoPayloadUserData") {
+          // TODO: Remove this when bug 1646714 lands.
+          EXPECT_EQ(display.size(), 2u);
+          EXPECT_EQ(display[0u].asString(), "marker-chart");
+          EXPECT_EQ(display[1u].asString(), "marker-table");
+
+          ASSERT_EQ(data.size(), 0u);
+
+        } else if (nameString == "FileIO") {
+          EXPECT_EQ(display.size(), 3u);
+          EXPECT_EQ(display[0u].asString(), "marker-chart");
+          EXPECT_EQ(display[1u].asString(), "marker-table");
+          EXPECT_EQ(display[2u].asString(), "timeline-fileio");
+
+          ASSERT_EQ(data.size(), 3u);
+
+          ASSERT_TRUE(data[0u].isObject());
+          EXPECT_EQ_JSON(data[0u]["key"], String, "operation");
+          EXPECT_EQ_JSON(data[0u]["label"], String, "Operation");
+          EXPECT_EQ_JSON(data[0u]["format"], String, "string");
+          EXPECT_EQ_JSON(data[0u]["searchable"], Bool, true);
+
+          ASSERT_TRUE(data[1u].isObject());
+          EXPECT_EQ_JSON(data[1u]["key"], String, "source");
+          EXPECT_EQ_JSON(data[1u]["label"], String, "Source");
+          EXPECT_EQ_JSON(data[1u]["format"], String, "string");
+          EXPECT_EQ_JSON(data[1u]["searchable"], Bool, true);
+
+          ASSERT_TRUE(data[2u].isObject());
+          EXPECT_EQ_JSON(data[2u]["key"], String, "filename");
+          EXPECT_EQ_JSON(data[2u]["label"], String, "Filename");
+          EXPECT_EQ_JSON(data[2u]["format"], String, "file-path");
+          EXPECT_EQ_JSON(data[2u]["searchable"], Bool, true);
+
+        } else if (nameString == "tracing") {
+          EXPECT_EQ(display.size(), 3u);
+          EXPECT_EQ(display[0u].asString(), "marker-chart");
+          EXPECT_EQ(display[1u].asString(), "marker-table");
+          EXPECT_EQ(display[2u].asString(), "timeline-overview");
+
+          ASSERT_EQ(data.size(), 1u);
+
+          ASSERT_TRUE(data[0u].isObject());
+          EXPECT_EQ_JSON(data[0u]["key"], String, "category");
+          EXPECT_EQ_JSON(data[0u]["label"], String, "Type");
+          EXPECT_EQ_JSON(data[0u]["format"], String, "string");
+
+        } else if (nameString == "UserTimingMark") {
+          EXPECT_EQ(display.size(), 2u);
+          EXPECT_EQ(display[0u].asString(), "marker-chart");
+          EXPECT_EQ(display[1u].asString(), "marker-table");
+
+          ASSERT_EQ(data.size(), 4u);
+
+          ASSERT_TRUE(data[0u].isObject());
+          EXPECT_EQ_JSON(data[0u]["label"], String, "Marker");
+          EXPECT_EQ_JSON(data[0u]["value"], String, "UserTiming");
+
+          ASSERT_TRUE(data[1u].isObject());
+          EXPECT_EQ_JSON(data[1u]["key"], String, "entryType");
+          EXPECT_EQ_JSON(data[1u]["label"], String, "Entry Type");
+          EXPECT_EQ_JSON(data[1u]["format"], String, "string");
+
+          ASSERT_TRUE(data[2u].isObject());
+          EXPECT_EQ_JSON(data[2u]["key"], String, "name");
+          EXPECT_EQ_JSON(data[2u]["label"], String, "Name");
+          EXPECT_EQ_JSON(data[2u]["format"], String, "string");
+
+          ASSERT_TRUE(data[3u].isObject());
+          EXPECT_EQ_JSON(data[3u]["label"], String, "Description");
+          EXPECT_EQ_JSON(data[3u]["value"], String,
+                         "UserTimingMark is created using the DOM API "
+                         "performance.mark().");
+
+        } else if (nameString == "UserTimingMeasure") {
+          EXPECT_EQ(display.size(), 2u);
+          EXPECT_EQ(display[0u].asString(), "marker-chart");
+          EXPECT_EQ(display[1u].asString(), "marker-table");
+
+          ASSERT_EQ(data.size(), 6u);
+
+          ASSERT_TRUE(data[0u].isObject());
+          EXPECT_EQ_JSON(data[0u]["label"], String, "Marker");
+          EXPECT_EQ_JSON(data[0u]["value"], String, "UserTiming");
+
+          ASSERT_TRUE(data[1u].isObject());
+          EXPECT_EQ_JSON(data[1u]["key"], String, "entryType");
+          EXPECT_EQ_JSON(data[1u]["label"], String, "Entry Type");
+          EXPECT_EQ_JSON(data[1u]["format"], String, "string");
+
+          ASSERT_TRUE(data[2u].isObject());
+          EXPECT_EQ_JSON(data[2u]["key"], String, "name");
+          EXPECT_EQ_JSON(data[2u]["label"], String, "Name");
+          EXPECT_EQ_JSON(data[2u]["format"], String, "string");
+
+          ASSERT_TRUE(data[3u].isObject());
+          EXPECT_EQ_JSON(data[3u]["key"], String, "startMark");
+          EXPECT_EQ_JSON(data[3u]["label"], String, "Start Mark");
+          EXPECT_EQ_JSON(data[3u]["format"], String, "string");
+
+          ASSERT_TRUE(data[4u].isObject());
+          EXPECT_EQ_JSON(data[4u]["key"], String, "endMark");
+          EXPECT_EQ_JSON(data[4u]["label"], String, "End Mark");
+          EXPECT_EQ_JSON(data[4u]["format"], String, "string");
+
+          ASSERT_TRUE(data[5u].isObject());
+          EXPECT_EQ_JSON(data[5u]["label"], String, "Description");
+          EXPECT_EQ_JSON(data[5u]["value"], String,
+                         "UserTimingMeasure is created using the DOM API "
+                         "performance.measure().");
+
+        } else if (nameString == "BHR-detected hang") {
+          EXPECT_EQ(display.size(), 3u);
+          EXPECT_EQ(display[0u].asString(), "marker-chart");
+          EXPECT_EQ(display[1u].asString(), "marker-table");
+          EXPECT_EQ(display[2u].asString(), "timeline-overview");
+
+          ASSERT_EQ(data.size(), 0u);
+
+        } else if (nameString == "MainThreadLongTask") {
+          EXPECT_EQ(display.size(), 2u);
+          EXPECT_EQ(display[0u].asString(), "marker-chart");
+          EXPECT_EQ(display[1u].asString(), "marker-table");
+
+          ASSERT_EQ(data.size(), 1u);
+
+          ASSERT_TRUE(data[0u].isObject());
+          EXPECT_EQ_JSON(data[0u]["key"], String, "category");
+          EXPECT_EQ_JSON(data[0u]["label"], String, "Type");
+          EXPECT_EQ_JSON(data[0u]["format"], String, "string");
+
+        } else if (nameString == "Log") {
+          EXPECT_EQ(display.size(), 1u);
+          EXPECT_EQ(display[0u].asString(), "marker-table");
+
+          ASSERT_EQ(data.size(), 2u);
+
+          ASSERT_TRUE(data[0u].isObject());
+          EXPECT_EQ_JSON(data[0u]["key"], String, "module");
+          EXPECT_EQ_JSON(data[0u]["label"], String, "Module");
+          EXPECT_EQ_JSON(data[0u]["format"], String, "string");
+
+          ASSERT_TRUE(data[1u].isObject());
+          EXPECT_EQ_JSON(data[1u]["key"], String, "name");
+          EXPECT_EQ_JSON(data[1u]["label"], String, "Name");
+          EXPECT_EQ_JSON(data[1u]["format"], String, "string");
+
+        } else if (nameString == "MediaSample") {
+          EXPECT_EQ(display.size(), 2u);
+          EXPECT_EQ(display[0u].asString(), "marker-chart");
+          EXPECT_EQ(display[1u].asString(), "marker-table");
+
+          ASSERT_EQ(data.size(), 2u);
+
+          ASSERT_TRUE(data[0u].isObject());
+          EXPECT_EQ_JSON(data[0u]["key"], String, "sampleStartTimeUs");
+          EXPECT_EQ_JSON(data[0u]["label"], String, "Sample start time");
+          EXPECT_EQ_JSON(data[0u]["format"], String, "microseconds");
+
+          ASSERT_TRUE(data[1u].isObject());
+          EXPECT_EQ_JSON(data[1u]["key"], String, "sampleEndTimeUs");
+          EXPECT_EQ_JSON(data[1u]["label"], String, "Sample end time");
+          EXPECT_EQ_JSON(data[1u]["format"], String, "microseconds");
+
+        } else if (nameString == "Budget") {
+          EXPECT_EQ(display.size(), 2u);
+          EXPECT_EQ(display[0u].asString(), "marker-chart");
+          EXPECT_EQ(display[1u].asString(), "marker-table");
+
+          ASSERT_EQ(data.size(), 0u);
+
+        } else {
+          ADD_FAILURE() << "Unknown marker schema '" << nameString.c_str()
+                        << "'";
+        }
+      }
+
+      // Check that we've got all expected schema.
+      EXPECT_TRUE(testedSchemaNames.find("Text") != testedSchemaNames.end());
+      EXPECT_TRUE(testedSchemaNames.find("FileIO") != testedSchemaNames.end());
+      EXPECT_TRUE(testedSchemaNames.find("tracing") != testedSchemaNames.end());
+      EXPECT_TRUE(testedSchemaNames.find("UserTimingMark") !=
+                  testedSchemaNames.end());
+      EXPECT_TRUE(testedSchemaNames.find("UserTimingMeasure") !=
+                  testedSchemaNames.end());
+      EXPECT_TRUE(testedSchemaNames.find("BHR-detected hang") !=
+                  testedSchemaNames.end());
+      EXPECT_TRUE(testedSchemaNames.find("MainThreadLongTask") !=
+                  testedSchemaNames.end());
+      EXPECT_TRUE(testedSchemaNames.find("Log") != testedSchemaNames.end());
+      EXPECT_TRUE(testedSchemaNames.find("MediaSample") !=
+                  testedSchemaNames.end());
+      EXPECT_TRUE(testedSchemaNames.find("Budget") != testedSchemaNames.end());
+    }  // markerSchema
+  }    // meta
 
   Maybe<ProfilerBufferInfo> info = profiler_get_buffer_info();
   MOZ_RELEASE_ASSERT(info.isSome());
@@ -1780,7 +2176,7 @@ TEST(GeckoProfiler, BaseProfilerHandOff)
   // Add at least a marker, which should go straight into the buffer.
   Maybe<baseprofiler::ProfilerBufferInfo> info0 =
       baseprofiler::profiler_get_buffer_info();
-  BASE_PROFILER_ADD_MARKER("Marker from base profiler", OTHER);
+  BASE_PROFILER_MARKER_UNTYPED("Marker from base profiler", OTHER, {});
   Maybe<baseprofiler::ProfilerBufferInfo> info1 =
       baseprofiler::profiler_get_buffer_info();
   ASSERT_GT(info1->mRangeEnd, info0->mRangeEnd);

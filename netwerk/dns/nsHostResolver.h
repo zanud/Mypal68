@@ -296,9 +296,6 @@ class TypeHostRecord final : public nsHostRecord {
 
   nsTArray<nsCString> mResults;
   Lock mResultsLock;
-
-  // When the lookups of this record started (for telemetry).
-  mozilla::TimeStamp mStart;
 };
 
 NS_DEFINE_STATIC_IID_ACCESSOR(TypeHostRecord, TYPEHOSTRECORD_IID)

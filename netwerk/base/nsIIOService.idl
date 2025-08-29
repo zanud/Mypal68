@@ -3,6 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "nsISupports.idl"
+#include "nsIContentPolicy.idl"
 
 interface nsIProtocolHandler;
 interface nsIChannel;
@@ -114,7 +115,7 @@ interface nsIIOService : nsISupports
                                  in nsIPrincipal aLoadingPrincipal,
                                  in nsIPrincipal aTriggeringPrincipal,
                                  in unsigned long aSecurityFlags,
-                                 in unsigned long aContentPolicyType);
+                                 in nsContentPolicyType aContentPolicyType);
 
     [noscript, nostdcall, notxpcom]
     nsresult NewChannelFromURIWithClientAndController(in nsIURI aURI,
@@ -124,7 +125,7 @@ interface nsIIOService : nsISupports
                                                       in const_MaybeClientInfoRef aLoadingClientInfo,
                                                       in const_MaybeServiceWorkerDescriptorRef aController,
                                                       in unsigned long aSecurityFlags,
-                                                      in unsigned long aContentPolicyType,
+                                                      in nsContentPolicyType aContentPolicyType,
                                                       out nsIChannel aResult);
 
     /**
@@ -143,13 +144,13 @@ interface nsIIOService : nsISupports
                           in nsIPrincipal aLoadingPrincipal,
                           in nsIPrincipal aTriggeringPrincipal,
                           in unsigned long aSecurityFlags,
-                          in unsigned long aContentPolicyType);
+                          in nsContentPolicyType aContentPolicyType);
 
     /**
-     * Returns true if networking is in "offline" mode. When in offline mode, 
-     * attempts to access the network will fail (although this does not 
-     * necessarily correlate with whether there is actually a network 
-     * available -- that's hard to detect without causing the dialer to 
+     * Returns true if networking is in "offline" mode. When in offline mode,
+     * attempts to access the network will fail (although this does not
+     * necessarily correlate with whether there is actually a network
+     * available -- that's hard to detect without causing the dialer to
      * come up).
      *
      * Changing this fires observer notifications ... see below.
@@ -241,7 +242,7 @@ interface nsIIOService : nsISupports
                                                in nsIPrincipal aLoadingPrincipal,
                                                in nsIPrincipal aTriggeringPrincipal,
                                                in unsigned long aSecurityFlags,
-                                               in unsigned long aContentPolicyType);
+                                               in nsContentPolicyType aContentPolicyType);
 };
 
 %{C++

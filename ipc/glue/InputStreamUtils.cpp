@@ -8,11 +8,11 @@
 
 #include "mozilla/Assertions.h"
 #include "mozilla/dom/File.h"
-#include "mozilla/dom/IPCBlobInputStream.h"
-#include "mozilla/dom/IPCBlobInputStreamStorage.h"
 #include "mozilla/ipc/IPCStreamDestination.h"
 #include "mozilla/ipc/IPCStreamSource.h"
 #include "mozilla/InputStreamLengthHelper.h"
+#include "mozilla/RemoteLazyInputStream.h"
+#include "mozilla/RemoteLazyInputStreamStorage.h"
 #include "mozilla/SlicedInputStream.h"
 #include "mozilla/InputStreamLengthWrapper.h"
 #include "nsComponentManagerUtils.h"
@@ -262,7 +262,7 @@ void InputStreamHelper::PostSerializationActivation(InputStreamParams& aParams,
     case InputStreamParams::TFileInputStreamParams:
       break;
 
-    case InputStreamParams::TIPCBlobInputStreamParams:
+    case InputStreamParams::TRemoteLazyInputStreamParams:
       break;
 
     default:
@@ -284,15 +284,15 @@ void InputStreamHelper::PostSerializationActivation(
 already_AddRefed<nsIInputStream> InputStreamHelper::DeserializeInputStream(
     const InputStreamParams& aParams,
     const nsTArray<FileDescriptor>& aFileDescriptors) {
-  // IPCBlobInputStreams are not deserializable on the parent side.
-  if (aParams.type() == InputStreamParams::TIPCBlobInputStreamParams) {
+  // RemoteLazyInputStreams are not deserializable on the parent side.
+  if (aParams.type() == InputStreamParams::TRemoteLazyInputStreamParams) {
     MOZ_ASSERT(XRE_IsParentProcess());
-    auto storage = IPCBlobInputStreamStorage::Get().unwrapOr(nullptr);
+    auto storage = RemoteLazyInputStreamStorage::Get().unwrapOr(nullptr);
     MOZ_ASSERT(storage);
     nsCOMPtr<nsIInputStream> stream;
-    storage->GetStream(aParams.get_IPCBlobInputStreamParams().id(),
-                       aParams.get_IPCBlobInputStreamParams().start(),
-                       aParams.get_IPCBlobInputStreamParams().length(),
+    storage->GetStream(aParams.get_RemoteLazyInputStreamParams().id(),
+                       aParams.get_RemoteLazyInputStreamParams().start(),
+                       aParams.get_RemoteLazyInputStreamParams().length(),
                        getter_AddRefs(stream));
     return stream.forget();
   }

@@ -37,6 +37,7 @@ XPIDL_MODULE = 'imglib2'
 
 EXPORTS += [
     'FrameTimeout.h',
+    'ImageBlocker.h',
     'ImageCacheKey.h',
     'ImageLogging.h',
     'ImageMetadata.h',
@@ -76,6 +77,7 @@ UNIFIED_SOURCES += [
     'FrozenImage.cpp',
     'IDecodingTask.cpp',
     'Image.cpp',
+    'ImageBlocker.cpp',
     'ImageCacheKey.cpp',
     'ImageFactory.cpp',
     'ImageOps.cpp',

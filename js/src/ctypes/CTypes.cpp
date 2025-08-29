@@ -55,7 +55,7 @@
 #include "js/Vector.h"
 #include "util/Text.h"
 #include "util/Unicode.h"
-#include "util/Windows.h"
+#include "util/WindowsWrapper.h"
 #include "vm/JSContext.h"
 #include "vm/JSFunction.h"
 #include "vm/JSObject.h"

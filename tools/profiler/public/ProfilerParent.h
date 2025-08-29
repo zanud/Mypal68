@@ -58,6 +58,8 @@ class ProfilerParent final : public PProfilerParent {
   static void ProfilerStopped();
   static void ProfilerPaused();
   static void ProfilerResumed();
+  static void ProfilerPausedSampling();
+  static void ProfilerResumedSampling();
   static void ClearAllPages();
 
   // Create a "Final" update that the Child can return to its Parent.

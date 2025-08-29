@@ -25,7 +25,6 @@
 #include "mozilla/Logging.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/StaticPrefs_network.h"
-#include "mozilla/Telemetry.h"
 #include "mozilla/TimeStamp.h"
 #include "mozilla/Tokenizer.h"
 #include "mozilla/UniquePtr.h"
@@ -177,16 +176,8 @@ nsresult TRR::SendHTTPRequest() {
     MOZ_ASSERT(mRec);
 
     if (gTRRService->IsTRRBlacklisted(mHost, mOriginSuffix, mPB, true)) {
-      if (mType == TRRTYPE_A) {
-        // count only blacklist for A records to avoid double counts
-        Telemetry::Accumulate(Telemetry::DNS_TRR_BLACKLISTED, true);
-      }
       // not really an error but no TRR is issued
       return NS_ERROR_UNKNOWN_HOST;
-    } else {
-      if (mType == TRRTYPE_A) {
-        Telemetry::Accumulate(Telemetry::DNS_TRR_BLACKLISTED, false);
-      }
     }
   }
 

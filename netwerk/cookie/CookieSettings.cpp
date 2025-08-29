@@ -6,6 +6,7 @@
 #include "mozilla/StaticPrefs_network.h"
 #include "mozilla/Unused.h"
 #include "nsGlobalWindowInner.h"
+#include "nsIPrincipal.h"
 #if defined(MOZ_THUNDERBIRD) || defined(MOZ_SUITE)
 #  include "nsIProtocolHandler.h"
 #endif
@@ -216,11 +217,12 @@ void CookieSettings::Serialize(CookieSettingsArgs& aData) {
 
   CookiePermissionList list;
   for (const CookiePermissionData& data : aData.cookiePermissions()) {
-    nsCOMPtr<nsIPrincipal> principal =
-        PrincipalInfoToPrincipal(data.principalInfo());
-    if (NS_WARN_IF(!principal)) {
+    auto principalOrErr = PrincipalInfoToPrincipal(data.principalInfo());
+    if (NS_WARN_IF(principalOrErr.isErr())) {
       continue;
     }
+
+    nsCOMPtr<nsIPrincipal> principal = principalOrErr.unwrap();
 
     nsCOMPtr<nsIPermission> permission =
         nsPermission::Create(principal, NS_LITERAL_CSTRING("cookie"),
@@ -251,12 +253,12 @@ void CookieSettings::Merge(const CookieSettingsArgs& aData) {
   PermissionComparator comparator;
 
   for (const CookiePermissionData& data : aData.cookiePermissions()) {
-    nsCOMPtr<nsIPrincipal> principal =
-        PrincipalInfoToPrincipal(data.principalInfo());
-    if (NS_WARN_IF(!principal)) {
+    auto principalOrErr = PrincipalInfoToPrincipal(data.principalInfo());
+    if (NS_WARN_IF(principalOrErr.isErr())) {
       continue;
     }
 
+    nsCOMPtr<nsIPrincipal> principal = principalOrErr.unwrap();
     nsCOMPtr<nsIPermission> permission =
         nsPermission::Create(principal, NS_LITERAL_CSTRING("cookie"),
                              data.cookiePermission(), 0, 0, 0);

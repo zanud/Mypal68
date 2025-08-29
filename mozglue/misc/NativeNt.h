@@ -16,6 +16,7 @@
 #include "mozilla/Attributes.h"
 #include "mozilla/LauncherResult.h"
 #include "mozilla/Maybe.h"
+#include "mozilla/Range.h"
 #include "mozilla/Span.h"
 
 // The declarations within this #if block are intended to be used for initial
@@ -316,6 +317,16 @@ class MOZ_RAII PEHeaders final {
     }
 
     return reinterpret_cast<T>(absAddress);
+  }
+
+  Maybe<Range<const uint8_t>> GetBounds() const {
+    if (!mImageLimit) {
+      return Nothing();
+    }
+
+    auto base = reinterpret_cast<const uint8_t*>(mMzHeader);
+    DWORD imageSize = mPeHeader->OptionalHeader.SizeOfImage;
+    return Some(Range(base, imageSize));
   }
 
   PIMAGE_IMPORT_DESCRIPTOR GetImportDirectory() {

@@ -1261,10 +1261,6 @@ JS_PUBLIC_API void JS::ClearKeptObjects(JSContext* cx) {
   }
 }
 
-JS_PUBLIC_API bool JS::ZoneIsCollecting(JS::Zone* zone) {
-  return zone->wasGCStarted();
-}
-
 JS_PUBLIC_API bool JS::AtomsZoneIsCollecting(JSRuntime* runtime) {
   return runtime->activeGCInAtomsZone();
 }
@@ -4137,7 +4133,7 @@ JS_PUBLIC_API bool JS_GetGlobalJitCompilerOption(JSContext* cx,
 #if !defined(STATIC_EXPORTABLE_JS_API) && !defined(STATIC_JS_API) && \
     defined(XP_WIN)
 
-#  include "util/Windows.h"
+#  include "util/WindowsWrapper.h"
 
 /*
  * Initialization routine for the JS DLL.
@@ -4477,8 +4473,11 @@ JS_PUBLIC_API JS::TranscodeResult JS::DecodeScriptMaybeStencil(
 
   // The buffer contains stencil.
 
+  CompileOptions opts(cx, options);
+  opts.borrowBuffer = true;
+
   Rooted<frontend::CompilationInput> input(cx,
-                                           frontend::CompilationInput(options));
+                                           frontend::CompilationInput(opts));
   frontend::CompilationStencil stencil(nullptr);
 
   JS::TranscodeResult res =
@@ -4521,8 +4520,11 @@ JS_PUBLIC_API JS::TranscodeResult JS::DecodeScriptAndStartIncrementalEncoding(
     size_t cursorIndex) {
   MOZ_DIAGNOSTIC_ASSERT(options.useStencilXDR);
 
+  CompileOptions opts(cx, options);
+  opts.borrowBuffer = true;
+
   Rooted<frontend::CompilationInput> input(cx,
-                                           frontend::CompilationInput(options));
+                                           frontend::CompilationInput(opts));
   frontend::CompilationStencil stencil(nullptr);
 
   JS::TranscodeResult res =
@@ -4550,7 +4552,7 @@ JS_PUBLIC_API JS::TranscodeResult JS::DecodeScriptAndStartIncrementalEncoding(
   }
 
   if (!gcOutput.get().script->scriptSource()->startIncrementalEncoding(
-          cx, options, std::move(initial))) {
+          cx, opts, std::move(initial))) {
     return JS::TranscodeResult::Throw;
   }
 

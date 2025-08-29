@@ -729,6 +729,7 @@
       "chrome://global/content/elements/checkbox.js",
       "chrome://global/content/elements/menu.js",
       "chrome://global/content/elements/menupopup.js",
+      "chrome://global/content/elements/moz-input-box.js",
       "chrome://global/content/elements/notificationbox.js",
       "chrome://global/content/elements/panel.js",
       "chrome://global/content/elements/popupnotification.js",
@@ -736,12 +737,22 @@
       "chrome://global/content/elements/richlistbox.js",
       "chrome://global/content/elements/autocomplete-popup.js",
       "chrome://global/content/elements/autocomplete-richlistitem.js",
-      "chrome://global/content/elements/textbox.js",
       "chrome://global/content/elements/tabbox.js",
       "chrome://global/content/elements/text.js",
       "chrome://global/content/elements/toolbarbutton.js",
       "chrome://global/content/elements/tree.js",
       "chrome://global/content/elements/wizard.js",
+      // We load autocomplete-input eagerly, because we use system event
+      // listeners to be able to see keypress events for non-printable keys
+      // (see bug 1434837), and in the capture phase, for some reason.
+      //
+      // That means that they can run after the actual internal <input> element
+      // event listeners if custom element construction is not synchronous, and
+      // thus be default-prevented by them.
+      //
+      // This all seems pretty fishy, ideally we'd stop using keypress for
+      // these events, but for now this preserves behavior.
+      "chrome://global/content/elements/autocomplete-input.js",
     ]) {
       Services.scriptloader.loadSubScript(script, window);
     }
@@ -750,10 +761,6 @@
       ["findbar", "chrome://global/content/elements/findbar.js"],
       ["menulist", "chrome://global/content/elements/menulist.js"],
       ["search-textbox", "chrome://global/content/elements/search-textbox.js"],
-      [
-        "autocomplete-input",
-        "chrome://global/content/elements/autocomplete-input.js",
-      ],
       ["stringbundle", "chrome://global/content/elements/stringbundle.js"],
       [
         "printpreview-toolbar",

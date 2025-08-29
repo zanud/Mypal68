@@ -21,6 +21,8 @@ const getRecordingSettings = state => {
     features: getFeatures(state),
     threads: getThreads(state),
     objdirs: getObjdirs(state),
+    // The client doesn't implement durations yet. See Bug 1587165.
+    duration: 0,
   };
 };
 
@@ -40,6 +42,11 @@ const getIsPopup = state => getInitializedValues(state).isPopup;
 const getSymbolTableGetter = state =>
   getInitializedValues(state).getSymbolTableGetter;
 
+const getSupportedFeatures = state =>
+  getInitializedValues(state).supportedFeatures;
+
+const getPromptEnvRestart = state => state.promptEnvRestart;
+
 module.exports = {
   getRecordingState,
   getRecordingUnexpectedlyStopped,
@@ -57,4 +64,6 @@ module.exports = {
   getSetRecordingPreferencesFn,
   getIsPopup,
   getSymbolTableGetter,
+  getPromptEnvRestart,
+  getSupportedFeatures,
 };
