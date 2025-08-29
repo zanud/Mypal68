@@ -13,7 +13,7 @@ use crate::resource::FluentResource;
 use crate::types::FluentValue;
 
 impl<'p> WriteValue for ast::InlineExpression<&'p str> {
-    fn write<'scope, 'errors, W, R, M: MemoizerKind>(
+    fn write<'scope, 'errors, W, R, M>(
         &'scope self,
         w: &mut W,
         scope: &mut Scope<'scope, 'errors, R, M>,
@@ -21,33 +21,45 @@ impl<'p> WriteValue for ast::InlineExpression<&'p str> {
     where
         W: fmt::Write,
         R: Borrow<FluentResource>,
+        M: MemoizerKind,
     {
         match self {
             Self::StringLiteral { value } => unescape_unicode(w, value),
-            Self::MessageReference { id, attribute } => scope
-                .bundle
-                .get_entry_message(id.name)
-                .and_then(|msg| {
+            Self::MessageReference { id, attribute } => {
+                if let Some(msg) = scope.bundle.get_entry_message(id.name) {
                     if let Some(attr) = attribute {
-                        msg.attributes.iter().find_map(|a| {
-                            if a.id.name == attr.name {
-                                Some(scope.track(w, &a.value, self))
-                            } else {
-                                None
-                            }
-                        })
+                        msg.attributes
+                            .iter()
+                            .find_map(|a| {
+                                if a.id.name == attr.name {
+                                    Some(scope.track(w, &a.value, self))
+                                } else {
+                                    None
+                                }
+                            })
+                            .unwrap_or_else(|| scope.write_ref_error(w, self))
                     } else {
-                        msg.value.as_ref().map(|value| scope.track(w, value, self))
+                        msg.value
+                            .as_ref()
+                            .map(|value| scope.track(w, value, self))
+                            .unwrap_or_else(|| {
+                                scope.add_error(ResolverError::NoValue(id.name.to_string()));
+                                w.write_char('{')?;
+                                self.write_error(w)?;
+                                w.write_char('}')
+                            })
                     }
-                })
-                .unwrap_or_else(|| scope.write_ref_error(w, self)),
+                } else {
+                    scope.write_ref_error(w, self)
+                }
+            }
             Self::NumberLiteral { value } => FluentValue::try_number(*value).write(w, scope),
             Self::TermReference {
                 id,
                 attribute,
                 arguments,
             } => {
-                let (_, resolved_named_args) = scope.get_arguments(arguments);
+                let (_, resolved_named_args) = scope.get_arguments(arguments.as_ref());
 
                 scope.local_args = Some(resolved_named_args);
                 let result = scope
@@ -72,7 +84,7 @@ impl<'p> WriteValue for ast::InlineExpression<&'p str> {
             }
             Self::FunctionReference { id, arguments } => {
                 let (resolved_positional_args, resolved_named_args) =
-                    scope.get_arguments(arguments);
+                    scope.get_arguments(Some(arguments));
 
                 let func = scope.bundle.get_entry_function(id.name);
 
@@ -94,7 +106,7 @@ impl<'p> WriteValue for ast::InlineExpression<&'p str> {
                     arg.write(w, scope)
                 } else {
                     if scope.local_args.is_none() {
-                        scope.add_error(ResolverError::Reference(self.resolve_error()));
+                        scope.add_error(self.into());
                     }
                     w.write_char('{')?;
                     self.write_error(w)?;
@@ -136,12 +148,13 @@ impl<'p> WriteValue for ast::InlineExpression<&'p str> {
 }
 
 impl<'p> ResolveValue for ast::InlineExpression<&'p str> {
-    fn resolve<'source, 'errors, R, M: MemoizerKind>(
+    fn resolve<'source, 'errors, R, M>(
         &'source self,
         scope: &mut Scope<'source, 'errors, R, M>,
     ) -> FluentValue<'source>
     where
         R: Borrow<FluentResource>,
+        M: MemoizerKind,
     {
         match self {
             Self::StringLiteral { value } => unescape_unicode_to_string(value).into(),
@@ -153,7 +166,7 @@ impl<'p> ResolveValue for ast::InlineExpression<&'p str> {
                     arg.clone()
                 } else {
                     if scope.local_args.is_none() {
-                        scope.add_error(ResolverError::Reference(self.resolve_error()));
+                        scope.add_error(self.into());
                     }
                     FluentValue::Error
                 }
@@ -163,52 +176,6 @@ impl<'p> ResolveValue for ast::InlineExpression<&'p str> {
                 self.write(&mut result, scope).expect("Failed to write");
                 result.into()
             }
-        }
-    }
-
-    fn resolve_error(&self) -> String {
-        match self {
-            Self::MessageReference {
-                attribute: None, ..
-            } => {
-                let mut error = String::from("Unknown message: ");
-                self.write_error(&mut error)
-                    .expect("Failed to write to String.");
-                error
-            }
-            Self::MessageReference { .. } => {
-                let mut error = String::from("Unknown attribute: ");
-                self.write_error(&mut error)
-                    .expect("Failed to write to String.");
-                error
-            }
-            Self::VariableReference { .. } => {
-                let mut error = String::from("Unknown variable: ");
-                self.write_error(&mut error)
-                    .expect("Failed to write to String.");
-                error
-            }
-            Self::TermReference {
-                attribute: None, ..
-            } => {
-                let mut error = String::from("Unknown term: ");
-                self.write_error(&mut error)
-                    .expect("Failed to write to String.");
-                error
-            }
-            Self::TermReference { .. } => {
-                let mut error = String::from("Unknown attribute: ");
-                self.write_error(&mut error)
-                    .expect("Failed to write to String.");
-                error
-            }
-            Self::FunctionReference { .. } => {
-                let mut error = String::from("Unknown function: ");
-                self.write_error(&mut error)
-                    .expect("Failed to write to String.");
-                error
-            }
-            _ => unreachable!(),
         }
     }
 }

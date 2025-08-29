@@ -24,7 +24,7 @@ repository = "https://github.com/tokio-rs/tokio-core"
 version = "0.4"
 
 [dependencies.futures]
-version = "0.1.21"
+version = "0.3"
 
 [dependencies.iovec]
 version = "0.1"

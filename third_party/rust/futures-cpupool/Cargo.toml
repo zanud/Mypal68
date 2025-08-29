@@ -20,8 +20,8 @@ documentation = "https://docs.rs/futures-cpupool"
 license = "MIT/Apache-2.0"
 repository = "https://github.com/alexcrichton/futures-rs"
 [dependencies.futures]
-version = "0.1"
-features = ["use_std"]
+version = "0.3"
+features = ["std"]
 default-features = false
 
 [dependencies.num_cpus]

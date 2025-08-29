@@ -23,7 +23,7 @@ categories = ["asynchronous", "network-programming", "filesystem"]
 license = "MIT"
 repository = "https://github.com/tokio-rs/tokio"
 [dependencies.futures]
-version = "0.1.21"
+version = "0.3"
 
 [dependencies.tokio-io]
 version = "0.1.6"
